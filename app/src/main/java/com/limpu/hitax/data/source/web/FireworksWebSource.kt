@@ -61,7 +61,7 @@ object FireworksWebSource {
             val encodedPath = path.split("/").joinToString("/") { segment ->
                 java.net.URLEncoder.encode(segment, "UTF-8").replace("+", "%20")
             }
-            val websiteUrl = "$SITE_URL/lessons/$encodedPath/"
+            val websiteUrl = "$SITE_URL/$encodedPath/"
             val entries = listOf(
                 ExternalResourceEntry(
                     name = "在薪火笔记社查看和下载资料",
