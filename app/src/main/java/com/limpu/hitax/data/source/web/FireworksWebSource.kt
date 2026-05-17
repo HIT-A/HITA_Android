@@ -17,6 +17,7 @@ object FireworksWebSource {
     private const val SITE_URL = "https://fireworks.jwyihao.top"
     private const val REPO = "HIT-Fireworks/fireworks-notes-society"
     private const val API_BASE = "https://api.github.com/repos/$REPO"
+    private const val RAW_PROXY = "https://ghproxy.net/"
     private const val TIMEOUT = 30000
 
     @Volatile
@@ -82,17 +83,14 @@ object FireworksWebSource {
                 val arr = JSONArray(response.body())
                 val entries = mutableListOf<ExternalResourceEntry>()
 
-                // Parse index.md to find OList path for file server link
-                var olistPath: String? = null
-
                 for (i in 0 until arr.length()) {
                     val obj = arr.optJSONObject(i) ?: continue
                     val name = obj.optString("name", "")
-
-                    if (name == "index.md") {
-                        // Fetch index.md content to extract OList path
-                        olistPath = fetchOListPath(obj.optString("download_url", ""))
-                        continue
+                    val rawDownloadUrl = obj.optString("download_url", "")
+                    val proxiedUrl = if (rawDownloadUrl.startsWith("https://raw.githubusercontent.com")) {
+                        "$RAW_PROXY$rawDownloadUrl"
+                    } else {
+                        rawDownloadUrl
                     }
 
                     entries.add(
@@ -101,7 +99,7 @@ object FireworksWebSource {
                             isDir = obj.optString("type") == "dir",
                             path = obj.optString("path", ""),
                             size = obj.optLong("size", 0),
-                            downloadUrl = obj.optString("download_url", ""),
+                            downloadUrl = proxiedUrl,
                             source = ResourceSource.FIREWORKS,
                         )
                     )
@@ -131,25 +129,6 @@ object FireworksWebSource {
             }
         }.start()
         return result
-    }
-
-    private fun fetchOListPath(downloadUrl: String): String? {
-        if (downloadUrl.isBlank()) return null
-        return try {
-            val response = Jsoup.connect(downloadUrl)
-                .ignoreContentType(true)
-                .ignoreHttpErrors(true)
-                .timeout(TIMEOUT)
-                .header("User-Agent", "HITA_L/${BuildConfig.VERSION_NAME}")
-                .method(Connection.Method.GET)
-                .execute()
-            val content = response.body()
-            val match = Regex("""OList\s+path="([^"]+)"""").find(content)
-            match?.groupValues?.get(1)
-        } catch (e: Exception) {
-            LogUtils.w("Fireworks: failed to fetch OList path: ${e.message}")
-            null
-        }
     }
 
     @Synchronized

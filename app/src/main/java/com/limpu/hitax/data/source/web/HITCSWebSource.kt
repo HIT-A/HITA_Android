@@ -16,6 +16,7 @@ import org.jsoup.Jsoup
 object HITCSWebSource {
     private const val REPO = "HITLittleZheng/HITCS"
     private const val API_BASE = "https://api.github.com/repos/$REPO"
+    private const val RAW_PROXY = "https://ghproxy.net/"
     private const val TIMEOUT = 30000
 
     @Volatile
@@ -79,13 +80,20 @@ object HITCSWebSource {
                 val entries = mutableListOf<ExternalResourceEntry>()
                 for (i in 0 until arr.length()) {
                     val obj = arr.optJSONObject(i) ?: continue
+                    val rawDownloadUrl = obj.optString("download_url", "")
+                    // Wrap raw.githubusercontent.com URLs with proxy for CN mobile
+                    val proxiedUrl = if (rawDownloadUrl.startsWith("https://raw.githubusercontent.com")) {
+                        "$RAW_PROXY$rawDownloadUrl"
+                    } else {
+                        rawDownloadUrl
+                    }
                     entries.add(
                         ExternalResourceEntry(
                             name = obj.optString("name", ""),
                             isDir = obj.optString("type") == "dir",
                             path = obj.optString("path", ""),
                             size = obj.optLong("size", 0),
-                            downloadUrl = obj.optString("download_url", ""),
+                            downloadUrl = proxiedUrl,
                             source = ResourceSource.HITCS,
                         )
                     )
