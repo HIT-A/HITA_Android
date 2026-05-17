@@ -113,7 +113,7 @@
         android:id="@+id/timetableView"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="4dp"
+        android:layout_marginTop="@dimen/space_1"
         android:layout_marginBottom="2dp"
         custom:timeLabelColor="?attr/textColorSecondary"
         custom:timeLabelSize="8sp"

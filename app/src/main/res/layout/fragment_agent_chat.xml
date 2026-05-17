@@ -11,10 +11,10 @@
         android:layout_height="wrap_content"
         android:gravity="center_vertical"
         android:orientation="horizontal"
-        android:paddingStart="12dp"
-        android:paddingEnd="12dp"
-        android:paddingTop="8dp"
-        android:paddingBottom="4dp">
+        android:paddingStart="@dimen/space_3"
+        android:paddingEnd="@dimen/space_3"
+        android:paddingTop="@dimen/space_2"
+        android:paddingBottom="@dimen/space_1">
 
         <Spinner
             android:id="@+id/sessionSpinner"
@@ -52,14 +52,14 @@
         android:layout_weight="1"
         android:clipToPadding="false"
         android:overScrollMode="never"
-        android:padding="8dp" />
+        android:padding="@dimen/space_2" />
 
     <TextView
         android:id="@+id/attachmentIndicator"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginStart="16dp"
-        android:layout_marginBottom="4dp"
+        android:layout_marginStart="@dimen/space_4"
+        android:layout_marginBottom="@dimen/space_1"
         android:textColor="?attr/textColorSecondary"
         android:textSize="12sp"
         android:visibility="gone" />
@@ -67,9 +67,9 @@
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginStart="12dp"
-        android:layout_marginEnd="12dp"
-        android:layout_marginBottom="12dp"
+        android:layout_marginStart="@dimen/space_3"
+        android:layout_marginEnd="@dimen/space_3"
+        android:layout_marginBottom="@dimen/space_3"
         android:gravity="center_vertical"
         android:orientation="horizontal">
 
@@ -78,7 +78,7 @@
             android:layout_width="40dp"
             android:layout_height="40dp"
             android:foreground="?attr/selectableItemBackgroundBorderless"
-            android:padding="8dp"
+            android:padding="@dimen/space_2"
             android:src="@android:drawable/ic_menu_upload"
             app:tint="?attr/textColorSecondary"
             android:contentDescription="@string/agent_chat_attach" />
@@ -95,8 +95,8 @@
             android:imeOptions="actionSend"
             android:inputType="textCapSentences"
             android:maxLines="4"
-            android:paddingStart="16dp"
-            android:paddingEnd="16dp"
+            android:paddingStart="@dimen/space_4"
+            android:paddingEnd="@dimen/space_4"
             android:textColor="?attr/textColorPrimary"
             android:textColorHint="?attr/textColorSecondary"
             android:textSize="14sp"
@@ -106,7 +106,7 @@
             android:id="@+id/sendButton"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginStart="8dp"
+            android:layout_marginStart="@dimen/space_2"
             android:contentDescription="@string/send"
             android:src="@android:drawable/ic_menu_send"
             app:backgroundTint="@color/cruel_summer_primary"

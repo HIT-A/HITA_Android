@@ -7,31 +7,31 @@
         android:layout_height="wrap_content"
         android:background="@drawable/widget_today_background"
         android:orientation="vertical"
-        android:paddingBottom="4dp">
+        android:paddingBottom="@dimen/space_1">
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="48dp"
             android:gravity="center"
             android:orientation="horizontal"
-            android:paddingStart="8dp"
-            android:paddingTop="8dp"
-            android:paddingEnd="8dp">
+            android:paddingStart="@dimen/space_2"
+            android:paddingTop="@dimen/space_2"
+            android:paddingEnd="@dimen/space_2">
 
             <ImageView
                 android:id="@+id/logo"
                 android:layout_width="24dp"
                 android:layout_height="24dp"
-                android:layout_margin="8dp"
+                android:layout_margin="@dimen/space_2"
                 android:background="@drawable/logo" />
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginStart="2dp"
-                android:layout_marginEnd="8dp"
+                android:layout_marginEnd="@dimen/space_2"
                 android:text="@string/widget_loading"
-                android:textColor="#505050"
+                android:textColor="@color/widget_text_secondary"
                 android:textSize="16sp"
                 android:textStyle="bold" />
 
@@ -40,7 +40,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:textColor="#505050"
+                android:textColor="@color/widget_text_secondary"
                 android:textSize="16sp"
                 android:textStyle="bold" />
 
@@ -50,28 +50,28 @@
         <ImageView
             android:layout_width="match_parent"
             android:layout_height="2dp"
-            android:layout_marginStart="16dp"
-            android:layout_marginEnd="16dp"
-            android:layout_marginBottom="4dp"
+            android:layout_marginStart="@dimen/space_4"
+            android:layout_marginEnd="@dimen/space_4"
+            android:layout_marginBottom="@dimen/space_1"
             android:background="@drawable/widget_rounded_divider" />
 
         <ImageView
             android:id="@+id/imageView7"
             android:layout_width="match_parent"
             android:layout_height="16dp"
-            android:layout_marginStart="16dp"
-            android:layout_marginTop="16dp"
-            android:layout_marginEnd="16dp"
+            android:layout_marginStart="@dimen/space_4"
+            android:layout_marginTop="@dimen/space_4"
+            android:layout_marginEnd="@dimen/space_4"
             android:background="@drawable/widget_placeholder_list" />
 
         <ImageView
             android:id="@+id/imageView11"
             android:layout_width="match_parent"
             android:layout_height="16dp"
-            android:layout_marginStart="16dp"
-            android:layout_marginTop="16dp"
-            android:layout_marginEnd="16dp"
-            android:layout_marginBottom="16dp"
+            android:layout_marginStart="@dimen/space_4"
+            android:layout_marginTop="@dimen/space_4"
+            android:layout_marginEnd="@dimen/space_4"
+            android:layout_marginBottom="@dimen/space_4"
             android:background="@drawable/widget_placeholder_list" />
 
 

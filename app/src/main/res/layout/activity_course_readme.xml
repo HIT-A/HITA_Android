@@ -15,10 +15,10 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:paddingStart="16dp"
-        android:paddingTop="8dp"
-        android:paddingEnd="16dp"
-        android:paddingBottom="8dp">
+        android:paddingStart="@dimen/space_4"
+        android:paddingTop="@dimen/space_2"
+        android:paddingEnd="@dimen/space_4"
+        android:paddingBottom="@dimen/space_2">
 
         <TextView
             android:id="@+id/course_code"
@@ -30,7 +30,7 @@
             android:id="@+id/source_text"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
+            android:layout_marginTop="@dimen/space_1"
             android:textColor="?attr/textColorSecondary"
             android:textSize="12sp" />
 
@@ -39,7 +39,7 @@
             style="@style/Widget.MaterialComponents.Button.OutlinedButton"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
+            android:layout_marginTop="@dimen/space_2"
             android:text="@string/course_resource_contribute" />
 
     </LinearLayout>
@@ -59,7 +59,7 @@
             android:id="@+id/readme_text"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:padding="16dp"
+            android:padding="@dimen/space_4"
             android:textColor="?attr/textColorPrimary"
             android:textSize="15sp" />
 

@@ -3,6 +3,7 @@ package com.limpu.hitax.utils
 import android.util.Log
 import androidx.annotation.StringRes
 import androidx.fragment.app.Fragment
+import com.limpu.hitax.BuildConfig
 
 /**
  * 日志工具类
@@ -11,7 +12,7 @@ import androidx.fragment.app.Fragment
 object LogUtils {
 
     private const val GLOBAL_TAG = "HITA"
-    private const val ENABLE_DEBUG = true
+    private val ENABLE_DEBUG = BuildConfig.DEBUG
 
     /**
      * 获取调用者的类名作为TAG

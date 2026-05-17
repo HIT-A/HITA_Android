@@ -17,15 +17,15 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
-            android:paddingStart="16dp"
-            android:paddingTop="16dp"
-            android:paddingEnd="16dp">
+            android:paddingStart="@dimen/space_4"
+            android:paddingTop="@dimen/space_4"
+            android:paddingEnd="@dimen/space_4">
 
             <TextView
                 android:id="@+id/title"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_margin="8dp"
+                android:layout_margin="@dimen/space_2"
                 android:layout_weight="1"
                 android:text="TextView"
                 android:textColor="?attr/textColorPrimary"
@@ -37,9 +37,9 @@
             android:id="@+id/pick_time_layout"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginLeft="24dp"
-            android:layout_marginTop="24dp"
-            android:layout_marginRight="24dp"
+            android:layout_marginLeft="@dimen/space_6"
+            android:layout_marginTop="@dimen/space_6"
+            android:layout_marginRight="@dimen/space_6"
             android:layout_marginBottom="46dp"
             android:orientation="vertical">
 
@@ -51,8 +51,8 @@
                 <LinearLayout
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
-                    android:layout_marginRight="24dp"
-                    android:layout_marginBottom="12dp"
+                    android:layout_marginRight="@dimen/space_6"
+                    android:layout_marginBottom="@dimen/space_3"
                     android:layout_weight="1">
 
                     <TextView
@@ -96,8 +96,8 @@
                 <LinearLayout
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
-                    android:layout_marginRight="24dp"
-                    android:layout_marginBottom="12dp"
+                    android:layout_marginRight="@dimen/space_6"
+                    android:layout_marginBottom="@dimen/space_3"
                     android:layout_weight="1">
 
                     <TextView
@@ -141,8 +141,8 @@
                 <LinearLayout
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
-                    android:layout_marginRight="24dp"
-                    android:layout_marginBottom="12dp"
+                    android:layout_marginRight="@dimen/space_6"
+                    android:layout_marginBottom="@dimen/space_3"
                     android:layout_weight="1">
 
                     <TextView
@@ -186,8 +186,8 @@
                 <LinearLayout
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
-                    android:layout_marginRight="24dp"
-                    android:layout_marginBottom="12dp"
+                    android:layout_marginRight="@dimen/space_6"
+                    android:layout_marginBottom="@dimen/space_3"
                     android:layout_weight="1">
 
                     <TextView

@@ -4,9 +4,9 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="horizontal"
-    android:paddingStart="8dp"
-    android:paddingTop="8dp"
-    android:paddingEnd="8dp"
+    android:paddingStart="@dimen/space_2"
+    android:paddingTop="@dimen/space_2"
+    android:paddingEnd="@dimen/space_2"
     android:paddingBottom="6dp">
 
     <ImageView
@@ -14,15 +14,15 @@
         android:layout_width="6dp"
         android:layout_height="6dp"
         android:layout_gravity="center|top"
-        android:layout_marginStart="12dp"
+        android:layout_marginStart="@dimen/space_3"
         android:layout_marginTop="6dp"
-        android:layout_marginEnd="12dp"
+        android:layout_marginEnd="@dimen/space_3"
         android:background="@drawable/element_round_blue" />
 
     <LinearLayout
         android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:layout_marginEnd="16dp"
+        android:layout_marginEnd="@dimen/space_4"
         android:layout_weight="1"
         android:orientation="vertical">
 
@@ -65,14 +65,14 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="center"
-        android:layout_marginEnd="8dp"
+        android:layout_marginEnd="@dimen/space_2"
         android:background="@drawable/widget_rounded_bar"
         android:clickable="false"
         android:orientation="horizontal"
-        android:paddingStart="8dp"
-        android:paddingTop="4dp"
-        android:paddingEnd="8dp"
-        android:paddingBottom="4dp"
+        android:paddingStart="@dimen/space_2"
+        android:paddingTop="@dimen/space_1"
+        android:paddingEnd="@dimen/space_2"
+        android:paddingBottom="@dimen/space_1"
         app:theme="@style/button_ripple_accent_large">
 
         <ImageView

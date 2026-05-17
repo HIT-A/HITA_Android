@@ -12,17 +12,17 @@
         android:layout_width="match_parent"
         android:layout_height="64dp"
         android:layout_marginBottom="-16dp"
-        android:background="#00000000"
-        android:paddingStart="16dp"
-        android:paddingEnd="16dp"
+        android:background="@android:color/transparent"
+        android:paddingStart="@dimen/space_4"
+        android:paddingEnd="@dimen/space_4"
         app:tabGravity="center"
         app:tabIndicator="@drawable/element_none"
-        app:tabIndicatorColor="#00000000"
+        app:tabIndicatorColor="@android:color/transparent"
         app:tabIndicatorGravity="center"
         app:tabMode="scrollable"
         app:tabPaddingBottom="16dp"
-        app:tabPaddingEnd="8dp"
-        app:tabPaddingStart="8dp"
+        app:tabPaddingEnd="@dimen/space_2"
+        app:tabPaddingStart="@dimen/space_2"
         app:tabPaddingTop="16dp"
         app:tabSelectedTextColor="?attr/colorAccent"
         app:tabTextAppearance="@style/TextAppearance.AppCompat.Medium">
@@ -47,7 +47,7 @@
         android:id="@+id/pager"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
+        android:layout_marginTop="@dimen/space_2"
         android:overScrollMode="never"
         android:visibility="gone" />
 
@@ -55,7 +55,7 @@
         android:id="@+id/layout"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="8dp">
+        android:layout_marginTop="@dimen/space_2">
 
     </FrameLayout>
 

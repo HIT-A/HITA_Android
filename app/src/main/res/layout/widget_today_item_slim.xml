@@ -4,9 +4,9 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="horizontal"
-    android:paddingStart="8dp"
-    android:paddingTop="8dp"
-    android:paddingEnd="8dp"
+    android:paddingStart="@dimen/space_2"
+    android:paddingTop="@dimen/space_2"
+    android:paddingEnd="@dimen/space_2"
     android:paddingBottom="6dp">
 
     <ImageView
@@ -22,7 +22,7 @@
     <LinearLayout
         android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:layout_marginEnd="16dp"
+        android:layout_marginEnd="@dimen/space_4"
         android:layout_weight="1"
         android:orientation="vertical">
 
@@ -53,7 +53,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_gravity="center"
-                android:layout_marginStart="4dp"
+                android:layout_marginStart="@dimen/space_1"
                 android:singleLine="true"
                 android:textColor="@color/widget_text_secondary"
                 android:textSize="9sp" />

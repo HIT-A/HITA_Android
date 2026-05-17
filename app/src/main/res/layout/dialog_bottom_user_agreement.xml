@@ -12,14 +12,14 @@
         android:layout_width="match_parent"
         android:layout_height="64dp"
         android:layout_marginBottom="-16dp"
-        android:background="#00000000"
-        android:paddingStart="16dp"
-        android:paddingEnd="16dp"
-        app:tabIndicatorColor="#00000000"
+        android:background="@android:color/transparent"
+        android:paddingStart="@dimen/space_4"
+        android:paddingEnd="@dimen/space_4"
+        app:tabIndicatorColor="@android:color/transparent"
         app:tabMode="scrollable"
         app:tabPaddingBottom="16dp"
-        app:tabPaddingEnd="8dp"
-        app:tabPaddingStart="8dp"
+        app:tabPaddingEnd="@dimen/space_2"
+        app:tabPaddingStart="@dimen/space_2"
         app:tabPaddingTop="16dp"
         app:tabSelectedTextColor="?attr/colorAccent">
 
@@ -47,10 +47,10 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:paddingStart="16dp"
-        android:paddingEnd="16dp"
-        android:paddingTop="8dp"
-        android:paddingBottom="16dp"
+        android:paddingStart="@dimen/space_4"
+        android:paddingEnd="@dimen/space_4"
+        android:paddingTop="@dimen/space_2"
+        android:paddingBottom="@dimen/space_4"
         android:visibility="gone">
 
         <Button
@@ -67,7 +67,7 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:layout_marginStart="8dp"
+            android:layout_marginStart="@dimen/space_2"
             android:text="@string/agree" />
 
     </LinearLayout>

@@ -1,17 +1,114 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- ========================================== -->
+    <!-- Material 3 自定义属性映射                    -->
+    <!-- 为了兼容现有布局，保留属性名，指向标准色值     -->
+    <!-- ========================================== -->
+
+    <!-- 文本颜色 -->
     <attr name="textColorPrimary" format="color" />
     <attr name="textColorSecondary" format="color" />
+
+    <!-- 背景颜色 -->
     <attr name="backgroundColorBottom" format="color" />
     <attr name="backgroundColorBottomAsTint" format="color" />
     <attr name="backgroundColorSecond" format="color" />
     <attr name="backgroundColorBar" format="color" />
     <attr name="backgroundColorSecondAsTint" format="color" />
-    <attr name="colorControlDisabled" format="color" />
+
+    <!-- 图标/控件颜色 -->
     <attr name="backgroundIconColorBottom" format="color" />
     <attr name="colorPrimaryDisabled" format="color" />
+    <attr name="colorControlDisabled" format="color" />
 
+    <!-- 品牌扩展色 -->
     <attr name="colorFade" format="color" />
+
+    <!-- ========================================== -->
+    <!-- 自定义控件属性                               -->
+    <!-- ========================================== -->
+
+    <attr name="timeLineColor" format="color" />
+    <attr name="timeLabelWidth" format="dimension" />
+
+    <declare-styleable name="TimeTableViewGroup">
+        <attr name="timeLineColor" />
+        <attr name="timeLabelWidth" />
+    </declare-styleable>
+
+    <attr name="timeLabelColor" format="color" />
+    <attr name="timeLabelSize" format="dimension" />
+
+    <declare-styleable name="LeftLabelView">
+        <attr name="timeLabelColor" />
+        <attr name="timeLabelSize" />
+    </declare-styleable>
+
+    <!-- SelectableIconCardView -->
+    <attr name="cardTitleText" format="string" />
+    <attr name="cardSubtitleText" format="string" />
+    <attr name="cardIcon" format="reference" />
+    <attr name="cardIconColor" format="color" />
+    <attr name="cardCheckable" format="boolean" />
+    <attr name="cardHapticFeedback" format="boolean" />
+    <attr name="cardIconPadding" format="dimension" />
+    <attr name="cardBGTint" format="color" />
+    <attr name="cardIconGravity">
+        <flag name="top" value="0x30" />
+        <flag name="bottom" value="0x50" />
+        <flag name="left" value="0x03" />
+        <flag name="right" value="0x05" />
+        <flag name="center_vertical" value="0x10" />
+        <flag name="fill_vertical" value="0x70" />
+        <flag name="center_horizontal" value="0x01" />
+        <flag name="fill_horizontal" value="0x07" />
+        <flag name="center" value="0x11" />
+        <flag name="fill" value="0x77" />
+        <flag name="clip_vertical" value="0x80" />
+        <flag name="clip_horizontal" value="0x08" />
+        <flag name="start" value="0x00800003" />
+        <flag name="end" value="0x00800005" />
+    </attr>
+
+    <declare-styleable name="SelectableIconCardView">
+        <attr name="cardTitleText" />
+        <attr name="cardSubtitleText" />
+        <attr name="cardIcon" />
+        <attr name="cardIconColor" />
+        <attr name="cardBGTint" />
+        <attr name="cardCheckable" />
+        <attr name="cardHapticFeedback" />
+        <attr name="cardIconPadding" />
+        <attr name="cardIconGravity" />
+    </declare-styleable>
+
+    <!-- RoundedBarPicker -->
+    <attr name="defaultText" format="string" />
+    <attr name="dialogTitle" format="string" />
+    <attr name="iconPadding" format="dimension" />
+    <attr name="barIcon" format="reference" />
+    <attr name="backgroundElement" format="reference" />
+    <attr name="foregroundColor" format="color" />
+
+    <declare-styleable name="RoundedBarPicker">
+        <attr name="defaultText" />
+        <attr name="iconPadding" />
+        <attr name="barIcon" />
+        <attr name="backgroundElement" />
+        <attr name="dialogTitle" />
+        <attr name="foregroundColor" />
+    </declare-styleable>
+
+    <!-- ExpendPoint -->
+    <attr name="pullDownAnimElementColor" format="color" />
+
+    <declare-styleable name="ExpendPoint">
+        <attr name="pullDownAnimElementColor" />
+    </declare-styleable>
+
+    <!-- ========================================== -->
+    <!-- Widget 属性                                  -->
+    <!-- ========================================== -->
     <declare-styleable name="AppWidgetAttrs">
         <attr name="appWidgetPadding" format="dimension" />
         <attr name="appWidgetInnerRadius" format="dimension" />

@@ -1,5 +1,36 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- ========================================== -->
+    <!-- 间距规范 (Material 3 8dp 网格)               -->
+    <!-- ========================================== -->
+    <dimen name="space_0">0dp</dimen>
+    <dimen name="space_1">4dp</dimen>
+    <dimen name="space_2">8dp</dimen>
+    <dimen name="space_3">12dp</dimen>
+    <dimen name="space_4">16dp</dimen>
+    <dimen name="space_5">20dp</dimen>
+    <dimen name="space_6">24dp</dimen>
+    <dimen name="space_7">28dp</dimen>
+    <dimen name="space_8">32dp</dimen>
+    <dimen name="space_10">40dp</dimen>
+    <dimen name="space_12">48dp</dimen>
+    <dimen name="space_14">56dp</dimen>
+    <dimen name="space_16">64dp</dimen>
+
+    <!-- ========================================== -->
+    <!-- 圆角规范                                     -->
+    <!-- ========================================== -->
+    <dimen name="corner_none">0dp</dimen>
+    <dimen name="corner_extra_small">4dp</dimen>
+    <dimen name="corner_small">8dp</dimen>
+    <dimen name="corner_medium">12dp</dimen>
+    <dimen name="corner_large">16dp</dimen>
+    <dimen name="corner_extra_large">24dp</dimen>
+    <dimen name="corner_full">999dp</dimen>
+
+    <!-- ========================================== -->
+    <!-- 组件尺寸 (保留原有功能值)                     -->
+    <!-- ========================================== -->
     <dimen name="material_toolbar_height">56dp</dimen>
     <dimen name="material_appbar_height">56dp</dimen>
     <dimen name="material_toolbar_top_margin">24dp</dimen>

@@ -1,8 +1,141 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- 小部件夜间模式颜色 -->
+    <!-- ========================================== -->
+    <!-- Material 3 语义化颜色体系 (夜间模式)          -->
+    <!-- ========================================== -->
+
+    <!-- Primary -->
+    <color name="primary">#FF7B8CFF</color>
+    <color name="on_primary">#FF00004A</color>
+    <color name="primary_container">#FF0004A3</color>
+    <color name="on_primary_container">#FFE8E6FF</color>
+    <color name="primary_disabled">#77cbd4e2</color>
+
+    <!-- Secondary -->
+    <color name="secondary">#FFA4A0FF</color>
+    <color name="on_secondary">#FF00004A</color>
+    <color name="secondary_container">#FF0004A3</color>
+    <color name="on_secondary_container">#FFE8E6FF</color>
+
+    <!-- Tertiary -->
+    <color name="tertiary">#FF7BB8FF</color>
+    <color name="on_tertiary">#FF00004A</color>
+    <color name="tertiary_container">#FF003366</color>
+    <color name="on_tertiary_container">#FFD6E4FF</color>
+
+    <!-- Surface / Background -->
+    <color name="surface">#FF000000</color>
+    <color name="surface_variant">#FF121212</color>
+    <color name="surface_tint">#33304ffe</color>
+    <color name="on_surface">#FFFFFFFF</color>
+    <color name="on_surface_variant">#FF858585</color>
+
+    <!-- Inverse Surface -->
+    <color name="inverse_surface">#FFF6F7Fa</color>
+    <color name="inverse_on_surface">#FF000000</color>
+    <color name="inverse_primary">#FF304ffe</color>
+
+    <!-- Error -->
+    <color name="error">#FFF2B8B5</color>
+    <color name="on_error">#FF601410</color>
+    <color name="error_container">#FF8C1D18</color>
+    <color name="on_error_container">#FFF9DEDC</color>
+
+    <!-- Outline -->
+    <color name="outline">#FF938F99</color>
+    <color name="outline_variant">#FF49454F</color>
+
+    <!-- ========================================== -->
+    <!-- 基础颜色 (夜间不变)                           -->
+    <!-- ========================================== -->
+    <color name="black">#FF000000</color>
+    <color name="white">#FFFFFFFF</color>
+    <color name="grayA5">#FFA5A5A5</color>
+    <color name="baseWhite">#FFFFFFFF</color>
+
+    <!-- ========================================== -->
+    <!-- 品牌扩展色（保留原有值）                      -->
+    <!-- ========================================== -->
+    <color name="color_fade">#FF736dfe</color>
+    <color name="color_cruel_summer_fade">#FF3C8CE7</color>
+
+    <!-- ========================================== -->
+    <!-- 半透明功能色（夜间）                        -->
+    <!-- ========================================== -->
+    <color name="primary_subtle">#117B8CFF</color>
+    <color name="on_surface_hint">#77ffffff</color>
+    <color name="surface_disabled">#66FFFFFF</color>
+
+    <!-- ========================================== -->
+    <!-- 兼容别名 (旧命名保留)                        -->
+    <!-- ========================================== -->
+    <color name="cruel_summer_primary">@color/primary</color>
+    <color name="cruel_summer_fade">@color/tertiary</color>
+    <color name="cruel_summer_primary_disabled">@color/primary_disabled</color>
+
+    <!-- 季节色兼容别名 -->
+    <color name="spring">@color/season_spring</color>
+    <color name="summer">@color/season_summer</color>
+    <color name="autumn">@color/season_autumn</color>
+    <color name="winter">@color/season_winter</color>
+    <color name="spring_text">@color/season_spring_text</color>
+    <color name="summer_text">@color/season_summer_text</color>
+    <color name="autumn_text">@color/season_autumn_text</color>
+    <color name="winter_text">@color/season_winter_text</color>
+
+    <!-- 课程色兼容别名 -->
+    <color name="subject1">@color/subject_1</color>
+    <color name="subject3">@color/subject_3</color>
+    <color name="subject4">@color/subject_4</color>
+    <color name="subject5">@color/subject_5</color>
+    <color name="subject6">@color/subject_6</color>
+    <color name="subject7">@color/subject_7</color>
+    <color name="subject8">@color/subject_8</color>
+    <color name="subject9">@color/subject_9</color>
+    <color name="subject10">@color/subject_10</color>
+
+    <!-- ========================================== -->
+    <!-- 课程卡片功能色 (保持不变)                     -->
+    <!-- ========================================== -->
+    <color name="subject_1">#7cba59</color>
+    <color name="subject_3">#ec407a</color>
+    <color name="subject_4">#FF9E00</color>
+    <color name="subject_5">#7c4dff</color>
+    <color name="subject_6">#E96D71</color>
+    <color name="subject_7">#536dfe</color>
+    <color name="subject_8">#2196f3</color>
+    <color name="subject_9">#26c6da</color>
+    <color name="subject_10">#009688</color>
+
+    <!-- ========================================== -->
+    <!-- 季节主题色 (保持不变)                         -->
+    <!-- ========================================== -->
+    <color name="season_spring">#a0ff57</color>
+    <color name="season_summer">#57c7ff</color>
+    <color name="season_autumn">#ffb157</color>
+    <color name="season_winter">#3381ff</color>
+
+    <color name="season_spring_text">#60af17</color>
+    <color name="season_summer_text">#37a7df</color>
+    <color name="season_autumn_text">#ffb157</color>
+    <color name="season_winter_text">#01579B</color>
+
+    <!-- ========================================== -->
+    <!-- 小部件颜色（夜间）                            -->
+    <!-- ========================================== -->
     <color name="widget_background">#FF1E1E1E</color>
+    <color name="widget_background_light">#FFFFFFFF</color>
+    <color name="widget_background_dark">#FF1E1E1E</color>
     <color name="widget_text_primary">#FFFFFFFF</color>
+    <color name="widget_text_primary_light">#FF202020</color>
+    <color name="widget_text_primary_dark">#FFFFFFFF</color>
     <color name="widget_text_secondary">#B3FFFFFF</color>
+    <color name="widget_text_secondary_light">#FF858585</color>
+    <color name="widget_text_secondary_dark">#D9FFFFFF</color>
     <color name="widget_divider">#33FFFFFF</color>
+    <color name="widget_divider_light">#1F000000</color>
+    <color name="widget_divider_dark">#33FFFFFF</color>
+    <color name="widget_location_chip_dark">#22304FFE</color>
+    <color name="widget_icon_subtle_dark">#80FFFFFF</color>
+    <color name="widget_placeholder_tint_dark">#40FFFFFF</color>
 </resources>

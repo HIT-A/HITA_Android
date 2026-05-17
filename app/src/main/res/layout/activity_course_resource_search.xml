@@ -18,12 +18,12 @@
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_margin="16dp"
+            android:layout_margin="@dimen/space_4"
             android:background="@drawable/element_rounded_button_bg_white"
             android:gravity="center_vertical"
             android:orientation="horizontal"
-            android:paddingStart="12dp"
-            android:paddingEnd="12dp">
+            android:paddingStart="@dimen/space_3"
+            android:paddingEnd="@dimen/space_3">
 
             <ImageView
                 android:id="@+id/search_button"
@@ -37,7 +37,7 @@
                 android:id="@+id/search_input"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                android:layout_marginStart="8dp"
+                android:layout_marginStart="@dimen/space_2"
                 android:layout_weight="1"
                 android:background="@android:color/transparent"
                 android:hint="@string/course_resource_hint"
@@ -66,7 +66,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:gravity="center"
-            android:padding="24dp"
+            android:padding="@dimen/space_6"
             android:text="@string/course_resource_empty"
             android:textColor="?attr/textColorSecondary"
             android:visibility="gone" />

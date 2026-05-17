@@ -1,6 +1,7 @@
 package com.limpu.hitax
 
 import android.app.Application
+import com.google.android.material.color.DynamicColors
 import com.limpu.hitax.utils.LogUtils
 import dagger.hilt.android.HiltAndroidApp
 import androidx.annotation.WorkerThread
@@ -38,6 +39,9 @@ class HApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
+
+        // 启用 Material You 动态配色（Android 12+ 自动跟随系统壁纸颜色）
+        DynamicColors.applyToActivitiesIfAvailable(this)
 
         try {
             applicationScope.launch(Dispatchers.IO) {

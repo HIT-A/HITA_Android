@@ -33,7 +33,7 @@ class SubjectReadmeAgentEngine(
         }
 
         val policy = AgentToolExecutionPolicy(
-            timeoutMs = 5000L,
+            timeoutMs = 10000L,
             retryCount = 1,
             retryDelayMs = 180L,
         )

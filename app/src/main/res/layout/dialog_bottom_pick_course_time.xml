@@ -9,10 +9,10 @@
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_margin="24dp"
+        android:layout_margin="@dimen/space_6"
         android:background="@drawable/dialog_rounded_background"
         android:orientation="vertical"
-        android:paddingBottom="24dp">
+        android:paddingBottom="@dimen/space_6">
 
 
         <LinearLayout
@@ -25,7 +25,7 @@
                 android:id="@+id/dialog_title"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                android:layout_margin="24dp"
+                android:layout_margin="@dimen/space_6"
 
                 android:layout_weight="1"
                 android:text="@string/dialog_pick_course_title"
@@ -38,7 +38,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="32dp"
                 android:layout_gravity="center"
-                android:layout_marginEnd="8dp"
+                android:layout_marginEnd="@dimen/space_2"
                 android:clickable="true"
                 android:foreground="?attr/selectableItemBackgroundBorderless"
                 android:text="@android:string/cancel"
@@ -51,8 +51,8 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_gravity="center"
-                    android:paddingStart="16dp"
-                    android:paddingEnd="16dp"
+                    android:paddingStart="@dimen/space_4"
+                    android:paddingEnd="@dimen/space_4"
                     android:text="@string/cancel"
                     android:textColor="?attr/textColorSecondary"
                     android:textSize="16sp" />
@@ -63,7 +63,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="32dp"
                 android:layout_gravity="center"
-                android:layout_marginEnd="16dp"
+                android:layout_marginEnd="@dimen/space_4"
                 android:clickable="true"
                 android:foreground="?attr/selectableItemBackgroundBorderless"
                 android:text="@string/confirm"
@@ -75,8 +75,8 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_gravity="center"
-                    android:paddingStart="16dp"
-                    android:paddingEnd="16dp"
+                    android:paddingStart="@dimen/space_4"
+                    android:paddingEnd="@dimen/space_4"
                     android:text="@string/confirm"
                     android:textColor="@android:color/white"
                     android:textSize="16sp" />
@@ -89,8 +89,8 @@
             android:layout_height="match_parent"
             android:gravity="center"
             android:orientation="horizontal"
-            android:paddingLeft="24dp"
-            android:paddingRight="24dp">
+            android:paddingLeft="@dimen/space_6"
+            android:paddingRight="@dimen/space_6">
 
             <com.limpu.style.widgets.MWheel3DView
                 android:id="@+id/pickdow"
@@ -147,7 +147,7 @@
             <!--&lt;!&ndash;android:id="@+id/ade_weekpicker_dow"&ndash;&gt;-->
             <!--&lt;!&ndash;android:layout_width="wrap_content"&ndash;&gt;-->
             <!--&lt;!&ndash;android:layout_height="wrap_content"&ndash;&gt;-->
-            <!--&lt;!&ndash;android:layout_marginLeft="8dp">&ndash;&gt;-->
+            <!--&lt;!&ndash;android:layout_marginLeft="@dimen/space_2">&ndash;&gt;-->
 
             <!--</Spinner>-->
         </LinearLayout>
@@ -155,11 +155,11 @@
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="12dp"
+            android:layout_marginBottom="@dimen/space_3"
             android:gravity="center"
             android:orientation="horizontal"
-            android:paddingLeft="24dp"
-            android:paddingRight="24dp">
+            android:paddingLeft="@dimen/space_6"
+            android:paddingRight="@dimen/space_6">
 
             <LinearLayout
                 android:layout_width="match_parent"
@@ -215,7 +215,7 @@
             <!--&lt;!&ndash;android:id="@+id/ade_weekpicker_dow"&ndash;&gt;-->
             <!--&lt;!&ndash;android:layout_width="wrap_content"&ndash;&gt;-->
             <!--&lt;!&ndash;android:layout_height="wrap_content"&ndash;&gt;-->
-            <!--&lt;!&ndash;android:layout_marginLeft="8dp">&ndash;&gt;-->
+            <!--&lt;!&ndash;android:layout_marginLeft="@dimen/space_2">&ndash;&gt;-->
 
             <!--</Spinner>-->
         </LinearLayout>
@@ -224,10 +224,10 @@
             android:id="@+id/textView3"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginStart="24dp"
+            android:layout_marginStart="@dimen/space_6"
             android:layout_marginTop="-16dp"
-            android:layout_marginEnd="24dp"
-            android:layout_marginBottom="4dp"
+            android:layout_marginEnd="@dimen/space_6"
+            android:layout_marginBottom="@dimen/space_1"
             android:text="@string/ade_pick_weeks" />
 
         <androidx.recyclerview.widget.RecyclerView
@@ -235,9 +235,9 @@
             android:layout_width="match_parent"
             android:layout_height="match_parent"
             android:layout_gravity="center"
-            android:layout_marginStart="16dp"
-            android:layout_marginTop="8dp"
-            android:layout_marginEnd="16dp"
+            android:layout_marginStart="@dimen/space_4"
+            android:layout_marginTop="@dimen/space_2"
+            android:layout_marginEnd="@dimen/space_4"
             android:overScrollMode="never"
             android:visibility="visible">
 
@@ -247,8 +247,8 @@
             android:id="@+id/date_list"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
-            android:layout_marginStart="16dp"
-            android:layout_marginEnd="16dp"
+            android:layout_marginStart="@dimen/space_4"
+            android:layout_marginEnd="@dimen/space_4"
             android:overScrollMode="never" />
     </LinearLayout>
 </LinearLayout>

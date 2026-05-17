@@ -21,7 +21,7 @@
         android:foreground="?attr/selectableItemBackgroundBorderless"
         android:gravity="center|start"
         android:orientation="vertical"
-        android:padding="8dp"
+        android:padding="@dimen/space_2"
         app:cardBackgroundColor="?attr/colorAccent"
         app:cardCornerRadius="16dp"
         app:cardElevation="0dp">
@@ -38,12 +38,12 @@
                 android:layout_width="14dp"
                 android:layout_height="14dp"
                 android:layout_gravity="center"
-                android:layout_marginEnd="4dp"
+                android:layout_marginEnd="@dimen/space_1"
                 android:background="@drawable/element_round_primary"
                 android:backgroundTint="?attr/colorAccent"
                 android:backgroundTintMode="src_in"
                 android:clickable="false"
-                android:padding="4dp"
+                android:padding="@dimen/space_1"
                 android:visibility="visible"
                 app:srcCompat="@drawable/element_round_primary_light" />
 

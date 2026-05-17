@@ -1,55 +1,156 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
-    <!-- Base application theme. -->
-    <style name="AppTheme" parent="Theme.MaterialComponents.DayNight.NoActionBar">
-        <!-- Primary brand color. -->
-        <item name="colorPrimary">@color/cruel_summer_primary</item>
-        <item name="colorPrimaryVariant">@color/cruel_summer_primary</item>
-        <item name="colorOnPrimary">@color/white</item>
-        <!-- Secondary brand color. -->
-        <item name="colorFade">#736dfe</item>
-        <item name="colorPrimaryDisabled">@color/cruel_summer_primary_disabled</item>
-        <item name="colorSecondary">@color/cruel_summer_primary</item>
-        <item name="colorSecondaryVariant">@color/cruel_summer_primary</item>
-        <item name="colorOnSecondary">@color/black</item>
-        <item name="backgroundColorBar">#70e7e7f2</item>
-        <!-- Status bar color. -->
-        <item name="android:statusBarColor">#00000000</item>
-        <!-- Customize your theme here. -->
-        <!--        fafbff-->
-        <item name="backgroundColorBottom">#F6F7Fa</item>
-        <item name="backgroundColorBottomAsTint">#CFFFFFFF</item>
-        <item name="backgroundColorSecond">#FFFFFF</item>
-        <item name="backgroundColorSecondAsTint">#CFFAFAFA</item>
-        <item name="textColorPrimary">#FF000000</item>
-        <item name="textColorSecondary">#FF808080</item>
-        <item name="colorControlDisabled">#FFE0E0E0</item>
-        <item name="backgroundIconColorBottom">#11304ffe</item>
+    <!-- ========================================== -->
+    <!-- 基础主题: Theme.HITA                         -->
+    <!-- 父类: Material 3 DayNight NoActionBar        -->
+    <!-- ========================================== -->
+    <style name="Theme.HITA" parent="Theme.Material3.DayNight.NoActionBar">
+        <!-- Primary -->
+        <item name="colorPrimary">@color/primary</item>
+        <item name="colorOnPrimary">@color/on_primary</item>
+        <item name="colorPrimaryContainer">@color/primary_container</item>
+        <item name="colorOnPrimaryContainer">@color/on_primary_container</item>
+        <item name="colorPrimaryFixed">@color/primary</item>
+        <item name="colorOnPrimaryFixed">@color/on_primary</item>
 
-        <!--透明状态栏-->
+        <!-- Secondary -->
+        <item name="colorSecondary">@color/secondary</item>
+        <item name="colorOnSecondary">@color/on_secondary</item>
+        <item name="colorSecondaryContainer">@color/secondary_container</item>
+        <item name="colorOnSecondaryContainer">@color/on_secondary_container</item>
+
+        <!-- Tertiary -->
+        <item name="colorTertiary">@color/tertiary</item>
+        <item name="colorOnTertiary">@color/on_tertiary</item>
+        <item name="colorTertiaryContainer">@color/tertiary_container</item>
+        <item name="colorOnTertiaryContainer">@color/on_tertiary_container</item>
+
+        <!-- Surface -->
+        <item name="android:colorBackground">@color/surface</item>
+        <item name="colorSurface">@color/surface</item>
+        <item name="colorSurfaceVariant">@color/surface_variant</item>
+        <item name="colorOnSurface">@color/on_surface</item>
+        <item name="colorOnSurfaceVariant">@color/on_surface_variant</item>
+        <item name="colorSurfaceContainer">@color/surface_variant</item>
+        <item name="colorSurfaceContainerHigh">@color/surface_variant</item>
+        <item name="colorSurfaceContainerHighest">@color/surface_variant</item>
+
+        <!-- Inverse -->
+        <item name="colorSurfaceInverse">@color/inverse_surface</item>
+        <item name="colorOnSurfaceInverse">@color/inverse_on_surface</item>
+        <item name="colorPrimaryInverse">@color/inverse_primary</item>
+
+        <!-- Error -->
+        <item name="colorError">@color/error</item>
+        <item name="colorOnError">@color/on_error</item>
+        <item name="colorErrorContainer">@color/error_container</item>
+        <item name="colorOnErrorContainer">@color/on_error_container</item>
+
+        <!-- Outline -->
+        <item name="colorOutline">@color/outline</item>
+        <item name="colorOutlineVariant">@color/outline_variant</item>
+
+        <!-- ========================================== -->
+        <!-- 自定义属性映射 (兼容现有布局)                 -->
+        <!-- ========================================== -->
+        <item name="textColorPrimary">@color/on_surface</item>
+        <item name="textColorSecondary">@color/on_surface_variant</item>
+        <item name="backgroundColorBottom">@color/surface</item>
+        <item name="backgroundColorBottomAsTint">#CFFFFFFF</item>
+        <item name="backgroundColorSecond">@color/surface_variant</item>
+        <item name="backgroundColorSecondAsTint">#CFFAFAFA</item>
+        <item name="backgroundColorBar">#70e7e7f2</item>
+        <item name="backgroundIconColorBottom">#11304ffe</item>
+        <item name="colorPrimaryDisabled">@color/primary_disabled</item>
+        <item name="colorControlDisabled">#FFE0E0E0</item>
+        <item name="colorFade">#736dfe</item>
+
+        <!-- ========================================== -->
+        <!-- 状态栏与系统栏                               -->
+        <!-- ========================================== -->
+        <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:windowLightStatusBar">true</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+
+        <!-- ========================================== -->
+        <!-- 组件样式覆盖                                 -->
+        <!-- ========================================== -->
+        <item name="materialButtonStyle">@style/Widget.HITA.Button</item>
+        <item name="materialButtonOutlinedStyle">@style/Widget.HITA.Button.Outlined</item>
+        <item name="materialCardViewStyle">@style/Widget.HITA.CardView</item>
+        <item name="toolbarStyle">@style/Widget.HITA.Toolbar</item>
+
+        <!-- ========================================== -->
+        <!-- 对话框样式                                   -->
+        <!-- ========================================== -->
+        <item name="materialAlertDialogTheme">@style/Widget.HITA.Dialog</item>
     </style>
 
+    <!-- ========================================== -->
+    <!-- 子主题                                       -->
+    <!-- ========================================== -->
 
-    <!-- 欢迎页的风格 -->
-    <style name="SplashTheme" parent="AppTheme">
+    <!-- 无 ActionBar 变体 -->
+    <style name="Theme.HITA.NoActionBar">
+        <item name="windowActionBar">false</item>
+        <item name="windowNoTitle">true</item>
+    </style>
+
+    <!-- 启动页主题 -->
+    <style name="Theme.HITA.Splash" parent="Theme.HITA">
         <item name="android:windowBackground">@drawable/splash</item>
         <item name="android:windowFullscreen">true</item>
-        <!-- <item name="android:windowIsTranslucent">true</item> -->
-        <!-- 透明背景不要了 -->
     </style>
 
-
-    <!--    圆角透明背景的BottomSheetDialog主题-->
-    <style name="TransparentBottomSheetDialogTheme" parent="Theme.MaterialComponents.Light.BottomSheetDialog">
-        <item name="bottomSheetStyle">@style/TransparentBottomSheetStyle</item>
+    <!-- 聊天页面主题 - 不透明状态栏 -->
+    <style name="Theme.HITA.Chat" parent="Theme.HITA">
+        <item name="android:statusBarColor">?attr/colorPrimary</item>
+        <item name="android:windowLightStatusBar">false</item>
     </style>
 
-    <style name="TransparentBottomSheetStyle" parent="Widget.Design.BottomSheet.Modal">
+    <!-- 底部弹窗主题 -->
+    <style name="Theme.HITA.BottomSheet" parent="Theme.Material3.Light.BottomSheetDialog">
+        <item name="bottomSheetStyle">@style/Widget.HITA.BottomSheet</item>
+    </style>
+
+    <style name="Widget.HITA.BottomSheet" parent="Widget.Material3.BottomSheet">
+        <item name="shapeAppearance">@style/ShapeAppearance.HITA.Large</item>
+    </style>
+
+    <!-- 透明底部弹窗主题 -->
+    <style name="Theme.HITA.BottomSheet.Transparent" parent="Theme.Material3.Light.BottomSheetDialog">
+        <item name="bottomSheetStyle">@style/Widget.HITA.BottomSheet.Transparent</item>
+    </style>
+
+    <style name="Widget.HITA.BottomSheet.Transparent" parent="Widget.Material3.BottomSheet">
         <item name="android:background">@android:color/transparent</item>
-        <item name="behavior_peekHeight">400dp</item>
+        <item name="shapeAppearance">@style/ShapeAppearance.HITA.Large</item>
     </style>
 
-    <style name="WebViewLoginSilentTheme" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+    <!-- 对话框主题 -->
+    <style name="Theme.HITA.Dialog" parent="Theme.Material3.Light.Dialog">
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowContentOverlay">@null</item>
+        <item name="android:windowTitleStyle">@null</item>
+        <item name="android:colorBackgroundCacheHint">@null</item>
+        <item name="android:windowAnimationStyle">@android:style/Animation.Dialog</item>
+        <item name="android:windowSoftInputMode">stateUnspecified|adjustPan</item>
+        <item name="android:gravity">center</item>
+    </style>
+
+    <!-- 无阴影底部弹窗 -->
+    <style name="Theme.HITA.BottomSheet.NoShadow" parent="@android:style/Theme.Dialog">
+        <item name="bottomSheetStyle">@style/Widget.HITA.BottomSheet.Transparent</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowContentOverlay">@null</item>
+        <item name="android:windowTitleStyle">@null</item>
+        <item name="android:colorBackgroundCacheHint">@null</item>
+        <item name="android:windowAnimationStyle">@android:style/Animation.Dialog</item>
+        <item name="android:windowSoftInputMode">stateUnspecified|adjustPan</item>
+        <item name="android:gravity">center</item>
+    </style>
+
+    <!-- WebView 静默登录主题 -->
+    <style name="Theme.HITA.WebViewLogin" parent="Theme.Material3.DayNight.NoActionBar">
         <item name="android:windowIsTranslucent">true</item>
         <item name="android:windowBackground">@android:color/transparent</item>
         <item name="android:backgroundDimEnabled">false</item>
@@ -57,7 +158,23 @@
         <item name="android:windowAnimationStyle">@null</item>
     </style>
 
-    <style name="ToolBarTheme_Light" parent="Theme.AppCompat.DayNight.NoActionBar">
+    <!-- ========================================== -->
+    <!-- 旧主题别名 (兼容性保留)                      -->
+    <!-- ========================================== -->
+    <style name="AppTheme" parent="Theme.HITA" />
+    <style name="AppTheme.NoActionBar">
+        <item name="windowActionBar">false</item>
+        <item name="windowNoTitle">true</item>
+    </style>
+    <style name="AppTheme.ChatTheme" parent="Theme.HITA.Chat" />
+    <style name="SplashTheme" parent="Theme.HITA.Splash" />
+    <style name="TransparentBottomSheetDialogTheme" parent="Theme.HITA.BottomSheet.Transparent" />
+    <style name="WebViewLoginSilentTheme" parent="Theme.HITA.WebViewLogin" />
+
+    <!-- ========================================== -->
+    <!-- 旧 Toolbar 主题 (兼容性保留)                 -->
+    <!-- ========================================== -->
+    <style name="ToolBarTheme_Light" parent="Theme.Material3.DayNight.NoActionBar">
         <item name="colorButtonNormal">#FFFFFF</item>
         <item name="colorControlNormal">#FFFFFF</item>
         <item name="actionMenuTextColor">#FFFFFF</item>
@@ -68,48 +185,14 @@
         <item name="android:textColor">#ffffff</item>
     </style>
 
+    <!-- ========================================== -->
+    <!-- 旧 Tab/文本样式 (兼容性保留)                 -->
+    <!-- ========================================== -->
     <style name="tab_text_appearance">
         <item name="android:textSize">16sp</item>
         <item name="android:textColor">?attr/textColorPrimary</item>
         <item name="android:textStyle">bold</item>
     </style>
-
-    <!--水波纹风格-->
-    <style name="button_ripple_white">
-        <item name="android:colorControlHighlight">@color/white</item>
-        <item name="android:radius">24dp</item>
-    </style>
-
-    <style name="button_ripple_control">
-        <item name="android:colorControlHighlight">?attr/colorControlNormal</item>
-        <item name="android:radius">24dp</item>
-    </style>
-
-    <style name="button_ripple_control_large">
-        <item name="android:colorControlHighlight">?attr/colorControlNormal</item>
-        <item name="android:radius">32dp</item>
-    </style>
-
-
-    <style name="unbound_ripple_white_light">
-        <item name="android:colorControlHighlight">#44FFFFFF</item>
-    </style>
-
-    <style name="button_ripple_accent_little">
-        <item name="android:colorControlHighlight">?attr/colorPrimary</item>
-        <item name="android:radius">16dp</item>
-    </style>
-
-    <style name="button_ripple_accent">
-        <item name="android:colorControlHighlight">?attr/colorPrimary</item>
-        <item name="android:radius">24dp</item>
-    </style>
-
-    <style name="button_ripple_accent_large">
-        <item name="android:colorControlHighlight">?attr/colorPrimary</item>
-        <item name="android:radius">32dp</item>
-    </style>
-
 
     <style name="text_style_18sp_bold_white">
         <item name="android:textSize">18sp</item>
@@ -135,32 +218,58 @@
         <item name="android:fontFamily">sans-serif-black</item>
     </style>
 
-    <style name="AppTheme.NoActionBar">
-        <item name="windowActionBar">false</item>
-        <item name="windowNoTitle">true</item>
+    <!-- ========================================== -->
+    <!-- 旧水波纹样式 (兼容性保留)                     -->
+    <!-- ========================================== -->
+    <style name="button_ripple_white">
+        <item name="android:colorControlHighlight">@color/white</item>
+        <item name="android:radius">24dp</item>
     </style>
 
-    <!-- 聊天页面专用主题 - 不透明状态栏以确保 adjustResize 正常工作 -->
-    <style name="AppTheme.ChatTheme" parent="AppTheme">
-        <item name="android:statusBarColor">?attr/colorPrimary</item>
+    <style name="button_ripple_control">
+        <item name="android:colorControlHighlight">?attr/colorControlNormal</item>
+        <item name="android:radius">24dp</item>
     </style>
 
-    <style name="AppTheme.AppBarOverlay" parent="ThemeOverlay.AppCompat.Dark.ActionBar" />
+    <style name="button_ripple_control_large">
+        <item name="android:colorControlHighlight">?attr/colorControlNormal</item>
+        <item name="android:radius">32dp</item>
+    </style>
 
-    <style name="AppTheme.PopupOverlay" parent="ThemeOverlay.AppCompat.Light" />
+    <style name="unbound_ripple_white_light">
+        <item name="android:colorControlHighlight">#44FFFFFF</item>
+    </style>
 
+    <style name="button_ripple_accent_little">
+        <item name="android:colorControlHighlight">?attr/colorPrimary</item>
+        <item name="android:radius">16dp</item>
+    </style>
+
+    <style name="button_ripple_accent">
+        <item name="android:colorControlHighlight">?attr/colorPrimary</item>
+        <item name="android:radius">24dp</item>
+    </style>
+
+    <style name="button_ripple_accent_large">
+        <item name="android:colorControlHighlight">?attr/colorPrimary</item>
+        <item name="android:radius">32dp</item>
+    </style>
+
+    <!-- ========================================== -->
+    <!-- AppBar / Popup 覆盖样式 (兼容性保留)          -->
+    <!-- ========================================== -->
+    <style name="AppTheme.AppBarOverlay" parent="ThemeOverlay.Material3.Dark.ActionBar" />
+    <style name="AppTheme.PopupOverlay" parent="ThemeOverlay.Material3.Light" />
+
+    <!-- ========================================== -->
+    <!-- 小部件主题                                   -->
+    <!-- ========================================== -->
     <style name="AppTheme.AppWidgetContainerParent" parent="@android:style/Theme.DeviceDefault">
-        <!-- Radius of the outer bound of widgets to make the rounded corners -->
         <item name="appWidgetRadius">16dp</item>
-        <!--
-        Radius of the inner view's bound of widgets to make the rounded corners.
-        It needs to be 8dp or less than the value of appWidgetRadius
-        -->
         <item name="appWidgetInnerRadius">8dp</item>
     </style>
 
     <style name="AppTheme.AppWidgetContainer" parent="AppTheme.AppWidgetContainerParent">
-        <!-- Apply padding to avoid the content of the widget colliding with the rounded corners -->
         <item name="appWidgetPadding">16dp</item>
     </style>
 </resources>

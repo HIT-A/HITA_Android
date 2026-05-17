@@ -2,7 +2,7 @@
 <LinearLayout android:layout_width="match_parent"
     android:layout_height="wrap_content"
     xmlns:app="http://schemas.android.com/apk/res-auto"
-    android:layout_marginStart="24dp"
+    android:layout_marginStart="@dimen/space_6"
     xmlns:android="http://schemas.android.com/apk/res/android">
 
     <com.alorma.timeline.RoundTimelineView
@@ -13,7 +13,7 @@
         app:timeline_drawInternal="false"
         app:timeline_indicatorColor="?attr/colorAccent"
         app:timeline_indicatorSize="8dp"
-        app:timeline_lineColor="#11304ffe"
+        app:timeline_lineColor="@color/primary_subtle"
         app:timeline_lineStyle="linear"
         app:timeline_lineWidth="@dimen/timeline_width" />
 
@@ -21,10 +21,10 @@
         android:id="@+id/tl_card"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginStart="16dp"
-        android:layout_marginTop="16dp"
-        android:layout_marginEnd="24dp"
-        android:layout_marginBottom="16dp"
+        android:layout_marginStart="@dimen/space_4"
+        android:layout_marginTop="@dimen/space_4"
+        android:layout_marginEnd="@dimen/space_6"
+        android:layout_marginBottom="@dimen/space_4"
         android:clickable="true"
         android:foreground="?attr/selectableItemBackgroundBorderless"
         android:longClickable="true"
@@ -45,7 +45,7 @@
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:orientation="vertical"
-                android:paddingBottom="16dp">
+                android:paddingBottom="@dimen/space_4">
 
                 <TextView
                     android:id="@+id/tl_tv_name"
@@ -54,10 +54,10 @@
                     android:layout_gravity="center|start"
                     android:gravity="bottom|left"
                     android:maxEms="12"
-                    android:paddingLeft="16dp"
-                    android:paddingTop="16dp"
-                    android:paddingRight="16dp"
-                    android:paddingBottom="8dp"
+                    android:paddingLeft="@dimen/space_4"
+                    android:paddingTop="@dimen/space_4"
+                    android:paddingRight="@dimen/space_4"
+                    android:paddingBottom="@dimen/space_2"
                     android:singleLine="true"
                     android:text="当前中国社会治理热点研究考试"
                     android:textColor="?attr/textColorPrimary"
@@ -68,14 +68,14 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_gravity="center|start"
-                    android:layout_marginStart="16dp"
+                    android:layout_marginStart="@dimen/space_4"
                     android:background="@drawable/element_rounded_button_bg_grey"
                     android:backgroundTint="?attr/backgroundColorBottomAsTint"
                     android:backgroundTintMode="src_over"
-                    android:paddingStart="8dp"
-                    android:paddingTop="4dp"
-                    android:paddingEnd="8dp"
-                    android:paddingBottom="4dp"
+                    android:paddingStart="@dimen/space_2"
+                    android:paddingTop="@dimen/space_1"
+                    android:paddingEnd="@dimen/space_2"
+                    android:paddingBottom="@dimen/space_1"
                     android:text="第13周 星期一"
                     android:textColor="?attr/textColorSecondary"
                     android:textSize="12sp"
@@ -84,8 +84,8 @@
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="match_parent"
-                    android:layout_marginLeft="16dp"
-                    android:layout_marginRight="16dp"
+                    android:layout_marginLeft="@dimen/space_4"
+                    android:layout_marginRight="@dimen/space_4"
                     android:clickable="false"
                     android:orientation="horizontal"
                     android:visibility="visible"
@@ -107,7 +107,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_gravity="top"
-                        android:layout_marginLeft="8dp"
+                        android:layout_marginLeft="@dimen/space_2"
                         android:alpha="0.8"
                         android:text="10:15-10:32"
                         android:textColor="?attr/textColorSecondary"
@@ -122,7 +122,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_gravity="center"
-                android:layout_marginRight="16dp"
+                android:layout_marginRight="@dimen/space_4"
                 android:orientation="vertical">
 
                 <LinearLayout
@@ -131,10 +131,10 @@
                     android:background="@drawable/element_rounded_button_bg_primary_light"
                     android:clickable="false"
                     android:orientation="horizontal"
-                    android:paddingLeft="8dp"
-                    android:paddingTop="8dp"
-                    android:paddingRight="8dp"
-                    android:paddingBottom="8dp"
+                    android:paddingLeft="@dimen/space_2"
+                    android:paddingTop="@dimen/space_2"
+                    android:paddingRight="@dimen/space_2"
+                    android:paddingBottom="@dimen/space_2"
                     app:theme="@style/button_ripple_accent_large">
 
                     <ImageView
@@ -173,10 +173,10 @@
                     android:backgroundTint="?attr/backgroundColorBottomAsTint"
                     android:backgroundTintMode="src_over"
                     android:fontFamily="sans-serif-black"
-                    android:paddingLeft="16dp"
-                    android:paddingTop="8dp"
-                    android:paddingRight="16dp"
-                    android:paddingBottom="8dp"
+                    android:paddingLeft="@dimen/space_4"
+                    android:paddingTop="@dimen/space_2"
+                    android:paddingRight="@dimen/space_4"
+                    android:paddingBottom="@dimen/space_2"
                     android:text="34min"
                     android:textColor="?attr/colorAccent"
                     android:visibility="gone" />
@@ -196,9 +196,9 @@
                     android:layout_width="match_parent"
                     android:layout_height="4dp"
                     android:layout_gravity="bottom"
-                    android:layout_marginStart="8dp"
-                    android:layout_marginTop="8dp"
-                    android:layout_marginEnd="8dp"
+                    android:layout_marginStart="@dimen/space_2"
+                    android:layout_marginTop="@dimen/space_2"
+                    android:layout_marginEnd="@dimen/space_2"
                     android:progressDrawable="@drawable/style_progressbar_rounded_primary_light" />
             </LinearLayout>
         </LinearLayout>

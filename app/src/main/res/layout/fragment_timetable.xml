@@ -14,7 +14,7 @@
             android:layout_height="wrap_content"
             android:layout_gravity="bottom"
             android:orientation="horizontal"
-            android:paddingBottom="4dp"
+            android:paddingBottom="@dimen/space_1"
             android:visibility="visible">
 
             <TextView
@@ -213,7 +213,7 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="bottom|end"
-        android:layout_margin="16dp"
+        android:layout_margin="@dimen/space_4"
         android:clickable="true"
         android:focusable="true"
         app:tint="@color/white"

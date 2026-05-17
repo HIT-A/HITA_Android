@@ -9,13 +9,13 @@
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="16dp"
+        android:layout_marginTop="@dimen/space_4"
         android:orientation="horizontal">
 
         <ImageView
             android:layout_width="24dp"
             android:layout_height="24dp"
-            android:layout_margin="16dp"
+            android:layout_margin="@dimen/space_4"
             app:srcCompat="@drawable/ic_baseline_local_phone_24"
             app:tint="?attr/colorPrimary" />
 
@@ -23,7 +23,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_gravity="center"
-            android:layout_marginRight="16dp"
+            android:layout_marginRight="@dimen/space_4"
             android:layout_weight="1"
             android:orientation="vertical">
 
@@ -51,7 +51,7 @@
         <ImageView
             android:layout_width="24dp"
             android:layout_height="24dp"
-            android:layout_margin="16dp"
+            android:layout_margin="@dimen/space_4"
             app:srcCompat="@drawable/ic_baseline_email_24"
             app:tint="?attr/colorPrimary" />
 
@@ -59,7 +59,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_gravity="center"
-            android:layout_marginRight="16dp"
+            android:layout_marginRight="@dimen/space_4"
             android:layout_weight="1"
             android:orientation="vertical">
 
@@ -82,13 +82,13 @@
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginBottom="16dp"
+        android:layout_marginBottom="@dimen/space_4"
         android:orientation="horizontal">
 
         <ImageView
             android:layout_width="24dp"
             android:layout_height="24dp"
-            android:layout_margin="16dp"
+            android:layout_margin="@dimen/space_4"
             app:srcCompat="@drawable/ic_baseline_location_city_24"
             app:tint="?attr/colorPrimary" />
 
@@ -96,7 +96,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_gravity="center"
-            android:layout_marginRight="16dp"
+            android:layout_marginRight="@dimen/space_4"
             android:layout_weight="1"
             android:orientation="vertical">
 

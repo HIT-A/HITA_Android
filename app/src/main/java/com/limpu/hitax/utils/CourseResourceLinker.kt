@@ -7,6 +7,7 @@ import androidx.lifecycle.Observer
 import com.limpu.component.data.DataState
 import com.limpu.hitax.data.model.resource.CourseResourceItem
 import com.limpu.hitax.data.repository.HoaRepository
+import com.limpu.hitax.data.source.web.HoaResourceSource
 
 object CourseResourceLinker {
     fun openReadme(
@@ -66,16 +67,31 @@ object CourseResourceLinker {
             onResolved(emptyList())
             return
         }
-        searchSequentiallyForCandidates(
-            owner = owner,
-            queries = queryContext.queries,
-            index = 0,
-            collected = mutableListOf(),
-            normalizedCode = queryContext.normalizedCode,
-            normalizedName = queryContext.normalizedName,
-            campus = campus,
-            onResolved = onResolved,
-        )
+
+        val collected = mutableListOf<CourseResourceItem>()
+        val latch = java.util.concurrent.CountDownLatch(queryContext.queries.size)
+        val lock = Object()
+
+        for (query in queryContext.queries) {
+            LogUtils.d("CourseResourceLinker resolveCandidates parallel: query=$query")
+            HoaResourceSource.searchCoursesDirect(query, campus) { value ->
+                if (value.state == DataState.STATE.SUCCESS) {
+                    synchronized(lock) {
+                        collected.addAll(value.data.orEmpty())
+                    }
+                } else {
+                    LogUtils.d("CourseResourceLinker resolveCandidates parallel: query=$query failed state=${value.state}")
+                }
+                latch.countDown()
+            }
+        }
+
+        Thread {
+            latch.await()
+            LogUtils.d("CourseResourceLinker resolveCandidates all done: total=${collected.size}")
+            val result = rankCandidates(collected, queryContext.normalizedCode, queryContext.normalizedName)
+            android.os.Handler(android.os.Looper.getMainLooper()).post { onResolved(result) }
+        }.start()
     }
 
     private data class QueryContext(
@@ -152,47 +168,6 @@ object CourseResourceLinker {
                         courseCodeRaw,
                         courseNameRaw,
                     )
-                }
-            }
-        }
-        liveData.observe(owner, observer)
-    }
-
-    private fun searchSequentiallyForCandidates(
-        owner: LifecycleOwner,
-        queries: List<String>,
-        index: Int,
-        collected: MutableList<CourseResourceItem>,
-        normalizedCode: String?,
-        normalizedName: String?,
-        campus: String?,
-        onResolved: (List<CourseResourceItem>) -> Unit,
-    ) {
-        val query = queries.getOrNull(index)
-        if (query.isNullOrBlank()) {
-            onResolved(rankCandidates(collected, normalizedCode, normalizedName))
-            return
-        }
-        val liveData = HoaRepository().searchCourses(query, campus)
-        val observer = object : Observer<DataState<List<CourseResourceItem>>> {
-            override fun onChanged(value: DataState<List<CourseResourceItem>>) {
-                liveData.removeObserver(this)
-                if (value.state == DataState.STATE.SUCCESS) {
-                    collected.addAll(value.data.orEmpty())
-                }
-                if (index + 1 < queries.size) {
-                    searchSequentiallyForCandidates(
-                        owner = owner,
-                        queries = queries,
-                        index = index + 1,
-                        collected = collected,
-                        normalizedCode = normalizedCode,
-                        normalizedName = normalizedName,
-                        campus = campus,
-                        onResolved = onResolved,
-                    )
-                } else {
-                    onResolved(rankCandidates(collected, normalizedCode, normalizedName))
                 }
             }
         }

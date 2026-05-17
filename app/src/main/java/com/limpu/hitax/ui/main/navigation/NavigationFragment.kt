@@ -9,6 +9,7 @@ import android.view.View
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.lifecycle.Observer
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.limpu.hitax.R
 import com.limpu.hitax.data.repository.EASRepository
 import com.limpu.hitax.data.repository.TimetableRepository
@@ -26,6 +27,7 @@ import com.limpu.hitax.utils.ActivityUtils
 import com.limpu.hitax.utils.ActivityUtils.CourseResourceMode
 import com.limpu.hitax.utils.IcsImportUtils
 import com.limpu.hitauser.data.repository.LocalUserRepository
+import com.limpu.hitauser.util.ImageUtils
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
 
@@ -44,6 +46,13 @@ class NavigationFragment : HiltBaseFragment<FragmentNavigationBinding>() {
     protected val viewModel: NavigationViewModel by viewModels()
     private val easTokenObserver = Observer<com.limpu.hitax.data.model.eas.EASToken> {
         refreshEasUserCard()
+    }
+
+    // 头像选择器
+    private val pickAvatarLauncher = registerForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        uri?.let { saveAvatarLocally(it) }
     }
 
     // ICS 文件选择器
@@ -65,6 +74,59 @@ class NavigationFragment : HiltBaseFragment<FragmentNavigationBinding>() {
         }
     }
     
+    /**
+     * 显示头像选择菜单
+     */
+    private fun showAvatarPicker() {
+        context?.let {
+            MaterialAlertDialogBuilder(it)
+                .setTitle("更换头像")
+                .setItems(arrayOf("从相册选择", "取消")) { _, which ->
+                    when (which) {
+                        0 -> pickAvatarLauncher.launch("image/*")
+                    }
+                }
+                .show()
+        }
+    }
+
+    /**
+     * 压缩并保存头像到本地
+     */
+    private fun saveAvatarLocally(uri: Uri) {
+        context?.let { ctx ->
+            Thread {
+                try {
+                    val destFile = java.io.File(ctx.filesDir, "avatar_local.jpg")
+                    val futureTarget = com.bumptech.glide.Glide.with(ctx)
+                        .asFile()
+                        .load(uri)
+                        .override(512, 512)
+                        .centerCrop()
+                        .submit()
+                    val tempFile = futureTarget.get()
+                    tempFile.copyTo(destFile, overwrite = true)
+                    tempFile.delete()
+
+                    val localPath = "local://${destFile.absolutePath}"
+                    localUserRepository.changeLocalAvatar(localPath)
+
+                    activity?.runOnUiThread {
+                        Toast.makeText(ctx, "头像更换成功", Toast.LENGTH_SHORT).show()
+                        binding?.avatar?.let { avatarView ->
+                            ImageUtils.loadAvatarInto(ctx, localPath, avatarView)
+                        }
+                        com.bumptech.glide.Glide.get(ctx).clearMemory()
+                    }
+                } catch (e: Exception) {
+                    activity?.runOnUiThread {
+                        Toast.makeText(ctx, "图片处理失败", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }.start()
+        }
+    }
+
     override fun initViews(view: View) {
         viewModel.recentTimetableLiveData.observe(this) {
             if (it == null) {
@@ -179,58 +241,53 @@ class NavigationFragment : HiltBaseFragment<FragmentNavigationBinding>() {
     }
 
     private fun refreshEasUserCard() {
-        localUserRepository.getLoggedInUser().let {
-            if (it.isValid()) { //如果已登录
-                binding?.avatar?.let { it1 ->
-                    com.limpu.hitauser.util.ImageUtils.loadAvatarInto(
-                        requireContext(),
-                        it.avatar,
-                        it1
-                    )
+        val localUser = localUserRepository.getLoggedInUser()
+        val localAvatar = localUser.avatar?.takeIf { it.startsWith("local://") }
+
+        if (localUser.isValid()) {
+            binding?.avatar?.let { avatarView ->
+                ImageUtils.loadAvatarInto(requireContext(), localAvatar ?: localUser.avatar, avatarView)
+                avatarView.setOnClickListener { showAvatarPicker() }
+            }
+            binding?.username?.text = localUser.username
+            binding?.nickname?.text = localUser.nickname
+            binding?.userCard?.setOnClickListener { _ ->
+                ActivityUtils.startProfileActivity(
+                    requireContext(),
+                    localUser.id,
+                    binding?.avatar
+                )
+            }
+        } else {
+            val easToken = easRepository.getEasToken()
+            if (easToken.isLogin()) {
+                binding?.username?.text = easToken.name?.ifBlank { easToken.stuId?.ifBlank { easToken.username } }
+                    ?: easToken.stuId?.ifBlank { easToken.username }
+                    ?: easToken.username
+                    ?: getString(R.string.eas_account_not_logged_in_title)
+                binding?.nickname?.text = buildString {
+                    val primary = easToken.stuId?.trim().orEmpty()
+                    val secondary = listOf(
+                        easToken.school,
+                        easToken.major,
+                        easToken.grade,
+                        easToken.className
+                    ).mapNotNull { info -> info?.trim()?.takeIf(String::isNotBlank) }
+                        .joinToString(" · ")
+                    append(primary)
+                    if (secondary.isNotBlank()) {
+                        if (isNotEmpty()) append("\n")
+                        append(secondary)
+                    }
+                }.ifBlank { easToken.username.orEmpty() }
+                binding?.avatar?.let { avatarView ->
+                    if (localAvatar != null) {
+                        ImageUtils.loadAvatarInto(requireContext(), localAvatar, avatarView)
+                    } else {
+                        avatarView.setImageResource(R.drawable.place_holder_avatar)
+                    }
+                    avatarView.setOnClickListener { showAvatarPicker() }
                 }
-                binding?.avatar?.let { it1 ->
-                    com.limpu.hitauser.util.ImageUtils.loadAvatarInto(
-                        requireContext(),
-                        it.avatar,
-                        it1
-                    )
-                }
-                binding?.username?.text = it.username
-                binding?.nickname?.text = it.nickname
-                binding?.userCard?.setOnClickListener { _ ->
-                    ActivityUtils.startProfileActivity(
-                        requireContext(),
-                        it.id,
-                        binding?.avatar
-                    )
-                }
-            } else {
-                val easToken = easRepository.getEasToken()
-                if (easToken.isLogin()) {
-                    binding?.username?.text = easToken.name?.ifBlank { easToken.stuId?.ifBlank { easToken.username } }
-                        ?: easToken.stuId?.ifBlank { easToken.username }
-                        ?: easToken.username
-                        ?: getString(R.string.eas_account_not_logged_in_title)
-                    binding?.nickname?.text = buildString {
-                        val primary = easToken.stuId?.trim().orEmpty()
-                        val secondary = listOf(
-                            easToken.school,
-                            easToken.major,
-                            easToken.grade,
-                            easToken.className
-                        ).mapNotNull { info -> info?.trim()?.takeIf(String::isNotBlank) }
-                            .joinToString(" · ")
-                        append(primary)
-                        if (secondary.isNotBlank()) {
-                            if (isNotEmpty()) append("\n")
-                            append(secondary)
-                        }
-                    }.ifBlank { easToken.username.orEmpty() }
-                } else {
-                    binding?.username?.setText(R.string.eas_account_not_logged_in_title)
-                    binding?.nickname?.setText(R.string.eas_account_not_logged_in_subtitle)
-                }
-                binding?.avatar?.setImageResource(R.drawable.place_holder_avatar)
                 binding?.userCard?.setOnClickListener {
                     ActivityUtils.showEasVerifyWindow<Activity>(
                         requireActivity(),
@@ -240,7 +297,42 @@ class NavigationFragment : HiltBaseFragment<FragmentNavigationBinding>() {
                             override fun onSuccess(window: PopUpLoginEAS) {
                                 window.dismiss()
                             }
-
+                            override fun onFailed(window: PopUpLoginEAS) {}
+                        }
+                    )
+                }
+            } else {
+                binding?.username?.setText(R.string.eas_account_not_logged_in_title)
+                binding?.nickname?.setText(R.string.eas_account_not_logged_in_subtitle)
+                binding?.avatar?.let { avatarView ->
+                    if (localAvatar != null) {
+                        ImageUtils.loadAvatarInto(requireContext(), localAvatar, avatarView)
+                    } else {
+                        avatarView.setImageResource(R.drawable.place_holder_avatar)
+                    }
+                    avatarView.setOnClickListener {
+                        ActivityUtils.showEasVerifyWindow<Activity>(
+                            requireActivity(),
+                            easRepository,
+                            directTo = null,
+                            onResponseListener = object : PopUpLoginEAS.OnResponseListener {
+                                override fun onSuccess(window: PopUpLoginEAS) {
+                                    window.dismiss()
+                                }
+                                override fun onFailed(window: PopUpLoginEAS) {}
+                            }
+                        )
+                    }
+                }
+                binding?.userCard?.setOnClickListener {
+                    ActivityUtils.showEasVerifyWindow<Activity>(
+                        requireActivity(),
+                        easRepository,
+                        directTo = null,
+                        onResponseListener = object : PopUpLoginEAS.OnResponseListener {
+                            override fun onSuccess(window: PopUpLoginEAS) {
+                                window.dismiss()
+                            }
                             override fun onFailed(window: PopUpLoginEAS) {}
                         }
                     )

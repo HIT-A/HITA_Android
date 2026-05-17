@@ -6,8 +6,8 @@
         android:id="@+id/widget_root"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:layout_marginTop="4dp"
-        android:layout_marginBottom="4dp"
+        android:layout_marginTop="@dimen/space_1"
+        android:layout_marginBottom="@dimen/space_1"
         android:background="@drawable/widget_today_background"
         android:orientation="vertical">
 
@@ -16,9 +16,9 @@
             android:layout_height="48dp"
             android:gravity="center"
             android:orientation="horizontal"
-            android:paddingStart="16dp"
-            android:paddingTop="8dp"
-            android:paddingEnd="8dp">
+            android:paddingStart="@dimen/space_4"
+            android:paddingTop="@dimen/space_2"
+            android:paddingEnd="@dimen/space_2">
 
             <LinearLayout
                 android:id="@+id/wid"
@@ -43,7 +43,7 @@
                     android:id="@+id/logo"
                     android:layout_width="22dp"
                     android:layout_height="22dp"
-                    android:layout_margin="8dp"
+                    android:layout_margin="@dimen/space_2"
                     android:background="@drawable/logo"
                     android:visibility="gone" />
 
@@ -58,7 +58,7 @@
                     android:id="@+id/refresh_icon"
                     android:layout_width="18dp"
                     android:layout_height="18dp"
-                    android:layout_margin="12dp"
+                    android:layout_margin="@dimen/space_3"
                     android:background="@drawable/widget_ic_refresh"
                     android:visibility="visible" />
             </FrameLayout>
@@ -71,7 +71,7 @@
             android:layout_width="match_parent"
             android:layout_height="match_parent"
             android:layout_weight="1"
-            android:divider="#00000000"
+            android:divider="@android:color/transparent"
             android:gravity="center"
             android:visibility="gone">
 
@@ -84,7 +84,7 @@
             android:layout_weight="1"
             android:gravity="center"
             android:orientation="horizontal"
-            android:paddingBottom="16dp"
+            android:paddingBottom="@dimen/space_4"
             android:visibility="visible">
 
             <ImageView
@@ -92,10 +92,10 @@
                 android:layout_width="20dp"
                 android:layout_height="20dp"
                 android:layout_gravity="center"
-                android:layout_marginStart="16dp"
-                android:layout_marginTop="16dp"
-                android:layout_marginEnd="8dp"
-                android:layout_marginBottom="16dp"
+                android:layout_marginStart="@dimen/space_4"
+                android:layout_marginTop="@dimen/space_4"
+                android:layout_marginEnd="@dimen/space_2"
+                android:layout_marginBottom="@dimen/space_4"
                 android:background="@drawable/widget_placeholder_timeline"
                 android:visibility="gone" />
 
@@ -104,7 +104,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_gravity="center"
-                android:layout_marginEnd="16dp"
+                android:layout_marginEnd="@dimen/space_4"
                 android:text="@string/widget_loading"
                 android:textColor="@color/widget_text_secondary"
                 android:textSize="19sp"
@@ -122,8 +122,8 @@
                 android:layout_width="wrap_content"
                 android:layout_height="5dp"
                 android:layout_gravity="center"
-                android:layout_marginTop="4dp"
-                android:layout_marginBottom="8dp"
+                android:layout_marginTop="@dimen/space_1"
+                android:layout_marginBottom="@dimen/space_2"
                 android:layout_weight="1.6" />
 
             <ImageView
@@ -131,8 +131,8 @@
                 android:layout_width="wrap_content"
                 android:layout_height="5dp"
                 android:layout_gravity="center"
-                android:layout_marginTop="4dp"
-                android:layout_marginBottom="8dp"
+                android:layout_marginTop="@dimen/space_1"
+                android:layout_marginBottom="@dimen/space_2"
                 android:layout_weight="1"
                 android:background="@drawable/widget_rounded_divider" />
 
@@ -141,8 +141,8 @@
                 android:layout_width="wrap_content"
                 android:layout_height="5dp"
                 android:layout_gravity="center"
-                android:layout_marginTop="4dp"
-                android:layout_marginBottom="8dp"
+                android:layout_marginTop="@dimen/space_1"
+                android:layout_marginBottom="@dimen/space_2"
                 android:layout_weight="1.6" />
         </LinearLayout>
 

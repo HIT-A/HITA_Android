@@ -13,7 +13,7 @@
         android:id="@+id/appbar"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:background="#00000000"
+        android:background="@android:color/transparent"
         android:fitsSystemWindows="true"
         app:elevation="0dp">
 
@@ -22,7 +22,7 @@
             android:layout_width="match_parent"
             android:layout_height="180dp"
             app:layout_scrollFlags="scroll|exitUntilCollapsed"
-            app:statusBarScrim="#00000000"
+            app:statusBarScrim="@android:color/transparent"
             app:toolbarId="@id/toolbar">
 
 
@@ -38,17 +38,17 @@
                 android:layout_width="match_parent"
                 android:layout_height="80dp"
                 android:layout_gravity="bottom"
-                android:layout_marginTop="24dp"
+                android:layout_marginTop="@dimen/space_6"
                 android:orientation="horizontal"
-                android:paddingStart="24dp"
-                android:paddingEnd="24dp">
+                android:paddingStart="@dimen/space_6"
+                android:paddingEnd="@dimen/space_6">
 
                 <TextView
                     android:id="@+id/title"
                     android:layout_width="wrap_content"
                     android:layout_height="match_parent"
                     android:layout_gravity="bottom|center"
-                    android:layout_marginEnd="16dp"
+                    android:layout_marginEnd="@dimen/space_4"
                     android:gravity="center"
                     android:singleLine="true"
                     android:text="@string/title_timetable_manager"
@@ -83,8 +83,8 @@
         android:id="@+id/list"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:layout_marginStart="8dp"
-        android:layout_marginEnd="8dp"
+        android:layout_marginStart="@dimen/space_2"
+        android:layout_marginEnd="@dimen/space_2"
         android:layoutAnimation="@anim/recycler_layout_animation_slide_from_right"
         android:overScrollMode="never"
         app:layout_behavior="com.google.android.material.appbar.AppBarLayout$ScrollingViewBehavior"
@@ -97,7 +97,7 @@
         android:layout_gravity="bottom"
         android:background="?attr/backgroundColorBottom"
         android:orientation="horizontal"
-        android:paddingStart="24dp"
-        android:paddingEnd="16dp"></LinearLayout>
+        android:paddingStart="@dimen/space_6"
+        android:paddingEnd="@dimen/space_4"></LinearLayout>
 
 </androidx.coordinatorlayout.widget.CoordinatorLayout>

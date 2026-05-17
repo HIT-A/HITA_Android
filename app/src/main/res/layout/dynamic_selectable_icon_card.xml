@@ -17,8 +17,8 @@
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="match_parent"
-            android:layout_marginTop="16dp"
-            android:layout_marginBottom="16dp"
+            android:layout_marginTop="@dimen/space_4"
+            android:layout_marginBottom="@dimen/space_4"
             android:gravity="center"
             android:orientation="vertical">
 
@@ -26,8 +26,8 @@
                 android:id="@+id/frame"
                 android:layout_width="56dp"
                 android:layout_height="56dp"
-                android:layout_marginStart="16dp"
-                android:layout_marginEnd="16dp">
+                android:layout_marginStart="@dimen/space_4"
+                android:layout_marginEnd="@dimen/space_4">
 
                 <ImageView
                     android:id="@+id/iconBG"
@@ -40,7 +40,7 @@
                     android:id="@+id/icon"
                     android:layout_width="match_parent"
                     android:layout_height="match_parent"
-                    android:padding="8dp"
+                    android:padding="@dimen/space_2"
                     android:tintMode="src_in"
                     app:srcCompat="@drawable/ic_bx_teacher" />
             </FrameLayout>
@@ -55,9 +55,9 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_gravity="center"
-                android:layout_marginStart="16dp"
-                android:layout_marginTop="8dp"
-                android:layout_marginEnd="16dp"
+                android:layout_marginStart="@dimen/space_4"
+                android:layout_marginTop="@dimen/space_2"
+                android:layout_marginEnd="@dimen/space_4"
                 android:ellipsize="marquee"
                 android:marqueeRepeatLimit="marquee_forever"
                 android:singleLine="true"
@@ -71,9 +71,9 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_gravity="center"
-                android:layout_marginStart="16dp"
-                android:layout_marginTop="4dp"
-                android:layout_marginEnd="16dp"
+                android:layout_marginStart="@dimen/space_4"
+                android:layout_marginTop="@dimen/space_1"
+                android:layout_marginEnd="@dimen/space_4"
                 android:ellipsize="marquee"
                 android:marqueeRepeatLimit="marquee_forever"
                 android:singleLine="true"

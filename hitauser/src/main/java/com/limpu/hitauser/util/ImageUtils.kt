@@ -18,6 +18,15 @@ object ImageUtils {
     fun loadAvatarInto(context: Context, imageId: String?, target: ImageView) {
         if (TextUtils.isEmpty(imageId)) {
             target.setImageResource(R.drawable.place_holder_avatar)
+        } else if (imageId!!.startsWith("local://")) {
+            val file = java.io.File(imageId.removePrefix("local://"))
+            if (context is Activity) {
+                if (context.isDestroyed) return
+            }
+            Glide.with(context).load(file)
+                .apply(RequestOptions.bitmapTransform(CircleCrop()))
+                .placeholder(R.drawable.place_holder_avatar)
+                .into(target)
         } else {
             val glideUrl = GlideUrl(
                 "https://hita.store:39999/profile/avatar?imageId=" +

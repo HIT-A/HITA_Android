@@ -12,52 +12,40 @@
         android:layout_height="wrap_content"
         android:orientation="vertical">
 
-        <androidx.cardview.widget.CardView
+        <!-- ====== 用户卡片 ====== -->
+        <com.google.android.material.card.MaterialCardView
             android:id="@+id/user_card"
             android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:layout_marginStart="16dp"
-            android:layout_marginTop="8dp"
-            android:layout_marginEnd="16dp"
-            android:layout_marginBottom="8dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="@dimen/space_4"
+            android:layout_marginTop="@dimen/space_2"
+            android:layout_marginEnd="@dimen/space_4"
+            android:layout_marginBottom="@dimen/space_2"
             android:focusable="true"
             android:foreground="?attr/selectableItemBackgroundBorderless"
-            app:cardBackgroundColor="?attr/backgroundColorSecond"
-            app:cardCornerRadius="16dp"
+            app:cardCornerRadius="@dimen/corner_large"
             app:cardElevation="0dp">
 
             <LinearLayout
                 android:layout_width="match_parent"
-                android:layout_height="match_parent"
-                android:orientation="horizontal">
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:padding="@dimen/space_4">
 
-                <androidx.cardview.widget.CardView
-                    android:layout_width="48dp"
-                    android:layout_height="48dp"
+                <com.google.android.material.imageview.ShapeableImageView
+                    android:id="@+id/avatar"
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
                     android:layout_gravity="center"
-                    android:layout_marginStart="16dp"
-                    android:layout_marginTop="16dp"
-                    android:layout_marginEnd="16dp"
-                    android:layout_marginBottom="16dp"
-                    android:focusable="true"
-                    app:cardBackgroundColor="?attr/backgroundColorSecond"
-                    app:cardCornerRadius="24dp"
-                    app:cardElevation="0dp">
-
-                    <ImageView
-                        android:id="@+id/avatar"
-                        android:layout_width="match_parent"
-                        android:layout_height="match_parent"
-                        android:layout_gravity="center"
-                        android:scaleType="fitCenter"
-                        android:transitionName="useravatar" />
-                </androidx.cardview.widget.CardView>
+                    android:scaleType="centerCrop"
+                    android:transitionName="useravatar"
+                    app:shapeAppearanceOverlay="@style/ShapeAppearance.HITA.Full" />
 
                 <LinearLayout
-                    android:layout_width="match_parent"
+                    android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_gravity="center"
-                    android:layout_marginEnd="16dp"
+                    android:layout_marginStart="@dimen/space_3"
                     android:layout_weight="1"
                     android:orientation="vertical">
 
@@ -65,559 +53,551 @@
                         android:id="@+id/nickname"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_gravity="center|start"
                         android:maxEms="20"
                         android:singleLine="true"
-                        android:textColor="?attr/textColorPrimary"
-                        android:textSize="18sp"
+                        android:textAppearance="@style/TextAppearance.HITA.BodyLarge"
                         android:textStyle="bold" />
 
                     <TextView
                         android:id="@+id/username"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:layout_gravity="center|start"
-                        android:layout_marginTop="4dp"
+                        android:layout_marginTop="@dimen/space_1"
                         android:alpha="0.6"
                         android:maxLines="1"
                         android:singleLine="true"
-                        android:textColor="?attr/textColorSecondary"
-                        android:textSize="14sp"
-                        android:textStyle="bold" />
-
+                        android:textAppearance="@style/TextAppearance.HITA.BodySmall" />
                 </LinearLayout>
 
                 <ImageView
-                    android:layout_width="36dp"
-                    android:layout_height="36dp"
+                    android:layout_width="24dp"
+                    android:layout_height="24dp"
                     android:layout_gravity="center"
-                    android:layout_marginEnd="8dp"
                     android:tintMode="src_in"
                     app:srcCompat="@drawable/ic_baseline_keyboard_arrow_right_24"
-                    app:tint="?attr/colorPrimaryDisabled" />
-
+                    app:tint="?attr/colorOnSurfaceVariant" />
             </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
 
-        </androidx.cardview.widget.CardView>
-
+        <!-- ====== 课表快捷入口（双卡片） ====== -->
         <LinearLayout
             android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:layout_marginTop="8dp"
-            android:layout_marginBottom="8dp"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/space_2"
+            android:layout_marginBottom="@dimen/space_2"
             android:orientation="horizontal">
 
-            <androidx.cardview.widget.CardView
+            <!-- 最近课表 -->
+            <com.google.android.material.card.MaterialCardView
                 android:id="@+id/card_recent_timetable"
-                android:layout_width="match_parent"
-                android:layout_height="84dp"
-                android:layout_marginStart="16dp"
-                android:layout_marginEnd="8dp"
+                android:layout_width="0dp"
+                android:layout_height="80dp"
+                android:layout_marginStart="@dimen/space_4"
+                android:layout_marginEnd="@dimen/space_2"
                 android:layout_weight="1"
                 android:clickable="true"
                 android:foreground="?attr/selectableItemBackgroundBorderless"
-                app:cardBackgroundColor="?attr/backgroundColorSecond"
-                app:cardCornerRadius="16dp"
+                app:cardCornerRadius="@dimen/corner_large"
                 app:cardElevation="0dp">
 
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="match_parent"
-                    android:gravity="center"
+                    android:gravity="center_vertical"
                     android:orientation="horizontal"
-                    android:paddingStart="16dp"
-                    android:paddingEnd="16dp">
+                    android:paddingStart="@dimen/space_3"
+                    android:paddingEnd="@dimen/space_3">
 
-                    <FrameLayout
-                        android:layout_width="48dp"
-                        android:layout_height="48dp"
-                        android:layout_marginEnd="14dp">
-
-                        <ImageView
-                            android:id="@+id/iconBG"
-                            android:layout_width="match_parent"
-                            android:layout_height="match_parent"
-                            android:tint="?attr/colorPrimary"
-                            android:tintMode="src_in"
-                            app:srcCompat="@drawable/element_round_white_light" />
-
-                        <ImageView
-                            android:id="@+id/icon"
-                            android:layout_width="match_parent"
-                            android:layout_height="match_parent"
-                            android:padding="12dp"
-                            android:tint="?attr/colorPrimary"
-                            android:tintMode="src_in"
-                            app:srcCompat="@drawable/ic_nav_timetable" />
-                    </FrameLayout>
+                    <ImageView
+                        android:id="@+id/iconBG"
+                        android:layout_width="40dp"
+                        android:layout_height="40dp"
+                        android:layout_marginEnd="@dimen/space_3"
+                        android:background="@drawable/shape_circle"
+                        android:backgroundTint="?attr/colorPrimaryContainer"
+                        android:padding="8dp"
+                        android:scaleType="fitCenter"
+                        app:srcCompat="@drawable/ic_nav_timetable"
+                        app:tint="?attr/colorOnPrimaryContainer" />
 
                     <LinearLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="match_parent"
-                        android:gravity="center"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:gravity="center_vertical"
                         android:orientation="vertical">
 
                         <com.limpu.hitax.ui.widgets.FocusTextView
                             android:id="@+id/recent_title"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:layout_gravity="center"
                             android:ellipsize="marquee"
                             android:marqueeRepeatLimit="marquee_forever"
                             android:singleLine="true"
                             android:text="@string/recent_timetable"
-                            android:textColor="?attr/textColorSecondary"
-                            android:textSize="12sp" />
+                            android:textAppearance="@style/TextAppearance.HITA.LabelMedium"
+                            android:textColor="?attr/colorOnSurfaceVariant" />
 
                         <com.limpu.hitax.ui.widgets.FocusTextView
                             android:id="@+id/recent_subtitle"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:layout_gravity="center"
-                            android:layout_marginTop="4dp"
+                            android:layout_marginTop="@dimen/space_1"
                             android:ellipsize="marquee"
                             android:marqueeRepeatLimit="marquee_forever"
                             android:singleLine="true"
                             android:text="@string/give_me_notification_permission"
-                            android:textColor="?attr/textColorPrimary"
-                            android:textSize="16sp"
+                            android:textAppearance="@style/TextAppearance.HITA.BodyMedium"
+                            android:textColor="?attr/colorOnSurface"
                             android:textStyle="normal" />
                     </LinearLayout>
-
                 </LinearLayout>
-            </androidx.cardview.widget.CardView>
+            </com.google.android.material.card.MaterialCardView>
 
-            <androidx.cardview.widget.CardView
+            <!-- 课表管理 -->
+            <com.google.android.material.card.MaterialCardView
                 android:id="@+id/card_timetable"
-                android:layout_width="match_parent"
-                android:layout_height="84dp"
-                android:layout_marginStart="8dp"
-                android:layout_marginEnd="16dp"
+                android:layout_width="0dp"
+                android:layout_height="80dp"
+                android:layout_marginStart="@dimen/space_2"
+                android:layout_marginEnd="@dimen/space_4"
                 android:layout_weight="1"
                 android:clickable="true"
                 android:foreground="?attr/selectableItemBackgroundBorderless"
-                app:cardBackgroundColor="?attr/backgroundColorSecond"
-                app:cardCornerRadius="16dp"
+                app:cardCornerRadius="@dimen/corner_large"
                 app:cardElevation="0dp">
 
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="match_parent"
-                    android:gravity="center"
+                    android:gravity="center_vertical"
                     android:orientation="horizontal"
-                    android:paddingStart="16dp"
-                    android:paddingEnd="16dp">
+                    android:paddingStart="@dimen/space_3"
+                    android:paddingEnd="@dimen/space_3">
 
-                    <FrameLayout
-                        android:id="@+id/frame"
-                        android:layout_width="48dp"
-                        android:layout_height="48dp"
-                        android:layout_marginEnd="14dp">
-
-                        <ImageView
-                            android:layout_width="match_parent"
-                            android:layout_height="match_parent"
-                            android:backgroundTintMode="src_over"
-                            android:tint="?attr/colorPrimary"
-                            android:tintMode="src_in"
-                            app:srcCompat="@drawable/element_round_white_light" />
-
-                        <ImageView
-                            android:layout_width="match_parent"
-                            android:layout_height="match_parent"
-                            android:padding="10dp"
-                            android:tint="?attr/colorPrimary"
-                            android:tintMode="src_in"
-                            app:srcCompat="@drawable/ic_list" />
-                    </FrameLayout>
+                    <ImageView
+                        android:id="@+id/icon"
+                        android:layout_width="40dp"
+                        android:layout_height="40dp"
+                        android:layout_marginEnd="@dimen/space_3"
+                        android:background="@drawable/shape_circle"
+                        android:backgroundTint="?attr/colorPrimaryContainer"
+                        android:padding="8dp"
+                        android:scaleType="fitCenter"
+                        app:srcCompat="@drawable/ic_list"
+                        app:tint="?attr/colorOnPrimaryContainer" />
 
                     <LinearLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="match_parent"
-                        android:gravity="center"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:gravity="center_vertical"
                         android:orientation="vertical">
 
                         <com.limpu.hitax.ui.widgets.FocusTextView
                             android:id="@+id/timetable_title"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:layout_gravity="center"
                             android:ellipsize="marquee"
                             android:marqueeRepeatLimit="marquee_forever"
                             android:singleLine="true"
                             android:text="@string/title_timetable_manager"
-                            android:textColor="?attr/textColorSecondary"
-                            android:textSize="12sp" />
+                            android:textAppearance="@style/TextAppearance.HITA.LabelMedium"
+                            android:textColor="?attr/colorOnSurfaceVariant" />
 
                         <com.limpu.hitax.ui.widgets.FocusTextView
                             android:id="@+id/timetable_subtitle"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:layout_gravity="center"
-                            android:layout_marginTop="4dp"
+                            android:layout_marginTop="@dimen/space_1"
                             android:ellipsize="marquee"
                             android:marqueeRepeatLimit="marquee_forever"
                             android:singleLine="true"
                             android:text="@string/give_me_notification_permission"
-                            android:textColor="?attr/textColorPrimary"
-                            android:textSize="16sp"
+                            android:textAppearance="@style/TextAppearance.HITA.BodyMedium"
+                            android:textColor="?attr/colorOnSurface"
                             android:textStyle="normal" />
                     </LinearLayout>
-
                 </LinearLayout>
-            </androidx.cardview.widget.CardView>
-
+            </com.google.android.material.card.MaterialCardView>
         </LinearLayout>
 
+        <!-- ====== 课表工具 ====== -->
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_gravity="center"
-            android:layout_marginStart="26dp"
-            android:layout_marginTop="16dp"
-            android:layout_marginEnd="16dp"
-            android:layout_marginBottom="8dp"
-            android:text="@string/navi_jw_title"
-            android:textColor="?attr/textColorPrimary"
-            android:textSize="18sp"
-            android:textStyle="bold"
-            android:visibility="visible" />
+            android:layout_marginStart="@dimen/space_4"
+            android:layout_marginTop="@dimen/space_4"
+            android:layout_marginEnd="@dimen/space_4"
+            android:layout_marginBottom="@dimen/space_2"
+            android:text="课表工具"
+            android:textAppearance="@style/TextAppearance.HITA.TitleMedium"
+            android:textColor="?attr/colorOnSurface" />
 
-        <androidx.cardview.widget.CardView
+        <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginStart="16dp"
-            android:layout_marginTop="8dp"
-            android:layout_marginEnd="16dp"
-            android:layout_marginBottom="16dp"
-            app:cardBackgroundColor="?attr/backgroundColorSecond"
-            app:cardCornerRadius="16dp"
+            android:layout_marginStart="@dimen/space_4"
+            android:layout_marginEnd="@dimen/space_4"
+            android:layout_marginBottom="@dimen/space_2"
+            app:cardCornerRadius="@dimen/corner_large"
             app:cardElevation="0dp">
 
             <LinearLayout
                 android:layout_width="match_parent"
-                android:layout_height="match_parent"
-                android:layout_marginBottom="8dp"
-                android:orientation="vertical">
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:paddingTop="@dimen/space_1"
+                android:paddingBottom="@dimen/space_1">
 
+                <!-- 导入课表 -->
                 <LinearLayout
+                    android:id="@+id/card_import"
                     android:layout_width="match_parent"
-                    android:layout_height="match_parent"
-                    android:layout_weight="1"
-                    android:orientation="horizontal">
+                    android:layout_height="56dp"
+                    android:foreground="?attr/selectableItemBackgroundBorderless"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
+                    android:paddingStart="@dimen/space_4"
+                    android:paddingEnd="@dimen/space_4">
+
+                    <ImageView
+                        android:layout_width="40dp"
+                        android:layout_height="40dp"
+                        android:background="@drawable/shape_circle"
+                        android:backgroundTint="?attr/colorPrimaryContainer"
+                        android:padding="8dp"
+                        android:scaleType="fitCenter"
+                        app:srcCompat="@drawable/ic_import"
+                        app:tint="?attr/colorOnPrimaryContainer" />
 
                     <LinearLayout
-                        android:id="@+id/card_import"
-                        android:layout_width="match_parent"
-                        android:layout_height="64dp"
-                        android:layout_marginEnd="8dp"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="@dimen/space_3"
                         android:layout_weight="1"
-                        android:foreground="?attr/selectableItemBackgroundBorderless"
-                        android:orientation="horizontal"
-                        android:padding="4dp"
-                        android:paddingStart="16dp"
-                        android:paddingEnd="0dp">
+                        android:gravity="center_vertical"
+                        android:orientation="vertical">
 
-                        <ImageView
-                            android:id="@+id/imageView"
-                            android:layout_width="32dp"
-                            android:layout_height="32dp"
-                            android:layout_gravity="center"
-                            app:srcCompat="@drawable/ic_bc_import" />
-
-                        <LinearLayout
-                            android:layout_width="0dp"
-                            android:layout_height="match_parent"
-                            android:layout_marginStart="16dp"
-                            android:layout_weight="1"
-                            android:gravity="center|start"
-                            android:orientation="vertical"
-                            android:paddingBottom="6dp">
-
-                            <com.limpu.hitax.ui.widgets.FocusTextView
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:layout_gravity="center|start"
-                                android:layout_marginTop="8dp"
-                                android:singleLine="true"
-                                android:text="@string/import_timetable"
-                                android:textColor="?attr/textColorPrimary"
-                                android:textSize="16sp" />
-
-                            <com.limpu.hitax.ui.widgets.FocusTextView
-                                android:layout_width="match_parent"
-                                android:layout_height="wrap_content"
-                                android:layout_gravity="center|start"
-                                android:layout_marginTop="2dp"
-                                android:singleLine="true"
-                                android:text="@string/prompt_import"
-                                android:textColor="?attr/textColorPrimary"
-                                android:textSize="12sp"
-                                android:visibility="gone" />
-                        </LinearLayout>
-
-                        <ImageView
-                            android:id="@+id/imageView3"
-                            android:layout_width="24dp"
-                            android:layout_height="24dp"
-                            android:layout_gravity="center"
-                            android:tintMode="src_in"
-                            app:srcCompat="@drawable/ic_baseline_keyboard_arrow_right_24"
-                            app:tint="?attr/colorPrimaryDisabled" />
+                        <com.limpu.hitax.ui.widgets.FocusTextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:singleLine="true"
+                            android:text="@string/import_timetable"
+                            android:textAppearance="@style/TextAppearance.HITA.BodyMedium"
+                            android:textColor="?attr/colorOnSurface" />
                     </LinearLayout>
 
-                    <LinearLayout
-                        android:id="@+id/card_subjects"
-                        android:layout_width="match_parent"
-                        android:layout_height="64dp"
-                        android:layout_marginStart="8dp"
-                        android:layout_marginEnd="8dp"
-                        android:layout_weight="1"
-                        android:foreground="?attr/selectableItemBackgroundBorderless"
-                        android:orientation="horizontal"
-                        android:padding="4dp"
-                        android:paddingStart="16dp"
-                        android:paddingEnd="0dp">
-
-                        <ImageView
-                            android:layout_width="32dp"
-                            android:layout_height="32dp"
-                            android:layout_gravity="center"
-                            app:srcCompat="@drawable/ic_bc_idea" />
-
-                        <LinearLayout
-                            android:layout_width="0dp"
-                            android:layout_height="match_parent"
-                            android:layout_marginStart="16dp"
-                            android:layout_weight="1"
-                            android:gravity="center|start"
-                            android:orientation="vertical"
-                            android:paddingBottom="6dp">
-
-                            <com.limpu.hitax.ui.widgets.FocusTextView
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:layout_gravity="center|start"
-                                android:layout_marginTop="8dp"
-                                android:singleLine="true"
-                                android:text="@string/ade_exam"
-                                android:textColor="?attr/textColorPrimary"
-                                android:textSize="16sp" />
-
-                            <com.limpu.hitax.ui.widgets.FocusTextView
-                                android:layout_width="match_parent"
-                                android:layout_height="wrap_content"
-                                android:layout_gravity="center|start"
-                                android:layout_marginTop="2dp"
-                                android:singleLine="true"
-                                android:text="@string/prompt_import"
-                                android:textColor="?attr/textColorPrimary"
-                                android:textSize="12sp"
-                                android:visibility="gone" />
-                        </LinearLayout>
-
-                        <ImageView
-                            android:id="@+id/imageView6"
-                            android:layout_width="24dp"
-                            android:layout_height="24dp"
-                            android:layout_gravity="center"
-                            android:tintMode="src_in"
-                            app:srcCompat="@drawable/ic_baseline_keyboard_arrow_right_24"
-                            app:tint="?attr/colorPrimaryDisabled" />
-
-                    </LinearLayout>
-
+                    <ImageView
+                        android:layout_width="24dp"
+                        android:layout_height="24dp"
+                        android:tintMode="src_in"
+                        app:srcCompat="@drawable/ic_baseline_keyboard_arrow_right_24"
+                        app:tint="?attr/colorOnSurfaceVariant" />
                 </LinearLayout>
 
-                <LinearLayout
+                <View
                     android:layout_width="match_parent"
-                    android:layout_height="match_parent"
-                    android:layout_weight="1"
-                    android:orientation="horizontal">
+                    android:layout_height="0.5dp"
+                    android:layout_marginStart="@dimen/space_4"
+                    android:layout_marginEnd="@dimen/space_4"
+                    android:background="?attr/colorOutlineVariant" />
+
+                <!-- ICS 导入 -->
+                <LinearLayout
+                    android:id="@+id/card_ics_import"
+                    android:layout_width="match_parent"
+                    android:layout_height="56dp"
+                    android:foreground="?attr/selectableItemBackgroundBorderless"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
+                    android:paddingStart="@dimen/space_4"
+                    android:paddingEnd="@dimen/space_4">
+
+                    <ImageView
+                        android:layout_width="40dp"
+                        android:layout_height="40dp"
+                        android:background="@drawable/shape_circle"
+                        android:backgroundTint="?attr/colorPrimaryContainer"
+                        android:padding="8dp"
+                        android:scaleType="fitCenter"
+                        app:srcCompat="@drawable/ic_baseline_cloud_download_24"
+                        app:tint="?attr/colorOnPrimaryContainer" />
 
                     <LinearLayout
-                        android:id="@+id/card_empty_classroom"
-                        android:layout_width="match_parent"
-                        android:layout_height="64dp"
-                        android:layout_marginEnd="8dp"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="@dimen/space_3"
                         android:layout_weight="1"
-                        android:foreground="?attr/selectableItemBackgroundBorderless"
-                        android:orientation="horizontal"
-                        android:padding="4dp"
-                        android:paddingStart="16dp"
-                        android:paddingEnd="0dp">
+                        android:gravity="center_vertical"
+                        android:orientation="vertical">
 
-                        <ImageView
-                            android:layout_width="32dp"
-                            android:layout_height="32dp"
-                            android:layout_gravity="center"
-                            app:srcCompat="@drawable/ic_bc_organization" />
+                        <com.limpu.hitax.ui.widgets.FocusTextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:singleLine="true"
+                            android:text="导入 ICS 课表"
+                            android:textAppearance="@style/TextAppearance.HITA.BodyMedium"
+                            android:textColor="?attr/colorOnSurface" />
 
-                        <LinearLayout
-                            android:layout_width="0dp"
-                            android:layout_height="match_parent"
-                            android:layout_marginStart="16dp"
-                            android:layout_weight="1"
-                            android:gravity="center|start"
-                            android:orientation="vertical"
-                            android:paddingBottom="6dp">
-
-                            <com.limpu.hitax.ui.widgets.FocusTextView
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:layout_gravity="center|start"
-                                android:layout_marginTop="8dp"
-                                android:singleLine="true"
-                                android:text="@string/shortcut_empty_classroom_short"
-                                android:textColor="?attr/textColorPrimary"
-                                android:textSize="16sp" />
-
-                            <com.limpu.hitax.ui.widgets.FocusTextView
-                                android:layout_width="match_parent"
-                                android:layout_height="wrap_content"
-                                android:layout_gravity="center|start"
-                                android:layout_marginTop="2dp"
-                                android:singleLine="true"
-                                android:text="@string/prompt_empty_classroom"
-                                android:textColor="?attr/textColorPrimary"
-                                android:textSize="12sp"
-                                android:visibility="gone" />
-                        </LinearLayout>
-
-                        <ImageView
-                            android:id="@+id/imageView4"
-                            android:layout_width="24dp"
-                            android:layout_height="24dp"
-                            android:layout_gravity="center"
-                            android:tintMode="src_in"
-                            app:srcCompat="@drawable/ic_baseline_keyboard_arrow_right_24"
-                            app:tint="?attr/colorPrimaryDisabled" />
-
+                        <com.limpu.hitax.ui.widgets.FocusTextView
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="2dp"
+                            android:singleLine="true"
+                            android:text="从日历文件导入课程"
+                            android:textAppearance="@style/TextAppearance.HITA.BodySmall"
+                            android:textColor="?attr/colorOnSurfaceVariant" />
                     </LinearLayout>
 
-                    <LinearLayout
-                        android:id="@+id/card_scores"
-                        android:layout_width="match_parent"
-                        android:layout_height="64dp"
-                        android:layout_marginStart="8dp"
-                        android:layout_marginEnd="8dp"
-                        android:layout_weight="1"
-                        android:foreground="?attr/selectableItemBackgroundBorderless"
-                        android:orientation="horizontal"
-                        android:padding="4dp"
-                        android:paddingStart="16dp"
-                        android:paddingEnd="0dp">
-
-                        <ImageView
-                            android:layout_width="32dp"
-                            android:layout_height="32dp"
-                            android:layout_gravity="center"
-                            app:srcCompat="@drawable/ic_bc_score" />
-
-                        <LinearLayout
-                            android:layout_width="0dp"
-                            android:layout_height="match_parent"
-                            android:layout_marginStart="16dp"
-                            android:layout_weight="1"
-                            android:gravity="center|start"
-                            android:orientation="vertical"
-                            android:paddingBottom="6dp">
-
-                            <com.limpu.hitax.ui.widgets.FocusTextView
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:layout_gravity="center|start"
-                                android:layout_marginTop="8dp"
-                                android:singleLine="true"
-                                android:text="@string/jw_tabs_cj"
-                                android:textColor="?attr/textColorPrimary"
-                                android:textSize="16sp" />
-
-                            <com.limpu.hitax.ui.widgets.FocusTextView
-                                android:layout_width="match_parent"
-                                android:layout_height="wrap_content"
-                                android:layout_gravity="center|start"
-                                android:layout_marginTop="2dp"
-                                android:singleLine="true"
-                                android:text="@string/prompt_import"
-                                android:textColor="?attr/textColorPrimary"
-                                android:textSize="12sp"
-                                android:visibility="gone" />
-                        </LinearLayout>
-
-                        <ImageView
-                            android:id="@+id/imageView5"
-                            android:layout_width="24dp"
-                            android:layout_height="24dp"
-                            android:layout_gravity="center"
-                            android:tintMode="src_in"
-                            app:srcCompat="@drawable/ic_baseline_keyboard_arrow_right_24"
-                            app:tint="?attr/colorPrimaryDisabled" />
-
-                    </LinearLayout>
-
+                    <ImageView
+                        android:layout_width="24dp"
+                        android:layout_height="24dp"
+                        android:tintMode="src_in"
+                        app:srcCompat="@drawable/ic_baseline_keyboard_arrow_right_24"
+                        app:tint="?attr/colorOnSurfaceVariant" />
                 </LinearLayout>
-
             </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
 
-        </androidx.cardview.widget.CardView>
+        <!-- ====== 教务查询 ====== -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="@dimen/space_4"
+            android:layout_marginTop="@dimen/space_4"
+            android:layout_marginEnd="@dimen/space_4"
+            android:layout_marginBottom="@dimen/space_2"
+            android:text="@string/navi_jw_title"
+            android:textAppearance="@style/TextAppearance.HITA.TitleMedium"
+            android:textColor="?attr/colorOnSurface" />
 
+        <com.google.android.material.card.MaterialCardView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="@dimen/space_4"
+            android:layout_marginEnd="@dimen/space_4"
+            android:layout_marginBottom="@dimen/space_2"
+            app:cardCornerRadius="@dimen/corner_large"
+            app:cardElevation="0dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:paddingTop="@dimen/space_1"
+                android:paddingBottom="@dimen/space_1">
+
+                <!-- 考试安排 -->
+                <LinearLayout
+                    android:id="@+id/card_subjects"
+                    android:layout_width="match_parent"
+                    android:layout_height="56dp"
+                    android:foreground="?attr/selectableItemBackgroundBorderless"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
+                    android:paddingStart="@dimen/space_4"
+                    android:paddingEnd="@dimen/space_4">
+
+                    <ImageView
+                        android:layout_width="40dp"
+                        android:layout_height="40dp"
+                        android:background="@drawable/shape_circle"
+                        android:backgroundTint="?attr/colorPrimaryContainer"
+                        android:padding="8dp"
+                        android:scaleType="fitCenter"
+                        app:srcCompat="@drawable/ic_baseline_today_24"
+                        app:tint="?attr/colorOnPrimaryContainer" />
+
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="@dimen/space_3"
+                        android:layout_weight="1"
+                        android:gravity="center_vertical"
+                        android:orientation="vertical">
+
+                        <com.limpu.hitax.ui.widgets.FocusTextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:singleLine="true"
+                            android:text="@string/ade_exam"
+                            android:textAppearance="@style/TextAppearance.HITA.BodyMedium"
+                            android:textColor="?attr/colorOnSurface" />
+                    </LinearLayout>
+
+                    <ImageView
+                        android:layout_width="24dp"
+                        android:layout_height="24dp"
+                        android:tintMode="src_in"
+                        app:srcCompat="@drawable/ic_baseline_keyboard_arrow_right_24"
+                        app:tint="?attr/colorOnSurfaceVariant" />
+                </LinearLayout>
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="0.5dp"
+                    android:layout_marginStart="@dimen/space_4"
+                    android:layout_marginEnd="@dimen/space_4"
+                    android:background="?attr/colorOutlineVariant" />
+
+                <!-- 成绩查询 -->
+                <LinearLayout
+                    android:id="@+id/card_scores"
+                    android:layout_width="match_parent"
+                    android:layout_height="56dp"
+                    android:foreground="?attr/selectableItemBackgroundBorderless"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
+                    android:paddingStart="@dimen/space_4"
+                    android:paddingEnd="@dimen/space_4">
+
+                    <ImageView
+                        android:layout_width="40dp"
+                        android:layout_height="40dp"
+                        android:background="@drawable/shape_circle"
+                        android:backgroundTint="?attr/colorPrimaryContainer"
+                        android:padding="8dp"
+                        android:scaleType="fitCenter"
+                        app:srcCompat="@drawable/ic_baseline_format_list_bulleted_24"
+                        app:tint="?attr/colorOnPrimaryContainer" />
+
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="@dimen/space_3"
+                        android:layout_weight="1"
+                        android:gravity="center_vertical"
+                        android:orientation="vertical">
+
+                        <com.limpu.hitax.ui.widgets.FocusTextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:singleLine="true"
+                            android:text="@string/jw_tabs_cj"
+                            android:textAppearance="@style/TextAppearance.HITA.BodyMedium"
+                            android:textColor="?attr/colorOnSurface" />
+                    </LinearLayout>
+
+                    <ImageView
+                        android:layout_width="24dp"
+                        android:layout_height="24dp"
+                        android:tintMode="src_in"
+                        app:srcCompat="@drawable/ic_baseline_keyboard_arrow_right_24"
+                        app:tint="?attr/colorOnSurfaceVariant" />
+                </LinearLayout>
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="0.5dp"
+                    android:layout_marginStart="@dimen/space_4"
+                    android:layout_marginEnd="@dimen/space_4"
+                    android:background="?attr/colorOutlineVariant" />
+
+                <!-- 空教室 -->
+                <LinearLayout
+                    android:id="@+id/card_empty_classroom"
+                    android:layout_width="match_parent"
+                    android:layout_height="56dp"
+                    android:foreground="?attr/selectableItemBackgroundBorderless"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
+                    android:paddingStart="@dimen/space_4"
+                    android:paddingEnd="@dimen/space_4">
+
+                    <ImageView
+                        android:layout_width="40dp"
+                        android:layout_height="40dp"
+                        android:background="@drawable/shape_circle"
+                        android:backgroundTint="?attr/colorPrimaryContainer"
+                        android:padding="8dp"
+                        android:scaleType="fitCenter"
+                        app:srcCompat="@drawable/ic_baseline_location_city_24"
+                        app:tint="?attr/colorOnPrimaryContainer" />
+
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="@dimen/space_3"
+                        android:layout_weight="1"
+                        android:gravity="center_vertical"
+                        android:orientation="vertical">
+
+                        <com.limpu.hitax.ui.widgets.FocusTextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:singleLine="true"
+                            android:text="@string/shortcut_empty_classroom_short"
+                            android:textAppearance="@style/TextAppearance.HITA.BodyMedium"
+                            android:textColor="?attr/colorOnSurface" />
+                    </LinearLayout>
+
+                    <ImageView
+                        android:layout_width="24dp"
+                        android:layout_height="24dp"
+                        android:tintMode="src_in"
+                        app:srcCompat="@drawable/ic_baseline_keyboard_arrow_right_24"
+                        app:tint="?attr/colorOnSurfaceVariant" />
+                </LinearLayout>
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <!-- ====== 课程资源 ====== -->
         <TextView
             android:id="@+id/textView"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_gravity="center"
-            android:layout_marginStart="26dp"
-            android:layout_marginTop="16dp"
-            android:layout_marginEnd="16dp"
-            android:layout_marginBottom="8dp"
+            android:layout_marginStart="@dimen/space_4"
+            android:layout_marginTop="@dimen/space_4"
+            android:layout_marginEnd="@dimen/space_4"
+            android:layout_marginBottom="@dimen/space_2"
             android:text="@string/navi_course_resource_title"
-            android:textColor="?attr/textColorPrimary"
-            android:textSize="18sp"
-            android:textStyle="bold"
-            android:visibility="visible" />
+            android:textAppearance="@style/TextAppearance.HITA.TitleMedium"
+            android:textColor="?attr/colorOnSurface" />
 
-        <androidx.cardview.widget.CardView
+        <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:layout_marginStart="16dp"
-            android:layout_marginTop="8dp"
-            android:layout_marginEnd="16dp"
-            android:layout_marginBottom="8dp"
-            android:focusable="true"
-            app:cardBackgroundColor="?attr/backgroundColorSecond"
-            app:cardCornerRadius="16dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="@dimen/space_4"
+            android:layout_marginEnd="@dimen/space_4"
+            android:layout_marginBottom="@dimen/space_2"
+            app:cardCornerRadius="@dimen/corner_large"
             app:cardElevation="0dp">
 
             <LinearLayout
                 android:layout_width="match_parent"
-                android:layout_height="match_parent"
-                android:layout_marginTop="8dp"
-                android:layout_marginBottom="8dp"
-                android:orientation="vertical">
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:paddingTop="@dimen/space_1"
+                android:paddingBottom="@dimen/space_1">
 
+                <!-- 课程查找 -->
                 <LinearLayout
                     android:id="@+id/card_course_lookup"
                     android:layout_width="match_parent"
-                    android:layout_height="64dp"
+                    android:layout_height="56dp"
                     android:foreground="?attr/selectableItemBackgroundBorderless"
+                    android:gravity="center_vertical"
                     android:orientation="horizontal"
-                    android:paddingStart="16dp"
-                    android:paddingEnd="8dp">
+                    android:paddingStart="@dimen/space_4"
+                    android:paddingEnd="@dimen/space_4">
 
                     <ImageView
-                        android:layout_width="32dp"
-                        android:layout_height="32dp"
-                        android:layout_gravity="center"
+                        android:layout_width="40dp"
+                        android:layout_height="40dp"
+                        android:background="@drawable/shape_circle"
+                        android:backgroundTint="?attr/colorPrimaryContainer"
+                        android:padding="8dp"
+                        android:scaleType="fitCenter"
                         app:srcCompat="@drawable/ic_baseline_search_24"
-                        app:tint="?attr/colorPrimary" />
+                        app:tint="?attr/colorOnPrimaryContainer" />
 
                     <LinearLayout
                         android:layout_width="0dp"
-                        android:layout_height="match_parent"
-                        android:layout_marginStart="16dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="@dimen/space_3"
                         android:layout_weight="1"
-                        android:gravity="center|start"
+                        android:gravity="center_vertical"
                         android:orientation="vertical">
 
                         <com.limpu.hitax.ui.widgets.FocusTextView
@@ -625,8 +605,8 @@
                             android:layout_height="wrap_content"
                             android:singleLine="true"
                             android:text="@string/navi_course_lookup"
-                            android:textColor="?attr/textColorPrimary"
-                            android:textSize="16sp" />
+                            android:textAppearance="@style/TextAppearance.HITA.BodyMedium"
+                            android:textColor="?attr/colorOnSurface" />
 
                         <com.limpu.hitax.ui.widgets.FocusTextView
                             android:layout_width="match_parent"
@@ -634,50 +614,52 @@
                             android:layout_marginTop="2dp"
                             android:singleLine="true"
                             android:text="@string/navi_course_lookup_sub"
-                            android:textColor="?attr/textColorSecondary"
-                            android:textSize="12sp" />
-
+                            android:textAppearance="@style/TextAppearance.HITA.BodySmall"
+                            android:textColor="?attr/colorOnSurfaceVariant" />
                     </LinearLayout>
 
                     <ImageView
                         android:layout_width="24dp"
                         android:layout_height="24dp"
-                        android:layout_gravity="center"
                         android:tintMode="src_in"
                         app:srcCompat="@drawable/ic_baseline_keyboard_arrow_right_24"
-                        app:tint="?attr/colorPrimaryDisabled" />
-
+                        app:tint="?attr/colorOnSurfaceVariant" />
                 </LinearLayout>
 
                 <View
                     android:layout_width="match_parent"
                     android:layout_height="0.5dp"
-                    android:layout_marginStart="16dp"
-                    android:layout_marginEnd="16dp"
-                    android:background="?attr/colorPrimaryDisabled" />
+                    android:layout_marginStart="@dimen/space_4"
+                    android:layout_marginEnd="@dimen/space_4"
+                    android:background="?attr/colorOutlineVariant" />
 
+                <!-- 提交 PR -->
                 <LinearLayout
                     android:id="@+id/card_course_submit_pr"
                     android:layout_width="match_parent"
-                    android:layout_height="64dp"
+                    android:layout_height="56dp"
                     android:foreground="?attr/selectableItemBackgroundBorderless"
+                    android:gravity="center_vertical"
                     android:orientation="horizontal"
-                    android:paddingStart="16dp"
-                    android:paddingEnd="8dp">
+                    android:paddingStart="@dimen/space_4"
+                    android:paddingEnd="@dimen/space_4">
 
                     <ImageView
-                        android:layout_width="32dp"
-                        android:layout_height="32dp"
-                        android:layout_gravity="center"
+                        android:layout_width="40dp"
+                        android:layout_height="40dp"
+                        android:background="@drawable/shape_circle"
+                        android:backgroundTint="?attr/colorPrimaryContainer"
+                        android:padding="8dp"
+                        android:scaleType="fitCenter"
                         app:srcCompat="@drawable/ic_baseline_edit_24"
-                        app:tint="?attr/colorPrimary" />
+                        app:tint="?attr/colorOnPrimaryContainer" />
 
                     <LinearLayout
                         android:layout_width="0dp"
-                        android:layout_height="match_parent"
-                        android:layout_marginStart="16dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="@dimen/space_3"
                         android:layout_weight="1"
-                        android:gravity="center|start"
+                        android:gravity="center_vertical"
                         android:orientation="vertical">
 
                         <com.limpu.hitax.ui.widgets.FocusTextView
@@ -685,8 +667,8 @@
                             android:layout_height="wrap_content"
                             android:singleLine="true"
                             android:text="@string/navi_course_submit_pr"
-                            android:textColor="?attr/textColorPrimary"
-                            android:textSize="16sp" />
+                            android:textAppearance="@style/TextAppearance.HITA.BodyMedium"
+                            android:textColor="?attr/colorOnSurface" />
 
                         <com.limpu.hitax.ui.widgets.FocusTextView
                             android:layout_width="match_parent"
@@ -694,80 +676,75 @@
                             android:layout_marginTop="2dp"
                             android:singleLine="true"
                             android:text="@string/navi_course_submit_pr_sub"
-                            android:textColor="?attr/textColorSecondary"
-                            android:textSize="12sp" />
-
+                            android:textAppearance="@style/TextAppearance.HITA.BodySmall"
+                            android:textColor="?attr/colorOnSurfaceVariant" />
                     </LinearLayout>
 
                     <ImageView
                         android:layout_width="24dp"
                         android:layout_height="24dp"
-                        android:layout_gravity="center"
                         android:tintMode="src_in"
                         app:srcCompat="@drawable/ic_baseline_keyboard_arrow_right_24"
-                        app:tint="?attr/colorPrimaryDisabled" />
-
+                        app:tint="?attr/colorOnSurfaceVariant" />
                 </LinearLayout>
-
             </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
 
-        </androidx.cardview.widget.CardView>
-
+        <!-- ====== 设置 ====== -->
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_gravity="center"
-            android:layout_marginStart="26dp"
-            android:layout_marginTop="16dp"
-            android:layout_marginEnd="16dp"
-            android:layout_marginBottom="8dp"
+            android:layout_marginStart="@dimen/space_4"
+            android:layout_marginTop="@dimen/space_4"
+            android:layout_marginEnd="@dimen/space_4"
+            android:layout_marginBottom="@dimen/space_2"
             android:text="设置"
-            android:textColor="?attr/textColorPrimary"
-            android:textSize="18sp"
-            android:textStyle="bold"
-            android:visibility="visible" />
+            android:textAppearance="@style/TextAppearance.HITA.TitleMedium"
+            android:textColor="?attr/colorOnSurface" />
 
-        <androidx.cardview.widget.CardView
+        <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginStart="16dp"
-            android:layout_marginTop="8dp"
-            android:layout_marginEnd="16dp"
-            android:layout_marginBottom="16dp"
-            app:cardBackgroundColor="?attr/backgroundColorSecond"
-            app:cardCornerRadius="16dp"
+            android:layout_marginStart="@dimen/space_4"
+            android:layout_marginEnd="@dimen/space_4"
+            android:layout_marginBottom="@dimen/space_4"
+            app:cardCornerRadius="@dimen/corner_large"
             app:cardElevation="0dp">
 
             <LinearLayout
                 android:layout_width="match_parent"
-                android:layout_height="match_parent"
-                android:layout_marginTop="8dp"
-                android:layout_marginBottom="8dp"
-                android:orientation="vertical">
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:paddingTop="@dimen/space_1"
+                android:paddingBottom="@dimen/space_1">
 
-                <!-- 课程提醒开关 -->
+                <!-- 课程提醒 -->
                 <LinearLayout
                     android:id="@+id/card_course_reminder"
                     android:layout_width="match_parent"
-                    android:layout_height="64dp"
+                    android:layout_height="56dp"
                     android:foreground="?attr/selectableItemBackgroundBorderless"
+                    android:gravity="center_vertical"
                     android:orientation="horizontal"
-                    android:paddingStart="16dp"
-                    android:paddingEnd="16dp">
+                    android:paddingStart="@dimen/space_4"
+                    android:paddingEnd="@dimen/space_4">
 
                     <ImageView
-                        android:layout_width="32dp"
-                        android:layout_height="32dp"
-                        android:layout_gravity="center"
+                        android:layout_width="40dp"
+                        android:layout_height="40dp"
+                        android:background="@drawable/shape_circle"
+                        android:backgroundTint="?attr/colorPrimaryContainer"
+                        android:padding="8dp"
+                        android:scaleType="fitCenter"
                         app:srcCompat="@drawable/ic_baseline_access_alarm_24"
-                        app:tint="?attr/colorPrimary" />
+                        app:tint="?attr/colorOnPrimaryContainer" />
 
                     <LinearLayout
                         android:layout_width="0dp"
-                        android:layout_height="match_parent"
-                        android:layout_marginStart="16dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="@dimen/space_3"
                         android:layout_weight="1"
-                        android:gravity="center|start"
+                        android:gravity="center_vertical"
                         android:orientation="vertical">
 
                         <com.limpu.hitax.ui.widgets.FocusTextView
@@ -775,8 +752,8 @@
                             android:layout_height="wrap_content"
                             android:singleLine="true"
                             android:text="课程提醒"
-                            android:textColor="?attr/textColorPrimary"
-                            android:textSize="16sp" />
+                            android:textAppearance="@style/TextAppearance.HITA.BodyMedium"
+                            android:textColor="?attr/colorOnSurface" />
 
                         <com.limpu.hitax.ui.widgets.FocusTextView
                             android:id="@+id/course_reminder_subtitle"
@@ -785,9 +762,8 @@
                             android:layout_marginTop="2dp"
                             android:singleLine="true"
                             android:text="上课前10分钟提醒"
-                            android:textColor="?attr/textColorSecondary"
-                            android:textSize="12sp" />
-
+                            android:textAppearance="@style/TextAppearance.HITA.BodySmall"
+                            android:textColor="?attr/colorOnSurfaceVariant" />
                     </LinearLayout>
 
                     <com.google.android.material.switchmaterial.SwitchMaterial
@@ -795,73 +771,8 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_gravity="center" />
-
                 </LinearLayout>
-
-                <View
-                    android:layout_width="match_parent"
-                    android:layout_height="0.5dp"
-                    android:layout_marginStart="16dp"
-                    android:layout_marginEnd="16dp"
-                    android:background="?attr/colorPrimaryDisabled" />
-
-                <!-- ICS 导入 -->
-                <LinearLayout
-                    android:id="@+id/card_ics_import"
-                    android:layout_width="match_parent"
-                    android:layout_height="64dp"
-                    android:foreground="?attr/selectableItemBackgroundBorderless"
-                    android:orientation="horizontal"
-                    android:paddingStart="16dp"
-                    android:paddingEnd="16dp">
-
-                    <ImageView
-                        android:layout_width="32dp"
-                        android:layout_height="32dp"
-                        android:layout_gravity="center"
-                        app:srcCompat="@drawable/ic_baseline_cloud_download_24"
-                        app:tint="?attr/colorPrimary" />
-
-                    <LinearLayout
-                        android:layout_width="0dp"
-                        android:layout_height="match_parent"
-                        android:layout_marginStart="16dp"
-                        android:layout_weight="1"
-                        android:gravity="center|start"
-                        android:orientation="vertical">
-
-                        <com.limpu.hitax.ui.widgets.FocusTextView
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:singleLine="true"
-                            android:text="导入 ICS 课表"
-                            android:textColor="?attr/textColorPrimary"
-                            android:textSize="16sp" />
-
-                        <com.limpu.hitax.ui.widgets.FocusTextView
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:layout_marginTop="2dp"
-                            android:singleLine="true"
-                            android:text="从日历文件导入课程"
-                            android:textColor="?attr/textColorSecondary"
-                            android:textSize="12sp" />
-
-                    </LinearLayout>
-
-                    <ImageView
-                        android:layout_width="24dp"
-                        android:layout_height="24dp"
-                        android:layout_gravity="center"
-                        android:tintMode="src_in"
-                        app:srcCompat="@drawable/ic_baseline_keyboard_arrow_right_24"
-                        app:tint="?attr/colorPrimaryDisabled" />
-
-                </LinearLayout>
-
             </LinearLayout>
-
-        </androidx.cardview.widget.CardView>
-
+        </com.google.android.material.card.MaterialCardView>
     </LinearLayout>
 </androidx.core.widget.NestedScrollView>

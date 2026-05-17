@@ -10,9 +10,9 @@
         android:layout_width="match_parent"
         android:layout_height="200dp"
         android:layout_gravity="center"
-        android:layout_margin="64dp"
+        android:layout_margin="@dimen/space_16"
         android:alpha="0.6"
-        app:tint="#11304ffe"
+        app:tint="@color/primary_subtle"
         app:tintMode="src_in"
         app:srcCompat="@drawable/ic_timeline" />
 

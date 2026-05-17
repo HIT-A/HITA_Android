@@ -9,7 +9,7 @@
         android:id="@+id/appbar"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:background="#00000000"
+        android:background="@android:color/transparent"
         android:fitsSystemWindows="true"
         app:elevation="0dp">
 
@@ -19,7 +19,7 @@
             android:layout_height="160dp"
             app:expandedTitleMargin="24dp"
             app:layout_scrollFlags="scroll|exitUntilCollapsed"
-            app:statusBarScrim="#00000000"
+            app:statusBarScrim="@android:color/transparent"
             app:title="@string/lecture_title"
             app:toolbarId="@id/toolbar">
 

@@ -134,6 +134,75 @@ object HoaResourceSource {
         return result
     }
 
+    /**
+     * 直接 callback 版本（无 LiveData，适合非 UI 线程调用如 Agent Tool）
+     */
+    fun searchCoursesDirect(
+        query: String,
+        campus: String? = null,
+        onResult: (DataState<List<CourseResourceItem>>) -> Unit,
+    ) {
+        Thread {
+            try {
+                val requestBody = JSONObject()
+                requestBody.put("keyword", query.trim())
+                requestBody.put("campus", normalizeHoaCampus(campus).orEmpty())
+
+                LogUtils.d("HoaResourceSource searchCoursesDirect start: query=$query")
+                val response = withHeaders(Jsoup.connect("$baseUrl/v1/courses:search"))
+                    .header("Content-Type", "application/json")
+                    .requestBody(requestBody.toString())
+                    .method(Connection.Method.POST)
+                    .execute()
+                LogUtils.d("HoaResourceSource searchCoursesDirect response: status=${response.statusCode()}")
+
+                if (response.statusCode() >= 400) {
+                    onResult(DataState(DataState.STATE.FETCH_FAILED, response.body()))
+                    return@Thread
+                }
+
+                val resObj = JSONObject(response.body())
+                if (!resObj.optBoolean("ok", false)) {
+                    val error = resObj.optJSONObject("error")
+                    onResult(DataState(DataState.STATE.FETCH_FAILED, error?.optString("message", "Unknown error")))
+                    return@Thread
+                }
+
+                val data = resObj.optJSONObject("data")
+                val resultsArr = data?.optJSONArray("results") ?: JSONArray()
+                val items = mutableListOf<CourseResourceItem>()
+
+                for (index in 0 until resultsArr.length()) {
+                    val obj = resultsArr.optJSONObject(index) ?: continue
+                    val org = obj.optString("org")
+                    val repo = obj.optString("repo")
+                    val repoName = if (org.isNotBlank() && repo.isNotBlank()) {
+                        "$org/$repo"
+                    } else {
+                        repo
+                    }
+
+                    items.add(
+                        CourseResourceItem(
+                            repoName = repoName,
+                            courseCode = obj.optString("code"),
+                            courseName = obj.optString("name"),
+                            repoType = obj.optString("repo_type", "normal"),
+                            campus = obj.optString("campus"),
+                            teachers = jsonArrayToList(obj.optJSONArray("teachers")),
+                            aliases = jsonArrayToList(obj.optJSONArray("aliases")),
+                        )
+                    )
+                }
+                LogUtils.d("HoaResourceSource searchCoursesDirect success: count=${items.size}")
+                onResult(DataState(items, DataState.STATE.SUCCESS))
+            } catch (e: Exception) {
+                LogUtils.e("HoaResourceSource searchCoursesDirect error", e)
+                onResult(DataState(DataState.STATE.FETCH_FAILED, e.message))
+            }
+        }.start()
+    }
+
     fun getCourseReadme(repoName: String, campus: String? = null): LiveData<DataState<CourseReadmeData>> {
         val result = MutableLiveData<DataState<CourseReadmeData>>()
         Thread {

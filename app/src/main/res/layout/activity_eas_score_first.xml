@@ -11,7 +11,7 @@
         android:id="@+id/appbar"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:background="#00000000"
+        android:background="@android:color/transparent"
         android:fitsSystemWindows="true"
         app:elevation="0dp">
 
@@ -21,7 +21,7 @@
             android:layout_height="160dp"
             app:expandedTitleMargin="24dp"
             app:layout_scrollFlags="scroll|exitUntilCollapsed"
-            app:statusBarScrim="#00000000"
+            app:statusBarScrim="@android:color/transparent"
             app:title="@string/label_activity_score_inquiry"
             app:toolbarId="@id/toolbar">
 
@@ -39,10 +39,10 @@
         <androidx.cardview.widget.CardView
             android:layout_width="match_parent"
             android:layout_height="match_parent"
-            android:layout_marginStart="16dp"
-            android:layout_marginEnd="16dp"
-            android:layout_marginBottom="8dp"
-            android:padding="8dp"
+            android:layout_marginStart="@dimen/space_4"
+            android:layout_marginEnd="@dimen/space_4"
+            android:layout_marginBottom="@dimen/space_2"
+            android:padding="@dimen/space_2"
             app:cardBackgroundColor="?attr/backgroundColorSecond"
             app:cardCornerRadius="16dp"
             app:cardElevation="0dp">
@@ -51,8 +51,8 @@
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
                 android:orientation="horizontal"
-                android:paddingStart="8dp"
-                android:paddingEnd="8dp">
+                android:paddingStart="@dimen/space_2"
+                android:paddingEnd="@dimen/space_2">
 
                 <LinearLayout
                     android:id="@+id/school_semester_layout"
@@ -63,7 +63,7 @@
                     android:focusable="true"
                     android:foreground="?attr/selectableItemBackgroundBorderless"
                     android:orientation="horizontal"
-                    android:padding="8dp">
+                    android:padding="@dimen/space_2">
 
                     <TextView
                         android:id="@+id/school_semester_text"
@@ -91,7 +91,7 @@
                     android:focusable="true"
                     android:foreground="?attr/selectableItemBackgroundBorderless"
                     android:orientation="horizontal"
-                    android:padding="8dp">
+                    android:padding="@dimen/space_2">
 
                     <TextView
                         android:id="@+id/test_type_text"
@@ -136,9 +136,9 @@
                     android:id="@+id/score_summary_card"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginStart="16dp"
-                    android:layout_marginTop="12dp"
-                    android:layout_marginEnd="16dp"
+                    android:layout_marginStart="@dimen/space_4"
+                    android:layout_marginTop="@dimen/space_3"
+                    android:layout_marginEnd="@dimen/space_4"
                     app:cardBackgroundColor="?attr/backgroundColorSecond"
                     app:cardCornerRadius="24dp"
                     app:cardElevation="0dp">
@@ -147,7 +147,7 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:orientation="horizontal"
-                        android:padding="16dp">
+                        android:padding="@dimen/space_4">
 
                         <LinearLayout
                             android:layout_width="0dp"
@@ -165,7 +165,7 @@
                                 android:id="@+id/score_gpa_value"
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
-                                android:layout_marginTop="4dp"
+                                android:layout_marginTop="@dimen/space_1"
                                 android:text="-"
                                 android:textColor="?attr/textColorPrimary"
                                 android:textSize="16sp"
@@ -188,7 +188,7 @@
                                 android:id="@+id/score_rank_value"
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
-                                android:layout_marginTop="4dp"
+                                android:layout_marginTop="@dimen/space_1"
                                 android:text="-"
                                 android:textColor="?attr/textColorPrimary"
                                 android:textSize="16sp"
@@ -201,9 +201,9 @@
                     android:id="@+id/score_reminder_card"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginStart="16dp"
-                    android:layout_marginTop="8dp"
-                    android:layout_marginEnd="16dp"
+                    android:layout_marginStart="@dimen/space_4"
+                    android:layout_marginTop="@dimen/space_2"
+                    android:layout_marginEnd="@dimen/space_4"
                     app:cardBackgroundColor="?attr/backgroundColorSecond"
                     app:cardCornerRadius="24dp"
                     app:cardElevation="0dp">
@@ -213,7 +213,7 @@
                         android:layout_height="wrap_content"
                         android:gravity="center_vertical"
                         android:orientation="horizontal"
-                        android:padding="16dp">
+                        android:padding="@dimen/space_4">
 
                         <LinearLayout
                             android:layout_width="0dp"
@@ -231,7 +231,7 @@
                             <TextView
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
-                                android:layout_marginTop="4dp"
+                                android:layout_marginTop="@dimen/space_1"
                                 android:text="@string/score_reminder_subtitle"
                                 android:textColor="?attr/textColorSecondary"
                                 android:textSize="12sp" />
@@ -241,7 +241,7 @@
                             android:id="@+id/score_reminder_switch"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:layout_marginStart="12dp"
+                            android:layout_marginStart="@dimen/space_3"
                             tools:ignore="UseSwitchCompatOrMaterialXml" />
                     </LinearLayout>
                 </androidx.cardview.widget.CardView>
@@ -251,10 +251,10 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_gravity="center"
-                    android:layout_marginStart="24dp"
-                    android:layout_marginTop="64dp"
-                    android:layout_marginEnd="24dp"
-                    android:layout_marginBottom="24dp"
+                    android:layout_marginStart="@dimen/space_6"
+                    android:layout_marginTop="@dimen/space_16"
+                    android:layout_marginEnd="@dimen/space_6"
+                    android:layout_marginBottom="@dimen/space_6"
                     android:alpha="0.8"
                     android:orientation="vertical"
                     android:visibility="gone">
@@ -264,7 +264,7 @@
                         android:layout_height="100dp"
                         android:layout_gravity="center"
                         android:background="@drawable/element_round_primary_light"
-                        android:padding="24dp"
+                        android:padding="@dimen/space_6"
                         app:srcCompat="@drawable/ic_empty"
                         app:tint="?attr/colorPrimary" />
 
@@ -272,16 +272,16 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_gravity="center"
-                        android:layout_marginTop="12dp"
+                        android:layout_marginTop="@dimen/space_3"
                         android:text="@string/no_info" />
                 </LinearLayout>
 
                 <androidx.cardview.widget.CardView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginStart="16dp"
-                    android:layout_marginTop="8dp"
-                    android:layout_marginEnd="16dp"
+                    android:layout_marginStart="@dimen/space_4"
+                    android:layout_marginTop="@dimen/space_2"
+                    android:layout_marginEnd="@dimen/space_4"
                     android:clickable="true"
                     android:focusable="true"
                     android:foreground="?attr/selectableItemBackgroundBorderless"

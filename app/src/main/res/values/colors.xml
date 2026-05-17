@@ -1,58 +1,141 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="purple_200">#FFBB86FC</color>
-    <color name="purple_500">#FF6200EE</color>
-    <color name="purple_700">#FF3700B3</color>
-    <color name="teal_200">#FF03DAC5</color>
-    <color name="teal_700">#FF018786</color>
+    <!-- ========================================== -->
+    <!-- Material 3 语义化颜色体系                     -->
+    <!-- ========================================== -->
+
+    <!-- Primary -->
+    <color name="primary">#304ffe</color>
+    <color name="on_primary">#FFFFFFFF</color>
+    <color name="primary_container">#FFE8E6FF</color>
+    <color name="on_primary_container">#FF0004A3</color>
+    <color name="primary_disabled">#FFcbd4e2</color>
+
+    <!-- Secondary -->
+    <color name="secondary">#FF736dfe</color>
+    <color name="on_secondary">#FFFFFFFF</color>
+    <color name="secondary_container">#FFE8E6FF</color>
+    <color name="on_secondary_container">#FF0004A3</color>
+
+    <!-- Tertiary -->
+    <color name="tertiary">#FF3C8CE7</color>
+    <color name="on_tertiary">#FFFFFFFF</color>
+    <color name="tertiary_container">#FFD6E4FF</color>
+    <color name="on_tertiary_container">#FF003366</color>
+
+    <!-- Surface / Background -->
+    <color name="surface">#FFF6F7Fa</color>
+    <color name="surface_variant">#FFFFFFFF</color>
+    <color name="surface_tint">#11304ffe</color>
+    <color name="on_surface">#FF000000</color>
+    <color name="on_surface_variant">#FF808080</color>
+
+    <!-- Inverse Surface -->
+    <color name="inverse_surface">#FF1E1E1E</color>
+    <color name="inverse_on_surface">#FFFFFFFF</color>
+    <color name="inverse_primary">#FF7B8CFF</color>
+
+    <!-- Error -->
+    <color name="error">#FFB3261E</color>
+    <color name="on_error">#FFFFFFFF</color>
+    <color name="error_container">#FFF9DEDC</color>
+    <color name="on_error_container">#FF410E0B</color>
+
+    <!-- Outline -->
+    <color name="outline">#FF79747E</color>
+    <color name="outline_variant">#FFCAC4D0</color>
+
+    <!-- ========================================== -->
+    <!-- 基础颜色                                     -->
+    <!-- ========================================== -->
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
+    <color name="grayA5">#FFA5A5A5</color>
+    <color name="baseWhite">#FFFFFFFF</color>
 
+    <!-- ========================================== -->
+    <!-- 品牌扩展色（保留原有值）                      -->
+    <!-- ========================================== -->
+    <color name="color_fade">#736dfe</color>
+    <color name="color_cruel_summer_fade">#3C8CE7</color>
 
-    <color name="cruel_summer_primary">#304ffe</color>
-    <color name="cruel_summer_fade">#3C8CE7</color>
-    <color name="cruel_summer_primary_disabled">#cbd4e2</color>
+    <!-- ========================================== -->
+    <!-- 半透明功能色                                -->
+    <!-- ========================================== -->
+    <color name="primary_subtle">#11304ffe</color>
+    <color name="on_surface_hint">#77ffffff</color>
+    <color name="surface_disabled">#66FFFFFF</color>
 
-    <color name="subject3">#ec407a</color>
-    <color name="subject4">#FF9E00</color>
-    <color name="subject5">#7c4dff</color>
-    <color name="subject7">#536dfe</color>
-    <color name="subject8">#2196f3</color>
-    <color name="subject9">#26c6da</color>
-    <color name="subject10">#009688</color>
-    <color name="subject1">#7cba59</color>
-    <color name="subject6">#E96D71</color>
-    <color name="light_blue_50">#FFE1F5FE</color>
-    <color name="light_blue_200">#FF81D4FA</color>
-    <color name="light_blue_600">#FF039BE5</color>
-    <color name="light_blue_900">#FF01579B</color>
-    <color name="spring">#a0ff57</color>
-    <color name="summer">#57c7ff</color>
-    <color name="autumn">#ffb157</color>
-    <color name="winter">#3381ff</color>
+    <!-- ========================================== -->
+    <!-- 兼容别名 (旧命名保留)                        -->
+    <!-- ========================================== -->
+    <color name="cruel_summer_primary">@color/primary</color>
+    <color name="cruel_summer_fade">@color/tertiary</color>
+    <color name="cruel_summer_primary_disabled">@color/primary_disabled</color>
 
-    <color name="spring_text">#60af17</color>
-    <color name="summer_text">#37a7df</color>
-    <color name="autumn_text">#ffb157</color>
-    <color name="winter_text">#01579B</color>
+    <!-- 季节色兼容别名 -->
+    <color name="spring">@color/season_spring</color>
+    <color name="summer">@color/season_summer</color>
+    <color name="autumn">@color/season_autumn</color>
+    <color name="winter">@color/season_winter</color>
+    <color name="spring_text">@color/season_spring_text</color>
+    <color name="summer_text">@color/season_summer_text</color>
+    <color name="autumn_text">@color/season_autumn_text</color>
+    <color name="winter_text">@color/season_winter_text</color>
 
-    <!-- 小部件日间模式颜色 -->
+    <!-- 课程色兼容别名 -->
+    <color name="subject1">@color/subject_1</color>
+    <color name="subject3">@color/subject_3</color>
+    <color name="subject4">@color/subject_4</color>
+    <color name="subject5">@color/subject_5</color>
+    <color name="subject6">@color/subject_6</color>
+    <color name="subject7">@color/subject_7</color>
+    <color name="subject8">@color/subject_8</color>
+    <color name="subject9">@color/subject_9</color>
+    <color name="subject10">@color/subject_10</color>
+
+    <!-- ========================================== -->
+    <!-- 课程卡片功能色                                -->
+    <!-- ========================================== -->
+    <color name="subject_1">#7cba59</color>
+    <color name="subject_3">#ec407a</color>
+    <color name="subject_4">#FF9E00</color>
+    <color name="subject_5">#7c4dff</color>
+    <color name="subject_6">#E96D71</color>
+    <color name="subject_7">#536dfe</color>
+    <color name="subject_8">#2196f3</color>
+    <color name="subject_9">#26c6da</color>
+    <color name="subject_10">#009688</color>
+
+    <!-- ========================================== -->
+    <!-- 季节主题色                                   -->
+    <!-- ========================================== -->
+    <color name="season_spring">#a0ff57</color>
+    <color name="season_summer">#57c7ff</color>
+    <color name="season_autumn">#ffb157</color>
+    <color name="season_winter">#3381ff</color>
+
+    <color name="season_spring_text">#60af17</color>
+    <color name="season_summer_text">#37a7df</color>
+    <color name="season_autumn_text">#ffb157</color>
+    <color name="season_winter_text">#01579B</color>
+
+    <!-- ========================================== -->
+    <!-- 小部件颜色（日间）                            -->
+    <!-- ========================================== -->
     <color name="widget_background">#FFFFFFFF</color>
-    <color name="widget_text_primary">#FF202020</color>
-    <color name="widget_text_secondary">#FF858585</color>
-    <color name="widget_divider">#1F000000</color>
     <color name="widget_background_light">#FFFFFFFF</color>
     <color name="widget_background_dark">#FF1E1E1E</color>
+    <color name="widget_text_primary">#FF202020</color>
     <color name="widget_text_primary_light">#FF202020</color>
     <color name="widget_text_primary_dark">#FFFFFFFF</color>
+    <color name="widget_text_secondary">#FF858585</color>
     <color name="widget_text_secondary_light">#FF858585</color>
     <color name="widget_text_secondary_dark">#D9FFFFFF</color>
+    <color name="widget_divider">#1F000000</color>
     <color name="widget_divider_light">#1F000000</color>
     <color name="widget_divider_dark">#33FFFFFF</color>
     <color name="widget_location_chip_dark">#22304FFE</color>
     <color name="widget_icon_subtle_dark">#80FFFFFF</color>
     <color name="widget_placeholder_tint_dark">#40FFFFFF</color>
-
-    <color name="baseWhite">#FFFFFF</color>
-    <color name="grayA5">#A5A5A5</color>
 </resources>

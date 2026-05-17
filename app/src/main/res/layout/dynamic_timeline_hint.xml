@@ -26,9 +26,9 @@
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="match_parent"
-            android:layout_marginLeft="16dp"
-            android:layout_marginTop="16dp"
-            android:layout_marginRight="16dp"
+            android:layout_marginLeft="@dimen/space_4"
+            android:layout_marginTop="@dimen/space_4"
+            android:layout_marginRight="@dimen/space_4"
             android:layout_weight="1"
             android:orientation="horizontal"
             tools:ignore="UseCompoundDrawables">
@@ -45,7 +45,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_gravity="center"
-                android:layout_marginStart="8dp"
+                android:layout_marginStart="@dimen/space_2"
                 android:text="@string/navi_hint_text"
                 android:textColor="@color/white"
                 android:textSize="18sp"
@@ -62,7 +62,7 @@
             android:layout_weight="1"
             android:gravity="center"
             android:text="@string/navi_hint_button"
-            android:textColor="#77ffffff"
+            android:textColor="@color/on_surface_hint"
             android:textSize="16sp"
             android:textStyle="bold" />
 

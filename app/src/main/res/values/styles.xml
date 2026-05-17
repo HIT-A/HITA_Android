@@ -1,0 +1,184 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- ========================================== -->
+    <!-- ShapeAppearance 规范                         -->
+    <!-- ========================================== -->
+    <style name="ShapeAppearance.HITA" parent="">
+        <item name="cornerFamily">rounded</item>
+    </style>
+
+    <style name="ShapeAppearance.HITA.ExtraSmall">
+        <item name="cornerSize">@dimen/corner_extra_small</item>
+    </style>
+
+    <style name="ShapeAppearance.HITA.Small">
+        <item name="cornerSize">@dimen/corner_small</item>
+    </style>
+
+    <style name="ShapeAppearance.HITA.Medium">
+        <item name="cornerSize">@dimen/corner_medium</item>
+    </style>
+
+    <style name="ShapeAppearance.HITA.Large">
+        <item name="cornerSize">@dimen/corner_large</item>
+    </style>
+
+    <style name="ShapeAppearance.HITA.ExtraLarge">
+        <item name="cornerSize">@dimen/corner_extra_large</item>
+    </style>
+
+    <style name="ShapeAppearance.HITA.Full">
+        <item name="cornerSize">50%</item>
+    </style>
+
+    <!-- ========================================== -->
+    <!-- CardView 样式                                -->
+    <!-- ========================================== -->
+    <style name="Widget.HITA.CardView" parent="Widget.Material3.CardView.Elevated">
+        <item name="cardCornerRadius">@dimen/corner_large</item>
+        <item name="cardElevation">0dp</item>
+        <item name="cardBackgroundColor">?attr/colorSurfaceVariant</item>
+    </style>
+
+    <style name="Widget.HITA.CardView.Small">
+        <item name="cardCornerRadius">@dimen/corner_medium</item>
+    </style>
+
+    <style name="Widget.HITA.CardView.Medium">
+        <item name="cardCornerRadius">@dimen/corner_large</item>
+    </style>
+
+    <style name="Widget.HITA.CardView.ExtraLarge">
+        <item name="cardCornerRadius">@dimen/corner_extra_large</item>
+    </style>
+
+    <!-- ========================================== -->
+    <!-- Button 样式                                  -->
+    <!-- ========================================== -->
+    <style name="Widget.HITA.Button" parent="Widget.Material3.Button">
+        <item name="cornerRadius">@dimen/corner_extra_large</item>
+    </style>
+
+    <style name="Widget.HITA.Button.Outlined" parent="Widget.Material3.Button.OutlinedButton">
+        <item name="cornerRadius">@dimen/corner_extra_large</item>
+    </style>
+
+    <style name="Widget.HITA.Button.Text" parent="Widget.Material3.Button.TextButton">
+        <item name="cornerRadius">@dimen/corner_extra_large</item>
+    </style>
+
+    <style name="Widget.HITA.Button.Tonal" parent="Widget.Material3.Button.TonalButton">
+        <item name="cornerRadius">@dimen/corner_extra_large</item>
+    </style>
+
+    <!-- ========================================== -->
+    <!-- Dialog 样式                                  -->
+    <!-- ========================================== -->
+    <style name="Widget.HITA.Dialog" parent="ThemeOverlay.Material3.MaterialAlertDialog">
+        <item name="dialogCornerRadius">@dimen/corner_large</item>
+    </style>
+
+    <!-- ========================================== -->
+    <!-- TextAppearance 文本样式                      -->
+    <!-- ========================================== -->
+    <style name="TextAppearance.HITA.DisplayLarge" parent="TextAppearance.Material3.DisplayLarge">
+        <item name="android:textColor">?attr/colorOnSurface</item>
+    </style>
+
+    <style name="TextAppearance.HITA.DisplayMedium" parent="TextAppearance.Material3.DisplayMedium">
+        <item name="android:textColor">?attr/colorOnSurface</item>
+    </style>
+
+    <style name="TextAppearance.HITA.HeadlineLarge" parent="TextAppearance.Material3.HeadlineLarge">
+        <item name="android:textColor">?attr/colorOnSurface</item>
+    </style>
+
+    <style name="TextAppearance.HITA.HeadlineMedium" parent="TextAppearance.Material3.HeadlineMedium">
+        <item name="android:textColor">?attr/colorOnSurface</item>
+    </style>
+
+    <style name="TextAppearance.HITA.HeadlineSmall" parent="TextAppearance.Material3.HeadlineSmall">
+        <item name="android:textColor">?attr/colorOnSurface</item>
+    </style>
+
+    <style name="TextAppearance.HITA.TitleLarge" parent="TextAppearance.Material3.TitleLarge">
+        <item name="android:textColor">?attr/colorOnSurface</item>
+    </style>
+
+    <style name="TextAppearance.HITA.TitleMedium" parent="TextAppearance.Material3.TitleMedium">
+        <item name="android:textColor">?attr/colorOnSurface</item>
+    </style>
+
+    <style name="TextAppearance.HITA.TitleSmall" parent="TextAppearance.Material3.TitleSmall">
+        <item name="android:textColor">?attr/colorOnSurfaceVariant</item>
+    </style>
+
+    <style name="TextAppearance.HITA.BodyLarge" parent="TextAppearance.Material3.BodyLarge">
+        <item name="android:textColor">?attr/colorOnSurface</item>
+    </style>
+
+    <style name="TextAppearance.HITA.BodyMedium" parent="TextAppearance.Material3.BodyMedium">
+        <item name="android:textColor">?attr/colorOnSurfaceVariant</item>
+    </style>
+
+    <style name="TextAppearance.HITA.BodySmall" parent="TextAppearance.Material3.BodySmall">
+        <item name="android:textColor">?attr/colorOnSurfaceVariant</item>
+    </style>
+
+    <style name="TextAppearance.HITA.LabelLarge" parent="TextAppearance.Material3.LabelLarge">
+        <item name="android:textColor">?attr/colorOnSurface</item>
+    </style>
+
+    <style name="TextAppearance.HITA.LabelMedium" parent="TextAppearance.Material3.LabelMedium">
+        <item name="android:textColor">?attr/colorOnSurfaceVariant</item>
+    </style>
+
+    <style name="TextAppearance.HITA.LabelSmall" parent="TextAppearance.Material3.LabelSmall">
+        <item name="android:textColor">?attr/colorOnSurfaceVariant</item>
+    </style>
+
+    <!-- ========================================== -->
+    <!-- 水波纹样式 (统一)                            -->
+    <!-- ========================================== -->
+    <style name="Ripple.HITA" parent="">
+    </style>
+
+    <style name="Ripple.HITA.Primary">
+        <item name="android:colorControlHighlight">?attr/colorPrimaryContainer</item>
+    </style>
+
+    <style name="Ripple.HITA.Secondary">
+        <item name="android:colorControlHighlight">?attr/colorSecondaryContainer</item>
+    </style>
+
+    <style name="Ripple.HITA.Surface">
+        <item name="android:colorControlHighlight">?attr/colorSurfaceVariant</item>
+    </style>
+
+    <style name="Ripple.HITA.OnSurface">
+        <item name="android:colorControlHighlight">?attr/colorOnSurfaceVariant</item>
+    </style>
+
+    <!-- ========================================== -->
+    <!-- Tab 文本样式                                 -->
+    <!-- ========================================== -->
+    <style name="TextAppearance.HITA.Tab" parent="TextAppearance.Material3.TitleMedium">
+        <item name="android:textColor">?attr/colorOnSurfaceVariant</item>
+    </style>
+
+    <style name="TextAppearance.HITA.Tab.Selected" parent="TextAppearance.Material3.TitleMedium">
+        <item name="android:textColor">?attr/colorOnSurface</item>
+    </style>
+
+    <!-- ========================================== -->
+    <!-- Toolbar 样式                                 -->
+    <!-- ========================================== -->
+    <style name="Widget.HITA.Toolbar" parent="Widget.Material3.Toolbar">
+        <item name="android:background">@android:color/transparent</item>
+        <item name="titleTextAppearance">@style/TextAppearance.HITA.TitleLarge</item>
+    </style>
+
+    <style name="Widget.HITA.Toolbar.Surface" parent="Widget.Material3.Toolbar.Surface">
+        <item name="titleTextAppearance">@style/TextAppearance.HITA.TitleLarge</item>
+    </style>
+</resources>

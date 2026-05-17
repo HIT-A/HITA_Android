@@ -9,19 +9,21 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 import com.limpu.hitauser.data.model.UserProfile
 import com.limpu.hitax.data.model.chat.ChatMessageEntity
 import com.limpu.hitax.data.model.chat.ChatSession
+import com.limpu.hitax.data.model.classroom.ClassroomCacheEntity
 import com.limpu.hitax.data.model.timetable.EventItem
 import com.limpu.hitax.data.model.timetable.TermSubject
 import com.limpu.hitax.data.model.timetable.Timetable
 import com.limpu.hitax.data.source.dao.ChatMessageDao
 import com.limpu.hitax.data.source.dao.ChatSessionDao
+import com.limpu.hitax.data.source.dao.ClassroomCacheDao
 import com.limpu.hitax.data.source.dao.EventItemDao
 import com.limpu.hitax.data.source.dao.SubjectDao
 import com.limpu.hitax.data.source.dao.TimetableDao
 import com.limpu.hitauser.data.source.dao.UserProfileDao
 
 @Database(
-    entities = [EventItem::class, TermSubject::class, Timetable::class, ChatSession::class, ChatMessageEntity::class],
-    version = 7
+    entities = [EventItem::class, TermSubject::class, Timetable::class, ChatSession::class, ChatMessageEntity::class, ClassroomCacheEntity::class],
+    version = 8
 )
 @androidx.room.TypeConverters(TypeConverters::class)
 abstract class AppDatabase : RoomDatabase() {
@@ -30,6 +32,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun timetableDao(): TimetableDao
     abstract fun chatSessionDao(): ChatSessionDao
     abstract fun chatMessageDao(): ChatMessageDao
+    abstract fun classroomCacheDao(): ClassroomCacheDao
 
     companion object {
         @Volatile
@@ -43,7 +46,7 @@ abstract class AppDatabase : RoomDatabase() {
                         INSTANCE = Room.databaseBuilder(
                             context.applicationContext,
                             AppDatabase::class.java, "hita"
-                        ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
+                        ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
                             .fallbackToDestructiveMigration()
                             .build()
                     }
@@ -86,6 +89,14 @@ abstract class AppDatabase : RoomDatabase() {
 
         private val MIGRATION_6_7 = object : Migration(6, 7) {
             override fun migrate(db: SupportSQLiteDatabase) {
+            }
+        }
+
+        private val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("CREATE TABLE IF NOT EXISTS classroom_cache (buildingId TEXT NOT NULL, buildingName TEXT NOT NULL, termYearCode TEXT NOT NULL, termTermCode TEXT NOT NULL, week INTEGER NOT NULL, name TEXT NOT NULL, capacity INTEGER NOT NULL, specialClassroom TEXT, scheduleJson TEXT NOT NULL, cachedAt INTEGER NOT NULL, PRIMARY KEY(buildingId, termYearCode, termTermCode, week, name))")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_classroom_cache_termYearCode_termTermCode_week ON classroom_cache(termYearCode, termTermCode, week)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_classroom_cache_cachedAt ON classroom_cache(cachedAt)")
             }
         }
     }

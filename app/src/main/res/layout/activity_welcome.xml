@@ -14,7 +14,7 @@
         android:layout_width="match_parent"
 
         android:layout_height="360dp"
-        android:background="#00000000"
+        android:background="@android:color/transparent"
         android:fitsSystemWindows="true"
         app:elevation="0dp">
 
@@ -25,14 +25,14 @@
             android:layout_weight="1"
 
             app:layout_scrollFlags="scroll|enterAlways|enterAlwaysCollapsed|exitUntilCollapsed"
-            app:statusBarScrim="#00000000"
+            app:statusBarScrim="@android:color/transparent"
             app:toolbarId="@+id/toolbar">
 
             <LinearLayout
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_gravity="bottom|center"
-                android:layout_margin="32dp"
+                android:layout_margin="@dimen/space_8"
                 android:orientation="vertical"
                 app:layout_collapseMode="parallax"
                 app:layout_collapseParallaxMultiplier="0.9">
@@ -88,9 +88,9 @@
                 android:layout_width="wrap_content"
                 android:layout_height="match_parent"
                 android:layout_gravity="center"
-                android:layout_marginStart="12dp"
-                android:layout_marginEnd="12dp"
-                android:background="#00000000"
+                android:layout_marginStart="@dimen/space_3"
+                android:layout_marginEnd="@dimen/space_3"
+                android:background="@android:color/transparent"
                 android:elevation="0dp"
                 app:tabIndicator="@drawable/element_none"
                 app:tabIndicatorColor="@android:color/transparent"

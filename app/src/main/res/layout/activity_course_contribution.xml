@@ -27,7 +27,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:padding="16dp">
+            android:padding="@dimen/space_4">
 
             <TextView
                 android:id="@+id/repo_name"
@@ -41,10 +41,10 @@
                 android:id="@+id/type_layout"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="16dp"
+                android:layout_marginTop="@dimen/space_4"
                 android:background="@drawable/element_rounded_button_bg_white"
                 android:orientation="vertical"
-                android:padding="12dp">
+                android:padding="@dimen/space_3">
 
                 <TextView
                     android:layout_width="wrap_content"
@@ -56,7 +56,7 @@
                     android:id="@+id/type_value"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp"
+                    android:layout_marginTop="@dimen/space_1"
                     android:textColor="?attr/textColorPrimary"
                     android:textSize="16sp" />
             </LinearLayout>
@@ -65,10 +65,10 @@
                 android:id="@+id/course_layout"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
+                android:layout_marginTop="@dimen/space_3"
                 android:background="@drawable/element_rounded_button_bg_white"
                 android:orientation="vertical"
-                android:padding="12dp"
+                android:padding="@dimen/space_3"
                 android:visibility="gone">
 
                 <TextView
@@ -81,7 +81,7 @@
                     android:id="@+id/course_value"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp"
+                    android:layout_marginTop="@dimen/space_1"
                     android:textColor="?attr/textColorPrimary"
                     android:textSize="16sp" />
             </LinearLayout>
@@ -90,10 +90,10 @@
                 android:id="@+id/section_layout"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
+                android:layout_marginTop="@dimen/space_3"
                 android:background="@drawable/element_rounded_button_bg_white"
                 android:orientation="vertical"
-                android:padding="12dp"
+                android:padding="@dimen/space_3"
                 android:visibility="gone">
 
                 <TextView
@@ -106,7 +106,7 @@
                     android:id="@+id/section_value"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp"
+                    android:layout_marginTop="@dimen/space_1"
                     android:background="@drawable/element_rounded_button_bg_white"
                     android:hint="@string/course_contribution_section_hint"
                     android:textColor="?attr/textColorPrimary"
@@ -117,10 +117,10 @@
                 android:id="@+id/teacher_layout"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
+                android:layout_marginTop="@dimen/space_3"
                 android:background="@drawable/element_rounded_button_bg_white"
                 android:orientation="vertical"
-                android:padding="12dp"
+                android:padding="@dimen/space_3"
                 android:visibility="gone">
 
                 <TextView
@@ -133,7 +133,7 @@
                     android:id="@+id/teacher_value"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp"
+                    android:layout_marginTop="@dimen/space_1"
                     android:background="@drawable/element_rounded_button_bg_white"
                     android:hint="@string/course_contribution_teacher_hint"
                     android:textColor="?attr/textColorPrimary"
@@ -144,7 +144,7 @@
                 android:id="@+id/topic_layout"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
+                android:layout_marginTop="@dimen/space_3"
                 android:orientation="vertical"
                 android:visibility="gone">
 
@@ -159,15 +159,15 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:background="@drawable/element_rounded_button_bg_white"
-                    android:layout_marginTop="4dp"
-                    android:padding="12dp" />
+                    android:layout_marginTop="@dimen/space_1"
+                    android:padding="@dimen/space_3" />
             </LinearLayout>
 
             <LinearLayout
                 android:id="@+id/teacher_input_layout"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
+                android:layout_marginTop="@dimen/space_3"
                 android:orientation="vertical"
                 android:visibility="gone">
 
@@ -181,15 +181,15 @@
                     android:id="@+id/teacher_input"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp"
+                    android:layout_marginTop="@dimen/space_1"
                     android:background="@drawable/element_rounded_button_bg_white"
-                    android:padding="12dp" />
+                    android:padding="@dimen/space_3" />
             </LinearLayout>
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
+                android:layout_marginTop="@dimen/space_3"
                 android:text="@string/course_contribution_content"
                 android:textColor="?attr/textColorSecondary" />
 
@@ -197,16 +197,16 @@
                 android:id="@+id/content_input"
                 android:layout_width="match_parent"
                 android:layout_height="160dp"
-                android:layout_marginTop="4dp"
+                android:layout_marginTop="@dimen/space_1"
                 android:background="@drawable/element_rounded_button_bg_white"
                 android:gravity="top|start"
                 android:inputType="textMultiLine"
-                android:padding="12dp" />
+                android:padding="@dimen/space_3" />
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
+                android:layout_marginTop="@dimen/space_3"
                 android:text="@string/course_contribution_author_name"
                 android:textColor="?attr/textColorSecondary" />
 
@@ -214,14 +214,14 @@
                 android:id="@+id/author_name_input"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
+                android:layout_marginTop="@dimen/space_1"
                 android:background="@drawable/element_rounded_button_bg_white"
-                android:padding="12dp" />
+                android:padding="@dimen/space_3" />
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
+                android:layout_marginTop="@dimen/space_3"
                 android:text="@string/course_contribution_author_link"
                 android:textColor="?attr/textColorSecondary" />
 
@@ -229,18 +229,18 @@
                 android:id="@+id/author_link_input"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
+                android:layout_marginTop="@dimen/space_1"
                 android:background="@drawable/element_rounded_button_bg_white"
-                android:padding="12dp" />
+                android:padding="@dimen/space_3" />
 
             <LinearLayout
                 android:id="@+id/author_date_layout"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
+                android:layout_marginTop="@dimen/space_3"
                 android:background="@drawable/element_rounded_button_bg_white"
                 android:orientation="vertical"
-                android:padding="12dp">
+                android:padding="@dimen/space_3">
 
                 <TextView
                     android:layout_width="wrap_content"
@@ -252,7 +252,7 @@
                     android:id="@+id/author_date_value"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp"
+                    android:layout_marginTop="@dimen/space_1"
                     android:textColor="?attr/textColorPrimary"
                     android:textSize="16sp" />
             </LinearLayout>
@@ -261,7 +261,7 @@
                 android:id="@+id/submit_button"
                 android:layout_width="match_parent"
                 android:layout_height="48dp"
-                android:layout_marginTop="20dp"
+                android:layout_marginTop="@dimen/space_5"
                 android:text="@string/course_contribution_submit" />
 
         </LinearLayout>

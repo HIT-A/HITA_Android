@@ -39,10 +39,10 @@
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginStart="16dp"
+                android:layout_marginStart="@dimen/space_4"
                 android:layout_marginTop="18dp"
-                android:layout_marginEnd="16dp"
-                android:layout_marginBottom="16dp"
+                android:layout_marginEnd="@dimen/space_4"
+                android:layout_marginBottom="@dimen/space_4"
                 android:alpha="0.4"
                 android:text="@string/label_basic_profile"
                 android:textColor="?attr/textColorSecondary"
@@ -54,10 +54,10 @@
                 android:layout_height="72dp"
                 android:clickable="false"
                 android:orientation="horizontal"
-                android:paddingStart="16dp"
-                android:paddingTop="8dp"
-                android:paddingEnd="16dp"
-                android:paddingBottom="8dp">
+                android:paddingStart="@dimen/space_4"
+                android:paddingTop="@dimen/space_2"
+                android:paddingEnd="@dimen/space_4"
+                android:paddingBottom="@dimen/space_2">
 
                 <TextView
                     android:layout_width="wrap_content"
@@ -84,10 +84,10 @@
                 android:layout_height="80dp"
                 android:clickable="false"
                 android:orientation="horizontal"
-                android:paddingStart="16dp"
-                android:paddingTop="8dp"
-                android:paddingEnd="16dp"
-                android:paddingBottom="8dp">
+                android:paddingStart="@dimen/space_4"
+                android:paddingTop="@dimen/space_2"
+                android:paddingEnd="@dimen/space_4"
+                android:paddingBottom="@dimen/space_2">
 
                 <TextView
                     android:layout_width="0dp"
@@ -115,10 +115,10 @@
                 android:clickable="true"
                 android:foreground="?attr/selectableItemBackgroundBorderless"
                 android:orientation="horizontal"
-                android:paddingStart="16dp"
-                android:paddingTop="8dp"
-                android:paddingEnd="16dp"
-                android:paddingBottom="8dp">
+                android:paddingStart="@dimen/space_4"
+                android:paddingTop="@dimen/space_2"
+                android:paddingEnd="@dimen/space_4"
+                android:paddingBottom="@dimen/space_2">
 
                 <TextView
                     android:layout_width="wrap_content"
@@ -146,10 +146,10 @@
                 android:clickable="true"
                 android:foreground="?attr/selectableItemBackgroundBorderless"
                 android:orientation="horizontal"
-                android:paddingStart="16dp"
-                android:paddingTop="8dp"
-                android:paddingEnd="16dp"
-                android:paddingBottom="8dp">
+                android:paddingStart="@dimen/space_4"
+                android:paddingTop="@dimen/space_2"
+                android:paddingEnd="@dimen/space_4"
+                android:paddingBottom="@dimen/space_2">
 
                 <TextView
                     android:layout_width="wrap_content"
@@ -177,10 +177,10 @@
                 android:clickable="true"
                 android:foreground="?attr/selectableItemBackgroundBorderless"
                 android:orientation="horizontal"
-                android:paddingStart="16dp"
-                android:paddingTop="8dp"
-                android:paddingEnd="16dp"
-                android:paddingBottom="8dp">
+                android:paddingStart="@dimen/space_4"
+                android:paddingTop="@dimen/space_2"
+                android:paddingEnd="@dimen/space_4"
+                android:paddingBottom="@dimen/space_2">
 
                 <TextView
                     android:layout_width="wrap_content"

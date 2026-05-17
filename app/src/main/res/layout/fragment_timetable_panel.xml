@@ -12,16 +12,16 @@
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:layout_margin="8dp"
+        android:layout_margin="@dimen/space_2"
         android:orientation="horizontal">
 
         <androidx.cardview.widget.CardView
             android:id="@+id/reset"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginStart="16dp"
-            android:layout_marginTop="16dp"
-            android:layout_marginBottom="16dp"
+            android:layout_marginStart="@dimen/space_4"
+            android:layout_marginTop="@dimen/space_4"
+            android:layout_marginBottom="@dimen/space_4"
             android:backgroundTint="?attr/backgroundColorBottomAsTint"
             android:backgroundTintMode="src_over"
             android:foreground="?attr/selectableItemBackgroundBorderless"
@@ -34,14 +34,14 @@
                 android:layout_height="wrap_content"
                 app:tint="?attr/colorPrimary"
                 android:orientation="horizontal"
-                android:paddingEnd="16dp"
+                android:paddingEnd="@dimen/space_4"
                 tools:ignore="RtlSymmetry">
 
                 <ImageView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:foreground="?attr/selectableItemBackgroundBorderless"
-                    android:padding="8dp"
+                    android:padding="@dimen/space_2"
                     app:srcCompat="@drawable/ic_baseline_color_lens_24"
                     app:tint="?attr/colorPrimary" />
 
@@ -61,9 +61,9 @@
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:layout_marginStart="24dp"
-        android:layout_marginEnd="24dp"
-        android:layout_marginBottom="8dp"
+        android:layout_marginStart="@dimen/space_6"
+        android:layout_marginEnd="@dimen/space_6"
+        android:layout_marginBottom="@dimen/space_2"
         android:orientation="horizontal">
 
         <TextView
@@ -81,10 +81,10 @@
             android:clickable="true"
             android:fontFamily="sans-serif-black"
             android:foreground="?attr/selectableItemBackground"
-            android:paddingStart="12dp"
-            android:paddingTop="4dp"
-            android:paddingEnd="12dp"
-            android:paddingBottom="4dp"
+            android:paddingStart="@dimen/space_3"
+            android:paddingTop="@dimen/space_1"
+            android:paddingEnd="@dimen/space_3"
+            android:paddingBottom="@dimen/space_1"
             android:text="8:30"
             android:textColor="?attr/colorAccent" />
 
@@ -93,10 +93,10 @@
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:layout_marginStart="24dp"
-        android:layout_marginTop="8dp"
-        android:layout_marginEnd="24dp"
-        android:layout_marginBottom="8dp"
+        android:layout_marginStart="@dimen/space_6"
+        android:layout_marginTop="@dimen/space_2"
+        android:layout_marginEnd="@dimen/space_6"
+        android:layout_marginBottom="@dimen/space_2"
         android:orientation="horizontal">
 
         <TextView
@@ -117,10 +117,10 @@
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:layout_marginStart="24dp"
-        android:layout_marginTop="8dp"
-        android:layout_marginEnd="24dp"
-        android:layout_marginBottom="8dp"
+        android:layout_marginStart="@dimen/space_6"
+        android:layout_marginTop="@dimen/space_2"
+        android:layout_marginEnd="@dimen/space_6"
+        android:layout_marginBottom="@dimen/space_2"
         android:orientation="horizontal">
 
         <TextView
@@ -141,10 +141,10 @@
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:layout_marginStart="24dp"
-        android:layout_marginTop="8dp"
-        android:layout_marginEnd="24dp"
-        android:layout_marginBottom="8dp"
+        android:layout_marginStart="@dimen/space_6"
+        android:layout_marginTop="@dimen/space_2"
+        android:layout_marginEnd="@dimen/space_6"
+        android:layout_marginBottom="@dimen/space_2"
         android:orientation="horizontal">
 
         <TextView
@@ -165,10 +165,10 @@
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:layout_marginStart="24dp"
-        android:layout_marginTop="8dp"
-        android:layout_marginEnd="24dp"
-        android:layout_marginBottom="8dp"
+        android:layout_marginStart="@dimen/space_6"
+        android:layout_marginTop="@dimen/space_2"
+        android:layout_marginEnd="@dimen/space_6"
+        android:layout_marginBottom="@dimen/space_2"
         android:orientation="horizontal">
 
         <TextView
@@ -189,10 +189,10 @@
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:layout_marginStart="24dp"
-        android:layout_marginTop="8dp"
-        android:layout_marginEnd="24dp"
-        android:layout_marginBottom="16dp"
+        android:layout_marginStart="@dimen/space_6"
+        android:layout_marginTop="@dimen/space_2"
+        android:layout_marginEnd="@dimen/space_6"
+        android:layout_marginBottom="@dimen/space_4"
         android:orientation="horizontal">
 
         <TextView

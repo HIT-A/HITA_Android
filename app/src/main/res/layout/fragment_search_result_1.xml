@@ -8,9 +8,9 @@
     <com.google.android.material.appbar.AppBarLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:background="#00000000"
+        android:background="@android:color/transparent"
         android:minHeight="0dp"
-        android:paddingBottom="16dp"
+        android:paddingBottom="@dimen/space_4"
         app:elevation="0dp">
 
         <ProgressBar
@@ -19,7 +19,7 @@
             android:layout_width="match_parent"
             android:layout_height="18dp"
             android:layout_gravity="center"
-            android:layout_marginTop="16dp"
+            android:layout_marginTop="@dimen/space_4"
             android:visibility="gone"
             app:layout_scrollFlags="scroll|enterAlwaysCollapsed" />
 
@@ -28,7 +28,7 @@
             android:layout_width="match_parent"
             android:layout_height="18dp"
             android:layout_gravity="center"
-            android:layout_marginTop="16dp"
+            android:layout_marginTop="@dimen/space_4"
             android:gravity="center"
             app:layout_scrollFlags="scroll|enterAlwaysCollapsed" />
 

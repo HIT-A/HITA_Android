@@ -19,7 +19,7 @@
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_margin="24dp"
+            android:layout_margin="@dimen/space_6"
             android:layout_weight="1"
             android:orientation="vertical">
 
@@ -47,8 +47,8 @@
             android:layout_width="wrap_content"
             android:layout_height="36dp"
             android:layout_gravity="center"
-            android:layout_marginStart="16dp"
-            android:layout_marginEnd="24dp"
+            android:layout_marginStart="@dimen/space_4"
+            android:layout_marginEnd="@dimen/space_6"
             android:background="@drawable/element_rounded_button_bg_primary"
             android:text="@string/log_in"
             android:textColor="@color/white"
@@ -64,9 +64,9 @@
         android:id="@+id/campus_group"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginStart="16dp"
-        android:layout_marginTop="8dp"
-        android:layout_marginEnd="16dp"
+        android:layout_marginStart="@dimen/space_4"
+        android:layout_marginTop="@dimen/space_2"
+        android:layout_marginEnd="@dimen/space_4"
         android:orientation="horizontal">
 
         <RadioButton
@@ -79,14 +79,14 @@
             android:id="@+id/campus_benbu"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginStart="12dp"
+            android:layout_marginStart="@dimen/space_3"
             android:text="@string/eas_campus_benbu" />
 
         <RadioButton
             android:id="@+id/campus_weihai"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginStart="12dp"
+            android:layout_marginStart="@dimen/space_3"
             android:text="@string/eas_campus_weihai" />
     </RadioGroup>
 
@@ -94,37 +94,37 @@
         android:id="@+id/username"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginStart="16dp"
-        android:layout_marginEnd="16dp"
+        android:layout_marginStart="@dimen/space_4"
+        android:layout_marginEnd="@dimen/space_4"
         android:background="@android:color/transparent"
         android:hint="@string/hint_eas_username"
-        android:paddingLeft="8dp"
-        android:paddingTop="16dp"
-        android:paddingBottom="16dp"
+        android:paddingLeft="@dimen/space_2"
+        android:paddingTop="@dimen/space_4"
+        android:paddingBottom="@dimen/space_4"
         android:singleLine="true" />
 
     <androidx.appcompat.widget.AppCompatEditText
         android:id="@+id/password"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginStart="16dp"
-        android:layout_marginEnd="16dp"
-        android:layout_marginBottom="24dp"
+        android:layout_marginStart="@dimen/space_4"
+        android:layout_marginEnd="@dimen/space_4"
+        android:layout_marginBottom="@dimen/space_6"
         android:background="@android:color/transparent"
         android:hint="@string/hint_eas_password"
         android:inputType="textPassword"
-        android:paddingLeft="8dp"
-        android:paddingTop="16dp"
-        android:paddingBottom="16dp"
+        android:paddingLeft="@dimen/space_2"
+        android:paddingTop="@dimen/space_4"
+        android:paddingBottom="@dimen/space_4"
         android:singleLine="true" />
 
     <Button
         android:id="@+id/webview_login_button"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginStart="16dp"
-        android:layout_marginEnd="16dp"
-        android:layout_marginBottom="24dp"
+        android:layout_marginStart="@dimen/space_4"
+        android:layout_marginEnd="@dimen/space_4"
+        android:layout_marginBottom="@dimen/space_6"
         android:text="@string/webview_login"
         android:visibility="gone"
         tools:visibility="gone" />
@@ -133,9 +133,9 @@
         android:id="@+id/agreement_container"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginStart="16dp"
-        android:layout_marginEnd="16dp"
-        android:layout_marginBottom="16dp"
+        android:layout_marginStart="@dimen/space_4"
+        android:layout_marginEnd="@dimen/space_4"
+        android:layout_marginBottom="@dimen/space_4"
         android:gravity="center_vertical"
         android:orientation="horizontal"
         android:visibility="gone">

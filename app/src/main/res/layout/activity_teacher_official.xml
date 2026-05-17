@@ -13,7 +13,7 @@
         android:id="@+id/appbar"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:background="#00000000"
+        android:background="@android:color/transparent"
         app:elevation="0dp">
 
         <com.google.android.material.appbar.CollapsingToolbarLayout
@@ -26,7 +26,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
-                android:paddingBottom="16dp"
+                android:paddingBottom="@dimen/space_4"
                 app:layout_collapseMode="parallax"
                 app:layout_collapseParallaxMultiplier="0.9">
 
@@ -35,7 +35,7 @@
                     android:layout_width="84dp"
                     android:layout_height="84dp"
                     android:layout_gravity="start|top"
-                    android:layout_marginStart="24dp"
+                    android:layout_marginStart="@dimen/space_6"
                     android:layout_marginTop="104dp"
                     app:cardBackgroundColor="?attr/backgroundColorSecond"
                     app:cardCornerRadius="42dp"
@@ -54,7 +54,7 @@
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="match_parent"
-                    android:layout_marginTop="24dp"
+                    android:layout_marginTop="@dimen/space_6"
                     android:gravity="center|start"
                     android:orientation="horizontal">
 
@@ -63,7 +63,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_gravity="center"
-                        android:layout_marginStart="24dp"
+                        android:layout_marginStart="@dimen/space_6"
                         android:fontFamily="sans-serif-black"
                         android:textColor="?attr/colorAccent"
                         android:textSize="18sp" />
@@ -73,14 +73,14 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_gravity="center|start"
-                        android:layout_marginStart="8dp"
+                        android:layout_marginStart="@dimen/space_2"
                         android:background="@drawable/element_rounded_button_bg_grey"
                         android:backgroundTint="?attr/backgroundColorBottomAsTint"
                         android:backgroundTintMode="src_over"
-                        android:paddingStart="8dp"
-                        android:paddingTop="4dp"
-                        android:paddingEnd="8dp"
-                        android:paddingBottom="4dp"
+                        android:paddingStart="@dimen/space_2"
+                        android:paddingTop="@dimen/space_1"
+                        android:paddingEnd="@dimen/space_2"
+                        android:paddingBottom="@dimen/space_1"
                         android:textColor="?attr/textColorSecondary"
                         android:textSize="12sp" />
                 </LinearLayout>
@@ -90,9 +90,9 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_gravity="center|start"
-                    android:layout_marginStart="24dp"
-                    android:layout_marginTop="8dp"
-                    android:layout_marginBottom="8dp"
+                    android:layout_marginStart="@dimen/space_6"
+                    android:layout_marginTop="@dimen/space_2"
+                    android:layout_marginBottom="@dimen/space_2"
                     android:textColor="?attr/textColorSecondary" />
 
                 <TextView
@@ -100,14 +100,14 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_gravity="center|start"
-                    android:layout_marginStart="24dp"
+                    android:layout_marginStart="@dimen/space_6"
                     android:layout_marginEnd="200dp"
                     android:background="@drawable/element_rounded_button_bg_primary_light"
                     android:maxEms="18"
-                    android:paddingStart="8dp"
-                    android:paddingTop="4dp"
-                    android:paddingEnd="8dp"
-                    android:paddingBottom="4dp"
+                    android:paddingStart="@dimen/space_2"
+                    android:paddingTop="@dimen/space_1"
+                    android:paddingEnd="@dimen/space_2"
+                    android:paddingBottom="@dimen/space_1"
                     android:singleLine="true"
                     android:textColor="?attr/colorAccent"
                     android:textSize="12sp"
@@ -120,7 +120,7 @@
                 android:id="@+id/toolbar"
                 android:layout_width="match_parent"
                 android:layout_height="?attr/actionBarSize"
-                android:layout_marginTop="24dp"
+                android:layout_marginTop="@dimen/space_6"
                 android:minHeight="0dp"
                 app:layout_collapseMode="pin"
                 app:theme="?attr/toolbarStyle" />
@@ -131,13 +131,13 @@
             android:id="@+id/tabs"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:background="#00000000"
+            android:background="@android:color/transparent"
             android:overScrollMode="never"
             app:tabGravity="start"
             app:tabIndicatorColor="?attr/colorPrimary"
             app:tabIndicatorFullWidth="false"
             app:tabMode="scrollable"
-            app:tabPaddingStart="24dp"
+            app:tabPaddingStart="@dimen/space_6"
             app:tabSelectedTextColor="?attr/colorPrimary">
 
             <com.google.android.material.tabs.TabItem
@@ -195,7 +195,7 @@
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_margin="24dp"
+            android:layout_margin="@dimen/space_6"
             android:orientation="vertical"
             android:paddingTop="36dp">
 
@@ -212,7 +212,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_gravity="center_horizontal"
-                android:layout_marginTop="12dp"
+                android:layout_marginTop="@dimen/space_3"
                 android:alpha="0.8"
                 android:text="@string/teacher_no_page"
                 android:textColor="?attr/textColorSecondary" />
@@ -224,7 +224,7 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="bottom|center|end"
-        android:layout_margin="24dp"
+        android:layout_margin="@dimen/space_6"
         android:focusable="true"
         android:text="@string/contact"
         android:textColor="@color/white"
