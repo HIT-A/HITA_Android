@@ -8,16 +8,10 @@ import com.limpu.hitax.data.model.resource.ExternalCourseItem
 import com.limpu.hitax.data.model.resource.ExternalResourceEntry
 import com.limpu.hitax.data.model.resource.ResourceSource
 import com.limpu.hitax.utils.LogUtils
-import org.json.JSONArray
-import org.json.JSONObject
-import org.jsoup.Connection
 import org.jsoup.Jsoup
 
 object FireworksWebSource {
     private const val SITE_URL = "https://fireworks.jwyihao.top"
-    private const val REPO = "HIT-Fireworks/fireworks-notes-society"
-    private const val API_BASE = "https://api.github.com/repos/$REPO"
-    private const val RAW_PROXY = "https://ghproxy.net/"
     private const val TIMEOUT = 30000
 
     @Volatile
@@ -27,15 +21,6 @@ object FireworksWebSource {
     private var cacheTimestamp: Long = 0L
 
     private const val CACHE_TTL_MS = 3600_000L
-
-    private fun withHeaders(req: Connection): Connection {
-        req.ignoreContentType(true)
-            .ignoreHttpErrors(true)
-            .timeout(TIMEOUT)
-            .header("Accept", "application/vnd.github+json")
-            .header("User-Agent", "HITA_L/${BuildConfig.VERSION_NAME}")
-        return req
-    }
 
     fun searchCourses(query: String): LiveData<DataState<List<ExternalCourseItem>>> {
         LogUtils.d("Fireworks: searchCourses called with query='$query'")
@@ -66,67 +51,28 @@ object FireworksWebSource {
         return result
     }
 
+    /**
+     * Fireworks resources are on AList server, not GitHub.
+     * Return a website link so users can browse/download on the site.
+     */
     fun listDirectory(path: String): LiveData<DataState<List<ExternalResourceEntry>>> {
         val result = MutableLiveData<DataState<List<ExternalResourceEntry>>>()
         Thread {
-            try {
-                val url = "$API_BASE/contents/${encodePath(path)}"
-                val response = withHeaders(Jsoup.connect(url))
-                    .method(Connection.Method.GET)
-                    .execute()
-
-                if (response.statusCode() >= 400) {
-                    result.postValue(DataState(DataState.STATE.FETCH_FAILED, "HTTP ${response.statusCode()}"))
-                    return@Thread
-                }
-
-                val arr = JSONArray(response.body())
-                val entries = mutableListOf<ExternalResourceEntry>()
-
-                for (i in 0 until arr.length()) {
-                    val obj = arr.optJSONObject(i) ?: continue
-                    val name = obj.optString("name", "")
-                    val rawDownloadUrl = obj.optString("download_url", "")
-                    val proxiedUrl = if (rawDownloadUrl.startsWith("https://raw.githubusercontent.com")) {
-                        "$RAW_PROXY$rawDownloadUrl"
-                    } else {
-                        rawDownloadUrl
-                    }
-
-                    entries.add(
-                        ExternalResourceEntry(
-                            name = name,
-                            isDir = obj.optString("type") == "dir",
-                            path = obj.optString("path", ""),
-                            size = obj.optLong("size", 0),
-                            downloadUrl = proxiedUrl,
-                            source = ResourceSource.FIREWORKS,
-                        )
-                    )
-                }
-
-                // Add a link to the website course page where files are browsable
-                val encodedPath = path.split("/").joinToString("/") { segment ->
-                    java.net.URLEncoder.encode(segment, "UTF-8").replace("+", "%20")
-                }
-                val websiteUrl = "$SITE_URL/lessons/$encodedPath/"
-                entries.add(0,
-                    ExternalResourceEntry(
-                        name = "在薪火笔记社查看资料",
-                        isDir = false,
-                        path = "",
-                        size = 0,
-                        downloadUrl = websiteUrl,
-                        source = ResourceSource.FIREWORKS,
-                    )
-                )
-
-                entries.sortWith(compareByDescending<ExternalResourceEntry> { it.isDir }.thenBy { it.name })
-                result.postValue(DataState(entries, DataState.STATE.SUCCESS))
-            } catch (e: Exception) {
-                LogUtils.e("Fireworks listDirectory failed: ${e.message}")
-                result.postValue(DataState(DataState.STATE.FETCH_FAILED, e.message))
+            val encodedPath = path.split("/").joinToString("/") { segment ->
+                java.net.URLEncoder.encode(segment, "UTF-8").replace("+", "%20")
             }
+            val websiteUrl = "$SITE_URL/lessons/$encodedPath/"
+            val entries = listOf(
+                ExternalResourceEntry(
+                    name = "在薪火笔记社查看和下载资料",
+                    isDir = false,
+                    path = "",
+                    size = 0,
+                    downloadUrl = websiteUrl,
+                    source = ResourceSource.FIREWORKS,
+                )
+            )
+            result.postValue(DataState(entries, DataState.STATE.SUCCESS))
         }.start()
         return result
     }
@@ -144,7 +90,7 @@ object FireworksWebSource {
             .ignoreHttpErrors(true)
             .timeout(TIMEOUT)
             .header("User-Agent", "HITA_L/${BuildConfig.VERSION_NAME}")
-            .method(Connection.Method.GET)
+            .method(org.jsoup.Connection.Method.GET)
             .execute()
 
         if (response.statusCode() >= 400) {
@@ -161,21 +107,17 @@ object FireworksWebSource {
 
     /**
      * Parse VitePress __VP_HASH_MAP__ to extract course paths.
-     * Format: "{\"category_course_index.md\":\"hash\",...}"
-     * Course name = last segment of path (without _index.md)
      */
     private fun parseCoursesFromHashMap(html: String): List<Pair<String, String>> {
         val regex = """\\\"([^"\\]+_index\.md)\\\"""".toRegex()
         val skip = setOf("index.md", "lessons_index.md", "parts_wip.md", "team.md", "README.md")
         val courses = mutableListOf<Pair<String, String>>()
 
-        val match = regex.findAll(html)
-        for (m in match) {
+        for (m in regex.findAll(html)) {
             val key = m.groupValues[1]
             if (key in skip) continue
             val rawPath = key.replace("_index.md", "")
             val parts = rawPath.split("_")
-            // Path format: category_subcategory_course -> last part is course name
             val path = parts.joinToString("/")
             val courseName = parts.lastOrNull() ?: continue
             if (courseName.isNotBlank()) {
@@ -183,11 +125,5 @@ object FireworksWebSource {
             }
         }
         return courses
-    }
-
-    private fun encodePath(path: String): String {
-        return path.split("/").joinToString("/") { segment ->
-            java.net.URLEncoder.encode(segment, "UTF-8").replace("+", "%20")
-        }
     }
 }
