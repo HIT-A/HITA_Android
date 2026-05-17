@@ -152,10 +152,7 @@ class ExternalResourceSearchActivity :
 
     private fun navigateInto(entry: ExternalResourceEntry) {
         if (!entry.isDir) {
-            val rawUrl = buildRawDownloadUrl(entry)
-            if (rawUrl.isNotBlank()) {
-                downloadFile(rawUrl, entry.name)
-            }
+            handleFileClick(entry)
             return
         }
 
@@ -200,16 +197,21 @@ class ExternalResourceSearchActivity :
     }
 
     /**
-     * Build a raw download URL for a file entry.
-     * Uses raw.githubusercontent.com which supports direct file download.
+     * Handle file click: download actual files, open website links in browser.
      */
-    private fun buildRawDownloadUrl(entry: ExternalResourceEntry): String {
-        // If it's already a direct URL (Fireworks links or GitHub download_url), use it
-        if (entry.downloadUrl.isNotBlank()) {
-            return entry.downloadUrl
+    private fun handleFileClick(entry: ExternalResourceEntry) {
+        val url = entry.downloadUrl
+
+        // Fireworks website links → open in browser (not a downloadable file)
+        if (url.startsWith("https://fireworks.jwyihao.top")) {
+            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+            return
         }
-        // Construct raw URL from path
-        if (entry.path.isNotBlank()) {
+
+        // Build raw download URL for GitHub files
+        val downloadUrl = if (url.isNotBlank()) {
+            url // GitHub API download_url (raw.githubusercontent.com)
+        } else if (entry.path.isNotBlank()) {
             val repo = when (entry.source) {
                 ResourceSource.HITCS -> "HITLittleZheng/HITCS"
                 ResourceSource.FIREWORKS -> "HIT-Fireworks/fireworks-notes-society"
@@ -217,19 +219,16 @@ class ExternalResourceSearchActivity :
             val encodedPath = entry.path.split("/").joinToString("/") { segment ->
                 java.net.URLEncoder.encode(segment, "UTF-8").replace("+", "%20")
             }
-            return "https://raw.githubusercontent.com/$repo/main/$encodedPath"
+            "https://raw.githubusercontent.com/$repo/main/$encodedPath"
+        } else {
+            return
         }
-        return ""
-    }
 
-    /**
-     * Download a file using Android DownloadManager.
-     * Shows a toast notification when download starts.
-     */
-    private fun downloadFile(url: String, fileName: String) {
+        // Download with correct filename
+        val fileName = entry.name // e.g. "总结.pdf"
         try {
             val dm = getSystemService(DOWNLOAD_SERVICE) as android.app.DownloadManager
-            val request = android.app.DownloadManager.Request(Uri.parse(url))
+            val request = android.app.DownloadManager.Request(Uri.parse(downloadUrl))
                 .setTitle(fileName)
                 .setDescription("正在下载 $fileName")
                 .setNotificationVisibility(
@@ -237,6 +236,10 @@ class ExternalResourceSearchActivity :
                 )
                 .setAllowedOverMetered(true)
                 .setAllowedOverRoaming(true)
+                .setDestinationInExternalPublicDir(
+                    android.os.Environment.DIRECTORY_DOWNLOADS,
+                    fileName
+                )
             dm.enqueue(request)
             com.google.android.material.snackbar.Snackbar.make(
                 binding.root,
@@ -245,9 +248,8 @@ class ExternalResourceSearchActivity :
             ).show()
         } catch (e: Exception) {
             LogUtils.e("Download failed: ${e.message}")
-            // Fallback: open in browser
             try {
-                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(downloadUrl))
                 startActivity(intent)
             } catch (e2: Exception) {
                 com.google.android.material.snackbar.Snackbar.make(
