@@ -208,10 +208,8 @@ class ExternalResourceSearchActivity :
             return
         }
 
-        // Build raw download URL for GitHub files
-        val downloadUrl = if (url.isNotBlank()) {
-            url // GitHub API download_url (raw.githubusercontent.com)
-        } else if (entry.path.isNotBlank()) {
+        // Build download URL via GitHub proxy (raw.githubusercontent.com blocked on CN mobile)
+        val rawUrl = if (entry.path.isNotBlank()) {
             val repo = when (entry.source) {
                 ResourceSource.HITCS -> "HITLittleZheng/HITCS"
                 ResourceSource.FIREWORKS -> "HIT-Fireworks/fireworks-notes-society"
@@ -220,9 +218,13 @@ class ExternalResourceSearchActivity :
                 java.net.URLEncoder.encode(segment, "UTF-8").replace("+", "%20")
             }
             "https://raw.githubusercontent.com/$repo/main/$encodedPath"
+        } else if (url.isNotBlank() && !url.startsWith("https://fireworks.")) {
+            url
         } else {
             return
         }
+        // Wrap with proxy for reliable access on Chinese mobile networks
+        val downloadUrl = "https://ghproxy.net/$rawUrl"
 
         // Download with correct filename
         val fileName = entry.name // e.g. "总结.pdf"
