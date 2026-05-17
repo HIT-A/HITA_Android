@@ -65,8 +65,6 @@ object FireworksWebSource {
         return result
     }
 
-    private const val ALIST_VIEW_BASE = "https://fireworks.jwyihao.top/lessons"
-
     fun listDirectory(path: String): LiveData<DataState<List<ExternalResourceEntry>>> {
         val result = MutableLiveData<DataState<List<ExternalResourceEntry>>>()
         Thread {
@@ -110,9 +108,10 @@ object FireworksWebSource {
                 }
 
                 // Add a link to the website course page where files are browsable
-                val parts = path.split("/")
-                val coursePagePath = parts.joinToString("_")
-                val websiteUrl = "$ALIST_VIEW_BASE/$coursePagePath/"
+                val encodedPath = path.split("/").joinToString("/") { segment ->
+                    java.net.URLEncoder.encode(segment, "UTF-8").replace("+", "%20")
+                }
+                val websiteUrl = "$SITE_URL/lessons/$encodedPath/"
                 entries.add(0,
                     ExternalResourceEntry(
                         name = "在薪火笔记社查看资料",
