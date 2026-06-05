@@ -815,6 +815,12 @@ private fun MainScreen(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .padding(bottom = systemNavAvoidance)
+                    .graphicsLayer {
+                        translationX = contentOffset
+                        scaleX = contentScale
+                        scaleY = contentScale
+                        transformOrigin = androidx.compose.ui.graphics.TransformOrigin(1f, 0.5f)
+                    }
             )
         }
 

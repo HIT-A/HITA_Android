@@ -1009,8 +1009,8 @@
 ]]>
     </string>
     <string name="name_user_agreement">用户协议</string>
-    <string name="name_privacy_agreement">隐私协议</string>
-    <string name="name_ua_and_pp">用户与隐私协议</string>
+    <string name="name_privacy_agreement">隐私政策</string>
+    <string name="name_ua_and_pp">用户协议与隐私政策</string>
     <string name="i_have_read">朕已阅</string>
     <string name="agree_and_login">同意协议并登录</string>
     <string name="agree">同意</string>
@@ -1020,7 +1020,7 @@
     <string name="reply">回复</string>
     <string name="send">发送</string>
     <string name="create_comment">发表评论回复</string>
-    <string name="verify_stuid_hint">认证学号将会同步真实姓名、学院名称、学号信息到助手账号，请阅读隐私协议后再确认是否进行操作</string>
+    <string name="verify_stuid_hint">认证学号将会同步真实姓名、学院名称、学号信息到助手账号，请阅读隐私政策后再确认是否进行操作</string>
     <string name="latest">最新</string>
     <string name="hottest">近期热门</string>
     <string name="tabs_theta_bulletin">通知公告</string>

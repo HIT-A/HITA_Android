@@ -139,9 +139,10 @@ class PopUpLoginEAS : BottomSheetDialogFragment() {
                         onFailed = {
                             onResponseListener?.onFailed(this@PopUpLoginEAS)
                         },
-                        onShowAgreement = {
+                        onShowAgreement = { pageIndex ->
                             UserAgreementDialog().apply {
                                 setShowActionButtons(false)
+                                initialPage = pageIndex
                             }.show(childFragmentManager, "user_agreement_view")
                         }
                     )
@@ -270,7 +271,7 @@ private fun LoginEASScreen(
     onAutoLaunch: (EASToken.Campus) -> Unit,
     onSuccess: () -> Unit,
     onFailed: () -> Unit,
-    onShowAgreement: () -> Unit
+    onShowAgreement: (Int) -> Unit
 ) {
     val tokens = HitaTheme.tokens
     val view = LocalView.current
@@ -491,7 +492,7 @@ private fun LoginEASScreen(
 
 private fun createAgreementSpannable(
     context: Context,
-    onShowAgreement: () -> Unit
+    onShowAgreement: (Int) -> Unit
 ): android.text.SpannableString {
     val hint = context.getString(R.string.user_agreement_hint)
     val span = android.text.SpannableString(hint)
@@ -503,14 +504,14 @@ private fun createAgreementSpannable(
     if (uaStart >= 0 && uaEnd > uaStart) {
         span.setSpan(object : android.text.style.ClickableSpan() {
             override fun onClick(widget: View) {
-                onShowAgreement()
+                onShowAgreement(0)
             }
         }, uaStart, uaEnd, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
     }
     if (ppStart >= 0 && ppEnd > ppStart) {
         span.setSpan(object : android.text.style.ClickableSpan() {
             override fun onClick(widget: View) {
-                onShowAgreement()
+                onShowAgreement(1)
             }
         }, ppStart, ppEnd, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
     }
