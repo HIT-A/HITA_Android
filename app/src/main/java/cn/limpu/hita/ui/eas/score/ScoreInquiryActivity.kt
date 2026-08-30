@@ -176,9 +176,9 @@ class ScoreInquiryActivity :
     override fun initViews() {
         super.initViews()
         UsageAnalyticsClient.record(UsageAnalyticsEvent.SCORES_VIEWED)
-        bindLiveData()
         scoreReminderStore = ScoreReminderStore(applicationContext)
         scoreReminderEnabled = scoreReminderStore.isEnabled()
+        bindLiveData()
         viewModel.ensureDefaultTestType()
         (binding.root as ComposeView).setContent {
             HitaComposeTheme() {
@@ -197,7 +197,8 @@ class ScoreInquiryActivity :
                     onPickTestType = { pickTestType() },
                     onReminderChange = { updateScoreReminderEnabled(it) },
                     onOpenScore = { score ->
-                        ScoreDetailFragment(score).show(supportFragmentManager, "score_detail")
+                        ScoreDetailFragment.newInstance(score)
+                            .show(supportFragmentManager, "score_detail")
                     }
                 )
             }

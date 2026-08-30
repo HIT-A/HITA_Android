@@ -417,8 +417,8 @@ class EASRepository @Inject constructor(
                 return@thread
             }
 
-            val remote = getService(easToken.campus).getAllTerms(easToken)
             Handler(Looper.getMainLooper()).post {
+                val remote = getService(easToken.campus).getAllTerms(easToken)
                 result.addSource(remote) { state ->
                     if (state.state == DataState.STATE.SUCCESS && state.data != null) {
                         val terms = state.data.orEmpty()
@@ -620,8 +620,8 @@ class EASRepository @Inject constructor(
                 return@thread
             }
 
-            val remote = getOnlinePersonalScoresWithSummary(term, testType, easToken)
             Handler(Looper.getMainLooper()).post {
+                val remote = getOnlinePersonalScoresWithSummary(term, testType, easToken)
                 result.addSource(remote) { state ->
                     if (state.state == DataState.STATE.SUCCESS && state.data != null) {
                         result.value = state
@@ -1580,8 +1580,8 @@ class EASRepository @Inject constructor(
                 return@thread
             }
 
-            val remoteSource = remote()
             Handler(Looper.getMainLooper()).post {
+                val remoteSource = remote()
                 result.addSource(remoteSource) { state ->
                     if (state.state == DataState.STATE.SUCCESS && state.data != null) {
                         result.value = state

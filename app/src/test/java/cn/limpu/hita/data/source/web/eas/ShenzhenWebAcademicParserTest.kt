@@ -97,6 +97,23 @@ class ShenzhenWebAcademicParserTest {
     }
 
     @Test
+    fun `timetable parser accepts nested data wrapper used by minor schedules`() {
+        val courses = ShenzhenWebAcademicParser.parseTimetable(
+            """{"data":{"rows":[{
+                "RWH":"2025-2026-2-MINOR100-001","KSJC":1,"JSJC":2,
+                "KEY":"xq2_jc1","ZC":"111111111111111111111111111111111",
+                "SKSJ":"辅修课程\n[张老师]\n[A101]\n第1-2节"
+            }]}}""",
+            emptyList()
+        ).orEmpty()
+
+        assertEquals(1, courses.size)
+        assertEquals("辅修课程", courses.single().name)
+        assertEquals(2, courses.single().dow)
+        assertEquals(listOf(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32), courses.single().weeks)
+    }
+
+    @Test
     fun `web exam timestamp is converted to Shenzhen calendar date`() {
         val exams = ShenzhenWebAcademicParser.parseExams(
             """{"total":1,"list":[{

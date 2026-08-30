@@ -64,4 +64,24 @@ class WebLoginSuccessPolicyTest {
             )
         )
     }
+
+    @Test
+    fun `Shenzhen new academic root with proxy session is success`() {
+        assertTrue(
+            WebLoginSuccessPolicy.isShenzhenAuthenticatedPage(
+                "https://jw-hitsz-edu-cn.hitsz.edu.cn/",
+                mapOf("SESSION" to "session")
+            )
+        )
+    }
+
+    @Test
+    fun `Shenzhen login page is not success even with session cookie`() {
+        assertFalse(
+            WebLoginSuccessPolicy.isShenzhenAuthenticatedPage(
+                "https://jw.hitsz.edu.cn/authentication/main/login",
+                mapOf("JSESSIONID" to "session", "route" to "route")
+            )
+        )
+    }
 }

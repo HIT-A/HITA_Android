@@ -44,6 +44,27 @@ object TermUtils {
         sortNewestFirst(allTerms)
 
     /**
+     * Filter terms for timetable import. The academic system may expose a
+     * newly opened future term before marking it as the current term, so the
+     * current-term upper bound used by score/exam history must not apply here.
+     */
+    fun filterTermsForTimetableImport(
+        allTerms: List<TermItem>,
+        grade: String?
+    ): List<TermItem> {
+        val enrollmentYear = Regex("(20\\d{2})").find(grade.orEmpty())
+            ?.groupValues?.getOrNull(1)?.toIntOrNull()
+        val filtered = if (enrollmentYear == null) {
+            filterRecentTerms(allTerms)
+        } else {
+            allTerms.filter { term ->
+                startYear(term.yearCode)?.let { it >= enrollmentYear } == true
+            }
+        }
+        return sortNewestFirst(if (filtered.isNotEmpty()) filtered else allTerms)
+    }
+
+    /**
      * 过滤学期列表，只显示最近的学期
      *
      * 原因：API返回了从2007年开始的所有历史学期，用户不需要看到这么多

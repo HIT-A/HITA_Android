@@ -1881,11 +1881,7 @@ class WebViewLoginActivity : AppCompatActivity() {
                 WebLoginSuccessPolicy.isWeihaiAuthenticatedPage(url, collectCookies())
             }
             EASToken.Campus.SHENZHEN -> {
-                (host == "jw.hitsz.edu.cn" || host == Uri.parse(CampusUrls.SHENZHEN_PROXY_BASE).host) &&
-                    (path.contains("authentication/main") ||
-                        path.contains("student_index") ||
-                        path.contains("user/me")) &&
-                    hasRequiredCookies(collectCookies(), url)
+                WebLoginSuccessPolicy.isShenzhenAuthenticatedPage(url, collectCookies())
             }
         }
     }

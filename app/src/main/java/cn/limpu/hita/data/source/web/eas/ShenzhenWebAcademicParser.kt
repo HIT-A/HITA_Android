@@ -230,7 +230,14 @@ internal object ShenzhenWebAcademicParser {
         if (content?.isJsonObject == true && content.asJsonObject.get("list")?.isJsonArray == true) {
             return content.asJsonObject.getAsJsonArray("list")
         }
-        if (obj.get("kbjclist")?.isJsonArray == true) return obj.getAsJsonArray("kbjclist")
+        listOf("data", "rows", "result", "resultData", "kbjclist").forEach { key ->
+            val nested = obj.get(key) ?: return@forEach
+            if (nested.isJsonArray) return nested.asJsonArray
+            if (nested.isJsonObject) {
+                val rows = rowsElement(nested)
+                if (rows.size() > 0) return rows
+            }
+        }
         return JsonArray()
     }
 

@@ -1,5 +1,6 @@
 package cn.limpu.hita.ui.eas.login
 
+import cn.limpu.hita.data.model.eas.EASToken
 import java.net.URI
 
 /** Pure URL and cookie rules shared by the WebView login flow and its tests. */
@@ -38,5 +39,24 @@ internal object WebLoginSuccessPolicy {
         } else {
             proxyBaseUrl.trimEnd('/')
         }
+    }
+
+    fun isShenzhenAuthenticatedPage(url: String, cookies: Map<String, String>): Boolean {
+        val uri = runCatching { URI(url) }.getOrNull() ?: return false
+        val host = uri.host.orEmpty().lowercase()
+        val allowedHosts = setOf("jw.hitsz.edu.cn", "jw-hitsz-edu-cn.hitsz.edu.cn")
+        if (host !in allowedHosts) return false
+
+        val path = uri.path.orEmpty().lowercase()
+        if (path.contains("login") || path.contains("authserver") || path.contains("authentication/require")) {
+            return false
+        }
+        val isKnownAcademicPage = path.isBlank() || path == "/" ||
+            path.contains("authentication/main") ||
+            path.contains("student_index") ||
+            path.contains("user/me") ||
+            path.contains("xszykb") ||
+            path.contains("xsxk")
+        return isKnownAcademicPage && EASToken.hasShenzhenWebSessionCookies(cookies)
     }
 }

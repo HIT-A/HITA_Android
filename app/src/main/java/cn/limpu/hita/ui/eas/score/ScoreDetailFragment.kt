@@ -24,15 +24,32 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
+import com.google.gson.Gson
 import cn.limpu.hita.R
 import cn.limpu.hita.data.model.eas.CourseScoreItem
 import cn.limpu.hita.utils.formatCredits
 import cn.limpu.hita.ui.design.HitaComposeTheme
 import cn.limpu.hita.ui.design.HitaTheme
 
-class ScoreDetailFragment(
-    private val score: CourseScoreItem
-) : BottomSheetDialogFragment() {
+class ScoreDetailFragment : BottomSheetDialogFragment() {
+
+    private val score: CourseScoreItem by lazy {
+        Gson().fromJson(
+            requireArguments().getString(ARG_SCORE).orEmpty(),
+            CourseScoreItem::class.java
+        )
+    }
+
+    companion object {
+        private const val ARG_SCORE = "score"
+
+        fun newInstance(score: CourseScoreItem): ScoreDetailFragment =
+            ScoreDetailFragment().apply {
+                arguments = Bundle().apply {
+                    putString(ARG_SCORE, Gson().toJson(score))
+                }
+            }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)

@@ -68,4 +68,20 @@ class TermUtilsTest {
 
         assertEquals(listOf("2026-2027-1", "2025-2026-3"), result.map { it.id })
     }
+
+    @Test
+    fun `timetable import keeps future terms exposed by academic system`() {
+        val current = TermItem("2025-2026", "2025-2026", "3", "夏季").apply {
+            isCurrent = true
+        }
+        val future = TermItem("2026-2027", "2026-2027", "1", "秋季")
+        val old = TermItem("2021-2022", "2021-2022", "1", "秋季")
+
+        val result = TermUtils.filterTermsForTimetableImport(
+            listOf(current, old, future),
+            grade = "2022级"
+        )
+
+        assertEquals(listOf("2026-2027-1", "2025-2026-3"), result.map { it.id })
+    }
 }

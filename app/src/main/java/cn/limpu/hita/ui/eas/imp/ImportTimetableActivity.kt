@@ -424,7 +424,7 @@ class ImportTimetableActivity :
     }
 
     private fun showTermPicker(terms: List<TermItem>) {
-        val filteredTerms = cn.limpu.hita.utils.TermUtils.filterTermsForStudent(
+        val filteredTerms = cn.limpu.hita.utils.TermUtils.filterTermsForTimetableImport(
             terms,
             easRepository.getEasToken().grade
         )
