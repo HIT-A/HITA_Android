@@ -30,6 +30,8 @@
     <string name="eas_login_shenzhen_web">使用统一身份认证网页登录</string>
     <string name="eas_login_shenzhen_web_hint">补充深圳 Web 会话后可浏览可选课程、全校课表等只读信息；已有 API 会话会继续保留。</string>
     <string name="eas_campus_benbu">本部</string>
+    <string name="eas_student_undergraduate">本科</string>
+    <string name="eas_student_postgraduate">研究生</string>
     <string name="eas_campus_weihai">威海</string>
     <string name="webview_login">浏览器登录</string>
     <string name="webview_login_title">教务网页登录</string>

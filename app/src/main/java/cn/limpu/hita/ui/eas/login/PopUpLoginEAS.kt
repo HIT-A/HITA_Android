@@ -77,6 +77,7 @@ class PopUpLoginEAS : BottomSheetDialogFragment() {
     var preferredCampus: EASToken.Campus? = null
     var onResponseListener: OnResponseListener? = null
     private var pendingWebViewCampus: EASToken.Campus? = null
+    private var pendingWebViewStudentType: String = ShenzhenWebAutoLogin.UNDERGRAD
     private var autoLaunchTriggered = false
     private var silentWebLoginTried = false
     private var pendingNonSilentCampus by mutableStateOf<EASToken.Campus?>(null)
@@ -131,8 +132,8 @@ class PopUpLoginEAS : BottomSheetDialogFragment() {
                         isAgreementAccepted = isUserAgreementAccepted(),
                         onMarkAgreementAccepted = { markUserAgreementAccepted() },
                         initialCampus = preferredCampus ?: viewModel.easRepo.getEasToken().campus,
-                        onLogin = { campus, username, password ->
-                            performLogin(campus, username, password, webViewLauncher)
+                        onLogin = { campus, username, password, studentType ->
+                            performLogin(campus, username, password, webViewLauncher, studentType)
                         },
                         onWebLogin = { campus ->
                             launchCampusWebLogin(campus, silentMode = false, webViewLauncher)
@@ -172,12 +173,13 @@ class PopUpLoginEAS : BottomSheetDialogFragment() {
         campus: EASToken.Campus,
         username: String,
         password: String,
-        launcher: androidx.activity.result.ActivityResultLauncher<Intent>
+        launcher: androidx.activity.result.ActivityResultLauncher<Intent>,
+        studentType: String
     ) {
         when (campus) {
             EASToken.Campus.SHENZHEN -> viewModel.startLogin(username, password, campus)
             EASToken.Campus.BENBU, EASToken.Campus.WEIHAI -> {
-                launchCampusWebLogin(campus, silentMode = false, launcher)
+                launchCampusWebLogin(campus, silentMode = false, launcher, studentType)
             }
         }
     }
@@ -185,9 +187,11 @@ class PopUpLoginEAS : BottomSheetDialogFragment() {
     private fun launchCampusWebLogin(
         campus: EASToken.Campus,
         silentMode: Boolean,
-        launcher: androidx.activity.result.ActivityResultLauncher<Intent>
+        launcher: androidx.activity.result.ActivityResultLauncher<Intent>,
+        studentType: String = viewModel.easRepo.getEasToken().getStudentType()
     ) {
         pendingWebViewCampus = campus
+        pendingWebViewStudentType = studentType
         loginInProgress = true
         launcher.launch(
             Intent(requireContext(), WebViewLoginActivity::class.java).apply {
@@ -195,7 +199,7 @@ class PopUpLoginEAS : BottomSheetDialogFragment() {
                 putExtra(WebViewLoginActivity.EXTRA_CAMPUS, campus.name)
                 putExtra(
                     WebViewLoginActivity.EXTRA_STUDENT_TYPE,
-                    viewModel.easRepo.getEasToken().getStudentType()
+                    studentType
                 )
             }
         )
@@ -240,7 +244,7 @@ class PopUpLoginEAS : BottomSheetDialogFragment() {
 
                 val electronicExpToken = data.getStringExtra("electronic_exp_token")
                 val webBaseUrl = data.getStringExtra("web_base_url")
-                startCookieLogin(campus, cookiesMap, electronicExpToken, webBaseUrl)
+                startCookieLogin(campus, cookiesMap, electronicExpToken, webBaseUrl, pendingWebViewStudentType)
             } catch (e: Exception) {
                 loginInProgress = false
                 LogUtils.e("Failed to parse cookies: ${e.message}")
@@ -257,10 +261,13 @@ class PopUpLoginEAS : BottomSheetDialogFragment() {
         cookiesMap: HashMap<String, String>,
         electronicExpToken: String?,
         webBaseUrl: String?,
+        studentType: String,
     ) {
         val cookiesJson = JSONObject(cookiesMap as Map<*, *>).toString()
         val loginMetadata = if (campus == EASToken.Campus.SHENZHEN) {
             webBaseUrl.orEmpty()
+        } else if (campus == EASToken.Campus.BENBU && studentType == ShenzhenWebAutoLogin.POSTGRAD) {
+            "graduate"
         } else {
             electronicExpToken.orEmpty()
         }
@@ -307,7 +314,7 @@ private fun LoginEASScreen(
     isAgreementAccepted: Boolean,
     onMarkAgreementAccepted: () -> Unit,
     initialCampus: EASToken.Campus,
-    onLogin: (EASToken.Campus, String, String) -> Unit,
+    onLogin: (EASToken.Campus, String, String, String) -> Unit,
     onWebLogin: (EASToken.Campus) -> Unit,
     onAutoLaunch: (EASToken.Campus) -> Unit,
     onSuccess: () -> Unit,
@@ -319,6 +326,7 @@ private fun LoginEASScreen(
     val token = viewModel.easRepo.getEasToken()
 
     var selectedCampus by remember { mutableStateOf(initialCampus) }
+    var selectedStudentType by remember { mutableStateOf(token.getStudentType()) }
     var username by remember {
         mutableStateOf(token.username?.takeIf { token.campus == EASToken.Campus.SHENZHEN } ?: "")
     }
@@ -410,7 +418,7 @@ private fun LoginEASScreen(
                     }
                     onMarkAgreementAccepted()
                     onLoadingChange(true)
-                    onLogin(selectedCampus, username, password)
+                    onLogin(selectedCampus, username, password, selectedStudentType)
                 },
                 enabled = isFormValid && !isLoading,
                 shape = RoundedCornerShape(16.dp),
@@ -467,6 +475,26 @@ private fun LoginEASScreen(
                     color = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.padding(start = tokens.spacing.xs)
                 )
+            }
+        }
+
+        if (selectedCampus == EASToken.Campus.BENBU) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                listOf(
+                    "1" to stringResource(R.string.eas_student_undergraduate),
+                    "2" to stringResource(R.string.eas_student_postgraduate)
+                ).forEachIndexed { index, (type, label) ->
+                    if (index > 0) Spacer(modifier = Modifier.width(tokens.spacing.md))
+                    RadioButton(
+                        selected = selectedStudentType == type,
+                        onClick = { selectedStudentType = type },
+                        colors = RadioButtonDefaults.colors(selectedColor = MaterialTheme.colorScheme.primary)
+                    )
+                    Text(label, fontSize = 14.sp, modifier = Modifier.padding(start = tokens.spacing.xs))
+                }
             }
         }
 

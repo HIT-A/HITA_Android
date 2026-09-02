@@ -108,6 +108,7 @@ class WebViewLoginActivity : AppCompatActivity() {
             // 本部校区URL
             private const val BENBU_BASE = "http://i-hit-edu-cn.ivpn.hit.edu.cn:1080"
             private const val JWTS_BASE = "http://jwts-hit-edu-cn.ivpn.hit.edu.cn:1080"
+            private const val GRADUATE_BASE = "http://yjsgl-hit-edu-cn.ivpn.hit.edu.cn:1080"
 
             // 威海校区URL
             private const val WEIHAI_BASE = "https://webvpn.hitwh.edu.cn"
@@ -119,6 +120,13 @@ class WebViewLoginActivity : AppCompatActivity() {
                 "$JWTS_BASE/loginCAS",
                 "$BENBU_BASE/",
                 "$BENBU_BASE/portal/home/"
+            )
+            val BENBU_GRADUATE_LOGIN = BENBU_LOGIN
+            val BENBU_GRADUATE_JWTS = "$GRADUATE_BASE/common/casLogin"
+            val BENBU_GRADUATE_PROBE_URLS = listOf(
+                "$GRADUATE_BASE/common/casLogin",
+                "$GRADUATE_BASE/xs/index",
+                "$GRADUATE_BASE/"
             )
 
             val WEIHAI_LOGIN = "$WEIHAI_BASE/"
@@ -168,7 +176,8 @@ class WebViewLoginActivity : AppCompatActivity() {
         val campus: EASToken.Campus,
         val loginUrl: String,
         val jwtsUrl: String,
-        val cookieProbeUrls: List<String>
+        val cookieProbeUrls: List<String>,
+        val studentType: String = ShenzhenWebAutoLogin.UNDERGRAD
     )
 
     private var finished = false
@@ -193,6 +202,7 @@ class WebViewLoginActivity : AppCompatActivity() {
     private var shenzhenDesktopUserAgentApplied = false
     private var shenzhenForceWebModeApplied = false
     private var shenzhenPreferredStudentType = ShenzhenWebAutoLogin.UNDERGRAD
+    private var benbuStudentType = ShenzhenWebAutoLogin.UNDERGRAD
     private var shenzhenAutoAdvanceGeneration = 0
     private var shenzhenAutoAdvanceScheduledGeneration = -1
     private var shenzhenUnifiedLoginClicked = false
@@ -205,11 +215,14 @@ class WebViewLoginActivity : AppCompatActivity() {
                 intent?.getStringExtra(EXTRA_CAMPUS) ?: EASToken.Campus.BENBU.name
             )
         }.getOrDefault(EASToken.Campus.BENBU)
-        config = configFor(campus)
         silentMode = intent?.getBooleanExtra(EXTRA_SILENT_MODE, false) == true
         shenzhenPreferredStudentType = ShenzhenWebAutoLogin.normalizeStudentType(
             intent?.getStringExtra(EXTRA_STUDENT_TYPE)
         )
+        benbuStudentType = ShenzhenWebAutoLogin.normalizeStudentType(
+            intent?.getStringExtra(EXTRA_STUDENT_TYPE)
+        )
+        config = configFor(campus)
 
         setTheme(
             if (silentMode) {
@@ -277,9 +290,10 @@ class WebViewLoginActivity : AppCompatActivity() {
         return when (campus) {
             EASToken.Campus.BENBU -> CampusWebConfig(
                 campus = campus,
-                loginUrl = CampusUrls.BENBU_LOGIN,
-                jwtsUrl = CampusUrls.BENBU_JWTS,
-                cookieProbeUrls = CampusUrls.BENBU_PROBE_URLS
+                loginUrl = if (benbuStudentType == ShenzhenWebAutoLogin.POSTGRAD) CampusUrls.BENBU_GRADUATE_LOGIN else CampusUrls.BENBU_LOGIN,
+                jwtsUrl = if (benbuStudentType == ShenzhenWebAutoLogin.POSTGRAD) CampusUrls.BENBU_GRADUATE_JWTS else CampusUrls.BENBU_JWTS,
+                cookieProbeUrls = if (benbuStudentType == ShenzhenWebAutoLogin.POSTGRAD) CampusUrls.BENBU_GRADUATE_PROBE_URLS else CampusUrls.BENBU_PROBE_URLS,
+                studentType = benbuStudentType
             )
             EASToken.Campus.WEIHAI -> CampusWebConfig(
                 campus = campus,
@@ -514,7 +528,8 @@ class WebViewLoginActivity : AppCompatActivity() {
                             LogUtils.success("login success page detected campus=${config.campus}")
                             handleSuccessPage()
                         }
-                        autoOpeningJwts && uri.host?.contains("jwts") == true -> {
+                        autoOpeningJwts && (uri.host?.contains("jwts") == true ||
+                            uri.host?.contains("yjsgl") == true) -> {
                             autoOpeningJwts = false
                             LogUtils.d("jwts domain (auto-open), starting cookie polling: path=${uri.path}")
                             startCookiePolling()
@@ -1847,7 +1862,8 @@ class WebViewLoginActivity : AppCompatActivity() {
             return false
         }
         val uri = Uri.parse(url)
-        return uri.host?.contains("jwts") == true &&
+        return (uri.host?.contains("jwts") == true ||
+            (config.studentType == ShenzhenWebAutoLogin.POSTGRAD && uri.host?.contains("yjsgl") == true)) &&
             (url.lowercase().contains("logincas") || url.lowercase().contains("login"))
     }
 
@@ -1860,6 +1876,11 @@ class WebViewLoginActivity : AppCompatActivity() {
             EASToken.Campus.BENBU -> {
                 val isLoginPage = path.contains("login")
                 val isOnJwtsDomain = host.contains("jwts")
+
+                if (config.studentType == ShenzhenWebAutoLogin.POSTGRAD) {
+                    return host.contains("yjsgl") && path.contains("/xs/index") &&
+                        hasRequiredCookies(collectCookies(), url)
+                }
 
                 // Only check cookies on JWTS domain — IVPN portal pages can have
                 // IVPN session cookies that don't represent an authenticated JWTS session
@@ -1960,6 +1981,9 @@ class WebViewLoginActivity : AppCompatActivity() {
                 vpnCookies.forEach { (key, value) -> mergedCookies.putIfAbsent(key, value) }
                 finishWithCookies(mergedCookies)
             }
+        } else if (config.campus == EASToken.Campus.BENBU &&
+            config.studentType == ShenzhenWebAutoLogin.POSTGRAD) {
+            finishWithCookies(cookies)
         } else if (config.campus == EASToken.Campus.BENBU) {
             navigatingToEelab = true
             eelabTokenFetching = false
@@ -2068,6 +2092,10 @@ class WebViewLoginActivity : AppCompatActivity() {
     private fun hasRequiredCookies(cookies: Map<String, String>, currentUrl: String): Boolean {
         return when (config.campus) {
             EASToken.Campus.BENBU -> {
+                if (config.studentType == ShenzhenWebAutoLogin.POSTGRAD) {
+                    return cookies["sdp_user_token"].orEmpty().isNotBlank() &&
+                        (cookies["JSESSIONID"].orEmpty().isNotBlank() || hasUrlJsession(currentUrl))
+                }
                 val hasJsession = cookies.containsKey("JSESSIONID") || hasUrlJsession(currentUrl)
                 val hasHit = cookies.containsKey("HIT")
                 hasJsession && hasHit

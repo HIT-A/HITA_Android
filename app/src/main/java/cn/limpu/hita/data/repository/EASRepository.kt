@@ -244,9 +244,18 @@ class EASRepository @Inject constructor(
             }
             token.campus = campus
             if ((campus == EASToken.Campus.BENBU || campus == EASToken.Campus.WEIHAI) &&
-                password.isNotBlank()
+                password.isNotBlank() && password != "graduate"
             ) {
                 token.electronicExpToken = password
+            }
+            if (campus == EASToken.Campus.BENBU && token.stutype == EASToken.TYPE.GRAD) {
+                if (saveEasToken(token, expectedEpoch)) {
+                    result.value = DataState(true, DataState.STATE.SUCCESS)
+                } else {
+                    result.value = DataState(false, DataState.STATE.NOT_LOGGED_IN)
+                }
+                result.removeSource(loginSource)
+                return@addSource
             }
             enrichLoginToken(result, token, campus, expectedEpoch = expectedEpoch)
             result.removeSource(loginSource)
@@ -345,6 +354,16 @@ class EASRepository @Inject constructor(
                 result.value = DataState(false, DataState.STATE.SUCCESS).apply {
                     message = "登录验证失败，请重试"
                 }
+                return@addSource
+            }
+
+            if (token.campus == EASToken.Campus.BENBU && token.stutype == EASToken.TYPE.GRAD) {
+                if (saveEasToken(checkedToken, expectedEpoch)) {
+                    result.value = DataState(true, DataState.STATE.SUCCESS)
+                } else {
+                    result.value = DataState(false, DataState.STATE.NOT_LOGGED_IN)
+                }
+                result.removeSource(checkSource)
                 return@addSource
             }
 
