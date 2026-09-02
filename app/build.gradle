@@ -11,8 +11,8 @@ plugins {
 def envVersionCode = System.getenv("VERSION_CODE")
 def appVersionCodeValue = (envVersionCode != null && envVersionCode.matches("\\d+"))
     ? Integer.parseInt(envVersionCode)
-    : 2026082802
-def appVersionNameValue = "2.6.4"
+    : 2026090101
+def appVersionNameValue = "2.6.5"
 
 def keystorePropertiesFile = rootProject.file("keystore.properties")
 def keystoreProperties = new Properties()

@@ -1326,4 +1326,5 @@
     <string name="update_download_progress_waiting">正在准备下载...</string>
     <string name="update_download_progress_percent">正在下载：%d%%</string>
     <string name="update_download_progress_done">下载完成，正在打开安装器...</string>
+    <string name="timetable_projection_read_only">该课程由选课预览生成，请在选课管理中调整或隐藏预览</string>
 </resources>

@@ -5,6 +5,8 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.os.Environment
+import android.graphics.Typeface
+import android.text.Layout
 import android.text.TextUtils
 import android.text.method.LinkMovementMethod
 import android.view.HapticFeedbackConstants
@@ -74,6 +76,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.Observer
 import com.limpu.component.data.DataState
@@ -113,6 +116,7 @@ import dagger.hilt.android.AndroidEntryPoint
 import io.noties.markwon.AbstractMarkwonPlugin
 import io.noties.markwon.Markwon
 import io.noties.markwon.MarkwonConfiguration
+import io.noties.markwon.core.MarkwonTheme
 import io.noties.markwon.ext.latex.JLatexMathPlugin
 import io.noties.markwon.ext.strikethrough.StrikethroughPlugin
 import io.noties.markwon.ext.tables.TablePlugin
@@ -128,6 +132,7 @@ import java.util.ArrayDeque
 import java.util.Calendar
 import java.util.Comparator
 import java.util.regex.Pattern
+import kotlin.math.roundToInt
 import javax.inject.Inject
 
 @AndroidEntryPoint
@@ -182,6 +187,20 @@ class SubjectActivity : HiltBaseActivity<ComposeViewBinding>() {
             .usePlugin(JLatexMathPlugin.create(15f))
             .usePlugin(GlideImagesPlugin.create(this))
             .usePlugin(object : AbstractMarkwonPlugin() {
+                override fun configureTheme(builder: MarkwonTheme.Builder) {
+                    builder
+                        .linkColor(ContextCompat.getColor(this@SubjectActivity, R.color.primary))
+                        .isLinkUnderlined(true)
+                        .blockMargin(dpToPx(8))
+                        .blockQuoteWidth(dpToPx(3))
+                        .blockQuoteColor(ContextCompat.getColor(this@SubjectActivity, R.color.primary))
+                        .bulletWidth(dpToPx(5))
+                        .headingBreakHeight(0)
+                        .headingTypeface(Typeface.create("sans-serif", Typeface.BOLD))
+                        .headingTextSizeMultipliers(floatArrayOf(1.6f, 1.38f, 1.22f, 1.12f, 1.05f, 1f))
+                }
+            })
+            .usePlugin(object : AbstractMarkwonPlugin() {
                 override fun configureConfiguration(builder: MarkwonConfiguration.Builder) {
                     builder.linkResolver { view: View, link: String ->
                         val source = (view.tag as? String)?.takeIf { it.isNotBlank() } ?: currentReadmeSource
@@ -191,6 +210,9 @@ class SubjectActivity : HiltBaseActivity<ComposeViewBinding>() {
             })
             .build()
     }
+
+    private fun dpToPx(dp: Int): Int =
+        (dp * resources.displayMetrics.density).roundToInt()
 
     override fun initViewBinding(): ComposeViewBinding {
         return ComposeViewBinding(ComposeView(this))
@@ -839,7 +861,9 @@ class SubjectActivity : HiltBaseActivity<ComposeViewBinding>() {
             val openAttr = if (closed == "true") "" else " open"
             "<details$openAttr><summary>$title</summary>"
         }
-        return endPattern.replace(replacedStart, "</details>")
+        return MarkdownPreprocessor.normalizeInlineLatex(
+            endPattern.replace(replacedStart, "</details>")
+        )
     }
 
     private fun convertHtmlTables(markdown: String): String {
@@ -1936,7 +1960,13 @@ private fun MarkdownText(
         modifier = modifier.fillMaxWidth(),
         factory = { context ->
             TextView(context).apply {
-                textSize = 14f
+                textSize = 15f
+                includeFontPadding = false
+                setLineSpacing(0f, 1.28f)
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+                    breakStrategy = Layout.BREAK_STRATEGY_HIGH_QUALITY
+                    hyphenationFrequency = Layout.HYPHENATION_FREQUENCY_NORMAL
+                }
                 setTextColor(textColor)
                 movementMethod = LinkMovementMethod.getInstance()
                 linksClickable = true

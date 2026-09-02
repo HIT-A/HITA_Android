@@ -247,6 +247,14 @@ class TimetableFragment : HiltBaseFragment<ComposeViewBinding>() {
     }
 
     private fun showEventMenu(eventItem: EventItem, positionInWindow: IntOffset) {
+        if (TimetableEventPolicy.isReadOnlyProjection(eventItem)) {
+            Toast.makeText(
+                requireContext(),
+                R.string.timetable_projection_read_only,
+                Toast.LENGTH_SHORT
+            ).show()
+            return
+        }
         val root = requireActivity().findViewById<FrameLayout>(android.R.id.content) ?: return
         val rootLocation = IntArray(2)
         root.getLocationInWindow(rootLocation)
