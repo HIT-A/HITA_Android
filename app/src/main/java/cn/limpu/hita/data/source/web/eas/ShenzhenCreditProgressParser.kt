@@ -65,12 +65,15 @@ internal object ShenzhenCreditProgressParser {
         groupsBody: String,
         groupCourseBodies: Map<String, String> = emptyMap(),
         courseRecordBodies: List<String>,
-        currentTerm: String
+        currentTerm: String,
+        allowMissingSummary: Boolean = false
     ): ShenzhenCreditProgress? {
-        val summaryRoot = objectRoot(summaryBody) ?: return null
-        val summary = objectAt(summaryRoot, "content") ?: return null
+        val summaryRoot = objectRoot(summaryBody)
+        if (summaryRoot == null && !allowMissingSummary) return null
+        val summary = objectAt(summaryRoot, "content")
+        if (summary == null && !allowMissingSummary) return null
         val required = objectAt(summary, "yqmsxf", "YQMSXF")
-        val requiredCredits = number(required, "YQXF", "yqxf") ?: return null
+        val requiredCredits = number(required, "YQXF", "yqxf") ?: 0.0
         val completedCredits = number(summary, "ywcxf", "YWCXF") ?: 0.0
         val remainingCredits = number(summary, "wwcxf", "WWCXF")
             ?: (requiredCredits - completedCredits).coerceAtLeast(0.0)
