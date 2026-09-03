@@ -1987,15 +1987,17 @@ private fun DrawerHeader(drawerState: DrawerUserState, onClick: () -> Unit, onAv
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             fontSize = 16.sp,
             fontWeight = FontWeight.Bold,
-            maxLines = 1,
+            maxLines = 2,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier
+                .fillMaxWidth()
                 .alpha(0.6f)
                 .padding(
                     start = HitaTheme.tokens.spacing.lg,
                     top = HitaTheme.tokens.spacing.sm,
                     end = HitaTheme.tokens.spacing.lg
-                )
+                ),
+            textAlign = TextAlign.Center
         )
     }
 }

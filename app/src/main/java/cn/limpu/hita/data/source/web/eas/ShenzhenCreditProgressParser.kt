@@ -106,7 +106,11 @@ internal object ShenzhenCreditProgressParser {
     private fun parseCategories(body: String): List<ShenzhenCreditRequirement> {
         val root = objectRoot(body) ?: return emptyList()
         val content = objectAt(root, "content") ?: root
-        val rows = arrayAt(content, "xflbyq", "XFLBYQ") ?: return emptyList()
+        val categoryContainer = objectAt(content, "xflbyq", "XFLBYQ")
+        val rows = arrayAt(categoryContainer, "list", "rows")
+            ?: arrayAt(content, "xflbyq", "XFLBYQ")
+            ?: arrayAt(root, "xflbyq", "XFLBYQ")
+            ?: return emptyList()
         return rows.mapNotNull { element ->
             val row = element.takeIf { it.isJsonObject }?.asJsonObject ?: return@mapNotNull null
             val name = first(row, "kclbmc", "KCLBMC")
@@ -146,7 +150,11 @@ internal object ShenzhenCreditProgressParser {
         groupCourseBodies: Map<String, String> = emptyMap()
     ): List<ShenzhenCreditGroupProgress> {
         val root = objectRoot(body) ?: return emptyList()
-        val content = arrayAt(root, "content") ?: return emptyList()
+        val contentObject = objectAt(root, "content")
+        val content = arrayAt(root, "content")
+            ?: arrayAt(contentObject, "list", "mkyq", "children")
+            ?: arrayAt(root, "mkyq", "list", "children")
+            ?: return emptyList()
         val result = mutableListOf<ShenzhenCreditGroupProgress>()
 
         fun visit(row: JsonObject, depth: Int) {
@@ -259,7 +267,8 @@ internal object ShenzhenCreditProgressParser {
         return null
     }
 
-    private fun arrayAt(value: JsonObject, vararg keys: String): JsonArray? {
+    private fun arrayAt(value: JsonObject?, vararg keys: String): JsonArray? {
+        if (value == null) return null
         keys.forEach { key ->
             value.get(key)?.takeIf { it.isJsonArray }?.asJsonArray?.let { return it }
         }

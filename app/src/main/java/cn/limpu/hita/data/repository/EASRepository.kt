@@ -1535,8 +1535,11 @@ class EASRepository @Inject constructor(
         return shenzhenService.getShenzhenTrainingPlans(easPreferenceSource.getEasToken())
     }
 
-    fun getShenzhenCreditProgress(): LiveData<DataState<ShenzhenCreditProgress>> {
-        return shenzhenService.getShenzhenCreditProgress(easPreferenceSource.getEasToken())
+    fun getShenzhenCreditProgress(term: TermItem? = null): LiveData<DataState<ShenzhenCreditProgress>> {
+        return shenzhenService.getShenzhenCreditProgress(
+            easPreferenceSource.getEasToken(),
+            selectedTerm = term
+        )
     }
 
     fun getShenzhenTrainingPlanCourses(

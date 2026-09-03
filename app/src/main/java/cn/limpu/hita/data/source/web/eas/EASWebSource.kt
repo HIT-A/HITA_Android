@@ -1584,6 +1584,7 @@ class EASWebSource internal constructor(
 
     fun getShenzhenCreditProgress(
         token: EASToken,
+        selectedTerm: TermItem? = null,
         includeDetails: Boolean = true,
         includeCourseRecords: Boolean = true,
         trackCoursesOnly: Boolean = false
@@ -1657,8 +1658,9 @@ class EASWebSource internal constructor(
                     result.postValue(DataState(DataState.STATE.NOT_LOGGED_IN, "深圳 Web 会话已失效"))
                     return@Thread
                 }
-                val currentTerm = termResponse.takeIf { it.statusCode() == 200 }
-                    ?.let { ShenzhenCreditProgressParser.parseCurrentTerm(it.body()) }
+                val currentTerm = selectedTerm?.getCode()
+                    ?: termResponse.takeIf { it.statusCode() == 200 }
+                        ?.let { ShenzhenCreditProgressParser.parseCurrentTerm(it.body()) }
                 if (currentTerm.isNullOrBlank()) {
                     result.postValue(DataState(DataState.STATE.FETCH_FAILED, "当前成绩学期读取失败"))
                     return@Thread

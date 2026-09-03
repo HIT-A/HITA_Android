@@ -72,13 +72,16 @@ import cn.limpu.hita.data.model.eas.ShenzhenCreditGroupProgress
 import cn.limpu.hita.data.model.eas.ShenzhenCreditProgress
 import cn.limpu.hita.data.model.eas.ShenzhenCreditRequirement
 import cn.limpu.hita.data.model.eas.ShenzhenCreditCourseRecord
+import cn.limpu.hita.data.model.eas.TermItem
 import cn.limpu.hita.data.model.timetable.TermSubject
 import cn.limpu.hita.ui.base.ComposeViewBinding
 import cn.limpu.hita.ui.design.HitaComposeTheme
 import cn.limpu.hita.ui.design.HitaTheme
 import cn.limpu.hita.ui.eas.EASActivity
+import cn.limpu.hita.utils.TermNameFormatter
 import com.limpu.component.data.DataState
 import com.limpu.style.ThemeTools
+import com.limpu.style.widgets.PopUpCheckableList
 import com.limpu.style.widgets.PopUpFloatPicker
 import dagger.hilt.android.AndroidEntryPoint
 import java.util.Locale
@@ -110,13 +113,19 @@ class CreditStatsActivity : EASActivity<CreditStatsViewModel, ComposeViewBinding
                 resetSessionRetryState()
             }
         }
+        viewModel.termsLiveData.observe(this) { state ->
+            if (state.state == DataState.STATE.SUCCESS) {
+                viewModel.reconcileTerms(state.data.orEmpty())
+            }
+        }
         (binding.root as ComposeView).setContent {
             HitaComposeTheme() {
                 CreditStatsScreen(
                     viewModel = viewModel,
                     onBack = { onBackPressedDispatcher.onBackPressed() },
                     onEditGoal = ::showGoalPicker,
-                    onRetryOfficial = { viewModel.retryOfficial() }
+                    onRetryOfficial = { viewModel.retryOfficial() },
+                    onPickTerm = ::showTermPicker
                 )
             }
         }
@@ -141,6 +150,20 @@ class CreditStatsActivity : EASActivity<CreditStatsViewModel, ComposeViewBinding
         })
         picker.show(supportFragmentManager, "goal_picker")
     }
+
+    private fun showTermPicker() {
+        val terms = viewModel.termsLiveData.value?.data.orEmpty()
+        if (terms.isEmpty()) return
+        PopUpCheckableList<TermItem>()
+            .setListData(terms.map { TermNameFormatter.fullTermName(it) }, terms)
+            .setTitle("选择学期")
+            .setOnConfirmListener(object : PopUpCheckableList.OnConfirmListener<TermItem> {
+                override fun OnConfirm(title: String?, key: TermItem) {
+                    viewModel.selectTerm(key)
+                }
+            })
+            .show(supportFragmentManager, "credit_terms")
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -149,14 +172,17 @@ private fun CreditStatsScreen(
     viewModel: CreditStatsViewModel,
     onBack: () -> Unit,
     onEditGoal: (CreditCategorySummary) -> Unit,
-    onRetryOfficial: () -> Unit
+    onRetryOfficial: () -> Unit,
+    onPickTerm: () -> Unit
 ) {
     if (viewModel.officialSupported) {
         val officialState by viewModel.shenzhenProgress.observeAsState()
         ShenzhenCreditProgressScreen(
             state = officialState,
             onBack = onBack,
-            onRetry = onRetryOfficial
+            onRetry = onRetryOfficial,
+            selectedTerm = viewModel.selectedTermLiveData.observeAsState().value,
+            onPickTerm = onPickTerm
         )
         return
     }
@@ -241,7 +267,9 @@ private fun CreditStatsScreen(
 private fun ShenzhenCreditProgressScreen(
     state: DataState<ShenzhenCreditProgress>?,
     onBack: () -> Unit,
-    onRetry: () -> Unit
+    onRetry: () -> Unit,
+    selectedTerm: TermItem?,
+    onPickTerm: () -> Unit
 ) {
     val progress = state?.data
     var showAllCourses by remember(progress?.courseRecords?.size) { mutableStateOf(false) }
@@ -257,12 +285,23 @@ private fun ShenzhenCreditProgressScreen(
             title = {
                 Column {
                     Text("培养方案完成度")
-                    progress?.currentTerm?.takeIf(String::isNotBlank)?.let {
+                    Row(
+                        modifier = Modifier.clickable(onClick = onPickTerm),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                         Text(
-                            formatOfficialTerm(it),
+                            selectedTerm?.let(TermNameFormatter::fullTermName)
+                                ?: progress?.currentTerm?.takeIf(String::isNotBlank)?.let(::formatOfficialTerm)
+                                ?: "选择学期",
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Normal
+                        )
+                        Icon(
+                            painter = painterResource(R.drawable.ic_expand),
+                            contentDescription = "选择学期",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(start = 4.dp).size(12.dp)
                         )
                     }
                 }

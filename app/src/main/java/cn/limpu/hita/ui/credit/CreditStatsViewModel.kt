@@ -6,11 +6,13 @@ import androidx.lifecycle.map
 import androidx.lifecycle.switchMap
 import cn.limpu.hita.data.model.eas.EASToken
 import cn.limpu.hita.data.model.eas.ShenzhenCreditProgress
+import cn.limpu.hita.data.model.eas.TermItem
 import cn.limpu.hita.data.model.timetable.TermSubject
 import cn.limpu.hita.data.repository.EASRepository
 import cn.limpu.hita.data.repository.SubjectRepository
 import cn.limpu.hita.data.source.preference.CreditGoalStore
 import cn.limpu.hita.ui.eas.EASViewModel
+import cn.limpu.hita.utils.TermUtils
 import com.limpu.component.data.DataState
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -28,9 +30,28 @@ class CreditStatsViewModel @Inject constructor(
     val officialSupported: Boolean
         get() = easRepo.getEasToken().campus == EASToken.Campus.SHENZHEN
 
+    val termsLiveData: LiveData<DataState<List<TermItem>>> = if (officialSupported) {
+        easRepo.getAllTerms().map { state ->
+            if (state.state == DataState.STATE.SUCCESS && state.data != null) {
+                DataState(
+                    TermUtils.filterTermsForStudent(
+                        state.data.orEmpty(),
+                        easRepo.getEasToken().grade
+                    ),
+                    state.state
+                ).apply { message = state.message }
+            } else {
+                state
+            }
+        }
+    } else {
+        MutableLiveData(DataState<List<TermItem>>(DataState.STATE.NOTHING))
+    }
+    val selectedTermLiveData = MutableLiveData<TermItem>()
+
     val shenzhenProgress: LiveData<DataState<ShenzhenCreditProgress>> =
         officialRefreshTrigger.switchMap {
-            easRepo.getShenzhenCreditProgress()
+            easRepo.getShenzhenCreditProgress(selectedTermLiveData.value)
         }
 
     val creditStats: LiveData<CreditStatsState> = refreshTrigger.switchMap {
@@ -51,6 +72,25 @@ class CreditStatsViewModel @Inject constructor(
         if (!officialSupported) return false
         officialRefreshTrigger.value = true
         return true
+    }
+
+    fun reconcileTerms(terms: List<TermItem>) {
+        val selected = selectedTermLiveData.value
+            ?.let { current -> terms.firstOrNull { it.id == current.id } }
+            ?: terms.firstOrNull { it.isCurrent }
+            ?: terms.firstOrNull()
+            ?: return
+        if (selectedTermLiveData.value?.id != selected.id) {
+            selectedTermLiveData.value = selected
+            officialRefreshTrigger.value = true
+        }
+    }
+
+    fun selectTerm(term: TermItem) {
+        if (selectedTermLiveData.value?.id != term.id) {
+            selectedTermLiveData.value = term
+            officialRefreshTrigger.value = true
+        }
     }
 
     fun setGoal(type: TermSubject.TYPE, credits: Float) {
