@@ -26,6 +26,8 @@ class BenbuEASWebSource(
     private val hostName = "http://jwts-hit-edu-cn.ivpn.hit.edu.cn:1080"
     private val experimentHostName = "http://sjjx-hit-edu-cn.ivpn.hit.edu.cn:1080"
     private val electronicExpHostName = "http://eelabinfo-hit-edu-cn.ivpn.hit.edu.cn:1080"
+    private val graduateHostName = "http://yjsgl-hit-edu-cn.ivpn.hit.edu.cn:1080"
+    private val graduateCourseHostName = "http://gcourse-hit-edu-cn.ivpn.hit.edu.cn:1080"
     private val timeout = AppConstants.Network.READ_TIMEOUT.toInt()
     private val executor = Executors.newCachedThreadPool()
 
@@ -54,7 +56,8 @@ class BenbuEASWebSource(
                     return@execute
                 }
 
-                val requiredCookies = listOf("JSESSIONID", "HIT")
+                val isGraduate = password == "graduate"
+                val requiredCookies = if (isGraduate) listOf("JSESSIONID", "sdp_user_token") else listOf("JSESSIONID", "HIT")
                 val missingCookies = requiredCookies.filter { !cookiesMap.containsKey(it) }
                 if (missingCookies.isNotEmpty()) {
                     LogUtils.e("login: missing required cookies: $missingCookies")
@@ -62,7 +65,8 @@ class BenbuEASWebSource(
                     return@execute
                 }
 
-                val url = "$hostName/kjscx/queryJxlListBySjid?sf_request_type=ajax"
+                val url = if (isGraduate) "$graduateHostName/yjsgl/common/getXsJbxx?sf_request_type=ajax"
+                    else "$hostName/kjscx/queryJxlListBySjid?sf_request_type=ajax"
 
                 val response = Jsoup.connect(url)
                     .cookies(cookiesMap)
@@ -70,18 +74,29 @@ class BenbuEASWebSource(
                     .header("Accept", "application/json, text/javascript, */*; q=0.01")
                     .header("X-Requested-With", "XMLHttpRequest")
                     .header("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
-                    .data("id", "1")
+                    .apply { if (!isGraduate) data("id", "1") }
                     .timeout(timeout)
                     .ignoreContentType(true)
                     .ignoreHttpErrors(true)
                     .method(Connection.Method.POST)
                     .execute()
 
-                if (response.statusCode() == 200) {
+                val graduateLoginValid = !isGraduate || runCatching {
+                    JSONObject(response.body()).optBoolean("isSuccess", false)
+                }.getOrDefault(false)
+                if (response.statusCode() == 200 && graduateLoginValid) {
                     val token = EASToken().apply {
                         cookies.putAll(cookiesMap)
                         campus = EASToken.Campus.BENBU
-                        this.username = extractLoginIdentity(cookiesMap)
+                        stutype = if (isGraduate) EASToken.TYPE.GRAD else EASToken.TYPE.UNDERGRAD
+                        if (isGraduate) {
+                            val data = runCatching { JSONObject(response.body()).optJSONObject("module")?.optJSONObject("data") }.getOrNull()
+                            val profileUsername = data?.optString("XH")?.takeIf { it.isNotBlank() }
+                            this.username = profileUsername
+                            name = data?.optString("XM")?.takeIf { !it.isNullOrBlank() }
+                            stuId = profileUsername
+                        }
+                        this.username = this.username ?: extractLoginIdentity(cookiesMap)
                         this.password = password.ifBlank { username }
                     }
                     LogUtils.success("login: Benbu login ok, username=${token.username}")
@@ -119,6 +134,19 @@ class BenbuEASWebSource(
         result.value = DataState(DataState.STATE.NOTHING)
         executor.execute {
             try {
+                if (token.campus == EASToken.Campus.BENBU && token.stutype == EASToken.TYPE.GRAD) {
+                    val response = Jsoup.connect("$graduateHostName/yjsgl/common/getXsJbxx?sf_request_type=ajax")
+                        .cookies(token.cookies).header("Accept", "application/json, text/plain, */*")
+                        .header("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
+                        .header("X-Requested-With", "XMLHttpRequest").timeout(timeout)
+                        .ignoreContentType(true).ignoreHttpErrors(true).method(Connection.Method.POST).execute()
+                    val valid = response.statusCode() == 200 && runCatching {
+                        JSONObject(response.body()).optBoolean("isSuccess", false)
+                    }.getOrDefault(false)
+                    if (valid) onCookiesUpdated?.invoke(token)
+                    result.postValue(DataState(Pair(valid, token), DataState.STATE.SUCCESS))
+                    return@execute
+                }
                 val response = Jsoup.connect("$hostName/xswhxx/queryXswhxx")
                     .cookies(token.cookies)
                     .header("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15")
@@ -150,6 +178,15 @@ class BenbuEASWebSource(
 
         executor.execute {
             try {
+                if (token.stutype == EASToken.TYPE.GRAD) {
+                    val terms = getGraduateTerms(token)
+                    if (terms.isEmpty()) {
+                        result.postValue(DataState(DataState.STATE.FETCH_FAILED, "未获取到研究生学期列表"))
+                    } else {
+                        result.postValue(DataState(terms, DataState.STATE.SUCCESS))
+                    }
+                    return@execute
+                }
                 val scoreFetch = fetchTermDoc(token, "$hostName/cjcx/queryQmcj", "pageXnxq")
                 val timetableFetch = fetchTermDoc(token, "$hostName/kbcx/queryGrkb", "xnxq")
 
@@ -469,6 +506,9 @@ class BenbuEASWebSource(
     }
 
     private fun getTimetableOfTermSync(term: TermItem, token: EASToken): List<CourseItem> {
+        if (token.stutype == EASToken.TYPE.GRAD) {
+            return getGraduateTimetable(term, token)
+        }
         // 查询普通课程
         val regularCourses = getRegularCourses(term, token)
 
@@ -501,6 +541,63 @@ class BenbuEASWebSource(
         )
 
         return mergedCourses
+    }
+
+    private fun getGraduateTerms(token: EASToken): List<TermItem> {
+        val response = Jsoup.connect("$graduateHostName/yjsgl/common/getSemester")
+            .cookies(token.cookies)
+            .header("Accept", "application/json, text/plain, */*")
+            .header("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
+            .header("X-Requested-With", "XMLHttpRequest")
+            .timeout(timeout).ignoreContentType(true).ignoreHttpErrors(true)
+            .method(Connection.Method.POST).execute()
+        if (response.statusCode() !in 200..299) throw IllegalStateException("HTTP ${response.statusCode()}")
+        val terms = BenbuGraduateScheduleParser.parseTerms(response.body())
+        if (terms.isNotEmpty()) return terms
+
+        val page = establishGraduateCourseSession(token)
+        return parseTermsFromDoc(page, "xnxq")
+    }
+
+    private fun getGraduateTimetable(term: TermItem, token: EASToken): List<CourseItem> {
+        val studentId = token.stuId ?: token.username ?: throw IllegalStateException("研究生学号为空")
+        establishGraduateCourseSession(token)
+        val endpoint = if (term.isCurrent) "queryXsckcb" else "queryXsckcbyy"
+        val response = Jsoup.connect("$graduateCourseHostName/kbgl/$endpoint")
+            .cookies(token.cookies)
+            .header("Accept", "application/json, text/plain, */*")
+            .header("Referer", "$graduateCourseHostName/kbgl/queryxskbxsy")
+            .header("X-Requested-With", "XMLHttpRequest")
+            .data("xh", studentId)
+            .data("xnxq", term.getCode())
+            .apply { if (term.isCurrent) data("ys", "1") }
+            .timeout(timeout).ignoreContentType(true).ignoreHttpErrors(true)
+            .method(Connection.Method.GET).execute()
+        if (response.statusCode() !in 200..299) throw IllegalStateException("HTTP ${response.statusCode()}")
+        val courses = BenbuGraduateScheduleParser.parseTimetable(response.body())
+        if (courses.isEmpty() && response.body().contains("/common/login")) {
+            throw IllegalStateException("研究生登录已过期")
+        }
+        return courses
+    }
+
+    private fun establishGraduateCourseSession(token: EASToken): Document {
+        val response = Jsoup.connect("$graduateHostName/yjsgl/outInterface/grkb")
+            .cookies(token.cookies)
+            .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+            .header("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15")
+            .timeout(timeout).ignoreContentType(true).ignoreHttpErrors(true)
+            .followRedirects(true)
+            .method(Connection.Method.GET).execute()
+        token.cookies.putAll(response.cookies())
+        if (response.statusCode() !in 200..299) {
+            throw IllegalStateException("研究生课表桥接失败 HTTP ${response.statusCode()}")
+        }
+        val finalHost = response.url().host
+        if (!finalHost.contains("gcourse", ignoreCase = true)) {
+            throw IllegalStateException("研究生课表会话建立失败")
+        }
+        return response.parse()
     }
 
     private fun getRegularCourses(term: TermItem, token: EASToken): List<CourseItem> {
