@@ -193,7 +193,6 @@ class WeihaiEASWebSource(
         return result
     }
 
-
     override fun getTeachingBuildings(token: EASToken): LiveData<DataState<List<BuildingItem>>> {
         val result = MutableLiveData<DataState<List<BuildingItem>>>()
         result.value = DataState(DataState.STATE.NOTHING)
@@ -411,8 +410,7 @@ class WeihaiEASWebSource(
         weihaiUndergraduateSchedule()
 
     /**
-     * 威海老教务只有本科生作息，因此不论 isUndergraduate 为何，均返回本科生表。
-     * 基类 [AbstractEASWebSource.getScheduleStructure] 会调用此钩子。
+     * 威海老教务无研究生作息，恒定返回威海本科生表。
      */
     protected override fun defaultScheduleStructure(isUndergraduate: Boolean): MutableList<TimePeriodInDay> =
         weihaiUndergraduateSchedule().toMutableList()

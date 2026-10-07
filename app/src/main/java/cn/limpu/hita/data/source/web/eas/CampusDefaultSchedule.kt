@@ -13,11 +13,12 @@ import cn.limpu.hita.data.model.timetable.TimePeriodInDay
  *
  * 注意：
  * - 本部/威海**研究生**作息仍走各自原有路径（本部 yjsgl 下午 14:00 版、
- *   威海 45 分钟版），不在本对象内。
- * - 深圳本科生作息仍保留在 `EASWebSource`，仅在接口失败时作为兜底。
+ *   威海无研究生作息），不在本对象内。
+ * - 三校区本科生作息**各不相同**，深圳不得再复用本部/威海表。
  *
  * 取值来源：本部表与 iOS 端 `AcademicWebVPNResourceProfile.benbu.defaultSchedule`
- * 逐条一致；威海表经教务课表页确认。
+ * 逐条一致；威海表经教务课表页确认；深圳表与改版前的深圳作息一致
+ * （第 1 节 08:30 起、第 5 节 14:00 起）。
  */
 object CampusDefaultSchedule {
 
@@ -54,25 +55,46 @@ object CampusDefaultSchedule {
     )
 
     /**
+     * 深圳本科生（12 小节）。第 1 节 08:30 起、第 5 节 14:00 起。
+     *
+     * ⚠️ 该表与本部/威海**并非**同一套取值，历史上曾被误判为“作废作息”而被覆盖，
+     * 导致深圳用户的课表被改成其它校区时间。请勿再把它并入其它校区。
+     */
+    private val SHENZHEN_UNDERGRADUATE = listOf(
+        TimePeriodInDay(TimeInDay(8, 30), TimeInDay(9, 20)),
+        TimePeriodInDay(TimeInDay(9, 25), TimeInDay(10, 15)),
+        TimePeriodInDay(TimeInDay(10, 30), TimeInDay(11, 20)),
+        TimePeriodInDay(TimeInDay(11, 25), TimeInDay(12, 15)),
+        TimePeriodInDay(TimeInDay(14, 0), TimeInDay(14, 50)),
+        TimePeriodInDay(TimeInDay(14, 55), TimeInDay(15, 45)),
+        TimePeriodInDay(TimeInDay(16, 0), TimeInDay(16, 50)),
+        TimePeriodInDay(TimeInDay(16, 55), TimeInDay(17, 45)),
+        TimePeriodInDay(TimeInDay(18, 45), TimeInDay(19, 35)),
+        TimePeriodInDay(TimeInDay(19, 40), TimeInDay(20, 30)),
+        TimePeriodInDay(TimeInDay(20, 45), TimeInDay(21, 35)),
+        TimePeriodInDay(TimeInDay(21, 40), TimeInDay(22, 30)),
+    )
+
+    /**
      * 取指定校区的本科生作息。返回**深拷贝**，调用方可安全修改元素。
      *
-     * @param campus 目标校区；深圳返回本部表兜底（深圳真实作息由接口返回）。
+     * @param campus 目标校区。三个校区各返回各自的真实作息。
      */
     fun undergraduate(campus: EASToken.Campus): MutableList<TimePeriodInDay> =
         when (campus) {
             EASToken.Campus.WEIHAI -> copy(WEIHAI_UNDERGRADUATE)
             EASToken.Campus.BENBU -> copy(BENBU_UNDERGRADUATE)
-            EASToken.Campus.SHENZHEN -> copy(BENBU_UNDERGRADUATE)
+            EASToken.Campus.SHENZHEN -> copy(SHENZHEN_UNDERGRADUATE)
         }
 
     /**
      * 无校区上下文时的保守默认（用于旧版 SP 兜底等拿不到校区的场景）。
      *
-     * 取威海表：威海是本次作息错误的直接受害方，且本部导入主链路会先拿到接口数据，
-     * 仅在校区接口失败时才落到兜底。
+     * 取深圳表：深圳是本轮“被误改”的受害方，其作息此前即作为全局兜底值存在，
+     * 恢复它可避免老用户在没有校区信息时被二次改坏。
      */
     fun fallbackUndergraduate(): MutableList<TimePeriodInDay> =
-        copy(WEIHAI_UNDERGRADUATE)
+        copy(SHENZHEN_UNDERGRADUATE)
 
     /**
      * 深拷贝：避免调用方原地修改（如设置界面的编辑作息）污染共享常量。

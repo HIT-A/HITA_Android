@@ -155,6 +155,66 @@ class TimetableScheduleStructureMigrationTest {
         )
     }
 
+    /**
+     * 深圳真实作息（第 1 节 08:30 起）与“作废版”特征撞车，但**绝不能**被迁移，
+     * 否则深圳课表会被改成本部/威海时间。
+     */
+    @Test
+    fun shenzhenRealScheduleIsNeverMigrated() {
+        val shenzhen = CampusDefaultSchedule.undergraduate(EASToken.Campus.SHENZHEN)
+        assertNull(
+            TimetableScheduleStructureMigration.resolveTargetSchedule(
+                shenzhen, "SHENZHEN:2025-2026-2"
+            )
+        )
+        // 即便内容与“作废版”逐节相同，只要校区是深圳也必须跳过。
+        assertNull(
+            TimetableScheduleStructureMigration.resolveTargetSchedule(
+                obsoleteUndergrad(), "SHENZHEN:2025-2026-2"
+            )
+        )
+    }
+
+    /** 深圳记录若已被误改成本部/威海作息 → 补救回深圳表。 */
+    @Test
+    fun shenzhenRepairRestoresShenzhenForBenbuSchedule() {
+        assertEquals(
+            CampusDefaultSchedule.undergraduate(EASToken.Campus.SHENZHEN),
+            TimetableScheduleStructureMigration.resolveShenzhenRepair(
+                CampusDefaultSchedule.undergraduate(EASToken.Campus.BENBU),
+                "SHENZHEN:2025-2026-2"
+            )
+        )
+    }
+
+    @Test
+    fun shenzhenRepairRestoresShenzhenForWeihaiSchedule() {
+        assertEquals(
+            CampusDefaultSchedule.undergraduate(EASToken.Campus.SHENZHEN),
+            TimetableScheduleStructureMigration.resolveShenzhenRepair(
+                CampusDefaultSchedule.undergraduate(EASToken.Campus.WEIHAI),
+                "SHENZHEN:2025-2026-2"
+            )
+        )
+    }
+
+    /** 已经是深圳表 / 非深圳校区 → 不补救。 */
+    @Test
+    fun shenzhenRepairSkipsCorrectOrOtherCampus() {
+        assertNull(
+            TimetableScheduleStructureMigration.resolveShenzhenRepair(
+                CampusDefaultSchedule.undergraduate(EASToken.Campus.SHENZHEN),
+                "SHENZHEN:2025-2026-2"
+            )
+        )
+        assertNull(
+            TimetableScheduleStructureMigration.resolveShenzhenRepair(
+                CampusDefaultSchedule.undergraduate(EASToken.Campus.BENBU),
+                "BENBU:2025-2026-2"
+            )
+        )
+    }
+
     /** 无校区信息 → 无法决定目标，不动。 */
     @Test
     fun missingCampusCodeIsUntouched() {

@@ -680,13 +680,15 @@ class BenbuEASWebSource(
             graduateSchedule
         }
 
-    protected override fun defaultScheduleStructure(isUndergraduate: Boolean): MutableList<TimePeriodInDay> {
-        return if (isUndergraduate) {
+    /**
+     * 本部默认作息：本科生用 [CampusDefaultSchedule] 的本部表；研究生用 [graduateSchedule]。
+     */
+    protected override fun defaultScheduleStructure(isUndergraduate: Boolean): MutableList<TimePeriodInDay> =
+        if (isUndergraduate) {
             CampusDefaultSchedule.undergraduate(EASToken.Campus.BENBU)
         } else {
             graduateSchedule.toMutableList()
         }
-    }
 
     override fun queryEmptyClassroom(
         token: EASToken,

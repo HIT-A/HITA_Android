@@ -48,24 +48,14 @@ private fun isLegacyUndergraduateSchedule(schedule: List<TimePeriodInDay>): Bool
 }
 
 /**
- * 当前已作废的本科生作息识别（第 1 节 08:30-09:20、第 2 节 09:25-10:15）。
+ * 已作废的本科生作息识别（仅本部/威海旧常量）。
  *
- * 该版本曾被写入 SP 与 Room，且 `isLegacyUndergraduateSchedule` 认不出它，
- * 导致旧数据不会自愈。此处补上识别。
+ * ⚠️ **不要**再把“第 1 节 08:30-09:20、第 2 节 09:25-10:15”当作作废特征：
+ * 那正是深圳校区的真实作息，此前因被误判为作废版，导致深圳课表被改成本部/威海时间。
+ * 该模式在无校区上下文的 SP 兜底路径里无法与威海作废版区分，故一律不动。
  */
-internal fun isObsoleteUndergraduateSchedule(schedule: List<TimePeriodInDay>): Boolean {
-    if (schedule.size < 12) return false
-    val first = schedule[0]
-    val second = schedule[1]
-    return first.from.hour == 8 && first.from.minute == 30 &&
-        first.to.hour == 9 && first.to.minute == 20 &&
-        second.from.hour == 9 && second.from.minute == 25 &&
-        second.to.hour == 10 && second.to.minute == 15
-}
-
-/** 命中任意一套已作废的本科生作息。 */
 internal fun isObsoleteUndergraduateScheduleAny(schedule: List<TimePeriodInDay>): Boolean =
-    isLegacyUndergraduateSchedule(schedule) || isObsoleteUndergraduateSchedule(schedule)
+    isLegacyUndergraduateSchedule(schedule)
 
 class TimetablePreferenceSource(private val context: Context) {
     private var sharedPreferences: SharedPreferences? = null

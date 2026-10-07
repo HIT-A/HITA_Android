@@ -47,6 +47,19 @@ class CampusDefaultScheduleTest {
     }
 
     @Test
+    fun shenzhenUndergraduateMatchesOfficialSchedule() {
+        val expected = listOf(
+            "08:30-09:20", "09:25-10:15", "10:30-11:20", "11:25-12:15",
+            "14:00-14:50", "14:55-15:45", "16:00-16:50", "16:55-17:45",
+            "18:45-19:35", "19:40-20:30", "20:45-21:35", "21:40-22:30"
+        )
+        assertEquals(
+            expected,
+            render(CampusDefaultSchedule.undergraduate(EASToken.Campus.SHENZHEN))
+        )
+    }
+
+    @Test
     fun scheduleAlwaysHasTwelvePeriods() {
         for (campus in EASToken.Campus.entries) {
             assertEquals(12, CampusDefaultSchedule.undergraduate(campus).size)
@@ -54,18 +67,40 @@ class CampusDefaultScheduleTest {
     }
 
     /**
-     * 回归保护：本科生作息不得再回到已作废的 08:30 版。
-     * （该版本正是本次用户反馈的元凶。）
+     * 回归保护：**本部/威海**本科生作息不得再回到已作废的 08:30 版。
+     * （该版本正是本轮用户反馈的元凶。）深圳真实作息本就是 08:30 起，不在此列。
      */
     @Test
-    fun undergraduateNeverStartsWithObsolete0830Slot() {
-        for (campus in EASToken.Campus.entries) {
+    fun benbuAndWeihaiNeverStartAtObsolete0830Slot() {
+        for (campus in listOf(EASToken.Campus.BENBU, EASToken.Campus.WEIHAI)) {
             val first = CampusDefaultSchedule.undergraduate(campus).first()
             assertTrue(
-                "第 1 节不应为 08:30 起（已作废版本），实际=${first.from.hour}:${first.from.minute}",
+                "${campus} 第 1 节不应为 08:30 起（已作废版本），实际=${first.from.hour}:${first.from.minute}",
                 !(first.from.hour == 8 && first.from.minute == 30)
             )
         }
+    }
+
+    /**
+     * 回归保护：三校区本科生作息必须**互不相同**，深圳不得再被本部/威海表覆盖。
+     */
+    @Test
+    fun threeCampusSchedulesArePairwiseDistinct() {
+        val benbu = CampusDefaultSchedule.undergraduate(EASToken.Campus.BENBU)
+        val weihai = CampusDefaultSchedule.undergraduate(EASToken.Campus.WEIHAI)
+        val shenzhen = CampusDefaultSchedule.undergraduate(EASToken.Campus.SHENZHEN)
+        assertTrue("本部与深圳作息不得相同", benbu != shenzhen)
+        assertTrue("威海与深圳作息不得相同", weihai != shenzhen)
+        assertTrue("本部与威海作息不得相同", benbu != weihai)
+    }
+
+    /** 无校区上下文的兜底值必须是深圳表（深圳是上一轮被误改的受害方）。 */
+    @Test
+    fun fallbackUndergraduateUsesShenzhenSchedule() {
+        assertEquals(
+            render(CampusDefaultSchedule.undergraduate(EASToken.Campus.SHENZHEN)),
+            render(CampusDefaultSchedule.fallbackUndergraduate())
+        )
     }
 
     /** 本部与威海本科生作息必须不同（第 5 节一个 13:45、一个 14:00）。 */
