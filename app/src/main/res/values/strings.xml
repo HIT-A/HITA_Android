@@ -1442,6 +1442,15 @@
     <string name="agent_chat_title">智能课表助手</string>
     <string name="agent_chat_ready">就绪 — 输入消息开始对话</string>
     <string name="agent_chat_hint">输入消息…</string>
+    <string name="agent_welcome_message">你好，我是 HITA 助手。可以问我课表相关的问题，比如“明天有什么课”“第三周周五的课”“下一节课在哪”“军事理论什么时候上”。\n在右上角设置中填写 DeepSeek 或智谱的 API Key 后，还能回答更开放的校园问题。</string>
+    <string-array name="agent_welcome_suggestions">
+        <item>今天有什么课</item>
+        <item>明天的课</item>
+        <item>下一节课是什么</item>
+        <item>现在第几周</item>
+        <item>本周课表</item>
+        <item>最近的考试</item>
+    </string-array>
     <string name="agent_chat_processing">处理中…</string>
     <string name="agent_chat_done">完成</string>
     <string name="agent_chat_failed">失败</string>

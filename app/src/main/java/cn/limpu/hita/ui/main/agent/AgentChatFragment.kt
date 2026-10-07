@@ -23,6 +23,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -74,6 +76,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringArrayResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -511,6 +514,7 @@ private fun AgentChatScreen(
                 }
             }
 
+            val visibleMessages = messages.filter { it.role != AgentChatMessage.Role.TRACE }
             LazyColumn(
                 state = listState,
                 modifier = Modifier
@@ -523,15 +527,21 @@ private fun AgentChatScreen(
                     bottom = listBottomPadding
                 )
             ) {
-                itemsIndexed(
-                    messages.filter { it.role != AgentChatMessage.Role.TRACE },
-                    key = { index, item -> "${item.timestampMs}-${item.role}-$index" }
-                ) { _, message ->
-                    AgentMessageBubble(
-                        message = message,
-                        markwon = markwon,
-                        onOpenResourceCard = onOpenResourceCard,
-                    )
+                if (visibleMessages.isEmpty()) {
+                    item(key = "agent-welcome-card") {
+                        AgentWelcomeCard(onSend = onSend)
+                    }
+                } else {
+                    itemsIndexed(
+                        visibleMessages,
+                        key = { index, item -> "${item.timestampMs}-${item.role}-$index" }
+                    ) { _, message ->
+                        AgentMessageBubble(
+                            message = message,
+                            markwon = markwon,
+                            onOpenResourceCard = onOpenResourceCard,
+                        )
+                    }
                 }
             }
 
@@ -621,6 +631,78 @@ private fun AgentChatScreen(
                         painter = painterResource(R.drawable.ic_baseline_keyboard_arrow_right_24),
                         contentDescription = stringResource(R.string.send),
                         tint = MaterialTheme.colorScheme.onPrimary
+                    )
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun AgentWelcomeCard(
+    onSend: (String) -> Unit,
+) {
+    val tokens = HitaTheme.tokens
+    val suggestions = stringArrayResource(R.array.agent_welcome_suggestions)
+    val cardShape = hitaStyleCardShape(20.dp, 16.dp)
+    val isGlass = hitaIsAppleGlassSurface()
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = tokens.spacing.lg),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Card(
+            colors = if (isGlass) {
+                hitaGlassCardColors(
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    glassAlpha = 0.56f
+                )
+            } else {
+                CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+            },
+            shape = cardShape,
+            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+            border = hitaGlassCardBorder(alpha = 0.28f),
+            modifier = Modifier
+                .fillMaxWidth(0.9f)
+                .hitaGlassCardModifier(cardShape, elevation = 8.dp)
+        ) {
+            Text(
+                text = stringResource(R.string.agent_welcome_message),
+                color = MaterialTheme.colorScheme.onSurface,
+                fontSize = 14.sp,
+                lineHeight = 22.sp,
+                modifier = Modifier.padding(tokens.spacing.md)
+            )
+        }
+
+        Spacer(modifier = Modifier.height(tokens.spacing.md))
+
+        FlowRow(
+            modifier = Modifier.fillMaxWidth(0.9f),
+            horizontalArrangement = Arrangement.spacedBy(tokens.spacing.sm),
+            verticalArrangement = Arrangement.spacedBy(tokens.spacing.sm)
+        ) {
+            suggestions.forEach { suggestion ->
+                val chipShape = hitaStyleCardShape(999.dp, 14.dp)
+                Surface(
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    shape = chipShape,
+                    modifier = Modifier
+                        .hitaGlassCardModifier(chipShape, elevation = 4.dp)
+                        .clickable { onSend(suggestion) }
+                ) {
+                    Text(
+                        text = suggestion,
+                        fontSize = 14.sp,
+                        modifier = Modifier.padding(
+                            horizontal = tokens.spacing.md,
+                            vertical = tokens.spacing.sm
+                        )
                     )
                 }
             }
