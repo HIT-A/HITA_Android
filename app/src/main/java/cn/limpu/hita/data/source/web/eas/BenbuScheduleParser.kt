@@ -2,8 +2,8 @@ package cn.limpu.hita.data.source.web.eas
 
 import cn.limpu.hita.utils.LogUtils
 import cn.limpu.hita.data.model.eas.CourseItem
+import cn.limpu.hita.data.model.eas.EASToken
 import cn.limpu.hita.data.model.timetable.TimePeriodInDay
-import cn.limpu.hita.data.model.timetable.TimeInDay
 import org.jsoup.Jsoup
 
 object BenbuScheduleParser {
@@ -661,22 +661,11 @@ object BenbuScheduleParser {
         }
     }
 
-    // 获取默认课表结构（需要从EASWebSource访问）
-    private fun defaultScheduleStructure(): MutableList<TimePeriodInDay> {
-        // 默认课表结构（本部）
-        return mutableListOf(
-            TimePeriodInDay(TimeInDay(8, 0), TimeInDay(8, 50)),
-            TimePeriodInDay(TimeInDay(8, 55), TimeInDay(9, 45)),
-            TimePeriodInDay(TimeInDay(10, 5), TimeInDay(10, 55)),
-            TimePeriodInDay(TimeInDay(11, 0), TimeInDay(11, 50)),
-            TimePeriodInDay(TimeInDay(13, 30), TimeInDay(14, 20)),
-            TimePeriodInDay(TimeInDay(14, 25), TimeInDay(15, 15)),
-            TimePeriodInDay(TimeInDay(15, 25), TimeInDay(16, 15)),
-            TimePeriodInDay(TimeInDay(16, 20), TimeInDay(17, 10)),
-            TimePeriodInDay(TimeInDay(17, 20), TimeInDay(18, 10)),
-            TimePeriodInDay(TimeInDay(18, 30), TimeInDay(19, 20)),
-            TimePeriodInDay(TimeInDay(19, 30), TimeInDay(20, 20)),
-            TimePeriodInDay(TimeInDay(20, 30), TimeInDay(21, 20))
-        )
-    }
+    /**
+     * 默认课表结构。收敛到本部本科生表，保证实验课节次反推
+     * 与导入页显示的作息同源（此前这里自带一份 `10:05/13:30` 的旧值，与
+     * `BenbuEASWebSource` 冲突）。
+     */
+    private fun defaultScheduleStructure(): MutableList<TimePeriodInDay> =
+        CampusDefaultSchedule.undergraduate(EASToken.Campus.BENBU)
 }

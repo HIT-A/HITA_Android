@@ -518,6 +518,8 @@ private fun ImportTimetableScreen(
     val scheduleState by viewModel.scheduleStructureLiveData.observeAsState()
     val isUndergraduate by viewModel.isUndergraduateLiveData.observeAsState(true)
     val isBenbu = viewModel.isBenbuTerm(selectedTerm)
+    // 威海只有本科生作息，隐藏切换开关（对齐 iOS）。
+    val showTrainingSwitch = !viewModel.isWeihaiTerm(selectedTerm)
     val context = androidx.compose.ui.platform.LocalContext.current
     val dateText = startDateState?.data?.let { TextTools.getNormalDateText(context, it) }
         ?: stringResource(R.string.no_valid_date)
@@ -645,6 +647,7 @@ private fun ImportTimetableScreen(
                 ScheduleStructureCard(
                     periods = periods,
                     isUndergraduate = isUndergraduate,
+                    showTrainingSwitch = showTrainingSwitch,
                     onUndergraduateChange = onUndergraduateChange,
                     onEditPeriod = onEditPeriod
                 )
@@ -806,6 +809,7 @@ private fun BenbuCalibrationCard(
 private fun ScheduleStructureCard(
     periods: List<TimePeriodInDay>,
     isUndergraduate: Boolean,
+    showTrainingSwitch: Boolean,
     onUndergraduateChange: (Boolean) -> Unit,
     onEditPeriod: (TimePeriodInDay, Int) -> Unit
 ) {
@@ -839,11 +843,13 @@ private fun ScheduleStructureCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 14.sp
                 )
-                Switch(
-                    checked = isUndergraduate,
-                    onCheckedChange = onUndergraduateChange,
-                    modifier = Modifier.padding(start = tokens.spacing.sm)
-                )
+                if (showTrainingSwitch) {
+                    Switch(
+                        checked = isUndergraduate,
+                        onCheckedChange = onUndergraduateChange,
+                        modifier = Modifier.padding(start = tokens.spacing.sm)
+                    )
+                }
             }
             Spacer(modifier = Modifier.height(tokens.spacing.sm))
             periods.forEachIndexed { index, period ->

@@ -1022,7 +1022,11 @@ class BenbuEASWebSource(
         }
     }
 
-    private val defaultSchedule by lazy {
+    /**
+     * 本部**研究生**作息（yjsgl）。下午 14:00 起，与本科生 13:45 起不同。
+     * 本科生作息统一收敛到 [CampusDefaultSchedule]，不要再在此文件重复定义。
+     */
+    private val graduateSchedule by lazy {
         mutableListOf(
             TimePeriodInDay(TimeInDay(8, 0), TimeInDay(8, 50)),
             TimePeriodInDay(TimeInDay(8, 55), TimeInDay(9, 45)),
@@ -1039,28 +1043,19 @@ class BenbuEASWebSource(
         )
     }
 
-    private val undergraduateSchedule by lazy {
-        mutableListOf(
-            TimePeriodInDay(TimeInDay(8, 30), TimeInDay(9, 20)),
-            TimePeriodInDay(TimeInDay(9, 25), TimeInDay(10, 15)),
-            TimePeriodInDay(TimeInDay(10, 30), TimeInDay(11, 20)),
-            TimePeriodInDay(TimeInDay(11, 25), TimeInDay(12, 15)),
-            TimePeriodInDay(TimeInDay(14, 0), TimeInDay(14, 50)),
-            TimePeriodInDay(TimeInDay(14, 55), TimeInDay(15, 45)),
-            TimePeriodInDay(TimeInDay(16, 0), TimeInDay(16, 50)),
-            TimePeriodInDay(TimeInDay(16, 55), TimeInDay(17, 45)),
-            TimePeriodInDay(TimeInDay(18, 45), TimeInDay(19, 35)),
-            TimePeriodInDay(TimeInDay(19, 40), TimeInDay(20, 30)),
-            TimePeriodInDay(TimeInDay(20, 45), TimeInDay(21, 35)),
-            TimePeriodInDay(TimeInDay(21, 40), TimeInDay(22, 30))
-        )
-    }
-
     private fun scheduleFor(token: EASToken): List<TimePeriodInDay> =
-        if (token.stutype == EASToken.TYPE.UNDERGRAD) undergraduateSchedule else defaultSchedule
+        if (token.stutype == EASToken.TYPE.UNDERGRAD) {
+            CampusDefaultSchedule.undergraduate(EASToken.Campus.BENBU)
+        } else {
+            graduateSchedule
+        }
 
     private fun defaultScheduleStructure(isUndergraduate: Boolean): MutableList<TimePeriodInDay> {
-        return mutableListOf(*(if (isUndergraduate) undergraduateSchedule else defaultSchedule).toTypedArray())
+        return if (isUndergraduate) {
+            CampusDefaultSchedule.undergraduate(EASToken.Campus.BENBU)
+        } else {
+            graduateSchedule.toMutableList()
+        }
     }
 
     override fun queryEmptyClassroom(

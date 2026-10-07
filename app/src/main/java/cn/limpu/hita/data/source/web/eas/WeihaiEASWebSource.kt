@@ -284,9 +284,8 @@ class WeihaiEASWebSource(
             try {
                 val courses = getTimetableOfTermSync(term, token)
                 val maxPeriod = courses.maxOfOrNull { it.begin + it.last - 1 } ?: 0
-                val schedule = defaultScheduleStructure(
-                    isUndergraduate ?: (token.stutype == EASToken.TYPE.UNDERGRAD)
-                )
+                // 威海老教务只有本科生作息：忽略 isUndergraduate / stutype。
+                val schedule = weihaiUndergraduateSchedule().toMutableList()
                 val resolved = if (maxPeriod in 1 until schedule.size) {
                     schedule.take(maxPeriod).toMutableList()
                 } else {
@@ -296,9 +295,10 @@ class WeihaiEASWebSource(
                 result.postValue(DataState(resolved, DataState.STATE.SUCCESS))
             } catch (e: Exception) {
                 LogUtils.w("getScheduleStructure: fallback to default: ${e.message}")
-                result.postValue(DataState(defaultScheduleStructure(
-                    isUndergraduate ?: (token.stutype == EASToken.TYPE.UNDERGRAD)
-                ), DataState.STATE.SUCCESS))
+                result.postValue(DataState(
+                    weihaiUndergraduateSchedule().toMutableList(),
+                    DataState.STATE.SUCCESS
+                ))
             }
         }
         return result
@@ -734,54 +734,21 @@ class WeihaiEASWebSource(
         }
     }
 
-    private val undergraduateSchedule = mutableListOf(
-        TimePeriodInDay(TimeInDay(8, 30), TimeInDay(9, 20)),
-        TimePeriodInDay(TimeInDay(9, 25), TimeInDay(10, 15)),
-        TimePeriodInDay(TimeInDay(10, 30), TimeInDay(11, 20)),
-        TimePeriodInDay(TimeInDay(11, 25), TimeInDay(12, 15)),
-        TimePeriodInDay(TimeInDay(14, 0), TimeInDay(14, 50)),
-        TimePeriodInDay(TimeInDay(14, 55), TimeInDay(15, 45)),
-        TimePeriodInDay(TimeInDay(16, 0), TimeInDay(16, 50)),
-        TimePeriodInDay(TimeInDay(16, 55), TimeInDay(17, 45)),
-        TimePeriodInDay(TimeInDay(18, 45), TimeInDay(19, 35)),
-        TimePeriodInDay(TimeInDay(19, 40), TimeInDay(20, 30)),
-        TimePeriodInDay(TimeInDay(20, 45), TimeInDay(21, 35)),
-        TimePeriodInDay(TimeInDay(21, 40), TimeInDay(22, 30))
-    )
+    /**
+     * 威海老教务（jwts）只有本科生，不存在研究生作息。
+     * 此前该处硬编码的是已作废的 08:30 版作息，现统一收敛到 [CampusDefaultSchedule]。
+     */
+    private fun weihaiUndergraduateSchedule(): List<TimePeriodInDay> =
+        CampusDefaultSchedule.undergraduate(EASToken.Campus.WEIHAI)
 
+    /**
+     * 威海无研究生作息，恒定使用本科生表。
+     *
+     * 历史上这里按 `token.stutype` 分支，而威海登录链从不设置 stutype（默认 UNDERGRAD），
+     * 导致行为上恒为本科生 —— 现改为显式写明，避免以后被误当成可切换。
+     */
     private fun scheduleFor(token: EASToken): List<TimePeriodInDay> =
-        if (token.stutype == EASToken.TYPE.UNDERGRAD) undergraduateSchedule
-        else defaultScheduleStructure(false)
-
-    private fun defaultScheduleStructure(isUndergraduate: Boolean): MutableList<TimePeriodInDay> {
-        return if (isUndergraduate) mutableListOf(
-            TimePeriodInDay(TimeInDay(8, 30), TimeInDay(9, 20)),
-            TimePeriodInDay(TimeInDay(9, 25), TimeInDay(10, 15)),
-            TimePeriodInDay(TimeInDay(10, 30), TimeInDay(11, 20)),
-            TimePeriodInDay(TimeInDay(11, 25), TimeInDay(12, 15)),
-            TimePeriodInDay(TimeInDay(14, 0), TimeInDay(14, 50)),
-            TimePeriodInDay(TimeInDay(14, 55), TimeInDay(15, 45)),
-            TimePeriodInDay(TimeInDay(16, 0), TimeInDay(16, 50)),
-            TimePeriodInDay(TimeInDay(16, 55), TimeInDay(17, 45)),
-            TimePeriodInDay(TimeInDay(18, 45), TimeInDay(19, 35)),
-            TimePeriodInDay(TimeInDay(19, 40), TimeInDay(20, 30)),
-            TimePeriodInDay(TimeInDay(20, 45), TimeInDay(21, 35)),
-            TimePeriodInDay(TimeInDay(21, 40), TimeInDay(22, 30))
-        ) else mutableListOf(
-            TimePeriodInDay(TimeInDay(8, 0), TimeInDay(8, 45)),
-            TimePeriodInDay(TimeInDay(9, 0), TimeInDay(9, 45)),
-            TimePeriodInDay(TimeInDay(10, 5), TimeInDay(10, 50)),
-            TimePeriodInDay(TimeInDay(11, 5), TimeInDay(11, 50)),
-            TimePeriodInDay(TimeInDay(14, 0), TimeInDay(14, 45)),
-            TimePeriodInDay(TimeInDay(15, 0), TimeInDay(15, 45)),
-            TimePeriodInDay(TimeInDay(16, 5), TimeInDay(16, 50)),
-            TimePeriodInDay(TimeInDay(17, 5), TimeInDay(17, 50)),
-            TimePeriodInDay(TimeInDay(18, 40), TimeInDay(19, 25)),
-            TimePeriodInDay(TimeInDay(19, 40), TimeInDay(20, 25)),
-            TimePeriodInDay(TimeInDay(20, 45), TimeInDay(21, 30)),
-            TimePeriodInDay(TimeInDay(21, 45), TimeInDay(22, 30))
-        )
-    }
+        weihaiUndergraduateSchedule()
 
     override fun queryEmptyClassroom(
         token: EASToken,

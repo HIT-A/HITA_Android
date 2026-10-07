@@ -57,6 +57,15 @@ class HApplication : Application() {
                     database.timetableDao()
                     database.subjectDao()
                     database.eventItemDao()
+                    // 一次性回填已导入课表中作废的作息结构（幂等）。
+                    try {
+                        cn.limpu.hita.data.repository.TimetableScheduleStructureMigration.run(
+                            this@HApplication,
+                            database.timetableDao()
+                        )
+                    } catch (e: Exception) {
+                        LogUtils.e("Timetable schedule structure migration failed", e)
+                    }
                     database.invalidationTracker.addObserver(object : InvalidationTracker.Observer("events") {
                         override fun onInvalidated(tables: Set<String>) {
                             applicationScope.launch(Dispatchers.IO) {

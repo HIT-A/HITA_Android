@@ -8,6 +8,7 @@ import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.switchMap
 import com.limpu.component.data.DataState
 import com.limpu.component.data.Trigger
+import cn.limpu.hita.data.model.eas.EASToken
 import cn.limpu.hita.data.model.eas.TermItem
 import cn.limpu.hita.data.model.timetable.TimePeriodInDay
 import cn.limpu.hita.data.repository.EASRepository
@@ -120,6 +121,8 @@ class ImportTimetableViewModel @Inject constructor(
     }
 
     fun changeIsUndergraduate(isUnder: Boolean) {
+        // 威海只有本科生作息：忽略任何切换到“研究生结构”的请求。
+        if (isWeihaiTerm() && !isUnder) return
         isUndergraduateLiveData.value = isUnder
     }
 
@@ -201,6 +204,14 @@ class ImportTimetableViewModel @Inject constructor(
 
     fun isBenbuTerm(term: TermItem? = selectedTermLiveData.value): Boolean {
         return term != null && easRepo.getEasToken().isBenbuCampus()
+    }
+
+    /**
+     * 威海老教务（jwts）只有本科生作息，不存在“本科生/研究生结构”之分。
+     * 导入页由此隐藏切换开关（对齐 iOS 行为）。
+     */
+    fun isWeihaiTerm(term: TermItem? = selectedTermLiveData.value): Boolean {
+        return term != null && easRepo.getEasToken().campus == EASToken.Campus.WEIHAI
     }
 
     private fun resolveStartDateState(term: TermItem, state: DataState<Calendar>): DataState<Calendar> {

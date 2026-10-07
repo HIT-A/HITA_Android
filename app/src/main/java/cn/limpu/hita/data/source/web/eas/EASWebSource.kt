@@ -3654,14 +3654,11 @@ class EASWebSource internal constructor(
 
     @SuppressLint("SimpleDateFormat")
     private fun defaultScheduleStructure(isUndergraduate: Boolean): MutableList<TimePeriodInDay> {
-        val slots = if (isUndergraduate) listOf(
-            "08:30" to "09:20", "09:25" to "10:15",
-            "10:30" to "11:20", "11:25" to "12:15",
-            "14:00" to "14:50", "14:55" to "15:45",
-            "16:00" to "16:50", "16:55" to "17:45",
-            "18:45" to "19:35", "19:40" to "20:30",
-            "20:45" to "21:35", "21:40" to "22:30"
-        ) else listOf(
+        // 本科生作息收敛到 [CampusDefaultSchedule]（深圳真实作息由接口返回，这里仅兜底）。
+        if (isUndergraduate) {
+            return CampusDefaultSchedule.undergraduate(EASToken.Campus.BENBU)
+        }
+        val slots = listOf(
             "08:00" to "08:50", "08:55" to "09:45",
             "10:00" to "10:50", "10:55" to "11:45",
             "14:00" to "14:50", "14:55" to "15:45",
