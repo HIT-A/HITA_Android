@@ -29,7 +29,10 @@ object RepositoryModule {
 
     @Provides
     @Singleton
-    fun provideTimetablePreferenceSource(@ApplicationContext context: Context): TimetablePreferenceSource = TimetablePreferenceSource(context)
+    fun provideTimetablePreferenceSource(
+        @ApplicationContext context: Context,
+        easPreferenceSource: EasPreferenceSource
+    ): TimetablePreferenceSource = TimetablePreferenceSource(context, easPreferenceSource)
 
     @Provides
     @Singleton

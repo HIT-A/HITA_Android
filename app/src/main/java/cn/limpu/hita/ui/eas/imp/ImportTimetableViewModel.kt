@@ -14,6 +14,7 @@ import cn.limpu.hita.data.model.timetable.TimePeriodInDay
 import cn.limpu.hita.data.repository.EASRepository
 import cn.limpu.hita.data.repository.TimetableVersionSnapshot
 import cn.limpu.hita.data.source.preference.BenbuStartDatePreferenceSource
+import cn.limpu.hita.data.source.preference.TimetablePreferenceSource
 import cn.limpu.hita.ui.eas.EASViewModel
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.util.Calendar
@@ -22,7 +23,8 @@ import javax.inject.Inject
 @HiltViewModel
 class ImportTimetableViewModel @Inject constructor(
     easRepo: EASRepository,
-    private val benbuStartDatePreference: BenbuStartDatePreferenceSource
+    private val benbuStartDatePreference: BenbuStartDatePreferenceSource,
+    private val timetablePreferenceSource: TimetablePreferenceSource
 ) : EASViewModel(easRepo) {
 
     private val termsController = MutableLiveData<Trigger>()
@@ -93,20 +95,33 @@ class ImportTimetableViewModel @Inject constructor(
             scheduleInnerSource1?.let { scheduleStructureLiveData.removeSource(it) }
             if (term == null) return@addSource
             isUndergraduateLiveData.value?.let { isu ->
-                val src = easRepo.getScheduleStructure(term, isu)
-                scheduleInnerSource1 = src
-                scheduleStructureLiveData.addSource(src) { itt ->
-                    scheduleStructureLiveData.value = itt
+                // 用户已编辑过课表结构（SP 有值）时以用户偏好为准，否则用教务接口/默认值。
+                if (timetablePreferenceSource.hasSavedSchedule()) {
+                    scheduleStructureLiveData.value = DataState(
+                        timetablePreferenceSource.getSchedule(isu), DataState.STATE.SUCCESS
+                    )
+                } else {
+                    val src = easRepo.getScheduleStructure(term, isu)
+                    scheduleInnerSource1 = src
+                    scheduleStructureLiveData.addSource(src) { itt ->
+                        scheduleStructureLiveData.value = itt
+                    }
                 }
             }
         }
         scheduleStructureLiveData.addSource(isUndergraduateLiveData) { isu ->
             scheduleInnerSource2?.let { scheduleStructureLiveData.removeSource(it) }
             selectedTermLiveData.value?.let { st ->
-                val src = easRepo.getScheduleStructure(st, isu)
-                scheduleInnerSource2 = src
-                scheduleStructureLiveData.addSource(src) { itt ->
-                    scheduleStructureLiveData.value = itt
+                if (timetablePreferenceSource.hasSavedSchedule()) {
+                    scheduleStructureLiveData.value = DataState(
+                        timetablePreferenceSource.getSchedule(isu), DataState.STATE.SUCCESS
+                    )
+                } else {
+                    val src = easRepo.getScheduleStructure(st, isu)
+                    scheduleInnerSource2 = src
+                    scheduleStructureLiveData.addSource(src) { itt ->
+                        scheduleStructureLiveData.value = itt
+                    }
                 }
             }
         }
@@ -176,9 +191,20 @@ class ImportTimetableViewModel @Inject constructor(
 
 
     fun setStructureData(periodInDay: TimePeriodInDay, position: Int) {
-        if (position < (scheduleStructureLiveData.value?.data?.size ?: 0)) {
-            scheduleStructureLiveData.value?.data?.set(position, periodInDay)
-            scheduleStructureLiveData.value = scheduleStructureLiveData.value
+        val current = scheduleStructureLiveData.value ?: return
+        val list = current.data ?: return
+        if (position !in list.indices) return
+        // 必须发布一个新列表 + 新 DataState 对象：Compose 的 observeAsState 对同一个
+        // 对象引用会因 equals 短路而跳过重组，导致编辑后行内时间不刷新。
+        val newList = list.toMutableList().apply { this[position] = periodInDay }
+        // 持久化用户编辑：“SP 有值”即代表用户偏好作息，下次进导入页优先使用；
+        // 导入时该结构会被写入 Timetable.scheduleStructure。
+        timetablePreferenceSource.saveSchedules(newList)
+        scheduleStructureLiveData.value = DataState(newList, current.state).apply {
+            message = current.message
+            listAction = current.listAction
+            fromCache = current.fromCache
+            stateRetried = current.stateRetried
         }
     }
 

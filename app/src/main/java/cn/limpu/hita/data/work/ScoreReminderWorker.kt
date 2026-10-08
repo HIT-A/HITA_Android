@@ -34,11 +34,12 @@ class ScoreReminderWorker(appContext: Context, params: WorkerParameters) : Worke
         val store = ScoreReminderStore(applicationContext)
         if (!store.isEnabled()) return Result.success()
         val app = applicationContext as? Application ?: return Result.failure()
+        val easPreferenceSource = EasPreferenceSource(applicationContext)
         val repository = EASRepository(
             app,
-            EasPreferenceSource(applicationContext),
+            easPreferenceSource,
             EasCredentialStore(applicationContext),
-            TimetablePreferenceSource(applicationContext),
+            TimetablePreferenceSource(applicationContext, easPreferenceSource),
             TimetableChangeStore(app),
             TimetableMutationLock()
         )
