@@ -4,6 +4,7 @@ package cn.limpu.hita.data.source.preference
 import android.content.Context
 import android.content.SharedPreferences
 import com.google.gson.Gson
+import cn.limpu.hita.data.model.eas.EASToken
 import cn.limpu.hita.data.model.timetable.TimeInDay
 import cn.limpu.hita.data.model.timetable.TimePeriodInDay
 import cn.limpu.hita.data.source.web.eas.CampusDefaultSchedule
@@ -12,11 +13,11 @@ import cn.limpu.hita.data.source.web.eas.CampusDefaultSchedule
 private const val SP_NAME_TIMETABLE = "timetable"
 
 /**
- * 本科生默认作息。实际取值由 [CampusDefaultSchedule] 统一维护，
- * 避免本文件再持有一份会漂移的副本。
+ * 本科生默认作息。实际取值由 [CampusDefaultSchedule] 按校区解析，
+ * 避免本文件再持有一份会漂移的副本，也避免把深圳表当作全局共享常量。
  */
-private val undergraduate_default: MutableList<TimePeriodInDay>
-    get() = CampusDefaultSchedule.fallbackUndergraduate()
+private fun defaultUndergraduate(campus: EASToken.Campus): MutableList<TimePeriodInDay> =
+    CampusDefaultSchedule.fallbackUndergraduate(campus)
 
 private val graduate_default = mutableListOf(
         TimePeriodInDay(TimeInDay(8, 0), TimeInDay(8, 50)),
@@ -32,32 +33,15 @@ private val graduate_default = mutableListOf(
         TimePeriodInDay(TimeInDay(20, 45), TimeInDay(21, 35)),
         TimePeriodInDay(TimeInDay(21, 40), TimeInDay(22, 30)))
 
-/**
- * 更早的遗留本科生作息识别（第 2 节 09:30 起、第 5 节 13:45）。
- */
-private fun isLegacyUndergraduateSchedule(schedule: List<TimePeriodInDay>): Boolean {
-    if (schedule.size < 12) return false
-    val first = schedule[0]
-    val second = schedule[1]
-    val fifth = schedule.getOrNull(4)
-    return first.from.hour == 8 && first.from.minute == 30 &&
-        first.to.hour == 9 && first.to.minute == 20 &&
-        second.from.hour == 9 && second.from.minute == 30 &&
-        second.to.hour == 10 && second.to.minute == 15 &&
-        fifth?.from?.hour == 13 && fifth.from.minute == 45
-}
+// 注：历史上这里曾对 SP 兜底作息做过“旧常量识别 + 自愈覆盖”。
+// 但那会在用户手动编辑作息后将其顶掉，且无法与深圳真实作息（第 1 节 08:30 起）区分。
+// 现已移除该覆盖：用户数据一律原样返回；作废作息的修正在
+// cn.limpu.hita.data.repository.TimetableScheduleStructureMigration 中对已导入课表处理。
 
-/**
- * 已作废的本科生作息识别（仅本部/威海旧常量）。
- *
- * ⚠️ **不要**再把“第 1 节 08:30-09:20、第 2 节 09:25-10:15”当作作废特征：
- * 那正是深圳校区的真实作息，此前因被误判为作废版，导致深圳课表被改成本部/威海时间。
- * 该模式在无校区上下文的 SP 兜底路径里无法与威海作废版区分，故一律不动。
- */
-internal fun isObsoleteUndergraduateScheduleAny(schedule: List<TimePeriodInDay>): Boolean =
-    isLegacyUndergraduateSchedule(schedule)
-
-class TimetablePreferenceSource(private val context: Context) {
+class TimetablePreferenceSource(
+    private val context: Context,
+    private val easPreferenceSource: EasPreferenceSource
+) {
     private var sharedPreferences: SharedPreferences? = null
     private val preference: SharedPreferences
         get() {
@@ -67,25 +51,38 @@ class TimetablePreferenceSource(private val context: Context) {
             return sharedPreferences!!
         }
 
+    /**
+     * 读取本科生/研究生作息。
+     *
+     * 本科生的默认兜底按**当前登录校区**解析（三校区各用各的，不共享）。
+     *
+     * 重要：一旦 SP 中已有用户数据（`class_num` 已写入），一律**原样返回**，
+     * 不再被默认值覆盖——否则用户在导入页的手动编辑会被顶掉。历史作废作息
+     * 的修正由 [cn.limpu.hita.data.repository.TimetableScheduleStructureMigration]
+     * 对已导入课表处理，不在本读取路径重复自愈。
+     */
     fun getSchedule(isUndergraduate: Boolean? = null): MutableList<TimePeriodInDay> {
         if (isUndergraduate == false) return graduate_default.toMutableList()
-        var result: MutableList<TimePeriodInDay> = mutableListOf()
         val total = preference.getInt("class_num", -1)
         if (total < 0) {
-            result = undergraduate_default
-            saveSchedules(result)
-            return result
+            // 首启：返回默认值供调用方展示/兜底，但**不落盘**。
+            // 只有用户主动编辑（saveSchedules）后才写入，这样“SP 有值”才意味着用户偏好，
+            // 否则会反过来挡住教务接口返回的真实作息。
+            return defaultUndergraduate(currentCampus())
         }
+        val result: MutableList<TimePeriodInDay> = mutableListOf()
         for (i in 0 until total) {
             val tp: TimePeriodInDay = Gson().fromJson(preference.getString("class_$i", "{}"), TimePeriodInDay::class.java)
             result.add(tp)
         }
-        if (isObsoleteUndergraduateScheduleAny(result)) {
-            result = undergraduate_default
-            saveSchedules(result)
-        }
         return result
     }
+
+    /** SP 中是否已有用户偏好作息（用户编辑过或导入过）。 */
+    fun hasSavedSchedule(): Boolean = preference.getInt("class_num", -1) >= 0
+
+    /** 当前登录校区；未登录时回退到深圳（与教务 token 默认一致）。 */
+    private fun currentCampus(): EASToken.Campus = easPreferenceSource.getEasToken().campus
 
     fun saveSchedules(sch: List<TimePeriodInDay>) {
         val editor = preference.edit()

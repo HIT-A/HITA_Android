@@ -468,7 +468,7 @@ abstract class AbstractEASWebSource(
         )
         throw IllegalStateException(
             if (hasTermSelector) "课表页返回异常，未找到课表表格"
-            else "会话可能已失效，返回的不是课表页"
+            else "课表页返回异常，请稍后重试"
         )
     }
 
@@ -530,14 +530,54 @@ abstract class AbstractEASWebSource(
 
         executor.execute {
             try {
-                val start = inferTermStartDate(term)
-                LogUtils.d("getStartDate: term=${term.getCode()} inferredStart=${start.time} termName=${term.termName} label=${term.name}")
+                // 优先从教务「校历」接口获取真实开学日期（对齐 iOS AcademicWebCalendarParser 路径），
+                // 失败时回退到本地推算逻辑。
+                val real = fetchTermStartDateFromCalendar(token, term)
+                val start = real ?: inferTermStartDate(term)
+                LogUtils.d(
+                    "getStartDate: term=${term.getCode()} source=${if (real != null) "calendar" else "inferred"} " +
+                        "start=${start.time} termName=${term.termName} label=${term.name}"
+                )
                 result.postValue(DataState(start, DataState.STATE.SUCCESS))
             } catch (e: Exception) {
                 result.postValue(DataState(DataState.STATE.FETCH_FAILED, e.message ?: "获取开学日期失败"))
             }
         }
         return result
+    }
+
+    /**
+     * 请求教务校历接口 `/xlcx/queryXlcx`，解析第 1 教学周周一（开学日）。
+     * 网络或解析失败返回 null，由调用方回退到推算。
+     */
+    private fun fetchTermStartDateFromCalendar(token: EASToken, term: TermItem): Calendar? {
+        return try {
+            val response = Jsoup.connect("$hostName/xlcx/queryXlcx")
+                .cookies(token.cookies)
+                .header("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15")
+                .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                .header("Accept-Language", "zh-CN,zh-Hans;q=0.9")
+                .header("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
+                .data("xnxq", term.getCode())
+                .timeout(timeout)
+                .ignoreContentType(true)
+                .ignoreHttpErrors(true)
+                .method(Connection.Method.POST)
+                .execute()
+            if (response.statusCode() != 200) {
+                LogUtils.w("getStartDate: calendar HTTP ${response.statusCode()} term=${term.getCode()}")
+                return null
+            }
+            val body = response.body()
+            WebCalendarParser.parseTermStartDate(body).also {
+                if (it == null) {
+                    LogUtils.w("getStartDate: calendar parse failed term=${term.getCode()}")
+                }
+            }
+        } catch (e: Exception) {
+            LogUtils.w("getStartDate: calendar request failed term=${term.getCode()} message=${e.message}")
+            null
+        }
     }
 
     protected fun inferTermStartDate(term: TermItem): Calendar {
@@ -770,3 +810,12 @@ abstract class AbstractEASWebSource(
         return false
     }
 }
+
+/**
+ * 确证教务会话已失效（登录页特征 / 401 / 403）。
+ *
+ * 仅用于“确实需要重新登录”的情形；服务端 5xx（上游不可用）与 200 非权威页
+ * 不使用本异常，应归为可尝试的上游错误。上层据此映射为 `DataState.STATE.NOT_LOGGED_IN`。
+ */
+class EastSessionExpiredException(message: String) : IllegalStateException(message)
+

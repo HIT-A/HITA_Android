@@ -94,13 +94,26 @@ class CampusDefaultScheduleTest {
         assertTrue("本部与威海作息不得相同", benbu != weihai)
     }
 
-    /** 无校区上下文的兜底值必须是深圳表（深圳是上一轮被误改的受害方）。 */
+    /**
+     * 兜底作息必须按校区解析，且**不得**把深圳表当作全局共享常量：
+     * 每个校区的兜底值应等于该校区自己的表。
+     */
     @Test
-    fun fallbackUndergraduateUsesShenzhenSchedule() {
-        assertEquals(
-            render(CampusDefaultSchedule.undergraduate(EASToken.Campus.SHENZHEN)),
-            render(CampusDefaultSchedule.fallbackUndergraduate())
-        )
+    fun fallbackUndergraduateResolvesByCampus() {
+        for (campus in EASToken.Campus.entries) {
+            assertEquals(
+                "$campus 的兜底作息应等于该校区表",
+                render(CampusDefaultSchedule.undergraduate(campus)),
+                render(CampusDefaultSchedule.fallbackUndergraduate(campus))
+            )
+        }
+        // 回归保护：深圳、本部、威海的兜底值互不相同（不再是同一份深圳表）。
+        val benbu = CampusDefaultSchedule.fallbackUndergraduate(EASToken.Campus.BENBU)
+        val weihai = CampusDefaultSchedule.fallbackUndergraduate(EASToken.Campus.WEIHAI)
+        val shenzhen = CampusDefaultSchedule.fallbackUndergraduate(EASToken.Campus.SHENZHEN)
+        assertTrue("本部与威海兜底不得相同", benbu != weihai)
+        assertTrue("本部与深圳兜底不得相同", benbu != shenzhen)
+        assertTrue("威海与深圳兜底不得相同", weihai != shenzhen)
     }
 
     /** 本部与威海本科生作息必须不同（第 5 节一个 13:45、一个 14:00）。 */

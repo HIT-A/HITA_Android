@@ -88,13 +88,12 @@ object CampusDefaultSchedule {
         }
 
     /**
-     * 无校区上下文时的保守默认（用于旧版 SP 兜底等拿不到校区的场景）。
+     * 无明确校区但已知当前上下文时的兜底：直接返回该校区本科生作息。
      *
-     * 取深圳表：深圳是本轮“被误改”的受害方，其作息此前即作为全局兜底值存在，
-     * 恢复它可避免老用户在没有校区信息时被二次改坏。
+     * 不再复用深圳表：三校区作息各自独立，深圳表不得被当作全局共享常量。
      */
-    fun fallbackUndergraduate(): MutableList<TimePeriodInDay> =
-        copy(SHENZHEN_UNDERGRADUATE)
+    fun fallbackUndergraduate(campus: EASToken.Campus): MutableList<TimePeriodInDay> =
+        undergraduate(campus)
 
     /**
      * 深拷贝：避免调用方原地修改（如设置界面的编辑作息）污染共享常量。

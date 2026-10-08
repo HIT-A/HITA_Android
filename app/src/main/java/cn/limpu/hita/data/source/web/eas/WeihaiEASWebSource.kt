@@ -153,6 +153,7 @@ class WeihaiEASWebSource(
                     .header("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15")
                     .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
                     .header("Accept-Language", "zh-CN,zh-Hans;q=0.9")
+                    .header("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
                     .data("fhlj", "kbcx/queryGrkb")
                     .data("xnxq", termCode)
                     .timeout(timeout)
@@ -168,9 +169,17 @@ class WeihaiEASWebSource(
                     "getTimetableOfTerm: response, term=$termCode status=$statusCode hasAddlist01=$hasTimetableTable cookieKeys=${token.cookies.keys.sorted()} ${cookieFingerprintSummary(token.cookies)}"
                 )
 
-                if (isAuthExpiredResponse(response, body)) {
+                // 错误分类对齐 iOS：登录特征 / 401 / 403 → 会话失效（引导重登）；
+                // 5xx（上游不可用）→ 提示稍后重试，不引导重登。
+                if (statusCode == 401 || statusCode == 403 || isAuthExpiredResponse(response, body)) {
                     LogUtils.w("getTimetableOfTerm: auth expired, term=$termCode status=$statusCode")
-                    result.postValue(DataState(DataState.STATE.NOT_LOGGED_IN))
+                    result.postValue(DataState(DataState.STATE.NOT_LOGGED_IN, "登录已失效，请重新登录"))
+                    return@execute
+                }
+
+                if (statusCode in 500..599) {
+                    LogUtils.w("getTimetableOfTerm: upstream unavailable, term=$termCode status=$statusCode")
+                    result.postValue(DataState(DataState.STATE.FETCH_FAILED, "服务器错误，请稍后重试"))
                     return@execute
                 }
 
@@ -334,6 +343,7 @@ class WeihaiEASWebSource(
             .header("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15")
             .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
             .header("Accept-Language", "zh-CN,zh-Hans;q=0.9")
+            .header("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
             .data("fhlj", "kbcx/queryGrkb")
             .data("xnxq", term.getCode())
             .timeout(timeout)
@@ -341,11 +351,17 @@ class WeihaiEASWebSource(
             .ignoreHttpErrors(true)
             .method(Connection.Method.POST)
             .execute()
-        if (response.statusCode() != 200) {
-            throw IllegalStateException("HTTP ${response.statusCode()}")
-        }
+        val statusCode = response.statusCode()
         val body = response.body()
-        ensureTimetableResponse(term, body, response.statusCode())
+        // 错误分类对齐 iOS：登录特征 / 401 / 403 → 会话失效；5xx → 上游不可用。
+        if (statusCode == 401 || statusCode == 403 || isAuthExpiredResponse(response, body)) {
+            throw EastSessionExpiredException("登录已失效，请重新登录")
+        }
+        if (statusCode in 500..599) throw IllegalStateException("服务器错误，请稍后重试")
+        if (statusCode != 200) {
+            throw IllegalStateException("HTTP $statusCode")
+        }
+        ensureTimetableResponse(term, body, statusCode)
         val parsedCourses = BenbuScheduleParser.parseScheduleHtml(body)
         val courses = mergeAdjacentCourses(parsedCourses, scheduleFor(token))
         logEmptyTimetableDetails(term, body, courses)

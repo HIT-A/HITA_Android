@@ -81,6 +81,33 @@ class WebLoginSuccessPolicyTest {
     }
 
     @Test
+    fun `Weihai function page with lowercase jsessionid key is success`() {
+        // 某些 WebVPN 节点下 cookie 名大小写不一致，不能因 key 大小写漏判
+        assertTrue(
+            WebLoginSuccessPolicy.isWeihaiAuthenticatedPage(
+                "https://webvpn.hitwh.edu.cn/http/eas/kbcx/queryGrkb",
+                mapOf(
+                    "wengine_vpn_ticket" to "ticket",
+                    "jsessionid" to "session"
+                )
+            )
+        )
+    }
+
+    @Test
+    fun `Weihai function page with blank jsessionid is not success`() {
+        assertFalse(
+            WebLoginSuccessPolicy.isWeihaiAuthenticatedPage(
+                "https://webvpn.hitwh.edu.cn/http/eas/kbcx/queryGrkb",
+                mapOf(
+                    "wengine_vpn_ticket" to "ticket",
+                    "JSESSIONID" to ""
+                )
+            )
+        )
+    }
+
+    @Test
     fun `Shenzhen probes both proxy and direct hosts`() {
         val urls = WebLoginSuccessPolicy.shenzhenCookieProbeUrls(
             proxyBaseUrl = "https://jw-hitsz-edu-cn.hitsz.edu.cn",

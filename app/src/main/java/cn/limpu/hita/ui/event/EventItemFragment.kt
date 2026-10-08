@@ -72,11 +72,13 @@ class EventItemFragment : Fragment() {
     var eventParent: EventParent? = null
 
     private val easRepository by lazy {
+        val appContext = requireActivity().application.applicationContext
+        val easPreferenceSource = EasPreferenceSource(appContext)
         EASRepository(
             requireActivity().application,
-            EasPreferenceSource(requireActivity().application.applicationContext),
-            EasCredentialStore(requireActivity().application.applicationContext),
-            TimetablePreferenceSource(requireActivity().application.applicationContext),
+            easPreferenceSource,
+            EasCredentialStore(appContext),
+            TimetablePreferenceSource(appContext, easPreferenceSource),
             TimetableChangeStore(requireActivity().application),
             TimetableMutationLock()
         )

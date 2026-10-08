@@ -26,9 +26,17 @@ internal object WebLoginSuccessPolicy {
             key.startsWith(WEIHAI_TICKET_COOKIE_PREFIX, ignoreCase = true) ||
                 key.contains(WEIHAI_TICKET_COOKIE_PREFIX, ignoreCase = true)
         }
-        return isFunctionPage && !isLoginPage && hasVpnTicket &&
-            cookies["JSESSIONID"].orEmpty().isNotBlank()
+        // JSESSIONID 的 key 大小写在不同 WebVPN 节点/路径下并不一致，
+        // 严格 equals("JSESSIONID") 会漏判，导致登录成功后仍不 finish。
+        val hasJsession = hasJsessionIdCookie(cookies)
+        return isFunctionPage && !isLoginPage && hasVpnTicket && hasJsession
     }
+
+    /** 大小写不敏感地判断 cookies 中是否存在非空的 JSESSIONID。 */
+    fun hasJsessionIdCookie(cookies: Map<String, String>): Boolean =
+        cookies.any { (key, value) ->
+            key.equals("JSESSIONID", ignoreCase = true) && value.isNotBlank()
+        }
 
     fun shenzhenCookieProbeUrls(proxyBaseUrl: String, directBaseUrl: String): List<String> {
         val paths = listOf("/authentication/main", "/student_index", "/user/me", "/")

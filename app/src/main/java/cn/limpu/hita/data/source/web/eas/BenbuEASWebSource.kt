@@ -189,6 +189,9 @@ class BenbuEASWebSource(
                 cachedTermCode = null
                 cachedCourses = null
                 result.postValue(DataState(courses))
+            } catch (e: EastSessionExpiredException) {
+                LogUtils.w("getTimetableOfTerm: session expired")
+                result.postValue(DataState(DataState.STATE.NOT_LOGGED_IN, e.message))
             } catch (e: Exception) {
                 LogUtils.e("getTimetableOfTerm: failed", e)
                 result.postValue(DataState(DataState.STATE.FETCH_FAILED, e.message))
@@ -300,10 +303,17 @@ class BenbuEASWebSource(
             .apply { if (term.isCurrent) data("ys", "1") }
             .timeout(timeout).ignoreContentType(true).ignoreHttpErrors(true)
             .method(Connection.Method.GET).execute()
-        if (response.statusCode() !in 200..299) throw IllegalStateException("HTTP ${response.statusCode()}")
-        val courses = BenbuGraduateScheduleParser.parseTimetable(response.body())
-        if (courses.isEmpty() && response.body().contains("/common/login")) {
-            throw IllegalStateException("研究生登录已过期")
+        val statusCode = response.statusCode()
+        val body = response.body()
+        // 错误分类对齐 iOS：登录特征 / 401 / 403 → 会话失效；5xx → 上游不可用。
+        if (statusCode == 401 || statusCode == 403 || isAuthExpiredResponse(response, body)) {
+            throw EastSessionExpiredException("登录已失效，请重新登录")
+        }
+        if (statusCode in 500..599) throw IllegalStateException("服务器错误，请稍后重试")
+        if (statusCode !in 200..299) throw IllegalStateException("HTTP $statusCode")
+        val courses = BenbuGraduateScheduleParser.parseTimetable(body)
+        if (courses.isEmpty() && body.contains("/common/login")) {
+            throw EastSessionExpiredException("研究生登录已过期")
         }
         return courses
     }
@@ -333,6 +343,7 @@ class BenbuEASWebSource(
             .header("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15")
             .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
             .header("Accept-Language", "zh-CN,zh-Hans;q=0.9")
+            .header("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
             .data("fhlj", "kbcx/queryGrkb")
             .data("xnxq", term.getCode())
             .timeout(timeout)
@@ -340,11 +351,25 @@ class BenbuEASWebSource(
             .ignoreHttpErrors(true)
             .method(Connection.Method.POST)
             .execute()
-        if (response.statusCode() != 200) {
-            throw IllegalStateException("HTTP ${response.statusCode()}")
-        }
+        val statusCode = response.statusCode()
         val body = response.body()
-        ensureTimetableResponse(term, body, response.statusCode())
+
+        // 错误分类对齐 iOS AcademicConnectorHTTPResponseValidator：
+        // - 登录页特征 / 401 / 403 → 会话失效（引导重登）
+        // - 5xx（上游不可用）→ 提示稍后重试，不引导重登
+        // - 200 但非课表页 → 非权威响应，提示稍后重试
+        if (statusCode == 401 || statusCode == 403 || isAuthExpiredResponse(response, body)) {
+            LogUtils.w("getRegularCourses: session expired, term=${term.getCode()} status=$statusCode")
+            throw EastSessionExpiredException("登录已失效，请重新登录")
+        }
+        if (statusCode in 500..599) {
+            LogUtils.w("getRegularCourses: upstream unavailable, term=${term.getCode()} status=$statusCode")
+            throw IllegalStateException("服务器错误，请稍后重试")
+        }
+        if (statusCode != 200) {
+            throw IllegalStateException("HTTP $statusCode")
+        }
+        ensureTimetableResponse(term, body, statusCode)
         val parsedCourses = BenbuScheduleParser.parseScheduleHtml(body)
         logEmptyTimetableDetails(term, body, parsedCourses)
         return parsedCourses

@@ -548,6 +548,20 @@ class WebViewLoginActivity : AppCompatActivity() {
                             LogUtils.d("jwts login page detected, polling for session cookies")
                             startCookiePolling()
                         }
+                        config.campus == EASToken.Campus.WEIHAI &&
+                            weihaiSawAuthPage &&
+                            uri.host == "webvpn.hitwh.edu.cn" &&
+                            !isAuthenticationPage(url) -> {
+                            // 威海兜底：CAS 验完票回跳后落在不在成功判定白名单内的页面时，
+                            // isSuccessPage 永远不会触发，用户卡死。这里改用 cookie 轮询：
+                            // 只要 VPN ticket + JSESSIONID 就绪，checkCookiesAndFinish 会
+                            // 主动拉取 EAS cookies 并 finishWithCookies，不依赖落点 URL。
+                            LogUtils.d(
+                                "weihai post-auth page, starting cookie polling: path=${uri.path} " +
+                                    "cookies=${collectCookies().keys.sorted()}"
+                            )
+                            startCookiePolling()
+                        }
                         else -> {
                             LogUtils.d("unhandled page: host=${uri.host} path=${uri.path}")
                             nudgeStuckCampusLogin(url)
@@ -1904,7 +1918,15 @@ class WebViewLoginActivity : AppCompatActivity() {
                  path.contains("xswh") || path.contains("query") || path.contains("index"))
             }
             EASToken.Campus.WEIHAI -> {
-                WebLoginSuccessPolicy.isWeihaiAuthenticatedPage(url, collectCookies())
+                val cookies = collectCookies()
+                val authenticated = WebLoginSuccessPolicy.isWeihaiAuthenticatedPage(url, cookies)
+                LogUtils.d(
+                    "isSuccessPage(weihai): path=$path authenticated=$authenticated " +
+                        "hasVpnTicket=${hasWeihaiVpnTicket(cookies)} " +
+                        "hasJsession=${WebLoginSuccessPolicy.hasJsessionIdCookie(cookies)} " +
+                        "keys=${cookies.keys.sorted()}"
+                )
+                authenticated
             }
             EASToken.Campus.SHENZHEN -> {
                 WebLoginSuccessPolicy.isShenzhenAuthenticatedPage(url, collectCookies())
@@ -1995,7 +2017,8 @@ class WebViewLoginActivity : AppCompatActivity() {
         val cookies = collectCookies()
         val currentUrl = webView.url ?: ""
         val hasVpnTicket = hasWeihaiVpnTicket(cookies)
-        val hasJsessionid = cookies.containsKey("JSESSIONID")
+        // 大小写不敏感，避免与 isWeihaiAuthenticatedPage 的判定不一致。
+        val hasJsessionid = WebLoginSuccessPolicy.hasJsessionIdCookie(cookies)
 
         if (cookieRetryCount == 0 || cookieRetryCount % 10 == 0) {
             LogUtils.d("checkCookies: retry=$cookieRetryCount keys=${cookies.keys.sorted()} host=${Uri.parse(currentUrl).host}")
@@ -2427,13 +2450,15 @@ class WebViewLoginActivity : AppCompatActivity() {
 
     private val onBackPressedCallback = object : OnBackPressedCallback(true) {
         override fun handleOnBackPressed() {
-            if (webView.canGoBack()) {
-                webView.goBack()
-            } else {
-                isEnabled = false
-                onBackPressedDispatcher.onBackPressed()
-                isEnabled = true
-            }
+            // 用户按返回即视为放弃本次 Web 登录：直接以 RESULT_CANCELED 结束，
+            // 交由宿主（PopUpLoginEAS）收尾。原先的 webView.goBack() 会在
+            // WebVPN/CAS/EAS 之间的多层重定向历史里反复回退，用户按多次仍停在
+            // 原页面，既退不出登录也无法触发成功判定，导致登录后卡死。
+            LogUtils.d(
+                "web login back pressed, cancelling campus=${config.campus} " +
+                    "canGoBack=${if (::webView.isInitialized) webView.canGoBack() else false}"
+            )
+            finishWithCancelledResult()
         }
     }
 
