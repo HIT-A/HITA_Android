@@ -668,7 +668,10 @@ class MainActivity : HiltBaseActivity<ComposeViewBinding>(),
                         refreshDrawerState()
                         window.dismiss()
                     }
-                    override fun onFailed(window: PopUpLoginEAS) {}
+                    // 登录取消/失败也必须关闭弹窗，避免 BottomSheet 卡在抽屉上。
+                    override fun onFailed(window: PopUpLoginEAS) {
+                        window.dismiss()
+                    }
                 }
             )
         }

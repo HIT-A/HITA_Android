@@ -289,7 +289,10 @@ class NavigationFragment : androidx.fragment.app.Fragment() {
                         userStateVersion++
                         window.dismiss()
                     }
-                    override fun onFailed(window: PopUpLoginEAS) {}
+                    // 登录取消/失败也必须关闭弹窗，否则 BottomSheet 会一直盖在“更多”页面上。
+                    override fun onFailed(window: PopUpLoginEAS) {
+                        window.dismiss()
+                    }
                 }
             )
         }

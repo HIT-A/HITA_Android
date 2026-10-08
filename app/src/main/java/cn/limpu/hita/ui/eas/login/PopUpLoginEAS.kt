@@ -224,6 +224,10 @@ class PopUpLoginEAS : BottomSheetDialogFragment() {
             } else {
                 LogUtils.e("WebView login FAILED")
                 onResponseListener?.onFailed(this)
+                // 非自动登录时宿主（如“更多”页）的 onFailed 通常为空实现，
+                // 若只回调不消失，BottomSheet 会一直盖在原页面上，用户以为
+                // 登录后“回不到更多界面”。这里兜底关闭弹窗。
+                dismissAllowingStateLoss()
             }
             return
         }
@@ -252,10 +256,12 @@ class PopUpLoginEAS : BottomSheetDialogFragment() {
                 loginInProgress = false
                 LogUtils.e("Failed to parse cookies: ${e.message}")
                 onResponseListener?.onFailed(this)
+                dismissAllowingStateLoss()
             }
         } else {
             loginInProgress = false
             onResponseListener?.onFailed(this)
+            dismissAllowingStateLoss()
         }
     }
 
@@ -288,6 +294,7 @@ class PopUpLoginEAS : BottomSheetDialogFragment() {
                         Toast.LENGTH_SHORT
                     ).show()
                     onResponseListener?.onFailed(this@PopUpLoginEAS)
+                    dismissAllowingStateLoss()
                 }
             }
         }
