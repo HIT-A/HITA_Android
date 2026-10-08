@@ -16,9 +16,12 @@ internal object WebLoginSuccessPolicy {
             path.contains("kjscx") ||
             path.contains("query") ||
             path.contains("index")
-        val isLoginPage = path.contains("logincas") ||
-            path.endsWith("/login") ||
-            path.contains("/login/")
+        // CAS 刚验完票回跳时会落在 loginCAS 上（?ticket=ST-...），此时 cookie 往往已有效；
+        // 若仍按"登录页"排除，用户会永久卡在空白页。登录前的 loginCAS 从不带 ticket 参数，
+        // 所以只对带票据的回跳放行。
+        val hasCasTicket = uri.query.orEmpty().contains("ticket=ST-", ignoreCase = true)
+        val isLoginPage = !hasCasTicket &&
+            (path.contains("logincas") || path.endsWith("/login") || path.contains("/login/"))
         val hasVpnTicket = cookies.keys.any { key ->
             key.startsWith(WEIHAI_TICKET_COOKIE_PREFIX, ignoreCase = true) ||
                 key.contains(WEIHAI_TICKET_COOKIE_PREFIX, ignoreCase = true)
