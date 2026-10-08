@@ -149,6 +149,7 @@ class WebViewLoginActivity : AppCompatActivity() {
 
         private const val COOKIE_RETRY_COUNT = 30
         private const val COOKIE_RETRY_DELAY_MS = 500L
+        private const val MAX_STUCK_NUDGE = 2
         private const val SILENT_TIMEOUT_MS = 18000L
         private const val MFA_DETECTION_INITIAL_DELAY_MS = 800L
         private const val MFA_DETECTION_RETRY_DELAY_MS = 700L
@@ -179,6 +180,11 @@ class WebViewLoginActivity : AppCompatActivity() {
     private var finished = false
     private var cookieRetryCount = 0
     private var cookiePollingGeneration = 0
+    // 登录卡住兜底：统一认证页出现过，且之后停在非成功页时，允许重新进入 EAS 入口
+    private var weihaiSawAuthPage = false
+    private var weihaiStuckNudgeCount = 0
+    private var shenzhenSawAuthPage = false
+    private var shenzhenStuckNudgeCount = 0
     private var autoOpeningJwts = false
     private var silentMode = false
     private lateinit var config: CampusWebConfig
@@ -487,6 +493,10 @@ class WebViewLoginActivity : AppCompatActivity() {
                         applyMfaViewportUnitWorkaround(view)
                         scheduleMfaDetection(view, url)
                     } else if (isTrustPortalPage(url)) {
+                        if (config.campus == EASToken.Campus.SHENZHEN) {
+                            // 深圳走 aTrust 认证：到过信任门户即视为进入认证环节
+                            shenzhenSawAuthPage = true
+                        }
                         applyTrustPortalViewportUnitWorkaround(view)
                     } else if (isShenzhenProxyJwPage(url)) {
                         applyShenzhenJwDesktopViewportWorkaround(view)
@@ -511,6 +521,11 @@ class WebViewLoginActivity : AppCompatActivity() {
                         isAuthenticationPage(url) -> {
                             autoOpeningJwts = false
                             stopCookiePolling()
+                            if (config.campus == EASToken.Campus.WEIHAI) {
+                                weihaiSawAuthPage = true
+                            } else if (config.campus == EASToken.Campus.SHENZHEN) {
+                                shenzhenSawAuthPage = true
+                            }
                             if (silentMode) {
                                 LogUtils.d("authentication page in silent mode, need user interaction")
                                 finishWithCancelledResult()
@@ -535,6 +550,7 @@ class WebViewLoginActivity : AppCompatActivity() {
                         }
                         else -> {
                             LogUtils.d("unhandled page: host=${uri.host} path=${uri.path}")
+                            nudgeStuckCampusLogin(url)
                         }
                     }
                 }
@@ -2015,6 +2031,41 @@ class WebViewLoginActivity : AppCompatActivity() {
         webView.postDelayed({
             checkCookiesAndFinish(generation)
         }, COOKIE_RETRY_DELAY_MS)
+    }
+
+    /**
+     * 登录卡住兜底（威海/深圳）：统一认证完成后，若 WebView 停在成功判定覆盖不到的页面
+     * （如渲染空白的 loginCAS 页，或白名单之外的深圳教务页），成功判定永远不会触发，
+     * 用户只能干等。此时重新加载 EAS 入口，让 CAS 借助仍有效的统一认证会话（SSO）再走一遍，
+     * 大多能落到正常的成功页。每个 Activity 实例每校区最多触发 2 次，避免异常循环。
+     */
+    private fun nudgeStuckCampusLogin(url: String) {
+        if (finished || silentMode) return
+        val uri = runCatching { Uri.parse(url) }.getOrNull() ?: return
+        val attempt = when (config.campus) {
+            EASToken.Campus.WEIHAI -> {
+                if (!weihaiSawAuthPage || weihaiStuckNudgeCount >= MAX_STUCK_NUDGE) return
+                if (uri.host != "webvpn.hitwh.edu.cn") return
+                if (isAuthenticationPage(url) || isPortalHomePage(url) || isSuccessPage(url)) return
+                ++weihaiStuckNudgeCount
+            }
+            EASToken.Campus.SHENZHEN -> {
+                if (!shenzhenSawAuthPage || shenzhenStuckNudgeCount >= MAX_STUCK_NUDGE) return
+                // 只在教务 host 上推一把：认证页/信任门户本身需要用户交互，不能拽走
+                val host = uri.host.orEmpty()
+                if (host != "jw.hitsz.edu.cn" && host != "jw-hitsz-edu-cn.hitsz.edu.cn") return
+                if (isAuthenticationPage(url) || isTrustPortalPage(url) ||
+                    isPortalHomePage(url) || isSuccessPage(url)
+                ) return
+                ++shenzhenStuckNudgeCount
+            }
+            else -> return
+        }
+        LogUtils.w(
+            "campus=${config.campus} login stuck on unhandled page, re-driving EAS entry " +
+                "(attempt $attempt/$MAX_STUCK_NUDGE): path=${uri.path}"
+        )
+        webView.loadUrl(config.jwtsUrl)
     }
 
     private fun handleSuccessPage() {
