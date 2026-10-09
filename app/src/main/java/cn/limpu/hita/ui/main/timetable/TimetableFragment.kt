@@ -137,8 +137,8 @@ import cn.limpu.hita.ui.subject.SubjectBatchEditScope
 import cn.limpu.hita.ui.subject.applySubjectBatchEdit
 import cn.limpu.hita.utils.ActivityUtils
 import cn.limpu.hita.utils.EventsUtils
-import cn.limpu.hita.utils.TimeTools
 import dagger.hilt.android.AndroidEntryPoint
+import java.time.ZoneId
 import java.util.Calendar
 import kotlinx.coroutines.launch
 import kotlin.math.abs
@@ -646,6 +646,7 @@ private fun TimetableWeekContent(
     onAddClick: (Int, TimePeriodInDay) -> Unit,
     eveningHintEnabled: Boolean = true,
     compressed: Boolean = false,
+    displayTimeZone: ZoneId? = null,
 ) {
     val density = LocalDensity.current
     val scrollState = rememberScrollState()
@@ -693,10 +694,10 @@ private fun TimetableWeekContent(
     // 晚间课程提示：当前周有 ≥18:30 开始的课程，且晚间课程尚未滚入视野时显示；
     // 滚到底部附近自动隐藏，避免遮挡正常课表内容；可在课表显示设置中关闭
     val eveningHintHideThresholdPx = with(density) { 64.dp.toPx() }
-    val showEveningHint by remember(events, eveningHintEnabled) {
+    val showEveningHint by remember(events, eveningHintEnabled, displayTimeZone) {
         derivedStateOf {
             eveningHintEnabled &&
-                events.any { eventMinutes(it.from.time) >= EVENING_HINT_START_MINUTES } &&
+                events.any { eventMinutes(it.from.time, displayTimeZone) >= EVENING_HINT_START_MINUTES } &&
                 scrollState.maxValue > 0 &&
                 scrollState.value < scrollState.maxValue - eveningHintHideThresholdPx
         }
@@ -760,7 +761,7 @@ private fun TimetableWeekContent(
             Box(
                 modifier = Modifier.onSizeChanged { headerHeightPx = it.height }
             ) {
-                TimetableDowHeader(startDate = startDate, monthColor = dateColor)
+                TimetableDowHeader(startDate = startDate, monthColor = dateColor, displayTimeZone = displayTimeZone)
             }
             // 压缩模式等根容器测得高度后再渲染表格：否则首帧会按放大尺度闪一下再压缩
             val tableReady = !compressed || availableHeightPx > 0
@@ -828,6 +829,7 @@ private fun TimetableWeekContent(
                             style = style,
                             dpPerMinute = dpPerMinute,
                             showTodayHighlight = !isAppleGlass,
+                            displayTimeZone = displayTimeZone,
                         )
                     }
                     TimetableEventLayer(
@@ -839,6 +841,7 @@ private fun TimetableWeekContent(
                         onEventClick = onEventClick,
                         onEventLongClick = onEventLongClick,
                         compressed = compressed,
+                        displayTimeZone = displayTimeZone,
                     )
                 }
             }
@@ -915,7 +918,9 @@ internal fun ReadOnlyTimetableWeek(
     scheduleStructure: List<TimePeriodInDay>,
     onPreviousWeek: () -> Unit = {},
     onNextWeek: () -> Unit = {},
-    onEventClick: (EventItem) -> Unit = {}
+    onEventClick: (EventItem) -> Unit = {},
+    displayTimeZone: ZoneId? = null,
+    expandEventHourRange: Boolean = false,
 ) {
     val firstPeriod = scheduleStructure.firstOrNull()
     val lastPeriod = scheduleStructure.lastOrNull()
@@ -923,13 +928,14 @@ internal fun ReadOnlyTimetableWeek(
     val endHour = lastPeriod?.to?.let {
         it.hour + if (it.minute > 0) 1 else 0
     }?.coerceAtLeast(startTime / 100 + 1) ?: 22
+    val hourRange = if (expandEventHourRange) TimetableDisplayTime.hourRange(events, startTime / 100, endHour, displayTimeZone ?: ZoneId.systemDefault()) else (startTime / 100 to endHour)
     TimetableWeekContent(
         startDate = startDate,
         events = events,
         style = TimetableStyleSheet(
             usePeriodLabel = true,
-            startTime = startTime,
-            endHour = endHour,
+            startTime = if (hourRange.first < startTime / 100) hourRange.first * 100 else startTime,
+            endHour = hourRange.second,
             drawNowLine = false
         ),
         scheduleStructure = scheduleStructure,
@@ -939,12 +945,13 @@ internal fun ReadOnlyTimetableWeek(
         onNextWeek = onNextWeek,
         onEventClick = onEventClick,
         onEventLongClick = { _, _ -> },
-        onAddClick = { _, _ -> }
+        onAddClick = { _, _ -> },
+        displayTimeZone = displayTimeZone,
     )
 }
 
 @Composable
-private fun TimetableDowHeader(startDate: Long, monthColor: Color) {
+private fun TimetableDowHeader(startDate: Long, monthColor: Color, displayTimeZone: ZoneId? = null) {
     val months = stringArrayResource(R.array.months)
     val dows = listOf(
         stringResource(R.string.tt_monday),
@@ -955,9 +962,9 @@ private fun TimetableDowHeader(startDate: Long, monthColor: Color) {
         stringResource(R.string.tt_saturday),
         stringResource(R.string.tt_sunday),
     )
-    val days = remember(startDate) {
+    val days = remember(startDate, displayTimeZone) {
         (0..6).map { offset ->
-            Calendar.getInstance().apply {
+            TimetableDisplayTime.calendar(startDate, displayTimeZone).apply {
                 timeInMillis = startDate
                 add(Calendar.DATE, offset)
             }
@@ -965,10 +972,9 @@ private fun TimetableDowHeader(startDate: Long, monthColor: Color) {
     }
     val isAppleGlass = hitaIsAppleGlassSurface()
     val isSoraCloud = hitaIsSoraCloud()
-    val todayDow = TimeTools.currentDOW()
-    val isCurrentWeek = remember(startDate) {
-        val start = Calendar.getInstance().apply { timeInMillis = startDate }
-        TimeTools.isSameWeekWithStartDate(start, System.currentTimeMillis())
+    val todayDow = TimetableDisplayTime.dayOfWeek(System.currentTimeMillis(), displayTimeZone)
+    val isCurrentWeek = remember(startDate, displayTimeZone) {
+        TimetableDisplayTime.isInWeek(startDate, System.currentTimeMillis(), displayTimeZone)
     }
     Row(
         modifier = Modifier
@@ -1138,9 +1144,10 @@ private fun TimetableGrid(
     style: TimetableStyleSheet,
     dpPerMinute: Dp,
     showTodayHighlight: Boolean = false,
+    displayTimeZone: ZoneId? = null,
 ) {
     val density = LocalDensity.current
-    val currentDow = TimeTools.currentDOW()
+    val currentDow = TimetableDisplayTime.dayOfWeek(System.currentTimeMillis(), displayTimeZone)
     val isAppleGlass = hitaIsAppleGlassSurface()
     val lineColor = if (isAppleGlass && !HitaTheme.isDark) {
         Color(0xFF71869C).copy(alpha = 0.32f)
@@ -1152,9 +1159,8 @@ private fun TimetableGrid(
     } else {
         MaterialTheme.colorScheme.outline.copy(alpha = 0.15f)
     }
-    val isCurrentWeek = remember(startDate) {
-        val start = Calendar.getInstance().apply { timeInMillis = startDate }
-        TimeTools.isSameWeekWithStartDate(start, System.currentTimeMillis())
+    val isCurrentWeek = remember(startDate, displayTimeZone) {
+        TimetableDisplayTime.isInWeek(startDate, System.currentTimeMillis(), displayTimeZone)
     }
     Canvas(modifier = Modifier.fillMaxSize()) {
         val sectionWidth = size.width / 7f
@@ -1206,11 +1212,12 @@ private fun TimetableEventLayer(
     onEventClick: (EventItem) -> Unit,
     onEventLongClick: (EventItem, IntOffset) -> Unit,
     compressed: Boolean = false,
+    displayTimeZone: ZoneId? = null,
 ) {
     val distinctEvents = remember(events) { events.distinctBy { it.id } }
-    val arranged = remember(distinctEvents) { TimetableOverlapLayout.arrange(distinctEvents) }
+    val arranged = remember(distinctEvents, displayTimeZone) { TimetableOverlapLayout.arrange(distinctEvents) { TimetableDisplayTime.dayOfWeek(it.from.time, displayTimeZone) } }
 
-    val renderList = remember(arranged) { TimetableOverlapLayout.conflictCards(arranged) }
+    val renderList = remember(arranged, displayTimeZone) { TimetableOverlapLayout.conflictCards(arranged) { TimetableDisplayTime.dayOfWeek(it.from.time, displayTimeZone) } }
 
     var conflictCluster by remember { mutableStateOf<List<EventItem>?>(null) }
     val baseMinutes = startHour * 60
@@ -1218,13 +1225,13 @@ private fun TimetableEventLayer(
         val sectionWidth = maxWidth / 7f
         val cardPlacements = renderList.map { (positioned, clusterEvents) ->
             val event = positioned.event
-            val dayLeft = sectionWidth * (event.getDow() - 1)
+            val dayLeft = sectionWidth * (TimetableDisplayTime.dayOfWeek(event.from.time, displayTimeZone) - 1)
             if (clusterEvents != null) {
                 // 合并卡片：覆盖冲突簇的时间并集，宽度与普通卡片一致
                 val clusterMinFrom = clusterEvents.minOf { it.from.time }
                 val clusterMaxTo = clusterEvents.maxOf { it.to.time }
                 val clusterTop =
-                    (eventMinutes(clusterMinFrom) - baseMinutes).coerceAtLeast(0).toFloat() * dpPerMinute
+                    (eventMinutes(clusterMinFrom, displayTimeZone) - baseMinutes).coerceAtLeast(0).toFloat() * dpPerMinute
                 val clusterDuration = ((clusterMaxTo - clusterMinFrom) / 60000L).toInt().coerceAtLeast(15)
                 TimetableCardPlacement(
                     positioned = positioned,
@@ -1235,7 +1242,7 @@ private fun TimetableEventLayer(
                     height = clusterDuration.toFloat() * dpPerMinute,
                 )
             } else {
-                val minutesFromBase = (eventMinutes(event.from.time) - baseMinutes).coerceAtLeast(0)
+                val minutesFromBase = (eventMinutes(event.from.time, displayTimeZone) - baseMinutes).coerceAtLeast(0)
                 val duration = event.getDurationInMinutes().coerceAtLeast(15)
                 TimetableCardPlacement(
                     positioned = positioned,
@@ -1288,8 +1295,8 @@ private fun TimetableEventLayer(
     conflictCluster?.let { cluster ->
         val title = stringResource(
             R.string.timetable_conflict_sheet_title,
-            TimeTools.printTime(cluster.minOf { it.from.time }),
-            TimeTools.printTime(cluster.maxOf { it.to.time })
+            TimetableDisplayTime.printTime(cluster.minOf { it.from.time }, displayTimeZone),
+            TimetableDisplayTime.printTime(cluster.maxOf { it.to.time }, displayTimeZone)
         )
         ModalBottomSheet(onDismissRequest = { conflictCluster = null }) {
             Column(
@@ -1319,9 +1326,8 @@ private fun TimetableEventLayer(
 }
 
 /** Extract minutes past midnight from an epoch-millis timestamp */
-private fun eventMinutes(epochMillis: Long): Int {
-    return TimeTools.getHour(epochMillis) * 60 + TimeTools.getMinute(epochMillis)
-}
+private fun eventMinutes(epochMillis: Long, displayTimeZone: ZoneId? = null): Int =
+    TimetableDisplayTime.minutes(epochMillis, displayTimeZone)
 
 @Composable
 private fun ConflictEventRow(

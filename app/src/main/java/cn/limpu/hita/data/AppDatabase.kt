@@ -18,6 +18,10 @@ import cn.limpu.hita.data.model.eas.ScoreTermCacheEntity
 import cn.limpu.hita.data.model.timetable.EventItem
 import cn.limpu.hita.data.model.timetable.TermSubject
 import cn.limpu.hita.data.model.timetable.Timetable
+import cn.limpu.hita.data.model.timetable.share.ShareIdentityEntity
+import cn.limpu.hita.data.model.timetable.share.FriendTimetableEntity
+import cn.limpu.hita.data.source.dao.TimetableShareDao
+import cn.limpu.hita.data.source.dao.FriendTimetableDao
 import cn.limpu.hita.data.model.blog.BlogArticle
 import cn.limpu.hita.data.model.notice.CampusNotice
 import cn.limpu.hita.data.source.dao.ChatMessageDao
@@ -32,11 +36,13 @@ import cn.limpu.hita.data.source.dao.CampusNoticeDao
 import com.limpu.hitauser.data.source.dao.UserProfileDao
 
 @Database(
-    entities = [EventItem::class, TermSubject::class, Timetable::class, ChatSession::class, ChatMessageEntity::class, ClassroomCacheEntity::class, ScoreCacheEntity::class, ScoreTermCacheEntity::class, ScoreDetailCacheEntity::class, BlogArticle::class, CampusNotice::class],
-    version = 14
+    entities = [EventItem::class, TermSubject::class, Timetable::class, ChatSession::class, ChatMessageEntity::class, ClassroomCacheEntity::class, ScoreCacheEntity::class, ScoreTermCacheEntity::class, ScoreDetailCacheEntity::class, BlogArticle::class, CampusNotice::class, ShareIdentityEntity::class, FriendTimetableEntity::class],
+    version = 15
 )
 @androidx.room.TypeConverters(TypeConverters::class)
 abstract class AppDatabase : RoomDatabase() {
+    abstract fun timetableShareDao(): TimetableShareDao
+    abstract fun friendTimetableDao(): FriendTimetableDao
     abstract fun eventItemDao(): EventItemDao
     abstract fun subjectDao(): SubjectDao
     abstract fun timetableDao(): TimetableDao
@@ -76,6 +82,7 @@ abstract class AppDatabase : RoomDatabase() {
                     MIGRATION_11_12,
                     MIGRATION_12_13,
                     MIGRATION_13_14,
+                    MIGRATION_14_15,
                 ).fallbackToDestructiveMigration(true)
                     .build()
                 INSTANCE = opened
@@ -164,6 +171,14 @@ abstract class AppDatabase : RoomDatabase() {
                 db.execSQL("CREATE INDEX IF NOT EXISTS index_campus_notice_pubDateMillis ON campus_notice(pubDateMillis)")
             }
         }
+        val MIGRATION_14_15 = object : Migration(14, 15) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("CREATE TABLE IF NOT EXISTS timetable_share_identity (timetableId TEXT NOT NULL, termKey TEXT NOT NULL, shareId TEXT NOT NULL, PRIMARY KEY(timetableId, termKey))")
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_timetable_share_identity_shareId ON timetable_share_identity(shareId)")
+                db.execSQL("CREATE TABLE IF NOT EXISTS friend_timetable (shareId TEXT NOT NULL, nickname TEXT NOT NULL, remark TEXT, termName TEXT NOT NULL, startMillis INTEGER NOT NULL, endMillis INTEGER NOT NULL, mode TEXT NOT NULL, snapshotJson TEXT NOT NULL, contentDigest TEXT NOT NULL, importedAt INTEGER NOT NULL, updatedAt INTEGER NOT NULL, PRIMARY KEY(shareId))")
+            }
+        }
+
         private val MIGRATION_13_14 = object : Migration(13, 14) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("CREATE TABLE IF NOT EXISTS campus_notice_new (campus TEXT NOT NULL, id TEXT NOT NULL, title TEXT NOT NULL, url TEXT NOT NULL, pubDateMillis INTEGER NOT NULL, PRIMARY KEY(campus, id))")

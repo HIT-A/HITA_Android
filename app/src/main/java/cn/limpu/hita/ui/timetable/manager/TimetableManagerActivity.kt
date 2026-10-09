@@ -117,6 +117,7 @@ class TimetableManagerActivity : HiltBaseActivity<ComposeViewBinding>() {
                         )
                     },
                     onImportIcs = { selectIcsLauncher.launch(IcsImportUtils.pickerMimeTypes()) },
+                    onOpenFriends = { startActivity(cn.limpu.hita.ui.timetable.friend.FriendTimetableActivity.intent(this)) },
                     onStartSelection = { timetable ->
                         selectedTimetableIds = selectedTimetableIds + timetable.id
                     },
@@ -247,6 +248,7 @@ private fun TimetableManagerScreen(
     onCreateTimetable: () -> Unit,
     onImportEas: () -> Unit,
     onImportIcs: () -> Unit,
+    onOpenFriends: () -> Unit,
     onStartSelection: (Timetable) -> Unit,
     onToggleSelection: (Timetable) -> Unit,
     onClearSelection: () -> Unit,
@@ -309,6 +311,9 @@ private fun TimetableManagerScreen(
                 containerColor = MaterialTheme.colorScheme.background
             )
         )
+        androidx.compose.material3.TextButton(onClick = onOpenFriends, modifier = Modifier.fillMaxWidth()) {
+            Text(stringResource(R.string.friend_timetable_title))
+        }
         if (selectionMode) {
             SelectionBar(
                 selectedCount = selectedTimetableIds.size,

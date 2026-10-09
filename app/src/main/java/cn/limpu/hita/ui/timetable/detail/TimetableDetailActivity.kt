@@ -42,6 +42,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -69,6 +70,7 @@ import cn.limpu.hita.data.model.timetable.TermSubject
 import cn.limpu.hita.data.model.timetable.TimePeriodInDay
 import cn.limpu.hita.ui.base.ComposeViewBinding
 import cn.limpu.hita.ui.base.HiltBaseActivity
+import cn.limpu.hita.ui.timetable.share.TimetableShareActivity
 import cn.limpu.hita.ui.design.HitaComposeTheme
 import cn.limpu.hita.ui.design.HitaCoursePaletteDialog
 import cn.limpu.hita.ui.design.HitaTheme
@@ -112,6 +114,12 @@ class TimetableDetailActivity : HiltBaseActivity<ComposeViewBinding>() {
                     onBack = { onBackPressedDispatcher.onBackPressed() },
                     onEditName = { editTimetableName() },
                     onEditDate = { editStartDate() },
+                    onShareTimetable = {
+                        viewModel.timetableLiveData.value?.id?.let { id ->
+                            startActivity(Intent(this, TimetableShareActivity::class.java)
+                                .putExtra(TimetableShareActivity.EXTRA_TIMETABLE_ID, id))
+                        }
+                    },
                     onExport = {
                         binding.root.performHapticFeedback(HapticFeedbackConstants.CONTEXT_CLICK)
                         isExporting = true
@@ -245,6 +253,7 @@ private fun TimetableDetailScreen(
     onBack: () -> Unit,
     onEditName: () -> Unit,
     onEditDate: () -> Unit,
+    onShareTimetable: () -> Unit,
     onExport: () -> Unit,
     onOpenTeacherResource: (String?) -> Unit,
     onOpenTeacherHomepage: (String) -> Unit,
@@ -292,6 +301,9 @@ private fun TimetableDetailScreen(
                 }
             },
             actions = {
+                TextButton(onClick = onShareTimetable, enabled = timetable != null) {
+                    Text(stringResource(R.string.timetable_share_action))
+                }
                 IconButton(onClick = onExport, enabled = !isExporting && timetable != null) {
                     if (isExporting) {
                         CircularProgressIndicator(

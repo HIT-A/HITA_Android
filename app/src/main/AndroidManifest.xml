@@ -120,6 +120,9 @@
         <activity android:name=".ui.subject.SubjectActivity" />
         <activity android:name=".ui.myprofile.MyProfileActivity" />
         <activity android:name=".ui.timetable.detail.TimetableDetailActivity" />
+        <activity android:name=".ui.timetable.friend.FriendTimetableActivity" android:exported="false" />
+        <activity android:name=".ui.timetable.friend.FriendTimetableDetailActivity" android:exported="false" />
+        <activity android:name=".ui.timetable.share.TimetableShareActivity" android:exported="false" />
         <activity
             android:name=".ui.ActivitySplash"
             android:exported="false"

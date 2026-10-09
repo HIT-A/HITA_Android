@@ -20,13 +20,13 @@ object TimetableOverlapLayout {
         val endTime: Long
     )
 
-    fun arrange(events: List<EventItem>): List<PositionedEvent> {
+    fun arrange(events: List<EventItem>, dayOfWeek: (EventItem) -> Int = { it.getDow() }): List<PositionedEvent> {
         if (events.isEmpty()) {
             return emptyList()
         }
         val distinctEvents = events.distinctBy { it.id }
         val positioned = mutableListOf<PositionedEvent>()
-        distinctEvents.groupBy { it.getDow() }
+        distinctEvents.groupBy(dayOfWeek)
             .toSortedMap()
             .values
             .forEach { dayEvents ->
@@ -47,7 +47,7 @@ object TimetableOverlapLayout {
      * become a single card: C would be hidden even though it does not conflict with A.
      * Events that never share a moment stay ordinary cards, including a chain tail.
      */
-    fun conflictCards(arranged: List<PositionedEvent>): List<Pair<PositionedEvent, List<EventItem>?>> {
+    fun conflictCards(arranged: List<PositionedEvent>, dayOfWeek: (EventItem) -> Int = { it.getDow() }): List<Pair<PositionedEvent, List<EventItem>?>> {
         val result = mutableListOf<Pair<PositionedEvent, List<EventItem>?>>()
         var index = 0
         while (index < arranged.size) {
@@ -61,7 +61,7 @@ object TimetableOverlapLayout {
             var nextIndex = index + 1
             while (nextIndex < arranged.size) {
                 val next = arranged[nextIndex]
-                if (next.event.getDow() != current.event.getDow() || next.overlapCount <= 1) break
+                if (dayOfWeek(next.event) != dayOfWeek(current.event) || next.overlapCount <= 1) break
                 val overlapsEveryMember = cluster.all { member ->
                     intervalsOverlap(member.event, next.event)
                 }
