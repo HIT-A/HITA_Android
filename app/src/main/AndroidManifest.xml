@@ -105,6 +105,16 @@
                 android:resource="@xml/file_paths" />
         </provider>
 
+        <!-- 应用内更新：下载完成自动唤起安装。静态注册，进程被杀也能被系统唤醒 -->
+        <receiver
+            android:name=".update.ApkInstallReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.DOWNLOAD_COMPLETE" />
+                <action android:name="cn.limpu.hita.update.INSTALL_STATUS" />
+            </intent-filter>
+        </receiver>
+
         <activity
             android:name=".ui.main.MainActivity"
             android:exported="true"

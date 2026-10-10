@@ -1,14 +1,14 @@
 <h1 align="center">HITA</h1>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Version-3.0.0-blue?style=for-the-badge" alt="version" />
+  <img src="https://img.shields.io/badge/Version-3.0.3-blue?style=for-the-badge" alt="version" />
   <img src="https://img.shields.io/badge/Platform-Android_8.0%2B_(API_26)-3DDC84?style=for-the-badge&logo=android&logoColor=white" alt="platform" />
   <img src="https://img.shields.io/badge/Kotlin-2.2.21-7F52FF?style=for-the-badge&logo=kotlin&logoColor=white" alt="kotlin" />
   <img src="https://img.shields.io/badge/Jetpack_Compose-Material3-4285F4?style=for-the-badge&logo=jetpackcompose&logoColor=white" alt="compose" />
   <img src="https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge" alt="license" />
 </p>
 
-[App 下载（Releases）](https://github.com/HIT-A/HITA_Android/releases/latest) | 最新版本 v3.0.0
+[App 下载（Releases）](https://github.com/HIT-A/HITA_Android/releases/latest) | 最新版本 v3.0.3
 
 用户群：1093659013（新版本与测试版会发在用户群，欢迎加入反馈）
 
