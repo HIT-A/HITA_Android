@@ -26,8 +26,10 @@
 
 ## 本轮验证（2026-10-10）
 
-在 `feat/timetable-sharing` 隔离工作树串行执行 `:app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest`，单 worker，退出码 0。JVM XML 共 108 个套件、527 个测试，0 失败、0 错误、1 跳过；其中本轮比较测试 42 项。仓库文件与 Markdown 链接检查、`git diff --check` 均通过。构建前后源文件 SHA256 清单一致。
+在 `feat/timetable-sharing` 隔离工作树串行执行 `:app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest`，单 worker。合并 `upstream/main` 后最终构建退出码 0；JVM XML 共 108 个套件、527 个测试，0 失败、0 错误、1 项既有跳过；其中比较测试 42 项。仓库文件与 Markdown 链接检查、`git diff --check` 均通过。
 
-Debug APK 位于仓库的 `app/build/outputs/apk/debug/app-debug.apk`（生成物不入库）。应用标识 `cn.limpu.hita.diag`，版本 `3.0.3` / `2026093005`，最低 SDK 26、目标 SDK 35。SHA256：`C77F59318EF4CB4F72C822B51CE08AFCDC470DC6CF7D5F3922CD1E2A23C06053`。
+Debug APK 位于仓库的 `app/build/outputs/apk/debug/app-debug.apk`（生成物不入库）。诊断构建应用标识为 `cn.limpu.hita.diag`，版本 `3.0.3` / `2026093005`，最低 SDK 26、目标 SDK 35。SHA256：`3A2E592EDE7C06408149C7371B1EB842EB5BE6FF1C49F5C7AC69C652CD351A6A`。
 
-AndroidTest APK 已编译；`adb devices -l` 无设备，因此 Room 数据隔离测试及设备 UI 验收未运行，也未安装 APK。仍需设备验证：主页四入口与分享/导入、旋转恢复、系统时区改变、缩放滚动与覆盖层点击、文字对比度和无障碍、打开课程重叠详情后切周或来源变化、好友更新/删除刷新、退出恢复编辑。构建和 JVM 测试不能证明这些运行行为。
+在 OP5D0DL1（Android 37）安装应用与 AndroidTest APK，保留了原有应用数据。合并上游后的构建在指定设备重跑 `TimetableComparisonRepositoryTest` 5/5、`FriendTimetableInstrumentedTest` 6/6、`TimetableShareMigrationTest` 1/1。迁移测试从保留的 v14 Room schema 建立独立测试库，打开 v15 数据库执行真实迁移，核对 `timetable`、`subject`、`events` 样例行和新增表可写；没有逐表覆盖全部旧数据库。合并前的真机只读冒烟确认主页“分享与好友”面板四入口可见，分享页、导入口令弹窗和对比配置可打开；选用已有个人课表与好友快照后，原课表网格上能看到共同空闲绿底和同节有课红框，节间和午休留白。
+
+节次详情点击后的截图未显示详情，且设备随后锁屏，因此详情交互、切周后结果、退出恢复、旋转恢复、系统时区改变、缩放滚动、文字对比度和无障碍、好友更新/删除后的界面刷新仍待真机复测。尚未用两台设备及聊天应用完整验收分享、导入、再次分享和更新链路。
