@@ -1468,6 +1468,11 @@
     <string name="update_download_progress_waiting">正在准备下载...</string>
     <string name="update_download_progress_percent">正在下载：%d%%</string>
     <string name="update_download_progress_done">下载完成，正在打开安装器...</string>
+    <string name="install_starting">下载完成，正在唤起安装…</string>
+    <string name="install_success">安装成功</string>
+    <string name="install_unknown_source_required">请允许 HITA 安装未知应用，之后重新下载安装</string>
+    <string name="install_apk_unreadable">下载完成，但找不到安装包，请在通知栏手动安装</string>
+    <string name="install_failed_manual">自动安装失败，请在通知栏点击安装包手动安装</string>
     <string name="timetable_projection_read_only">该课程由选课预览生成，请在选课管理中调整或隐藏预览</string>
     <string name="live_course_title">实时课程</string>
     <string name="live_course_subtitle">上课前10分钟显示课程状态</string>
