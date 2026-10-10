@@ -32,6 +32,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -95,6 +96,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -341,6 +343,9 @@ class MainActivity : HiltBaseActivity<ComposeViewBinding>(),
                     },
                     onWallpaperLongPress = { showWallpaperMenu() },
                     onTimetableSetting = { FragmentTimetablePanel().show(supportFragmentManager, "panel") },
+                    onTimetableSocial = {
+                        (supportFragmentManager.findFragmentByTag("main_tab_1") as? TimetableFragment)?.openTimetableSocialSheet()
+                    },
                     onAddEvent = { PopupAddEvent().show(supportFragmentManager, "add_event") },
                     onDrawerHeader = { openDrawerHeader() },
                     onDrawerAvatarClick = { showAvatarPicker() },
@@ -903,6 +908,7 @@ private fun MainScreen(
     onWallpaper: () -> Unit,
     onWallpaperLongPress: () -> Unit,
     onTimetableSetting: () -> Unit,
+    onTimetableSocial: () -> Unit,
     onAddEvent: () -> Unit,
     onDrawerHeader: () -> Unit,
     onDrawerAvatarClick: () -> Unit,
@@ -1042,6 +1048,7 @@ private fun MainScreen(
                     onWallpaper = onWallpaper,
                     onWallpaperLongPress = onWallpaperLongPress,
                     onTimetableSetting = onTimetableSetting,
+                onTimetableSocial = onTimetableSocial,
                     onAddEvent = onAddEvent,
                 )
                 Spacer(Modifier.height(8.dp))
@@ -1237,6 +1244,7 @@ private fun MainTopBar(
     onWallpaper: () -> Unit,
     onWallpaperLongPress: () -> Unit,
     onTimetableSetting: () -> Unit,
+    onTimetableSocial: () -> Unit,
     onAddEvent: () -> Unit,
 ) {
     val isWallpaperTab = wallpaperAlpha > 0.5f
@@ -1290,6 +1298,7 @@ private fun MainTopBar(
                 onWallpaper = onWallpaper,
                 onWallpaperLongPress = onWallpaperLongPress,
                 onTimetableSetting = onTimetableSetting,
+                onTimetableSocial = onTimetableSocial,
                 onAddEvent = onAddEvent
             )
             MainTab.AGENT -> ToolbarTitle(stringResource(R.string.title_agent), titleColor)
@@ -1323,6 +1332,7 @@ private fun ToolbarTitle(title: String, textColor: Color = MaterialTheme.colorSc
     }
 }
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 private fun TimetableToolbarTitle(
     title: String,
@@ -1334,9 +1344,11 @@ private fun TimetableToolbarTitle(
     onWallpaper: () -> Unit,
     onWallpaperLongPress: () -> Unit,
     onTimetableSetting: () -> Unit,
+    onTimetableSocial: () -> Unit,
     onAddEvent: () -> Unit,
 ) {
     var nameMenuExpanded by remember { mutableStateOf(false) }
+    var settingsExpanded by remember { mutableStateOf(false) }
     val isAppleGlass = HitaTheme.preferenceStyle == ThemeTools.STYLE.APPLE_GLASS
     val isSoraCloud = HitaTheme.preferenceStyle == ThemeTools.STYLE.SORA_CLOUD
     val nameChipShape = if (isSoraCloud) soraCloudCardShape(10.dp) else RoundedCornerShape(12.dp)
@@ -1422,8 +1434,42 @@ private fun TimetableToolbarTitle(
             }
         }
         Spacer(modifier = Modifier.weight(1f))
-        ToolbarIcon(R.drawable.ic_wallpaper, onClick = onWallpaper, onLongClick = onWallpaperLongPress)
-        ToolbarIcon(R.drawable.ic_theme, onClick = onTimetableSetting)
+        androidx.compose.material3.IconButton(onClick = onTimetableSocial, modifier = Modifier.size(56.dp)) {
+            Icon(painterResource(R.drawable.ic_baseline_share_24),
+                contentDescription = stringResource(R.string.timetable_social_title))
+        }
+        Box {
+            val settingsView = LocalView.current
+            Box(
+                modifier = Modifier.size(56.dp).combinedClickable(
+                    role = Role.Button,
+                    onClickLabel = stringResource(R.string.timetable_settings_action),
+                    onLongClickLabel = stringResource(R.string.timetable_wallpaper),
+                    onClick = {
+                        settingsView.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+                        settingsExpanded = true
+                    },
+                    onLongClick = {
+                        settingsView.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+                        onWallpaperLongPress()
+                    }
+                ),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(painterResource(R.drawable.ic_theme),
+                    contentDescription = stringResource(R.string.timetable_settings_action),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(24.dp))
+            }
+            DropdownMenu(expanded = settingsExpanded, onDismissRequest = { settingsExpanded = false }) {
+                DropdownMenuItem(text = { Text(stringResource(R.string.timetable_wallpaper)) },
+                    onClick = { settingsExpanded = false; onWallpaper() })
+                DropdownMenuItem(text = { Text(stringResource(R.string.wallpaper_remove)) },
+                    onClick = { settingsExpanded = false; onWallpaperLongPress() })
+                DropdownMenuItem(text = { Text(stringResource(R.string.comparison_display_settings)) },
+                    onClick = { settingsExpanded = false; onTimetableSetting() })
+            }
+        }
         ToolbarIcon(R.drawable.ic_baseline_add_24, onClick = onAddEvent, iconSize = 28.dp)
     }
 }

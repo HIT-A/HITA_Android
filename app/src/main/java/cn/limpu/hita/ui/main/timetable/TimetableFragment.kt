@@ -49,8 +49,17 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.collectAsState
+import javax.inject.Inject
+import cn.limpu.hita.ui.main.timetable.compare.*
+import cn.limpu.hita.data.repository.FriendTimetableRepository
+import cn.limpu.hita.ui.timetable.friend.FriendTimetableActivity
+import cn.limpu.hita.ui.timetable.share.TimetableShareActivity
+import android.content.Intent
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.livedata.observeAsState
@@ -92,6 +101,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.times
+import androidx.lifecycle.map
 import androidx.fragment.app.viewModels
 import com.limpu.component.data.DataState
 import cn.limpu.hita.R
@@ -148,6 +158,17 @@ import kotlin.math.roundToInt
 class TimetableFragment : HiltBaseFragment<ComposeViewBinding>() {
 
     protected val viewModel: TimetableViewModel by viewModels()
+    val comparisonViewModel: TimetableComparisonViewModel by viewModels()
+    private val comparisonChoices by lazy {
+        viewModel.timetableLiveData.map { tables -> tables.map(::comparisonPersonalChoice) }
+    }
+    @Inject lateinit var friendTimetableRepository: FriendTimetableRepository
+    private var socialSheetOpen by mutableStateOf(false)
+    private var comparisonSheetOpen by mutableStateOf(false)
+
+    fun openTimetableSocialSheet() { socialSheetOpen = true }
+    fun openComparisonConfigSheet() { socialSheetOpen = false; comparisonSheetOpen = true }
+
     private var mainPageController: MainPageController? = null
 
     companion object {
@@ -183,8 +204,34 @@ class TimetableFragment : HiltBaseFragment<ComposeViewBinding>() {
     override fun initViews(view: View) {
         (binding?.root as? ComposeView)?.setContent {
             HitaComposeTheme() {
+                val personalChoices by comparisonChoices.observeAsState(emptyList())
+                val friends by remember { friendTimetableRepository.observeFriends() }.observeAsState(emptyList())
+                val activeConfig by comparisonViewModel.config.collectAsState()
+                if (socialSheetOpen) TimetableSocialSheet(
+                    onDismiss = { socialSheetOpen = false },
+                    onShare = {
+                        socialSheetOpen = false
+                        val shareIntent = Intent(requireContext(), TimetableShareActivity::class.java)
+                        (comparisonViewModel.state.value as? ComparisonUiState.Ready)?.config?.personalId?.let {
+                            shareIntent.putExtra(TimetableShareActivity.EXTRA_TIMETABLE_ID, it)
+                        }
+                        startActivity(shareIntent)
+                    },
+                    onImport = { socialSheetOpen = false; startActivity(FriendTimetableActivity.intent(requireContext(), true)) },
+                    onFriends = { socialSheetOpen = false; startActivity(FriendTimetableActivity.intent(requireContext())) },
+                    onCompare = ::openComparisonConfigSheet,
+                )
+                if (comparisonSheetOpen) ComparisonConfigSheet(personalChoices, friends, activeConfig,
+                    onDismiss = { comparisonSheetOpen = false },
+                    onConfirm = { comparisonViewModel.enable(it); comparisonSheetOpen = false },
+                    onManage = { comparisonSheetOpen = false; ActivityUtils.startTimetableManager(requireActivity()) },
+                    onImport = { comparisonSheetOpen = false; startActivity(FriendTimetableActivity.intent(requireContext(), true)) },
+                    onFriends = { comparisonSheetOpen = false; startActivity(FriendTimetableActivity.intent(requireContext())) },
+                )
                 TimetableScreen(
                     viewModel = viewModel,
+                    comparisonViewModel = comparisonViewModel,
+                    onAdjustComparison = ::openComparisonConfigSheet,
                     onTitleState = ::applyTitleState,
                     onEventClick = { EventsUtils.showEventItem(requireActivity(), it) },
                     onEventLongClick = { event, position -> showEventMenu(event, position) },
@@ -404,6 +451,8 @@ private sealed interface TimetableTitleState {
 @Composable
 private fun TimetableScreen(
     viewModel: TimetableViewModel,
+    comparisonViewModel: TimetableComparisonViewModel,
+    onAdjustComparison: () -> Unit,
     onTitleState: (TimetableTitleState) -> Unit,
     onEventClick: (EventItem) -> Unit,
     onEventLongClick: (EventItem, IntOffset) -> Unit,
@@ -432,8 +481,30 @@ private fun TimetableScreen(
     LaunchedEffect(currentPageStart) {
         viewModel.windowStartData[viewModel.startIndex].value = currentPageStart
     }
-    LaunchedEffect(currentPageStart, timetables) {
-        onTitleState(buildTitleState(context, currentPageStart, timetables))
+    val comparisonState by comparisonViewModel.state.collectAsState()
+    val comparisonConfig by comparisonViewModel.config.collectAsState()
+    val comparisonActive = comparisonState != ComparisonUiState.Off
+    // The ordinary anchor remains in the system zone, including on exit and restoration.
+    var anchorMillis by rememberSaveable { mutableLongStateOf(currentPageStart) }
+    var anchorZoneId by rememberSaveable { mutableStateOf(ZoneId.systemDefault().id) }
+    val anchorZone = if (comparisonActive && anchorMillis == currentPageStart) ZoneId.of(anchorZoneId)
+        else ZoneId.systemDefault()
+    SideEffect { anchorMillis = currentPageStart; anchorZoneId = anchorZone.id }
+    val campusMonday = comparisonMonday(currentPageStart, anchorZone)
+    val displayedStart = if (comparisonActive) campusMonday else currentPageStart
+    LaunchedEffect(campusMonday, comparisonConfig != null) {
+        comparisonViewModel.changeWeek(campusMonday)
+    }
+    // Do not draw the previous week during the frame before changeWeek clears it.
+    val currentComparison = (comparisonState as? ComparisonUiState.Ready)?.takeIf {
+        it.result.days.firstOrNull()?.date == java.time.Instant.ofEpochMilli(campusMonday).atZone(CAMPUS_ZONE).toLocalDate()
+    }
+    val visibleComparisonState = if (comparisonState is ComparisonUiState.Ready && currentComparison == null)
+        ComparisonUiState.Loading else comparisonState
+    LaunchedEffect(currentPageStart, timetables, comparisonActive, campusMonday) {
+        onTitleState(if (comparisonActive) TimetableTitleState.Single(context.getString(
+            R.string.comparison_week_title, java.time.Instant.ofEpochMilli(campusMonday).atZone(CAMPUS_ZONE).toLocalDate().toString()))
+            else buildTitleState(context, currentPageStart, timetables))
     }
 
     val style = remember(windowEvents, startTime, periodLabel) {
@@ -442,7 +513,31 @@ private fun TimetableScreen(
             usePeriodLabel = periodLabel,
         )
     }
-    val events = windowEvents?.events.orEmpty()
+    val ordinaryEvents = windowEvents?.events.orEmpty()
+    val projectedCourses = remember(currentComparison, campusMonday, ordinaryEvents) {
+        currentComparison?.let {
+            // Existing aggregation contributes colors only, never course times or membership.
+            val colors = ordinaryEvents.filter { it.color != 0 && it.subjectId.isNotBlank() }
+                .associate { it.subjectId to it.color }
+            projectComparisonCourses(it.source.ownCourses, campusMonday, colors)
+        }.orEmpty()
+    }
+    val events = comparisonDisplayEvents(visibleComparisonState, ordinaryEvents) { projectedCourses.map { it.display } }
+    val originalByDisplayId = remember(projectedCourses) { projectedCourses.associate { it.display.id to it.original } }
+    val displayStyle = if (comparisonActive) {
+        val firstHour = (comparisonConfig?.startMinute ?: 510) / 60
+        val lastHour = ((comparisonConfig?.endMinute ?: 1350) + 59) / 60
+        val hours = TimetableDisplayTime.hourRange(events, minOf(style.startHour, firstHour),
+            maxOf(style.endHour, lastHour), CAMPUS_ZONE)
+        style.copy(startTime = hours.first * 100, endHour = hours.second)
+    } else style
+    var comparisonCourseDetail by remember { mutableStateOf<EventItem?>(null) }
+    var comparisonDetailsOpen by remember { mutableStateOf(false) }
+    var selectedComparisonSpan by remember { mutableStateOf<cn.limpu.hita.feature.timetablecompare.TimeSpan?>(null) }
+    LaunchedEffect(currentComparison) {
+        comparisonDetailsOpen = false; selectedComparisonSpan = null; comparisonCourseDetail = null
+    }
+
 
     val currentScheduleStructure = remember(timetables, currentPageStart) {
         if (timetables.isEmpty()) {
@@ -462,33 +557,63 @@ private fun TimetableScreen(
             minTT?.scheduleStructure ?: Timetable().scheduleStructure
         }
     }
-    val showTodayFab = currentPageStart > System.currentTimeMillis() ||
+    val showTodayFab = if (comparisonActive)
+        !TimetableDisplayTime.isInWeek(campusMonday, System.currentTimeMillis(), CAMPUS_ZONE)
+        else currentPageStart > System.currentTimeMillis() ||
             System.currentTimeMillis() >= currentPageStart + TimetableFragment.WEEK_MILLS
 
     Box(modifier = Modifier.fillMaxSize()) {
-        TimetableWeekContent(
-            startDate = currentPageStart,
-            events = events,
-            style = style,
-            scheduleStructure = currentScheduleStructure,
-            dateColor = if (wallpaperPath.isBlank()) MaterialTheme.colorScheme.onSurface else Color(dateColorInt),
-            labelColor = if (wallpaperPath.isBlank()) MaterialTheme.colorScheme.onSurfaceVariant else Color(labelColorInt),
-            onPrevWeek = {
-                viewModel.currentPageStartDate.value = currentPageStart - TimetableFragment.WEEK_MILLS
-            },
-            onNextWeek = {
-                viewModel.currentPageStartDate.value = currentPageStart + TimetableFragment.WEEK_MILLS
-            },
-            onEventClick = onEventClick,
-            onEventLongClick = onEventLongClick,
-            onAddClick = onAddClick,
-            eveningHintEnabled = eveningHintEnabled,
-            compressed = zoomCompressed,
-        )
+        Column(Modifier.fillMaxSize()) {
+            if (comparisonActive) ComparisonStatusBar(visibleComparisonState,
+                outside = currentComparison?.let { hasOutOfStructureCourses(projectedCourses, it.source.own.periods) } == true,
+                onAdjust = onAdjustComparison, onExit = {
+                    viewModel.currentPageStartDate.value = ordinaryMonday(campusMonday, ZoneId.systemDefault())
+                    comparisonViewModel.disable()
+                },
+                onDetails = { comparisonDetailsOpen = true })
+            Box(Modifier.weight(1f)) {
+                TimetableWeekContent(
+                    startDate = displayedStart,
+                    events = events,
+                    style = displayStyle,
+                    scheduleStructure = currentComparison?.source?.ownTimetable?.scheduleStructure ?: currentScheduleStructure,
+                    dateColor = if (wallpaperPath.isBlank()) MaterialTheme.colorScheme.onSurface else Color(dateColorInt),
+                    labelColor = if (wallpaperPath.isBlank()) MaterialTheme.colorScheme.onSurfaceVariant else Color(labelColorInt),
+                    onPrevWeek = {
+                        viewModel.currentPageStartDate.value = if (comparisonActive)
+                            ordinaryMonday(campusMonday - TimetableFragment.WEEK_MILLS, ZoneId.systemDefault())
+                        else currentPageStart - TimetableFragment.WEEK_MILLS
+                    },
+                    onNextWeek = {
+                        viewModel.currentPageStartDate.value = if (comparisonActive)
+                            ordinaryMonday(campusMonday + TimetableFragment.WEEK_MILLS, ZoneId.systemDefault())
+                        else currentPageStart + TimetableFragment.WEEK_MILLS
+                    },
+                    onEventClick = {
+                        if (comparisonActive) comparisonCourseDetail = originalByDisplayId[it.id]
+                        else onEventClick(it)
+                    },
+                    onEventLongClick = { event, offset -> if (!comparisonActive) onEventLongClick(event, offset) },
+                    onAddClick = { day, period -> if (!comparisonActive) onAddClick(day, period) },
+                    eveningHintEnabled = eveningHintEnabled,
+                    compressed = zoomCompressed,
+                    displayTimeZone = if (comparisonActive) CAMPUS_ZONE else null,
+                    comparison = currentComparison,
+                    comparisonReadOnly = comparisonActive,
+                    onComparisonSelect = { span, _ -> selectedComparisonSpan = span; comparisonDetailsOpen = true },
+                )
+            }
+        }
+        comparisonCourseDetail?.let { ComparisonOwnCourseDetails(it) { comparisonCourseDetail = null } }
+        if (comparisonDetailsOpen) currentComparison?.let {
+            ComparisonDetails(it, selectedComparisonSpan, onDismiss = { comparisonDetailsOpen = false })
+        }
 
         if (showTodayFab) {
             FloatingActionButton(
-                onClick = { viewModel.currentPageStartDate.value = mondayOf(System.currentTimeMillis()) },
+                onClick = { viewModel.currentPageStartDate.value = if (comparisonActive)
+                    ordinaryMonday(comparisonMonday(System.currentTimeMillis(), CAMPUS_ZONE), ZoneId.systemDefault())
+                else mondayOf(System.currentTimeMillis()) },
                 containerColor = MaterialTheme.colorScheme.primary,
                 contentColor = Color.White,
                 modifier = Modifier
@@ -647,6 +772,9 @@ private fun TimetableWeekContent(
     eveningHintEnabled: Boolean = true,
     compressed: Boolean = false,
     displayTimeZone: ZoneId? = null,
+    comparison: ComparisonUiState.Ready? = null,
+    comparisonReadOnly: Boolean = false,
+    onComparisonSelect: (cn.limpu.hita.feature.timetablecompare.TimeSpan, Boolean) -> Unit = { _, _ -> },
 ) {
     val density = LocalDensity.current
     val scrollState = rememberScrollState()
@@ -800,9 +928,10 @@ private fun TimetableWeekContent(
                         .weight(1f)
                         .height(tableHeight)
                         .onSizeChanged { tableWidthPx = it.width }
-                        .pointerInput(startDate, style, tableWidthPx, startHour, endHour, scheduleStructure, dpPerMinute) {
+                        .pointerInput(startDate, style, tableWidthPx, startHour, endHour, scheduleStructure, dpPerMinute, comparisonReadOnly) {
                             detectTapGestures(
                                 onTap = { offset ->
+                                    if (comparisonReadOnly) return@detectTapGestures
                                     val width = tableWidthPx.takeIf { it > 0 } ?: return@detectTapGestures
                                     val dow = ((offset.x / (width / 7f)).toInt() + 1).coerceIn(1, 7)
                                     val period = pickPeriodFromOffsetDp(
@@ -832,6 +961,16 @@ private fun TimetableWeekContent(
                             displayTimeZone = displayTimeZone,
                         )
                     }
+                    comparison?.let { ready ->
+                        Row(Modifier.fillMaxSize()) {
+                            ready.result.days.forEach { day ->
+                                Box(Modifier.weight(1f).fillMaxHeight()) {
+                                    ComparisonOverlay(day, startHour, dpPerMinute, ready.config.showFree,
+                                        false, onComparisonSelect)
+                                }
+                            }
+                        }
+                    }
                     TimetableEventLayer(
                         events = events,
                         startDate = startDate,
@@ -842,7 +981,19 @@ private fun TimetableWeekContent(
                         onEventLongClick = onEventLongClick,
                         compressed = compressed,
                         displayTimeZone = displayTimeZone,
+                        preserveDuration = comparisonReadOnly,
+                        comparisonSession = comparison,
                     )
+                    comparison?.let { ready ->
+                        Row(Modifier.fillMaxSize()) {
+                            ready.result.days.forEach { day ->
+                                Box(Modifier.weight(1f).fillMaxHeight()) {
+                                    ComparisonOverlay(day, startHour, dpPerMinute, false,
+                                        ready.config.showConflicts, onComparisonSelect)
+                                }
+                            }
+                        }
+                    }
                 }
             }
             }
@@ -1213,13 +1364,18 @@ private fun TimetableEventLayer(
     onEventLongClick: (EventItem, IntOffset) -> Unit,
     compressed: Boolean = false,
     displayTimeZone: ZoneId? = null,
+    preserveDuration: Boolean = false,
+    comparisonSession: ComparisonUiState.Ready? = null,
 ) {
     val distinctEvents = remember(events) { events.distinctBy { it.id } }
     val arranged = remember(distinctEvents, displayTimeZone) { TimetableOverlapLayout.arrange(distinctEvents) { TimetableDisplayTime.dayOfWeek(it.from.time, displayTimeZone) } }
 
     val renderList = remember(arranged, displayTimeZone) { TimetableOverlapLayout.conflictCards(arranged) { TimetableDisplayTime.dayOfWeek(it.from.time, displayTimeZone) } }
 
-    var conflictCluster by remember { mutableStateOf<List<EventItem>?>(null) }
+    // A sheet belongs to this data/week/session; invalidate synchronously before rendering.
+    var conflictCluster by remember(events, startDate, displayTimeZone, preserveDuration, comparisonSession) {
+        mutableStateOf<List<EventItem>?>(null)
+    }
     val baseMinutes = startHour * 60
     BoxWithConstraintsCompat {
         val sectionWidth = maxWidth / 7f
@@ -1232,7 +1388,8 @@ private fun TimetableEventLayer(
                 val clusterMaxTo = clusterEvents.maxOf { it.to.time }
                 val clusterTop =
                     (eventMinutes(clusterMinFrom, displayTimeZone) - baseMinutes).coerceAtLeast(0).toFloat() * dpPerMinute
-                val clusterDuration = ((clusterMaxTo - clusterMinFrom) / 60000L).toInt().coerceAtLeast(15)
+                val clusterDuration = if (preserveDuration) (clusterMaxTo - clusterMinFrom) / 60000f
+                    else ((clusterMaxTo - clusterMinFrom) / 60000L).toInt().coerceAtLeast(15).toFloat()
                 TimetableCardPlacement(
                     positioned = positioned,
                     clusterEvents = clusterEvents,
@@ -1243,7 +1400,8 @@ private fun TimetableEventLayer(
                 )
             } else {
                 val minutesFromBase = (eventMinutes(event.from.time, displayTimeZone) - baseMinutes).coerceAtLeast(0)
-                val duration = event.getDurationInMinutes().coerceAtLeast(15)
+                val duration = if (preserveDuration) event.getDurationInMills() / 60000f
+                    else event.getDurationInMinutes().coerceAtLeast(15).toFloat()
                 TimetableCardPlacement(
                     positioned = positioned,
                     clusterEvents = null,

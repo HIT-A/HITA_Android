@@ -11,6 +11,9 @@ import cn.limpu.hita.ui.timetable.detail.TeacherInfo
 
 @Dao
 interface EventItemDao {
+    @Query("SELECT * FROM events WHERE timetableId = :id AND type = 'CLASS'")
+    fun observeClassesFlow(id: String): kotlinx.coroutines.flow.Flow<List<EventItem>>
+
     /**
      * 批量保存事件。
      *
