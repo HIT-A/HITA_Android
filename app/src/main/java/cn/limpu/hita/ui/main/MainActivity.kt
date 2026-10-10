@@ -344,7 +344,7 @@ class MainActivity : HiltBaseActivity<ComposeViewBinding>(),
                     onWallpaperLongPress = { showWallpaperMenu() },
                     onTimetableSetting = { FragmentTimetablePanel().show(supportFragmentManager, "panel") },
                     onTimetableSocial = {
-                        (supportFragmentManager.findFragmentByTag("main_tab_1") as? TimetableFragment)?.openTimetableSocialSheet()
+                        (supportFragmentManager.findFragmentByTag("main_tab_${MainTab.TIMETABLE.name}") as? TimetableFragment)?.openTimetableSocialSheet()
                     },
                     onAddEvent = { PopupAddEvent().show(supportFragmentManager, "add_event") },
                     onDrawerHeader = { openDrawerHeader() },
@@ -852,7 +852,7 @@ class MainActivity : HiltBaseActivity<ComposeViewBinding>(),
         } else {
             tt.startTime.time
         }
-        val fragment = supportFragmentManager.findFragmentByTag("main_tab_1") as? TimetableFragment
+        val fragment = supportFragmentManager.findFragmentByTag("main_tab_${MainTab.TIMETABLE.name}") as? TimetableFragment
         fragment?.navigateToWeek(targetMonday)
     }
 

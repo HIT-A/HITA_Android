@@ -85,7 +85,7 @@ class TimetableComparisonRepositoryTest {
             assertTrue(empty.ownCourses.isEmpty()); assertTrue(empty.own.occupied.isEmpty())
         } finally { db.close() }
     }
-    @Test fun observesCourseChangesRemarksSnapshotUpdatesAndBothObjectDeletes() = runBlocking {
+    @Test fun observesCourseChangesRemarksSnapshotUpdatesAndBothObjectDeletes(): Unit = runBlocking {
         val db = database()
         try {
             seed(db)
