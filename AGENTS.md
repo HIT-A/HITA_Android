@@ -178,7 +178,7 @@ refactor/xxx    # 重构（不改行为）
 **触发条件**：用户明确说 "发 release" 时才做。
 
 **流程**：
-1. 更新 `app/build.gradle` 中的 `appVersionCodeValue` 和 `appVersionNameValue`
+1. 更新 `app/build.gradle` 中的 `appVersionCodeValue` 和 `appVersionNameValue`，并同步 `README.md` 的版本徽标与「最新版本」文字
 2. `git commit` + `git push origin` + `git push upstream`
 3. 两侧创建 release + 上传 APK（注意加版本化文件名）：
 ```bash
