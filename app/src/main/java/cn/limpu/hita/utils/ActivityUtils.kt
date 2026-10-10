@@ -3,12 +3,9 @@ package cn.limpu.hita.utils
 import android.app.Activity
 import android.app.DownloadManager
 import cn.limpu.hita.BuildConfig
-import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.content.IntentFilter
 import android.content.SharedPreferences
-import android.database.Cursor
 import android.net.Uri
 import android.os.Environment
 import android.os.Handler
@@ -23,10 +20,10 @@ import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityOptionsCompat
-import androidx.core.content.ContextCompat
 import androidx.core.view.setPadding
 import com.limpu.style.R as StyleR
 import cn.limpu.hita.R
+import cn.limpu.hita.update.ApkInstallReceiver
 import cn.limpu.hita.data.model.eas.EASToken
 import cn.limpu.hita.data.repository.EASRepository
 import cn.limpu.hita.data.source.preference.EasPreferenceSource
@@ -466,8 +463,6 @@ object ActivityUtils {
             .toMarkdown(markdown)
     }
 
-    private var lastDownloadId: Long = -1
-    private var downloadReceiver: BroadcastReceiver? = null
     private var isDownloading: Boolean = false
     private var downloadProgressDialog: AlertDialog? = null
     private var downloadProgressHandler: Handler? = null
@@ -488,61 +483,15 @@ object ActivityUtils {
                 .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName)
                 .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
             val dm = activity.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-            lastDownloadId = dm.enqueue(request)
-            showDownloadProgressDialog(activity, dm, lastDownloadId, cr.latestVersionName)
-
-            downloadReceiver?.let {
-                try { activity.unregisterReceiver(it) } catch (_: Exception) {}
-            }
-            val receiver = object : BroadcastReceiver() {
-                override fun onReceive(context: Context, intent: Intent) {
-                    if (intent.action != DownloadManager.ACTION_DOWNLOAD_COMPLETE) return
-                    val downloadId = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1)
-                    if (downloadId != lastDownloadId) return
-
-                    try {
-                        val query = DownloadManager.Query().setFilterById(downloadId)
-                        val cursor: Cursor = dm.query(query)
-                        if (cursor.moveToFirst()) {
-                            val status = cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS))
-                            if (status == DownloadManager.STATUS_SUCCESSFUL) {
-                                val uri = dm.getUriForDownloadedFile(downloadId)
-                                if (uri != null) {
-                                    val installIntent = Intent(Intent.ACTION_VIEW).apply {
-                                        setDataAndType(uri, "application/vnd.android.package-archive")
-                                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                    }
-                                    context.startActivity(installIntent)
-                                }
-                            }
-                        }
-                        cursor.close()
-                    } catch (e: Exception) {
-                        LogUtils.e("Failed to handle download result", e)
-                    }
-
-                    isDownloading = false
-                    dismissDownloadProgressDialog()
-
-                    try {
-                        context.unregisterReceiver(this)
-                    } catch (e: Exception) {
-                        LogUtils.e("Failed to unregister download receiver", e)
-                    }
-                }
-            }
-            val filter = IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE)
-            ContextCompat.registerReceiver(
-                activity.applicationContext,
-                receiver,
-                filter,
-                ContextCompat.RECEIVER_NOT_EXPORTED,
-            )
-            downloadReceiver = receiver
+            val downloadId = dm.enqueue(request)
+            // 下载完成后由 Manifest 静态注册的 ApkInstallReceiver 自动唤起安装；
+            // 下载 id 必须持久化，进程被杀后内存里的变量会丢
+            ApkInstallReceiver.savePendingDownload(activity, downloadId, fileName)
+            showDownloadProgressDialog(activity, dm, downloadId, cr.latestVersionName)
             Toast.makeText(activity, R.string.download_started, Toast.LENGTH_SHORT).show()
         } catch (e: Exception) {
             isDownloading = false
+            ApkInstallReceiver.clearPendingDownload(activity)
             LogUtils.e("Failed to start download", e)
             Toast.makeText(activity, R.string.download_failed, Toast.LENGTH_SHORT).show()
         }
@@ -588,6 +537,7 @@ object ActivityUtils {
             .setView(container)
             .setNegativeButton(R.string.button_cancel) { _, _ ->
                 dm.remove(downloadId)
+                ApkInstallReceiver.clearPendingDownload(activity)
                 isDownloading = false
                 dismissDownloadProgressDialog()
             }
@@ -606,7 +556,18 @@ object ActivityUtils {
             override fun run() {
                 if (downloadProgressDialog !== dialog || !dialog.isShowing) return
                 val status = updateDownloadProgress(dm, downloadId, progress, message, activity)
-                if (status == DownloadManager.STATUS_SUCCESSFUL || status == DownloadManager.STATUS_FAILED) {
+                if (status == DownloadManager.STATUS_SUCCESSFUL) {
+                    // 下载完成：ApkInstallReceiver 会自动唤起安装，这里只收尾
+                    isDownloading = false
+                    dismissDownloadProgressDialog()
+                    Toast.makeText(activity, R.string.install_starting, Toast.LENGTH_SHORT).show()
+                    return
+                }
+                if (status == DownloadManager.STATUS_FAILED) {
+                    isDownloading = false
+                    ApkInstallReceiver.clearPendingDownload(activity)
+                    dismissDownloadProgressDialog()
+                    Toast.makeText(activity, R.string.download_failed, Toast.LENGTH_SHORT).show()
                     return
                 }
                 handler.postDelayed(this, 500)
