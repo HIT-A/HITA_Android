@@ -36,10 +36,12 @@ import cn.limpu.hita.data.source.dao.TimetableGroupDao
 import cn.limpu.hita.data.source.dao.BlogArticleDao
 import cn.limpu.hita.data.source.dao.CampusNoticeDao
 import com.limpu.hitauser.data.source.dao.UserProfileDao
+import cn.limpu.hita.utils.ColorTools
+import java.util.UUID
 
 @Database(
     entities = [EventItem::class, TermSubject::class, Timetable::class, ChatSession::class, ChatMessageEntity::class, ClassroomCacheEntity::class, ScoreCacheEntity::class, ScoreTermCacheEntity::class, ScoreDetailCacheEntity::class, BlogArticle::class, CampusNotice::class, ShareIdentityEntity::class, FriendTimetableEntity::class, TimetableGroupEntity::class],
-    version = 16
+    version = 17
 )
 @androidx.room.TypeConverters(TypeConverters::class)
 abstract class AppDatabase : RoomDatabase() {
@@ -87,6 +89,7 @@ abstract class AppDatabase : RoomDatabase() {
                     MIGRATION_13_14,
                     MIGRATION_14_15,
                     MIGRATION_15_16,
+                    MIGRATION_16_17,
                 ).fallbackToDestructiveMigration(true)
                     .build()
                 INSTANCE = opened
@@ -190,6 +193,94 @@ abstract class AppDatabase : RoomDatabase() {
                 db.execSQL("CREATE INDEX IF NOT EXISTS index_timetable_groupId ON timetable(groupId)")
             }
         }
+
+        val MIGRATION_16_17 = object : Migration(16, 17) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                val events = mutableListOf<LegacyManualCourseEvent>()
+                db.query(
+                    """SELECT id, timetableId, name, place, teacher, created_at,
+                              `from`, `to`, fromNumber, lastNumber FROM events
+                        WHERE type = 'OTHER' AND source = 'MANUAL' AND subjectId = ''
+                          AND TRIM(name) != ''"""
+                ).use { cursor ->
+                    while (cursor.moveToNext()) {
+                        events += LegacyManualCourseEvent(
+                            id = cursor.getString(0),
+                            timetableId = cursor.getString(1),
+                            name = cursor.getString(2),
+                            place = cursor.getString(3),
+                            teacher = cursor.getString(4),
+                            createdAt = cursor.getLong(5),
+                            from = cursor.getLong(6),
+                            to = cursor.getLong(7),
+                            fromNumber = cursor.getInt(8),
+                            lastNumber = cursor.getInt(9),
+                        )
+                    }
+                }
+                events.groupBy { event ->
+                    LegacyManualCourseKey(
+                        event.timetableId, event.name, event.place, event.teacher,
+                        Math.floorMod(event.from, WEEK_MILLIS),
+                        Math.floorMod(event.to, WEEK_MILLIS),
+                        event.fromNumber, event.lastNumber,
+                    )
+                }.forEach { (key, matches) ->
+                    val ordered = matches.sortedBy { it.createdAt }
+                    var batch = mutableListOf<LegacyManualCourseEvent>()
+                    fun saveBatch() {
+                        if (batch.size < 2) return
+                        val subjectId = UUID.randomUUID().toString()
+                        db.execSQL(
+                            """INSERT INTO subject (id, name, timetableId, type, credit, countInSPA, createdAt, color)
+                                VALUES (?, ?, ?, 'COM_A', 0, 0, ?, ?)""",
+                            arrayOf<Any?>(subjectId, key.name, key.timetableId,
+                                batch.first().createdAt, ColorTools.colorForName(key.name)),
+                        )
+                        batch.forEach { event ->
+                            db.execSQL(
+                                "UPDATE events SET subjectId = ?, type = 'CLASS' WHERE id = ?",
+                                arrayOf<Any?>(subjectId, event.id),
+                            )
+                        }
+                    }
+                    ordered.forEach { event ->
+                        if (batch.isNotEmpty() && event.createdAt - batch.first().createdAt > 2_000L) {
+                            saveBatch()
+                            batch = mutableListOf()
+                        }
+                        batch += event
+                    }
+                    saveBatch()
+                }
+            }
+        }
+
+        private const val WEEK_MILLIS = 7L * 24 * 60 * 60 * 1000
+
+        private data class LegacyManualCourseEvent(
+            val id: String,
+            val timetableId: String,
+            val name: String,
+            val place: String?,
+            val teacher: String?,
+            val createdAt: Long,
+            val from: Long,
+            val to: Long,
+            val fromNumber: Int,
+            val lastNumber: Int,
+        )
+
+        private data class LegacyManualCourseKey(
+            val timetableId: String,
+            val name: String,
+            val place: String?,
+            val teacher: String?,
+            val fromInWeek: Long,
+            val toInWeek: Long,
+            val fromNumber: Int,
+            val lastNumber: Int,
+        )
 
         private val MIGRATION_13_14 = object : Migration(13, 14) {
             override fun migrate(db: SupportSQLiteDatabase) {

@@ -11,7 +11,6 @@ import cn.limpu.hita.data.model.timetable.TimeInDay
 import cn.limpu.hita.data.model.timetable.TimePeriodInDay
 import cn.limpu.hita.data.model.timetable.Timetable
 import cn.limpu.hita.data.repository.ScheduleEventCreator
-import cn.limpu.hita.data.repository.SubjectRepository
 import cn.limpu.hita.data.repository.TimetableRepository
 import cn.limpu.hita.utils.ColorTools
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -22,7 +21,6 @@ import javax.inject.Inject
 @HiltViewModel
 class AddEventViewModel @Inject constructor(
     private val eventRepo: TimetableRepository,
-    private val subjectRepo: SubjectRepository
 ) : ViewModel() {
     enum class ContentMode {
         EXISTING,
@@ -295,21 +293,22 @@ class AddEventViewModel @Inject constructor(
             }
             val subjectToSave: TermSubject?
             val selectedEvent = selectedEventLiveData.value?.data
+            val weekly = dateModeLiveData.value == DateMode.WEEKLY
             val content = if (contentModeLiveData.value == ContentMode.EXISTING && selectedEvent != null) {
-                subjectToSave = null
+                subjectToSave = if (weekly && selectedEvent.subjectId.isBlank()) {
+                    newManualSubject(timetable, selectedEvent.name)
+                } else {
+                    null
+                }
                 ScheduleEventCreator.Content(
                     name = selectedEvent.name.trim(),
                     place = locationLiveData.value?.data ?: selectedEvent.place.orEmpty(),
                     teacher = teacherLiveData.value?.data ?: selectedEvent.teacher.orEmpty(),
-                    subjectId = selectedEvent.subjectId,
-                    type = selectedEvent.type,
+                    subjectId = subjectToSave?.id ?: selectedEvent.subjectId,
+                    type = if (subjectToSave != null) EventItem.TYPE.CLASS else selectedEvent.type,
                 )
             } else if (addSubject) {
-                val subject = TermSubject().apply {
-                    name = nameLiveData.value?.trim().orEmpty()
-                    timetableId = timetable.id
-                    color = ColorTools.colorForName(name)
-                }
+                val subject = newManualSubject(timetable, nameLiveData.value.orEmpty())
                 subjectToSave = subject
                 ScheduleEventCreator.Content(
                     name = subject.name,
@@ -317,6 +316,25 @@ class AddEventViewModel @Inject constructor(
                     teacher = teacherLiveData.value?.data ?: "",
                     subject = subject,
                     type = EventItem.TYPE.CLASS,
+                )
+            } else if (initSubject != null) {
+                val subject = initSubject ?: return
+                subjectToSave = null
+                ScheduleEventCreator.Content(
+                    name = subject.name,
+                    place = locationLiveData.value?.data ?: "",
+                    teacher = teacherLiveData.value?.data ?: "",
+                    subjectId = subject.id,
+                    type = EventItem.TYPE.CLASS,
+                )
+            } else if (weekly) {
+                val subject = newManualSubject(timetable, nameLiveData.value.orEmpty())
+                subjectToSave = subject
+                ScheduleEventCreator.Content(
+                    name = subject.name,
+                    place = locationLiveData.value?.data ?: "",
+                    teacher = teacherLiveData.value?.data ?: "",
+                    subject = subject,
                 )
             } else {
                 subjectToSave = null
@@ -328,9 +346,16 @@ class AddEventViewModel @Inject constructor(
                 )
             }
             val result = buildResult(timetable, content) ?: return
-            ScheduleEventCreator.persistAsync(result, eventRepo, subjectRepo, subjectToSave)
+            ScheduleEventCreator.persistAsync(result, eventRepo, subjectToSave)
         }
     }
+
+    private fun newManualSubject(timetable: Timetable, name: String): TermSubject =
+        TermSubject().apply {
+            this.name = name.trim()
+            timetableId = timetable.id
+            color = ColorTools.colorForName(this.name)
+        }
 
     private fun updateEditingEvent(timetable: Timetable) {
         val original = editingEvent ?: return
