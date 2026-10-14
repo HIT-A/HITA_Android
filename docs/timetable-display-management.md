@@ -62,3 +62,11 @@ AppDatabase 15 → 16：新增 `timetable_group` 表与 `timetable.groupId` 可�
 - 时间线/主网格空目标时查询空集合清空旧数据；时间线显式刷新总是重建时间窗查询。
 
 验证：`testDebugUnitTest`、`assembleDebug` 通过；新增 TimetableDisplayStorageTest、TimetableSourceDisplayMetadataTest、TimetableShareMigrationTest（14→15→16 全链 + 15→16 保留/索引）插桩回归已编译，待设备执行。
+
+## 2026-10-14 追加：手动批量课时归属
+
+每周模式手动创建的一批课时现在共用一门课程：创建一个 `TermSubject`，将该批 `EventItem` 保存为 `CLASS` 并使用相同的 `subjectId`。从已有课程详情新增课时沿用原课程 ID；课程与课时在同一数据库事务中保存。普通单次活动仍按活动处理。这样按「该时段全部周次」或「这门课全部课时」删除时，可以找到同一课程下的所有匹配课时。
+
+`AppDatabase` 16 → 17 迁移会修复旧版手动批量记录：仅对 `OTHER`、`MANUAL` 且没有课程归属的记录，按课表、名称、地点、教师、周内时段和节次匹配，并将创建时间距批次首条不超过 2 秒、至少两条的记录归为一门课。单条活动及不满足条件的记录保持原状；v17 schema 已导出。
+
+诊断版已由用户在设备上复测批量删除；`assembleDebug` 通过。新增的手动创建与迁移插桩测试已编译，设备执行因 adb 断开未完成。
