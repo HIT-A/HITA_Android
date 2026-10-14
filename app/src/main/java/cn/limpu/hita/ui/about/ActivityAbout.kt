@@ -331,6 +331,17 @@ private fun AboutScreen(
                             }
                         )
                     }
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        text = stringResource(R.string.main_drawer_developer_radiant),
+                        color = MaterialTheme.colorScheme.primary,
+                        fontSize = 13.sp,
+                        modifier = Modifier
+                            .align(Alignment.CenterHorizontally)
+                            .clickable {
+                                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/radiant-abyss")))
+                            }
+                    )
                     Spacer(Modifier.height(14.dp))
                     Text(
                         text = stringResource(R.string.about_reward_code_entry),
