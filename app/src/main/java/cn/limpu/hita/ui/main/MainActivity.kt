@@ -373,6 +373,7 @@ class MainActivity : HiltBaseActivity<ComposeViewBinding>(),
                     onGitHubMingyu = { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/orgs/HIT-A/people/SpeechlessPanda"))) },
                     onGitHubRuannuo = { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/orgs/HIT-A/people/StrayRN"))) },
                     onGitHubJixing = { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/purple3899"))) },
+                    onGitHubRadiant = { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/radiant-abyss"))) },
                     fragmentFactory = { tab ->
                         when (tab) {
                             MainTab.TIMELINE -> FragmentTimeLine()
@@ -963,6 +964,7 @@ private fun MainScreen(
     onGitHubMingyu: () -> Unit,
     onGitHubRuannuo: () -> Unit,
     onGitHubJixing: () -> Unit,
+    onGitHubRadiant: () -> Unit,
     fragmentFactory: (MainTab) -> Fragment,
 ) {
     val density = LocalDensity.current
@@ -1183,6 +1185,7 @@ private fun MainScreen(
             onGitHubMingyu = onGitHubMingyu,
             onGitHubRuannuo = onGitHubRuannuo,
             onGitHubJixing = onGitHubJixing,
+            onGitHubRadiant = onGitHubRadiant,
             onRewardCode = { showRewardCode = true },
             modifier = Modifier
                 .align(Alignment.CenterEnd)
@@ -1959,6 +1962,7 @@ private fun MainDrawer(
     onGitHubMingyu: () -> Unit,
     onGitHubRuannuo: () -> Unit,
     onGitHubJixing: () -> Unit,
+    onGitHubRadiant: () -> Unit,
     onRewardCode: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -2177,6 +2181,15 @@ private fun MainDrawer(
                         modifier = Modifier.clickable(onClick = onGitHubJixing)
                     )
                 }
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    text = stringResource(R.string.main_drawer_developer_radiant),
+                    color = MaterialTheme.colorScheme.primary,
+                    fontSize = 13.sp,
+                    modifier = Modifier
+                        .align(Alignment.CenterHorizontally)
+                        .clickable(onClick = onGitHubRadiant)
+                )
                 Spacer(Modifier.height(10.dp))
                 Text(
                     text = stringResource(R.string.about_reward_code_entry),
