@@ -20,6 +20,7 @@ import cn.limpu.hita.data.model.eas.ShenzhenCourseCatalogItem
 import cn.limpu.hita.data.model.timetable.DisplayScope
 import cn.limpu.hita.data.model.timetable.EventItem
 import cn.limpu.hita.data.model.timetable.SubjectColor
+import cn.limpu.hita.data.model.timetable.TermSubject
 import cn.limpu.hita.data.model.timetable.TimePeriodInDay
 import cn.limpu.hita.data.model.timetable.Timetable
 import cn.limpu.hita.data.model.timetable.TimetableGroupEntity
@@ -1085,6 +1086,18 @@ class TimetableRepository internal constructor(
     fun actionAddEvents(data:List<EventItem>) {
         executor.execute {
             eventItemDao.addEvents(data)
+        }
+    }
+
+    fun actionAddCourseEvents(subject: TermSubject, events: List<EventItem>) {
+        executor.execute { addCourseEventsSync(subject, events) }
+    }
+
+    @WorkerThread
+    fun addCourseEventsSync(subject: TermSubject, events: List<EventItem>) {
+        database.runInTransaction {
+            subjectDao.saveSubjectSync(subject)
+            eventItemDao.addEvents(events)
         }
     }
 

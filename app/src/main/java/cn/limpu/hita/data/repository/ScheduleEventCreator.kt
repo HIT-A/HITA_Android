@@ -81,24 +81,28 @@ object ScheduleEventCreator {
     fun persist(
         result: Result,
         timetableRepository: TimetableRepository,
-        subjectRepository: SubjectRepository? = null,
         subjectToSave: TermSubject? = null,
     ) {
         if (result.events.isEmpty()) return
-        subjectToSave?.let { subjectRepository?.saveSubjectSync(it) }
-        timetableRepository.addEventsSync(result.events)
+        if (subjectToSave != null) {
+            timetableRepository.addCourseEventsSync(subjectToSave, result.events)
+        } else {
+            timetableRepository.addEventsSync(result.events)
+        }
         extendTimetableIfNeeded(timetableRepository, result.timetable, result.events)
     }
 
     fun persistAsync(
         result: Result,
         timetableRepository: TimetableRepository,
-        subjectRepository: SubjectRepository? = null,
         subjectToSave: TermSubject? = null,
     ) {
         if (result.events.isEmpty()) return
-        subjectToSave?.let { subjectRepository?.actionSaveSubjectInfo(it) }
-        timetableRepository.actionAddEvents(result.events)
+        if (subjectToSave != null) {
+            timetableRepository.actionAddCourseEvents(subjectToSave, result.events)
+        } else {
+            timetableRepository.actionAddEvents(result.events)
+        }
         val maxEndTime = result.events.maxOfOrNull { it.to.time } ?: return
         if (maxEndTime > result.timetable.endTime.time) {
             val timetable = result.timetable
