@@ -41,6 +41,7 @@ import cn.limpu.hita.ui.eas.classroom.ClassroomItem
 import cn.limpu.hita.utils.LiveDataUtils
 import cn.limpu.hita.utils.TimeTools.getDateAtWOT
 import cn.limpu.hita.utils.TermNameFormatter
+import cn.limpu.hita.utils.TermUtils
 import cn.limpu.hita.utils.CourseCodeUtils
 import cn.limpu.hita.utils.ColorTools
 import cn.limpu.hita.utils.CourseNameUtils
@@ -791,7 +792,20 @@ class EASRepository @Inject constructor(
     }
 
     fun getEasToken(): EASToken {
-        return easPreferenceSource.getEasToken()
+        return easPreferenceSource.getEasToken().withDerivedGrade()
+    }
+
+    /**
+     * 深圳教务的 `/user/me` 不返回年级，只有培养方案接口才有；缺年级会让学期列表
+     * 退化成"最近 4 年"，把入学前的学期也列出来。这里按学号兜底，仅作用于深圳校区，
+     * 不影响本部/威海（它们的个人信息页本来就会返回年级）。
+     */
+    private fun EASToken.withDerivedGrade(): EASToken {
+        if (!grade.isNullOrBlank()) return this
+        if (campus != EASToken.Campus.SHENZHEN) return this
+        grade = TermUtils.enrollmentGradeFromStudentId(stuId) ?: return this
+        LogUtils.d("EAS token: derived grade=$grade from stuId")
+        return this
     }
 
     // ===== 委托给 timetableImportRepository =====
@@ -821,7 +835,7 @@ class EASRepository @Inject constructor(
             nextGeneration = ::nextCredentialScopeGeneration
         )
         authEpoch.set(token.sessionGeneration)
-        val mergedToken = mergeWithStoredEasToken(token)
+        val mergedToken = mergeWithStoredEasToken(token).withDerivedGrade()
         easPreferenceSource.saveEasToken(mergedToken)
         acceptServiceTokenRefresh = mergedToken.isLogin()
         publishEasToken(mergedToken)

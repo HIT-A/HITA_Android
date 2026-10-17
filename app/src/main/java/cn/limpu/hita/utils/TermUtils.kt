@@ -123,6 +123,22 @@ object TermUtils {
         return startYear >= cutoffYear
     }
 
+    /**
+     * 从学号推导入学年级，用于教务系统未返回"年级"时的兜底。
+     *
+     * 深圳校区的 `/user/me` 不返回年级，只有培养方案接口才有；没查过培养方案的用户
+     * 因此拿不到年级，[filterTermsForStudent] 会退化成"最近 4 年"，把入学前的学期也列出来。
+     * 学号前四位即入学年（如 2025123456 → "2025级"），这里只接受 2000 及以后的合法年份。
+     */
+    fun enrollmentGradeFromStudentId(
+        stuId: String?,
+        currentYear: Int = Calendar.getInstance().get(Calendar.YEAR)
+    ): String? {
+        val prefix = stuId?.trim()?.take(4) ?: return null
+        val year = prefix.toIntOrNull() ?: return null
+        return if (year in 2000..currentYear + 1) "${year}级" else null
+    }
+
     private fun sortNewestFirst(terms: List<TermItem>): List<TermItem> = terms
         .distinctBy { it.id }
         .sortedWith(
