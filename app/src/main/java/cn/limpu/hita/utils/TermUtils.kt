@@ -30,9 +30,17 @@ object TermUtils {
             ?.groupValues?.getOrNull(1)?.toIntOrNull()
         if (enrollmentYear == null) return filterRecentTerms(allTerms, currentYear)
 
-        val currentAcademicStart = allTerms.firstOrNull { it.isCurrent }
-            ?.yearCode?.let(::startYear)
-            ?: if (currentMonth >= Calendar.AUGUST) currentYear else currentYear - 1
+        val calendarAcademicStart = if (currentMonth >= Calendar.AUGUST) currentYear else currentYear - 1
+        // 教务页面的默认选中项可能停留在旧学期，成绩页与课表页也可能各有一个标记。
+        // 不能用第一个选中项缩小可见学年的上限，否则后续春季等学期会被误删。
+        val latestMarkedAcademicStart = allTerms.asSequence()
+            .filter { it.isCurrent }
+            .mapNotNull { startYear(it.yearCode) }
+            .maxOrNull()
+        val currentAcademicStart = maxOf(
+            calendarAcademicStart,
+            latestMarkedAcademicStart ?: calendarAcademicStart
+        )
         val filtered = allTerms.filter { term ->
             val year = startYear(term.yearCode) ?: return@filter false
             year in enrollmentYear..currentAcademicStart

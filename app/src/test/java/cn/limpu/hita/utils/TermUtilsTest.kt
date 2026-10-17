@@ -58,6 +58,67 @@ class TermUtilsTest {
     }
 
     @Test
+    fun `stale default selection must not hide spring in a later academic year`() {
+        val selectedOldSummer = TermItem("2024-2025", "2024-2025", "3", "夏季").apply {
+            isCurrent = true
+        }
+        val spring = TermItem("2025-2026", "2025-2026", "2", "春季")
+        val futureAutumn = TermItem("2026-2027", "2026-2027", "1", "秋季")
+
+        val result = TermUtils.filterTermsForStudent(
+            listOf(selectedOldSummer, spring, futureAutumn),
+            grade = "2024级",
+            currentYear = 2026,
+            currentMonth = Calendar.MARCH
+        )
+
+        assertEquals(listOf(spring.id, selectedOldSummer.id), result.map { it.id })
+    }
+
+    @Test
+    fun `conflicting page selections use the latest marked academic year regardless of order`() {
+        val oldSelection = TermItem("2024-2025", "2024-2025", "3", "夏季").apply {
+            isCurrent = true
+        }
+        val spring = TermItem("2025-2026", "2025-2026", "2", "春季")
+        val newlyOpenedAutumn = TermItem("2026-2027", "2026-2027", "1", "秋季").apply {
+            isCurrent = true
+        }
+
+        for (terms in listOf(
+            listOf(oldSelection, spring, newlyOpenedAutumn),
+            listOf(newlyOpenedAutumn, spring, oldSelection)
+        )) {
+            val result = TermUtils.filterTermsForStudent(
+                terms,
+                grade = "2024级",
+                currentYear = 2026,
+                currentMonth = Calendar.JULY
+            )
+
+            assertEquals(listOf(newlyOpenedAutumn.id, spring.id, oldSelection.id), result.map { it.id })
+        }
+    }
+
+    @Test
+    fun `student filter retains spring in the current calendar academic year`() {
+        val selectedOldAutumn = TermItem("2024-2025", "2024-2025", "1", "秋季").apply {
+            isCurrent = true
+        }
+        val currentSpring = TermItem("2026-2027", "2026-2027", "2", "春季")
+        val beforeEnrollment = TermItem("2023-2024", "2023-2024", "2", "春季")
+
+        val result = TermUtils.filterTermsForStudent(
+            listOf(selectedOldAutumn, currentSpring, beforeEnrollment),
+            grade = "2024级",
+            currentYear = 2026,
+            currentMonth = Calendar.OCTOBER
+        )
+
+        assertEquals(listOf(currentSpring.id, selectedOldAutumn.id), result.map { it.id })
+    }
+
+    @Test
     fun `timetable import keeps future terms exposed by academic system`() {
         val current = TermItem("2025-2026", "2025-2026", "3", "夏季").apply {
             isCurrent = true
