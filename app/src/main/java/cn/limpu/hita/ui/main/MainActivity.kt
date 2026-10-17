@@ -117,6 +117,8 @@ import com.bumptech.glide.request.target.CustomTarget
 import com.bumptech.glide.request.transition.Transition
 import com.limpu.component.data.DataState
 import cn.limpu.hita.R
+import cn.limpu.hita.ui.design.DeveloperCredit
+import cn.limpu.hita.ui.design.DeveloperCredits
 import cn.limpu.hita.data.repository.EASRepository
 import cn.limpu.hita.data.repository.BlogRepository
 import cn.limpu.hita.data.repository.DisplayScopeResolver
@@ -2124,71 +2126,18 @@ private fun MainDrawer(
                     textAlign = TextAlign.Center
                 )
                 Spacer(Modifier.height(6.dp))
-                Row(
+                DeveloperCredits(
+                    credits = listOf(
+                        DeveloperCredit(R.string.main_drawer_github_user, onGitHubUser),
+                        DeveloperCredit(R.string.main_drawer_github_project, onGitHubProject),
+                        DeveloperCredit(R.string.main_drawer_developer_mingyu, onGitHubMingyu),
+                        DeveloperCredit(R.string.main_drawer_developer_ruannuo, onGitHubRuannuo),
+                        DeveloperCredit(R.string.main_drawer_developer_jixing, onGitHubJixing),
+                        DeveloperCredit(R.string.main_drawer_developer_radiant, onGitHubRadiant)
+                    ),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 32.dp),
-                    horizontalArrangement = Arrangement.Center
-                ) {
-                    Text(
-                        text = stringResource(R.string.main_drawer_github_user),
-                        color = MaterialTheme.colorScheme.primary,
-                        fontSize = 13.sp,
-                        modifier = Modifier.clickable(onClick = onGitHubUser)
-                    )
-                    Text(
-                        text = " | ",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f),
-                        fontSize = 13.sp
-                    )
-                    Text(
-                        text = stringResource(R.string.main_drawer_github_project),
-                        color = MaterialTheme.colorScheme.primary,
-                        fontSize = 13.sp,
-                        modifier = Modifier.clickable(onClick = onGitHubProject)
-                    )
-                    Text(
-                        text = " | ",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f),
-                        fontSize = 13.sp
-                    )
-                    Text(
-                        text = stringResource(R.string.main_drawer_developer_mingyu),
-                        color = MaterialTheme.colorScheme.primary,
-                        fontSize = 13.sp,
-                        modifier = Modifier.clickable(onClick = onGitHubMingyu)
-                    )
-                    Text(
-                        text = " | ",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f),
-                        fontSize = 13.sp
-                    )
-                    Text(
-                        text = stringResource(R.string.main_drawer_developer_ruannuo),
-                        color = MaterialTheme.colorScheme.primary,
-                        fontSize = 13.sp,
-                        modifier = Modifier.clickable(onClick = onGitHubRuannuo)
-                    )
-                    Text(
-                        text = " | ",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f),
-                        fontSize = 13.sp
-                    )
-                    Text(
-                        text = stringResource(R.string.main_drawer_developer_jixing),
-                        color = MaterialTheme.colorScheme.primary,
-                        fontSize = 13.sp,
-                        modifier = Modifier.clickable(onClick = onGitHubJixing)
-                    )
-                }
-                Spacer(Modifier.height(6.dp))
-                Text(
-                    text = stringResource(R.string.main_drawer_developer_radiant),
-                    color = MaterialTheme.colorScheme.primary,
-                    fontSize = 13.sp,
-                    modifier = Modifier
-                        .align(Alignment.CenterHorizontally)
-                        .clickable(onClick = onGitHubRadiant)
+                        .padding(horizontal = 32.dp)
                 )
                 Spacer(Modifier.height(10.dp))
                 Text(

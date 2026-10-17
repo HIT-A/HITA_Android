@@ -76,6 +76,8 @@ import androidx.core.text.HtmlCompat
 import com.limpu.component.data.DataState
 import cn.limpu.hita.BuildConfig
 import cn.limpu.hita.R
+import cn.limpu.hita.ui.design.DeveloperCredit
+import cn.limpu.hita.ui.design.DeveloperCredits
 import cn.limpu.hita.data.model.ReleaseHistoryItem
 import cn.limpu.hita.ui.design.HitaComposeTheme
 import cn.limpu.hita.ui.design.HitaTheme
@@ -266,81 +268,28 @@ private fun AboutScreen(
                         textAlign = TextAlign.Center
                     )
                     Spacer(Modifier.height(6.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.Center
-                    ) {
-                        Text(
-                            text = stringResource(R.string.main_drawer_github_user),
-                            color = MaterialTheme.colorScheme.primary,
-                            fontSize = 13.sp,
-                            modifier = Modifier.clickable {
+                    DeveloperCredits(
+                        credits = listOf(
+                            DeveloperCredit(R.string.main_drawer_github_user) {
                                 context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/Chami537")))
-                            }
-                        )
-                        Text(
-                            text = " | ",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f),
-                            fontSize = 13.sp
-                        )
-                        Text(
-                            text = stringResource(R.string.main_drawer_github_project),
-                            color = MaterialTheme.colorScheme.primary,
-                            fontSize = 13.sp,
-                            modifier = Modifier.clickable {
+                            },
+                            DeveloperCredit(R.string.main_drawer_github_project) {
                                 context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/LiPu-jpg")))
-                            }
-                        )
-                        Text(
-                            text = " | ",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f),
-                            fontSize = 13.sp
-                        )
-                        Text(
-                            text = stringResource(R.string.main_drawer_developer_mingyu),
-                            color = MaterialTheme.colorScheme.primary,
-                            fontSize = 13.sp,
-                            modifier = Modifier.clickable {
+                            },
+                            DeveloperCredit(R.string.main_drawer_developer_mingyu) {
                                 context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/orgs/HIT-A/people/SpeechlessPanda")))
-                            }
-                        )
-                        Text(
-                            text = " | ",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f),
-                            fontSize = 13.sp
-                        )
-                        Text(
-                            text = stringResource(R.string.main_drawer_developer_ruannuo),
-                            color = MaterialTheme.colorScheme.primary,
-                            fontSize = 13.sp,
-                            modifier = Modifier.clickable {
+                            },
+                            DeveloperCredit(R.string.main_drawer_developer_ruannuo) {
                                 context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/orgs/HIT-A/people/StrayRN")))
-                            }
-                        )
-                        Text(
-                            text = " | ",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f),
-                            fontSize = 13.sp
-                        )
-                        Text(
-                            text = stringResource(R.string.main_drawer_developer_jixing),
-                            color = MaterialTheme.colorScheme.primary,
-                            fontSize = 13.sp,
-                            modifier = Modifier.clickable {
+                            },
+                            DeveloperCredit(R.string.main_drawer_developer_jixing) {
                                 context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/purple3899")))
-                            }
-                        )
-                    }
-                    Spacer(Modifier.height(6.dp))
-                    Text(
-                        text = stringResource(R.string.main_drawer_developer_radiant),
-                        color = MaterialTheme.colorScheme.primary,
-                        fontSize = 13.sp,
-                        modifier = Modifier
-                            .align(Alignment.CenterHorizontally)
-                            .clickable {
+                            },
+                            DeveloperCredit(R.string.main_drawer_developer_radiant) {
                                 context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/radiant-abyss")))
                             }
+                        ),
+                        modifier = Modifier.fillMaxWidth()
                     )
                     Spacer(Modifier.height(14.dp))
                     Text(
