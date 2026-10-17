@@ -2,6 +2,7 @@ package cn.limpu.hita.utils
 
 import cn.limpu.hita.data.model.eas.TermItem
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Test
 import java.util.Calendar
 
@@ -132,5 +133,32 @@ class TermUtilsTest {
         )
 
         assertEquals(listOf("2026-2027-1", "2025-2026-3"), result.map { it.id })
+    }
+
+    @Test
+    fun `derives enrollment grade from student id`() {
+        assertEquals("2025级", TermUtils.enrollmentGradeFromStudentId("2025123456", currentYear = 2026))
+        assertEquals("2025级", TermUtils.enrollmentGradeFromStudentId(" 2025 123456 ", currentYear = 2026))
+        assertNull(TermUtils.enrollmentGradeFromStudentId(null, currentYear = 2026))
+        assertNull(TermUtils.enrollmentGradeFromStudentId("", currentYear = 2026))
+        assertNull(TermUtils.enrollmentGradeFromStudentId("abcd1234", currentYear = 2026))
+        assertNull(TermUtils.enrollmentGradeFromStudentId("1999123456", currentYear = 2026))
+    }
+
+    @Test
+    fun `derived grade keeps out of enrollment terms hidden`() {
+        val autumn2026 = TermItem("2026-2027", "2026-2027", "1", "秋季")
+        val spring2025 = TermItem("2025-2026", "2025-2026", "2", "春季")
+        val beforeEnrollment = TermItem("2024-2025", "2024-2025", "1", "秋季")
+
+        val grade = TermUtils.enrollmentGradeFromStudentId("2025123456", currentYear = 2026)
+        val result = TermUtils.filterTermsForStudent(
+            listOf(autumn2026, spring2025, beforeEnrollment),
+            grade = grade,
+            currentYear = 2026,
+            currentMonth = Calendar.OCTOBER
+        )
+
+        assertEquals(listOf("2026-2027-1", "2025-2026-2"), result.map { it.id })
     }
 }
