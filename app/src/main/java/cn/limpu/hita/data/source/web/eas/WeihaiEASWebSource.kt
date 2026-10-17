@@ -28,7 +28,7 @@ class WeihaiEASWebSource(
     override val campusDisplayName: String = "威海"
 
     override fun postProcessTerms(terms: MutableList<TermItem>): MutableList<TermItem> =
-        terms.filterVisibleTerms().toMutableList()
+        WeihaiTermPolicy.filterVisible(terms).toMutableList()
 
     override fun loadCoursesForSchedule(term: TermItem, token: EASToken): List<CourseItem> =
         getTimetableOfTermSync(term, token)
@@ -234,67 +234,6 @@ class WeihaiEASWebSource(
     }
 
 
-    private fun parseTermValue(value: String, label: String): TermItem? {
-        val cleanedValue = value.trim()
-        val match = Regex("""(\d{4}-\d{4})(\d+)""").matchEntire(cleanedValue)
-        val yearCode = match?.groupValues?.get(1)
-            ?: Regex("""\d{4}-\d{4}""").find(cleanedValue)?.value
-            ?: Regex("""\d{4}""").find(cleanedValue)?.value
-            ?: return null
-        val termCode = match?.groupValues?.get(2)
-            ?: Regex("""\d+$""").find(cleanedValue)?.value
-            ?: return null
-
-        val normalizedLabel = normalizeTermLabel(label)
-        val derivedTermName = when {
-            normalizedLabel.isNotBlank() -> normalizedLabel
-            termCode.startsWith("1") -> "$yearCode 秋季学期"
-            termCode.startsWith("2") -> "$yearCode 春季学期"
-            termCode.startsWith("3") -> "$yearCode 夏季学期"
-            termCode.startsWith("4") -> "$yearCode 冬季学期"
-            else -> "$yearCode $termCode"
-        }
-
-        return TermItem(
-            yearCode = yearCode,
-            yearName = yearCode,
-            termCode = termCode,
-            termName = derivedTermName
-        ).apply {
-            name = derivedTermName
-        }
-    }
-
-    private fun normalizeTermLabel(label: String): String {
-        val compact = label.replace(Regex("""\s+"""), "").trim()
-        if (compact.isBlank()) return ""
-
-        val yearCode = Regex("""\d{4}-\d{4}""").find(compact)?.value
-            ?: Regex("""(\d{4})学年""").find(compact)?.groupValues?.getOrNull(1)?.let { "$it-${it.toInt() + 1}" }
-            ?: ""
-
-        val season = when {
-            compact.contains("秋") -> "秋季学期"
-            compact.contains("春") -> "春季学期"
-            compact.contains("夏") -> "夏季学期"
-            compact.contains("寒") || compact.contains("冬") -> "冬季学期"
-            compact.contains("第一") -> "秋季学期"
-            compact.contains("第二") -> "春季学期"
-            compact.contains("第三") -> "夏季学期"
-            compact.contains("第四") -> "冬季学期"
-            compact.contains("上学期") -> "秋季学期"
-            compact.contains("下学期") -> "春季学期"
-            else -> ""
-        }
-
-        return when {
-            yearCode.isNotBlank() && season.isNotBlank() -> "$yearCode $season"
-            compact.contains("学年") && season.isNotBlank() -> compact.replace("学年", "学年 ").replace("学期", "学期 ").trim()
-            else -> compact
-        }
-    }
-
-
     protected override fun parseTermsFromDoc(doc: Document, selectName: String): List<TermItem> {
         val options = doc.select("select[name=$selectName] option")
         val currentValue = currentTermValueFromDoc(doc, selectName)
@@ -302,9 +241,9 @@ class WeihaiEASWebSource(
 
         options.forEachIndexed { index, option ->
             val value = option.attr("value").trim()
-            if (value.isBlank()) return@forEachIndexed
-            val parsed = parseTermValue(value, option.text().trim()) ?: return@forEachIndexed
-            parsed.isCurrent = value == currentValue || (currentValue.isEmpty() && index == 0)
+            val parsed = WeihaiTermPolicy.parseTermValue(value, option.text().trim()) ?: return@forEachIndexed
+            parsed.isCurrent = (value.isNotBlank() && value == currentValue) ||
+                (currentValue.isBlank() && index == 0)
             terms.add(parsed)
         }
         return terms
@@ -881,20 +820,6 @@ class WeihaiEASWebSource(
             total = total,
             scope = ScoreSummaryScope.CUMULATIVE
         )
-    }
-
-
-    private fun List<TermItem>.filterVisibleTerms(): List<TermItem> {
-        val current = firstOrNull { it.isCurrent }
-        if (current == null) {
-            return this
-        }
-        val currentKey = termTimelineKey(current)
-        val filtered = filter { term ->
-            val key = termTimelineKey(term)
-            key.first < currentKey.first || (key.first == currentKey.first && key.second <= currentKey.second)
-        }
-        return if (filtered.isNotEmpty()) filtered else this
     }
 
 
