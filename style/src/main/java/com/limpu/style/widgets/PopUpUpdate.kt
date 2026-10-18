@@ -23,6 +23,7 @@ class PopUpUpdate : TransparentBottomSheetDialog<DialogBottomUpdateBinding>() {
     private var init_text: CharSequence? = null
     var onActionListener: OnActionListener? = null
     private var actionHandled = false
+    private var skipButtonVisible = true
 
     interface OnActionListener {
         fun onConfirm()
@@ -59,6 +60,11 @@ class PopUpUpdate : TransparentBottomSheetDialog<DialogBottomUpdateBinding>() {
         return this
     }
 
+    fun setShowSkipButton(show: Boolean): PopUpUpdate {
+        skipButtonVisible = show
+        return this
+    }
+
     fun setOnActionListener(lis: OnActionListener): PopUpUpdate {
         this.onActionListener = lis
         return this
@@ -82,6 +88,7 @@ class PopUpUpdate : TransparentBottomSheetDialog<DialogBottomUpdateBinding>() {
         } else {
             binding.cancel.visibility = View.GONE
         }
+        binding.skip.visibility = if (skipButtonVisible) View.VISIBLE else View.GONE
         binding.skip.setOnClickListener {
             actionHandled = true
             onActionListener?.onSkip()
