@@ -144,7 +144,7 @@
     <string name="navi_course_lookup">查询资源</string>
     <string name="navi_course_lookup_sub">查询三个校区的课程资料</string>
     <string name="navi_course_submit_pr">提交课程资料 PR</string>
-    <string name="navi_course_submit_pr_sub">只追加新的课程内容，不直接改动原文</string>
+    <string name="navi_course_submit_pr_sub">欢迎关注HITCS和HOA谢谢喵</string>
     <string name="navi_useful_links">实用网址</string>
     <string name="navi_useful_links_sub">常用校内网站，点按打开，长按复制</string>
     <string name="useful_links_copied">已复制链接</string>

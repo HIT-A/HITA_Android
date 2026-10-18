@@ -405,6 +405,7 @@ abstract class AbstractEASWebSource(
         schedule: List<TimePeriodInDay>
     ): Boolean {
         if (left.dow != right.dow) return false
+        if (left.scheduledDate != right.scheduledDate) return false
         if (normalized(left.name) != normalized(right.name)) return false
         if (normalized(left.teacher) != normalized(right.teacher)) return false
         if (left.weeks.sorted() != right.weeks.sorted()) return false
@@ -439,6 +440,7 @@ abstract class AbstractEASWebSource(
             code = source.code
             name = source.name
             weeks = source.weeks.toMutableList()
+            scheduledDate = source.scheduledDate
             teacher = source.teacher
             classroom = source.classroom
             dow = source.dow

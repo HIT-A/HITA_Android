@@ -9,6 +9,8 @@ class CourseItem {
     var code: String? = null
     var name: String? = null
     var weeks: MutableList<Int> = mutableListOf()
+    // 上游明确给出的上课日期（yyyy-MM-dd），导入时优先于推算周次。
+    var scheduledDate: String? = null
     var teacher: String? = null
     var classroom: String? = null
     var rawName: String? = null
@@ -33,6 +35,7 @@ class CourseItem {
 
         if (name != other.name) return false
         if (weeks != other.weeks) return false
+        if (scheduledDate != other.scheduledDate) return false
         if (teacher != other.teacher) return false
         if (classroom != other.classroom) return false
         if (dow != other.dow) return false
@@ -48,6 +51,7 @@ class CourseItem {
     override fun hashCode(): Int {
         var result = name?.hashCode() ?: 0
         result = 31 * result + weeks.hashCode()
+        result = 31 * result + (scheduledDate?.hashCode() ?: 0)
         result = 31 * result + (teacher?.hashCode() ?: 0)
         result = 31 * result + (classroom?.hashCode() ?: 0)
         result = 31 * result + dow

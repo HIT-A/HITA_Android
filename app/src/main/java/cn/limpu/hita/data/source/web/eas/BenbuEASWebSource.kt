@@ -16,7 +16,7 @@ import org.json.JSONObject
 import org.jsoup.Connection
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
-import java.text.SimpleDateFormat
+import java.time.LocalDate
 import java.util.*
 import java.util.concurrent.Executors
 
@@ -463,7 +463,7 @@ class BenbuEASWebSource(
                 return emptyList()
             }
 
-            val parsedCourses = parseElectronicExperimentJson(response.body(), term)
+            val parsedCourses = parseElectronicExperimentJson(response.body())
             LogUtils.d("getElectronicExpCourses: term=${term.getCode()} count=${parsedCourses.size}")
 
             return parsedCourses
@@ -494,7 +494,7 @@ class BenbuEASWebSource(
      *   ]
      * }
      */
-    private fun parseElectronicExperimentJson(json: String, term: TermItem): List<CourseItem> {
+    private fun parseElectronicExperimentJson(json: String): List<CourseItem> {
         val courses = mutableListOf<CourseItem>()
 
         try {
@@ -512,8 +512,6 @@ class BenbuEASWebSource(
                 LogUtils.w("parseElectronicExpJson: data field is null")
                 return courses
             }
-
-            val termStartDate = inferTermStartDate(term)
 
             for (i in 0 until dataArray.length()) {
                 try {
@@ -536,16 +534,11 @@ class BenbuEASWebSource(
 
                     if (subjectName.isEmpty()) continue
 
-                    val (dow, weekNum) = parseDateToWeekAndDow(classDate, termStartDate)
-                    if (dow == -1 || weekNum == -1) {
-                        LogUtils.w("parseElectronicExpJson: date parse failed for '$classDate'")
-                        continue
-                    }
-
+                    val date = LocalDate.parse(classDate)
                     courses.add(CourseItem().apply {
                         name = subjectName
-                        this.dow = dow
-                        weeks = mutableListOf(weekNum)
+                        dow = date.dayOfWeek.value
+                        scheduledDate = date.toString()
                         this.teacher = teacher
                         classroom = if (labsName.isNotEmpty()) "$address($labsName)" else address
                         this.startTime = startTime
@@ -587,47 +580,7 @@ class BenbuEASWebSource(
         return String.format("%02d:%02d", total / 60, total % 60)
     }
 
-    /**
-     * 解析日期字符串为周数和星期
-     *
-     * @param dateStr 日期字符串，格式：2026-05-12
-     * @param term 学期信息，用于推断开学日期
-     * @return Pair(星期几, 周数)，星期几：1=周一, 7=周日
-     */
-    private fun parseDateToWeekAndDow(dateStr: String, termStartDate: Calendar): Pair<Int, Int> {
-        try {
-            val currentDate = SimpleDateFormat("yyyy-MM-dd").parse(dateStr)
-                ?: throw IllegalArgumentException("Invalid date: $dateStr")
-            val currentCalendar = Calendar.getInstance().apply {
-                time = currentDate
-            }
-
-            val diffMillis = currentCalendar.timeInMillis - termStartDate.timeInMillis
-            val diffDays = diffMillis / (1000 * 60 * 60 * 24)
-            val weekNum = (diffDays / 7).toInt() + 1
-
-            val dow = currentCalendar.get(Calendar.DAY_OF_WEEK)
-            val adjustedDow = when (dow) {
-                Calendar.MONDAY -> 1
-                Calendar.TUESDAY -> 2
-                Calendar.WEDNESDAY -> 3
-                Calendar.THURSDAY -> 4
-                Calendar.FRIDAY -> 5
-                Calendar.SATURDAY -> 6
-                Calendar.SUNDAY -> 7
-                else -> -1
-            }
-
-            return Pair(adjustedDow, weekNum)
-
-        } catch (e: Exception) {
-            LogUtils.e("parseDateToWeekAndDow: failed for '$dateStr'", e)
-            return Pair(-1, -1)
-        }
-    }
-
-
-    private fun mergeAdjacentCourses(
+    internal fun mergeAdjacentCourses(
         courses: List<CourseItem>,
         schedule: List<TimePeriodInDay>
     ): List<CourseItem> {
@@ -666,9 +619,9 @@ class BenbuEASWebSource(
             }
         }
 
-        // Deduplicate free time courses (same name, dow, weeks, teacher, classroom, time)
+        // Deduplicate free time courses, keeping occurrences on distinct dates separate
         val deduplicatedFreeTime = freeTimeCourses.distinctBy { course ->
-            "${normalized(course.name)}_${course.dow}_${course.weeks.sorted()}_${normalized(course.teacher)}_${course.classroom}_${course.startTime}_${course.endTime}"
+            "${normalized(course.name)}_${course.dow}_${course.weeks.sorted()}_${normalized(course.teacher)}_${course.classroom}_${course.startTime}_${course.endTime}_${course.scheduledDate}"
         }
 
         merged.addAll(deduplicatedFreeTime)
