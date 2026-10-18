@@ -78,6 +78,50 @@ class EasImportIdentityTest {
         )
     }
 
+    @Test
+    fun classEventIdentityKey_keepsFreeTimeExperimentsOnTheSameDaySeparate() {
+        val morning = classEvent().apply {
+            name = "电路实验"
+            fromNumber = 0
+            lastNumber = 0
+            from = Timestamp.valueOf("2026-10-20 08:00:00")
+            to = Timestamp.valueOf("2026-10-20 10:00:00")
+        }
+        val afternoon = classEvent().apply {
+            name = morning.name
+            fromNumber = 0
+            lastNumber = 0
+            from = Timestamp.valueOf("2026-10-20 13:00:00")
+            to = Timestamp.valueOf("2026-10-20 15:00:00")
+        }
+        assertEquals(
+            2,
+            listOf(morning, afternoon).map(EasImportIdentity::classEventIdentityKey).toSet().size
+        )
+    }
+
+    @Test
+    fun classEventIdentityKey_keepsDifferentExperimentsAtTheSameTimeSeparate() {
+        val circuit = classEvent().apply {
+            name = "电路实验"
+            fromNumber = 0
+            lastNumber = 0
+            from = Timestamp.valueOf("2026-10-20 08:00:00")
+            to = Timestamp.valueOf("2026-10-20 10:00:00")
+        }
+        val electromagnetism = classEvent().apply {
+            name = "电磁实验"
+            fromNumber = 0
+            lastNumber = 0
+            from = circuit.from
+            to = circuit.to
+        }
+        assertNotEquals(
+            EasImportIdentity.classEventIdentityKey(circuit),
+            EasImportIdentity.classEventIdentityKey(electromagnetism)
+        )
+    }
+
     private fun classEvent(): EventItem {
         return EventItem().apply {
             type = EventItem.TYPE.CLASS

@@ -26,7 +26,6 @@ import cn.limpu.hita.utils.CourseCodeUtils
 import cn.limpu.hita.utils.CourseNameUtils
 import cn.limpu.hita.utils.LogUtils
 import cn.limpu.hita.utils.TermNameFormatter
-import cn.limpu.hita.utils.TimeTools.getDateAtWOT
 import com.limpu.component.data.DataState
 import java.sql.Timestamp
 import java.util.*
@@ -261,9 +260,9 @@ internal class EASTimetableImportRepository(
                                     )
                                     var itemHasEvent = false
 
-                                    for (week in item.weeks) {
-                                        val from = getDateAtWOT(startDate, week, item.dow)
-                                        val to = getDateAtWOT(startDate, week, item.dow)
+                                    for (date in resolveEasCourseDates(item, startDate)) {
+                                        val from = date.clone() as Calendar
+                                        val to = date.clone() as Calendar
 
                                         // Handle free time courses (experiment courses with custom times)
                                         if (isFreeTimeCourse) {
