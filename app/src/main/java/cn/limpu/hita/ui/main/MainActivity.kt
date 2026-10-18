@@ -1529,7 +1529,8 @@ private fun TimetableToolbarTitle(
         Spacer(modifier = Modifier.weight(1f))
         androidx.compose.material3.IconButton(onClick = onTimetableSocial, modifier = Modifier.size(56.dp)) {
             Icon(painterResource(R.drawable.ic_baseline_share_24),
-                contentDescription = stringResource(R.string.timetable_social_title))
+                contentDescription = stringResource(R.string.timetable_social_title),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         Box {
             val settingsView = LocalView.current
