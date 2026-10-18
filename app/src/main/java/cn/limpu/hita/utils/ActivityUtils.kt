@@ -45,7 +45,6 @@ import cn.limpu.hita.ui.timetable.detail.TimetableDetailActivity
 import cn.limpu.hita.ui.timetable.manager.TimetableManagerActivity
 import com.limpu.hitauser.data.model.CheckUpdateResult
 import com.limpu.hitauser.data.repository.LocalUserRepository
-import com.limpu.style.widgets.PopUpText
 import com.limpu.style.widgets.PopUpUpdate
 import io.noties.markwon.Markwon
 import io.noties.markwon.ext.strikethrough.StrikethroughPlugin
@@ -412,17 +411,19 @@ object ActivityUtils {
         }
     }
 
-    fun showUpdateNotificationForce(cr:CheckUpdateResult,activity: AppCompatActivity){
-        PopUpText().setText(buildUpdateMarkdown(activity, cr))
+    fun showUpdateNotificationForce(cr: CheckUpdateResult, activity: AppCompatActivity) {
+        PopUpUpdate().setText(buildUpdateMarkdown(activity, cr))
             .setTitle(R.string.new_version_available)
-            .setOnConfirmListener(object : PopUpText.OnConfirmListener {
-
-                override fun OnConfirm() {
+            .setShowSkipButton(false)
+            .setOnActionListener(object : PopUpUpdate.OnActionListener {
+                override fun onConfirm() {
                     downloadAndInstall(activity, cr)
                 }
+
+                override fun onCancel() = Unit
+                override fun onSkip() = Unit
             }).show(activity.supportFragmentManager, "update")
     }
-
 
     fun showUpdateNotification(cr:CheckUpdateResult,activity: AppCompatActivity){
        val preference: SharedPreferences =
