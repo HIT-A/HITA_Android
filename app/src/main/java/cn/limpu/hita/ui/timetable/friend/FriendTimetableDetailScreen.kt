@@ -17,13 +17,23 @@ import java.time.format.DateTimeFormatter
 
 @Composable
 fun FriendTimetableDetailScreen(state: FriendDetailState, onBack: () -> Unit) {
-    Column(Modifier.fillMaxSize()) {
-        TextButton(onClick = onBack) { Text(stringResource(R.string.friend_timetable_back)) }
-        when (state) {
-            FriendDetailState.Loading -> CircularProgressIndicator(Modifier.padding(24.dp))
-            FriendDetailState.Deleted -> Text(stringResource(R.string.friend_timetable_deleted), Modifier.padding(16.dp))
-            is FriendDetailState.Error -> Text(stringResource(state.resource), Modifier.padding(16.dp))
-            is FriendDetailState.Ready -> FriendWeekContent(state)
+    Surface(
+        modifier = Modifier.fillMaxSize(),
+        color = MaterialTheme.colorScheme.background,
+        contentColor = MaterialTheme.colorScheme.onSurface
+    ) {
+        Column(Modifier.fillMaxSize()) {
+            TextButton(onClick = onBack) { Text(stringResource(R.string.friend_timetable_back)) }
+            when (state) {
+                FriendDetailState.Loading -> CircularProgressIndicator(Modifier.padding(24.dp))
+                FriendDetailState.Deleted -> Text(stringResource(R.string.friend_timetable_deleted), Modifier.padding(16.dp))
+                is FriendDetailState.Error -> Text(
+                    stringResource(state.resource),
+                    Modifier.padding(16.dp),
+                    color = MaterialTheme.colorScheme.error
+                )
+                is FriendDetailState.Ready -> FriendWeekContent(state)
+            }
         }
     }
 }
