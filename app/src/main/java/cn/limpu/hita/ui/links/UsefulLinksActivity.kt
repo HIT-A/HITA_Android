@@ -107,6 +107,7 @@ private val usefulLinkGroups = listOf(
             UsefulLink(R.string.useful_link_portal, "https://www.hitsz.edu.cn/", R.drawable.ic_menu_discover),
             UsefulLink(R.string.useful_link_cist, "https://cist.hitsz.edu.cn/index.htm", R.drawable.ic_baseline_location_city_24),
             UsefulLink(R.string.useful_link_info, "https://info.hitsz.edu.cn/", R.drawable.ic_bc_news),
+            UsefulLink(R.string.useful_link_yzb, "https://yzb.hitsz.edu.cn/zs", R.drawable.ic_baseline_location_city_24),
             UsefulLink(R.string.useful_link_xgb, "https://xgb.hit.edu.cn/", R.drawable.ic_bc_organization),
             UsefulLink(R.string.useful_link_xuefei, "https://xuefei.hitsz.edu.cn/", R.drawable.ic_bx_credit),
             UsefulLink(R.string.useful_link_finance_reimbursement, "https://cws.hitsz.edu.cn/info/1082/1093.htm", R.drawable.ic_bx_credit),
@@ -127,6 +128,7 @@ private val usefulLinkGroups = listOf(
         links = listOf(
             UsefulLink(R.string.useful_link_hoa, "https://hoa.moe/", R.drawable.ic_baseline_search_24),
             UsefulLink(R.string.useful_link_hoa_fastdl, "https://gh.hoa.moe/", R.drawable.ic_baseline_cloud_download_24),
+            UsefulLink(R.string.useful_link_teacher_homepage, "https://homepage.hit.edu.cn/home-index", R.drawable.ic_baseline_search_24),
             UsefulLink(R.string.useful_link_textbook, "http://www.hitsz.textbook.wang/textbooks/home/index", R.drawable.ic_baseline_link_24),
         )
     ),
@@ -166,7 +168,7 @@ private val benbuLinkGroups = listOf(
     UsefulLinkGroup(
         titleRes = R.string.useful_links_group_resources,
         links = listOf(
-            UsefulLink(R.string.useful_link_benbu_homepage, "https://homepage.hit.edu.cn", R.drawable.ic_baseline_email_24),
+            UsefulLink(R.string.useful_link_benbu_homepage, "https://homepage.hit.edu.cn/home-index", R.drawable.ic_baseline_email_24),
         )
     ),
 )
@@ -213,7 +215,7 @@ private val weihaiLinkGroups = listOf(
     UsefulLinkGroup(
         titleRes = R.string.useful_links_group_resources,
         links = listOf(
-            UsefulLink(R.string.useful_link_weihai_homepage, "http://homepage.hit.edu.cn/home-index", R.drawable.ic_baseline_email_24),
+            UsefulLink(R.string.useful_link_weihai_homepage, "https://homepage.hit.edu.cn/home-index", R.drawable.ic_baseline_email_24),
         )
     ),
 )
