@@ -794,7 +794,11 @@ class BenbuEASWebSource(
                 || title.contains("attention required")
         if (isJsChallengePage) return true
         if (hasLoginForm && !hasScoreTable) return true
-        if (!hasScoreTable && (title.contains("登录") || title.contains("统一身份认证") || title.contains("ivpn") || text.contains("登录") || text.contains("未登录") || text.contains("认证"))) {
+        val hasExamTable = BenbuExamParser.hasExamTable(doc)
+        if (!hasScoreTable && (
+                title.contains("登录") || title.contains("统一身份认证") || title.contains("ivpn") ||
+                (!hasExamTable && (text.contains("登录") || text.contains("未登录") || text.contains("认证")))
+            )) {
             return true
         }
         return false

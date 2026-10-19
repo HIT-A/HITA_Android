@@ -3,6 +3,7 @@ package cn.limpu.hita.data.source.web.eas
 import cn.limpu.hita.data.model.eas.ExamItem
 import cn.limpu.hita.data.model.eas.TermItem
 import org.jsoup.Jsoup
+import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import java.time.LocalDate
 import java.time.LocalTime
@@ -16,6 +17,10 @@ internal object BenbuExamParser {
         val date: Int? = null,
         val type: Int? = null,
     )
+
+    /** Used by authentication detection so navigation text cannot hide a valid exam table. */
+    fun hasExamTable(doc: Document): Boolean =
+        doc.select("tr").any { columns(cells(it)) != null }
 
     fun parse(html: String, requestedType: String, term: TermItem): List<ExamItem> {
         val doc = Jsoup.parse(html)
