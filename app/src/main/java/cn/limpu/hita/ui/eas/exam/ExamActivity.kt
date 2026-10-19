@@ -125,11 +125,7 @@ class ExamActivity : EASActivity<ExamViewModel, ComposeViewBinding>() {
                 }
             }
         }
-        viewModel.selectedExamTypeLiveData.observe(this) { type ->
-            if (type != null) {
-                isRefreshing = true
-            }
-        }
+
         viewModel.examInfoLiveData.observe(this) {
             cn.limpu.hita.utils.LogUtils.d(
                 "ExamActivity: received state=${it.state}, data size=${it.data?.size}",
@@ -248,7 +244,10 @@ class ExamActivity : EASActivity<ExamViewModel, ComposeViewBinding>() {
                 .setTitle(getString(R.string.pick_exam_term))
                 .setOnConfirmListener(object : PopUpCheckableList.OnConfirmListener<TermItem> {
                     override fun OnConfirm(title: String?, key: TermItem) {
-                        viewModel.selectedTermLiveData.value = key
+                        if (key != viewModel.selectedTermLiveData.value) {
+                            viewModel.selectedTermLiveData.value = key
+                            refresh()
+                        }
                     }
                 }).show(supportFragmentManager, "exam_terms")
         }
