@@ -50,6 +50,9 @@ class HApplication : Application() {
         // PDFBox uses the assets bundled in its AAR; initialize before any parser can run.
         com.tom_roush.pdfbox.android.PDFBoxResourceLoader.init(this)
 
+        // 应用内更新：用户从"安装未知应用"设置页授权返回后，自动继续被中断的下载
+        cn.limpu.hita.update.UpdateFlowCoordinator.install(this)
+
         try {
             applicationScope.launch(Dispatchers.IO) {
                 try {

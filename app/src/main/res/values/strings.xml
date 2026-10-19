@@ -1537,6 +1537,29 @@
     <string name="install_unknown_source_required">请允许 HITA 安装未知应用，之后重新下载安装</string>
     <string name="install_apk_unreadable">下载完成，但找不到安装包，请在通知栏手动安装</string>
     <string name="install_failed_manual">自动安装失败，请在通知栏点击安装包手动安装</string>
+    <!-- 应用内更新：下载前授权引导 -->
+    <string name="update_permission_title">需要安装权限</string>
+    <string name="update_permission_message">系统要求先允许「安装未知应用」才能完成更新。点击「去授权」打开设置，为 HITA 开启后返回应用重新点击下载即可自动安装。</string>
+    <string name="update_permission_go_settings">去授权</string>
+    <string name="update_permission_still_denied">尚未允许安装未知应用，完成授权后会自动继续下载</string>
+    <string name="update_permission_open_failed">无法打开设置页，请手动到系统设置中允许 HITA 安装未知应用</string>
+    <!-- 应用内更新：下载失败与重试 -->
+    <string name="update_failed_title">下载失败</string>
+    <string name="update_failed_message">%1$s\n\n可以点「重试」重新下载，或到浏览器手动下载安装包。</string>
+    <string name="update_failed_retry">重试</string>
+    <string name="update_failed_open_browser">浏览器下载</string>
+    <string name="update_failed_reason_file_exists">安装包写入失败（文件已存在或被占用），请重试</string>
+    <string name="update_failed_reason_no_space">存储空间不足，请清理后重试</string>
+    <string name="update_failed_reason_network">网络连接异常或超时，请检查网络后重试</string>
+    <string name="update_failed_reason_unknown">未知错误（错误码 %d）</string>
+    <!-- 应用内更新：后台安装通知 -->
+    <string name="update_notification_channel">应用更新</string>
+    <string name="update_notification_channel_desc">新版本下载完成或需要授权时提醒</string>
+    <string name="update_notification_ready_title">新版本已下载</string>
+    <string name="update_notification_ready_text">HITA %s 已下载完成，点击安装</string>
+    <string name="update_notification_version_fallback">新版本</string>
+    <string name="update_notification_permission_title">需要允许安装未知应用</string>
+    <string name="update_notification_permission_text">点击前往设置，为 HITA 开启「安装未知应用」后即可安装</string>
     <string name="timetable_projection_read_only">该课程由选课预览生成，请在选课管理中调整或隐藏预览</string>
     <string name="live_course_title">实时课程</string>
     <string name="live_course_subtitle">上课前10分钟显示课程状态</string>

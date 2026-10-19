@@ -23,7 +23,9 @@ import androidx.core.app.ActivityOptionsCompat
 import androidx.core.view.setPadding
 import com.limpu.style.R as StyleR
 import cn.limpu.hita.R
+import cn.limpu.hita.update.ApkInstallLauncher
 import cn.limpu.hita.update.ApkInstallReceiver
+import cn.limpu.hita.update.UpdateFlowCoordinator
 import cn.limpu.hita.data.model.eas.EASToken
 import cn.limpu.hita.data.repository.EASRepository
 import cn.limpu.hita.data.source.preference.EasPreferenceSource
@@ -484,22 +486,42 @@ object ActivityUtils {
             Toast.makeText(activity, R.string.download_already_in_progress, Toast.LENGTH_SHORT).show()
             return
         }
+        // 下载前先确认"安装未知应用"授权。授权页必须从 Activity 打开，
+        // 放到下载完成后的广播里做会被 Android 10+ 的后台启动限制静默丢弃，
+        // 用户只会看到一句 Toast、等不到安装界面。
+        if (!ApkInstallLauncher.canInstallPackages(activity)) {
+            showInstallPermissionDialog(activity, cr)
+            return
+        }
+        val downloadUrl = cr.downloadUrl.ifEmpty { cr.latestUrl }
+        if (!downloadUrl.contains(".apk", ignoreCase = true)) {
+            // release 没挂 APK 资产时会回退成 release 网页，直接交给浏览器，
+            // 避免把网页当安装包下载（下载完必然装不上）
+            openUpdateUrlInBrowser(activity, downloadUrl)
+            return
+        }
         isDownloading = true
         try {
-            val downloadUrl = cr.downloadUrl.ifEmpty { cr.latestUrl }
-            val fileName = "HITA_v${cr.latestVersionName}.apk"
+            // 文件名带时间戳：同名文件已存在时 DownloadManager 会直接返回 STATUS_FAILED，
+            // 导致"再次点下载立刻失败"
+            val fileName = "HITA_v${cr.latestVersionName}_${System.currentTimeMillis()}.apk"
             val request = DownloadManager.Request(Uri.parse(downloadUrl))
                 .setTitle("HITA 更新下载")
                 .setDescription("正在下载 v${cr.latestVersionName}")
-                .setMimeType("application/vnd.android.package-archive")
+                .setMimeType(ApkInstallLauncher.APK_MIME)
                 .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName)
                 .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
             val dm = activity.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
             val downloadId = dm.enqueue(request)
-            // 下载完成后由 Manifest 静态注册的 ApkInstallReceiver 自动唤起安装；
+            // 下载完成后由 Manifest 静态注册的 ApkInstallReceiver 接力安装；
             // 下载 id 必须持久化，进程被杀后内存里的变量会丢
-            ApkInstallReceiver.savePendingDownload(activity, downloadId, fileName)
-            showDownloadProgressDialog(activity, dm, downloadId, cr.latestVersionName)
+            ApkInstallReceiver.savePendingDownload(
+                activity,
+                downloadId,
+                fileName,
+                cr.latestVersionName
+            )
+            showDownloadProgressDialog(activity, dm, downloadId, cr)
             Toast.makeText(activity, R.string.download_started, Toast.LENGTH_SHORT).show()
         } catch (e: Exception) {
             isDownloading = false
@@ -509,12 +531,50 @@ object ActivityUtils {
         }
     }
 
+    /** 未授权"安装未知应用"时的引导；授权返回后由 [UpdateFlowCoordinator] 自动继续下载。 */
+    private fun showInstallPermissionDialog(activity: AppCompatActivity, cr: CheckUpdateResult) {
+        AlertDialog.Builder(activity)
+            .setTitle(R.string.update_permission_title)
+            .setMessage(R.string.update_permission_message)
+            .setPositiveButton(R.string.update_permission_go_settings) { _, _ ->
+                UpdateFlowCoordinator.awaitInstallPermission(cr)
+                if (!ApkInstallLauncher.openUnknownSourceSettings(activity)) {
+                    UpdateFlowCoordinator.cancel()
+                    Toast.makeText(
+                        activity,
+                        R.string.update_permission_open_failed,
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+            }
+            .setNegativeButton(R.string.button_cancel) { _, _ ->
+                UpdateFlowCoordinator.cancel()
+            }
+            .show()
+    }
+
+    /** 用户从"安装未知应用"设置页授权返回后，继续之前被中断的下载。 */
+    fun resumeUpdateDownload(activity: AppCompatActivity, cr: CheckUpdateResult) {
+        LogUtils.d("resumeUpdateDownload: version=${cr.latestVersionName}")
+        downloadAndInstall(activity, cr)
+    }
+
+    private fun openUpdateUrlInBrowser(activity: AppCompatActivity, url: String) {
+        try {
+            activity.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+        } catch (e: Exception) {
+            LogUtils.e("Failed to open update url in browser", e)
+            Toast.makeText(activity, R.string.download_failed, Toast.LENGTH_SHORT).show()
+        }
+    }
+
     private fun showDownloadProgressDialog(
         activity: AppCompatActivity,
         dm: DownloadManager,
         downloadId: Long,
-        versionName: String
+        cr: CheckUpdateResult
     ) {
+        val versionName = cr.latestVersionName
         dismissDownloadProgressDialog()
         val container = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
@@ -579,7 +639,7 @@ object ActivityUtils {
                     isDownloading = false
                     ApkInstallReceiver.clearPendingDownload(activity)
                     dismissDownloadProgressDialog()
-                    Toast.makeText(activity, R.string.download_failed, Toast.LENGTH_SHORT).show()
+                    showDownloadFailedDialog(activity, dm, downloadId, cr)
                     return
                 }
                 handler.postDelayed(this, 500)
@@ -629,6 +689,67 @@ object ActivityUtils {
             return status
         }
         return DownloadManager.STATUS_FAILED
+    }
+
+    /** 下载失败：读 DownloadManager 的失败原因，给出可重试的出口。 */
+    private fun showDownloadFailedDialog(
+        activity: AppCompatActivity,
+        dm: DownloadManager,
+        downloadId: Long,
+        cr: CheckUpdateResult
+    ) {
+        val reason = downloadFailureReason(dm, downloadId)
+        try {
+            dm.remove(downloadId)
+        } catch (e: Exception) {
+            LogUtils.e("Failed to remove failed download", e)
+        }
+        AlertDialog.Builder(activity)
+            .setTitle(R.string.update_failed_title)
+            .setMessage(
+                activity.getString(
+                    R.string.update_failed_message,
+                    failureReasonText(activity, reason)
+                )
+            )
+            .setPositiveButton(R.string.update_failed_retry) { _, _ ->
+                downloadAndInstall(activity, cr)
+            }
+            .setNeutralButton(R.string.update_failed_open_browser) { _, _ ->
+                openUpdateUrlInBrowser(activity, cr.downloadUrl.ifEmpty { cr.latestUrl })
+            }
+            .setNegativeButton(R.string.button_cancel, null)
+            .show()
+    }
+
+    private fun downloadFailureReason(dm: DownloadManager, downloadId: Long): Int {
+        return try {
+            dm.query(DownloadManager.Query().setFilterById(downloadId))?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_REASON))
+                } else {
+                    -1
+                }
+            } ?: -1
+        } catch (e: Exception) {
+            LogUtils.e("Failed to read download failure reason", e)
+            -1
+        }
+    }
+
+    private fun failureReasonText(context: Context, reason: Int): String {
+        return when (reason) {
+            DownloadManager.ERROR_FILE_ALREADY_EXISTS ->
+                context.getString(R.string.update_failed_reason_file_exists)
+            DownloadManager.ERROR_INSUFFICIENT_SPACE ->
+                context.getString(R.string.update_failed_reason_no_space)
+            DownloadManager.ERROR_HTTP_DATA_ERROR,
+            DownloadManager.ERROR_UNHANDLED_HTTP_CODE,
+            DownloadManager.ERROR_TOO_MANY_REDIRECTS,
+            DownloadManager.ERROR_CANNOT_RESUME ->
+                context.getString(R.string.update_failed_reason_network)
+            else -> context.getString(R.string.update_failed_reason_unknown, reason)
+        }
     }
 
     private fun dismissDownloadProgressDialog() {
