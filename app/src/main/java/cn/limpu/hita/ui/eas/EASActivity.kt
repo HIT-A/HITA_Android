@@ -18,16 +18,13 @@ abstract class EASActivity<T : EASViewModel, V : ViewBinding> : HiltBaseActivity
 
     companion object {
         private const val REQUEST_CODE_SILENT_RELOGIN = 10001
-        private const val MAX_SESSION_RETRIES = 3
     }
 
     @Inject
     lateinit var easRepository: EASRepository
 
     protected abstract val viewModel: T
-    private var reloginInProgress = false
-    private var sessionRetryCount = 0
-    private var pendingSessionRetryAction: (() -> Boolean)? = null
+    private val sessionRecovery = EasSessionRecoveryState()
 
     protected open fun shouldRefreshOnStart(): Boolean = true
 
@@ -37,7 +34,10 @@ abstract class EASActivity<T : EASViewModel, V : ViewBinding> : HiltBaseActivity
     protected open val autoLaunchWebLoginForSessionRecovery: Boolean = true
 
     override fun onStart() {
+        val recoveringOnEntry = sessionRecovery.isRecovering
         super.onStart()
+        // The login result owns the retry when returning from the authentication WebView.
+        if (recoveringOnEntry || sessionRecovery.isRecovering) return
         if (shouldRefreshOnStart()) {
             refresh()
         }
@@ -55,11 +55,7 @@ abstract class EASActivity<T : EASViewModel, V : ViewBinding> : HiltBaseActivity
     open fun onLoginCheckFailed() {}
 
     protected fun handleSessionExpired(retryAction: () -> Boolean): Boolean {
-        if (reloginInProgress || sessionRetryCount >= MAX_SESSION_RETRIES) {
-            return false
-        }
-        reloginInProgress = true
-        pendingSessionRetryAction = retryAction
+        if (!sessionRecovery.begin(retryAction)) return false
         easRepository.markSessionExpired()
         val tokenCampus = easRepository.getEasToken().campus
 
@@ -72,18 +68,11 @@ abstract class EASActivity<T : EASViewModel, V : ViewBinding> : HiltBaseActivity
             onResponseListener = object : PopUpLoginEAS.OnResponseListener {
                 override fun onSuccess(window: PopUpLoginEAS) {
                     window.dismiss()
-                    reloginInProgress = false
-                    sessionRetryCount++
-                    val started = pendingSessionRetryAction?.invoke() == true
-                    pendingSessionRetryAction = null
-                    if (!started) {
-                        sessionRetryCount = 0
-                    }
+                    sessionRecovery.loginSucceeded()
                 }
 
                 override fun onFailed(window: PopUpLoginEAS) {
-                    reloginInProgress = false
-                    pendingSessionRetryAction = null
+                    sessionRecovery.cancel()
                 }
 
                 /**
@@ -92,8 +81,7 @@ abstract class EASActivity<T : EASViewModel, V : ViewBinding> : HiltBaseActivity
                  */
                 override fun onCancelled(window: PopUpLoginEAS) {
                     LogUtils.d("session expired sheet dismissed by user; keep page usable")
-                    reloginInProgress = false
-                    pendingSessionRetryAction = null
+                    sessionRecovery.cancel()
                 }
             }
         )
@@ -101,9 +89,7 @@ abstract class EASActivity<T : EASViewModel, V : ViewBinding> : HiltBaseActivity
     }
 
     protected fun resetSessionRetryState() {
-        reloginInProgress = false
-        sessionRetryCount = 0
-        pendingSessionRetryAction = null
+        sessionRecovery.querySucceeded()
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
@@ -112,15 +98,9 @@ abstract class EASActivity<T : EASViewModel, V : ViewBinding> : HiltBaseActivity
         if (requestCode == REQUEST_CODE_SILENT_RELOGIN) {
             LogUtils.d("silentReloginResult: resultCode=$resultCode")
             if (resultCode == Activity.RESULT_OK) {
-                reloginInProgress = false
-                val started = pendingSessionRetryAction?.invoke() == true
-                pendingSessionRetryAction = null
-                if (!started) {
-                    sessionRetryCount = 0
-                }
+                sessionRecovery.loginSucceeded()
             } else {
-                reloginInProgress = false
-                pendingSessionRetryAction = null
+                sessionRecovery.cancel()
             }
         }
     }
