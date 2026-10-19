@@ -1,14 +1,14 @@
 <h1 align="center">HITA</h1>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Version-3.0.3-blue?style=for-the-badge" alt="version" />
+  <img src="https://img.shields.io/badge/Version-3.1.0-blue?style=for-the-badge" alt="version" />
   <img src="https://img.shields.io/badge/Platform-Android_8.0%2B_(API_26)-3DDC84?style=for-the-badge&logo=android&logoColor=white" alt="platform" />
   <img src="https://img.shields.io/badge/Kotlin-2.2.21-7F52FF?style=for-the-badge&logo=kotlin&logoColor=white" alt="kotlin" />
   <img src="https://img.shields.io/badge/Jetpack_Compose-Material3-4285F4?style=for-the-badge&logo=jetpackcompose&logoColor=white" alt="compose" />
   <img src="https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge" alt="license" />
 </p>
 
-[App 下载（Releases）](https://github.com/HIT-A/HITA_Android/releases/latest) | 最新版本 v3.0.3
+[App 下载（Releases）](https://github.com/HIT-A/HITA_Android/releases/latest) | 最新版本 v3.1.0
 
 用户群：1093659013（新版本与测试版会发在用户群，欢迎加入反馈）
 
@@ -30,7 +30,7 @@
 - **提醒通知**：上课前 15 分钟课程提醒、新成绩提醒，可在设置中开关
 - **实用网址**：校内常用网址分组（教学/事务/网络/资源），点按打开或长按复制
 - **资讯**（深圳已登录）：底部「资讯」页只在深圳校区教务登录后出现，聚合 HOA 博客（系列阅读、霞鹜文楷）与校园通知（info.hitsz.edu.cn 最近 30 条）；点开阅读，长按复制链接
-- **公告与更新**：服务/故障/版本公告与关键公告弹窗；应用内检查更新、下载安装与历史版本
+- **公告与更新**：服务/故障/版本公告与关键公告弹窗；应用内检查更新、下载与历史版本；下载前引导「安装未知应用」授权（授权后返回应用自动继续下载），下载完成时前台直接唤起安装器、后台以通知提示点击安装，失败会说明原因并支持重试或改走浏览器下载（实现说明见 [应用内更新](docs/app-update.md)）
 - **账号体系**：注册/登录 HITA 账号，管理头像、昵称、个性签名等资料，支持本地数据迁移
 - **主题与字体**：多套界面风格与配套字体，侧边栏一键切换并刷新小组件；支持深色模式
 
