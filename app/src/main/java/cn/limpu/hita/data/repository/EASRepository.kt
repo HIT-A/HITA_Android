@@ -747,11 +747,38 @@ class EASRepository @Inject constructor(
      * 并立即强制 MERGE 刷新当前学期（绕过打开应用的 10 分钟节流，节流在调用方）。
      */
     fun onEasReloginSuccess() {
+        clearSessionExpired()
         timetableImportRepository.clearIgnoredTimetableChangeFingerprints()
         val token = easPreferenceSource.getEasToken()
         if (!token.isLogin()) return
         val isUndergrad = token.stutype == EASToken.TYPE.UNDERGRAD
         startAutoImportCurrentTimetable(isUndergrad)
+    }
+
+    private val sessionExpiredLiveData = MutableLiveData(false)
+
+    /**
+     * 教务会话是否已被判定为失效（仅内存态，登录成功或登出后清除）。
+     *
+     * `EASToken.isLogin()` 只表示本地还留着 token/cookie，过期后依然为 true，
+     * 无法用来区分"有效"与"过期"。页面收到 NOT_LOGGED_IN 时调用 [markSessionExpired]，
+     * 抽屉等常驻入口据此提供"重新登录"路径，避免用户只能退出登录或重启应用。
+     */
+    fun isSessionExpired(): Boolean = sessionExpiredLiveData.value == true
+
+    fun observeSessionExpired(): LiveData<Boolean> = sessionExpiredLiveData
+
+    fun markSessionExpired() {
+        if (sessionExpiredLiveData.value != true) {
+            LogUtils.d("session: marked expired")
+            sessionExpiredLiveData.value = true
+        }
+    }
+
+    fun clearSessionExpired() {
+        if (sessionExpiredLiveData.value != false) {
+            sessionExpiredLiveData.value = false
+        }
     }
 
     // ===== 委托给 shenzhenRepository =====
@@ -923,6 +950,7 @@ class EASRepository @Inject constructor(
     }
 
     fun logout() {
+        clearSessionExpired()
         val previousToken: EASToken
         synchronized(tokenStateLock) {
             previousToken = easPreferenceSource.getEasToken()
