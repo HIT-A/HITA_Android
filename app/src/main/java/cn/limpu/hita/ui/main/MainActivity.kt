@@ -613,6 +613,7 @@ class MainActivity : HiltBaseActivity<ComposeViewBinding>(),
     private fun promptSessionExpiredRelogin() {
         if (sessionExpiredPromptShown || isFinishing || isDestroyed) return
         sessionExpiredPromptShown = true
+        easRepository.markSessionExpired()
         MaterialAlertDialogBuilder(this)
             .setTitle(R.string.eas_session_expired_title)
             .setMessage(R.string.eas_session_expired_message)
@@ -668,7 +669,13 @@ class MainActivity : HiltBaseActivity<ComposeViewBinding>(),
                         if (isNotEmpty()) append("\n")
                         append(secondary)
                     }
-                }.ifBlank { easToken.username.orEmpty() },
+                }.ifBlank { easToken.username.orEmpty() }.let { base ->
+                    if (easRepository.isSessionExpired()) {
+                        base + "\n" + getString(R.string.eas_session_expired_short)
+                    } else {
+                        base
+                    }
+                },
                 avatar = localUser.avatar,
                 loggedInLocalUser = false
             )
@@ -688,18 +695,22 @@ class MainActivity : HiltBaseActivity<ComposeViewBinding>(),
         if (localUser.isValid() || easToken.isLogin()) {
             val title = if (localUser.isValid()) localUser.nickname.orEmpty()
                 else easToken.name ?: easToken.username.orEmpty()
-            val items = if (localUser.isValid())
-                arrayOf("查看资料", "退出登录")
+            val hasProfile = localUser.isValid()
+            // 「重新登录教务」常驻：会话过期后仍保留入口，用户不必先退出登录或大退应用。
+            val items = if (hasProfile)
+                arrayOf("查看资料", getString(R.string.eas_relogin_entry), "退出登录")
             else
-                arrayOf("退出登录")
+                arrayOf(getString(R.string.eas_relogin_entry), "退出登录")
+            val reloginIndex = if (hasProfile) 1 else 0
             MaterialAlertDialogBuilder(this)
                 .setTitle(title)
                 .setItems(items) { _: DialogInterface, which: Int ->
                     when {
-                        localUser.isValid() && which == 0 -> {
+                        hasProfile && which == 0 -> {
                             val userId = localUser.id ?: return@setItems
                             ActivityUtils.startProfileActivity(getThis(), userId, null)
                         }
+                        which == reloginIndex -> showEasLoginSheet()
                         else -> {
                             if (localUser.isValid())
                                 localUserRepository.logout(this@MainActivity)
@@ -710,22 +721,27 @@ class MainActivity : HiltBaseActivity<ComposeViewBinding>(),
                 }
                 .show()
         } else {
-            ActivityUtils.showEasVerifyWindow<Activity>(
-                this,
-                easRepository,
-                directTo = null,
-                onResponseListener = object : PopUpLoginEAS.OnResponseListener {
-                    override fun onSuccess(window: PopUpLoginEAS) {
-                        refreshDrawerState()
-                        window.dismiss()
-                    }
-                    // 登录取消/失败也必须关闭弹窗，避免 BottomSheet 卡在抽屉上。
-                    override fun onFailed(window: PopUpLoginEAS) {
-                        window.dismiss()
-                    }
-                }
-            )
+            showEasLoginSheet()
         }
+    }
+
+    /** 抽屉/过期提示共用的登录入口。 */
+    private fun showEasLoginSheet() {
+        ActivityUtils.showEasVerifyWindow<Activity>(
+            this,
+            easRepository,
+            directTo = null,
+            onResponseListener = object : PopUpLoginEAS.OnResponseListener {
+                override fun onSuccess(window: PopUpLoginEAS) {
+                    refreshDrawerState()
+                    window.dismiss()
+                }
+                // 登录取消/失败也必须关闭弹窗，避免 BottomSheet 卡在抽屉上。
+                override fun onFailed(window: PopUpLoginEAS) {
+                    window.dismiss()
+                }
+            }
+        )
     }
 
     private fun showThemeStyleMenu() {

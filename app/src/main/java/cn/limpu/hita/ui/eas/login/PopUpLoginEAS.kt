@@ -35,6 +35,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -86,6 +87,9 @@ class PopUpLoginEAS : BottomSheetDialogFragment() {
     private var pendingNonSilentCampus by mutableStateOf<EASToken.Campus?>(null)
     private var loginInProgress by mutableStateOf(false)
 
+    /** 是否已经把结果（成功/失败）交给宿主；未交付就关闭视为"稍后"。 */
+    private var resultDelivered = false
+
     private val viewModel: LoginEASViewModel by viewModels()
 
     private fun isUserAgreementAccepted(): Boolean {
@@ -101,6 +105,15 @@ class PopUpLoginEAS : BottomSheetDialogFragment() {
     interface OnResponseListener {
         fun onSuccess(window: PopUpLoginEAS)
         fun onFailed(window: PopUpLoginEAS)
+
+        /**
+         * 用户主动关闭（点"稍后"、下滑、返回键）。
+         *
+         * 与 [onFailed] 区分：登录失败说明这次授权尝试已作废，宿主要清掉待重放的动作；
+         * 而"稍后"只是用户暂缓，宿主必须回滚"正在重登"的状态，否则该页之后再也弹不出
+         * 过期提示，只能退出登录或大退应用才能恢复。
+         */
+        fun onCancelled(window: PopUpLoginEAS) {}
     }
 
     override fun onCreateView(
@@ -157,11 +170,13 @@ class PopUpLoginEAS : BottomSheetDialogFragment() {
                             }
                         },
                         onSuccess = {
-                            onResponseListener?.onSuccess(this@PopUpLoginEAS)
+                            deliverSuccess()
                         },
                         onFailed = {
-                            onResponseListener?.onFailed(this@PopUpLoginEAS)
+                            deliverFailure()
                         },
+                        allowLater = !lock,
+                        onLater = { dismissAllowingStateLoss() },
                         onShowAgreement = { pageIndex ->
                             UserAgreementDialog().apply {
                                 setShowActionButtons(false)
@@ -223,7 +238,7 @@ class PopUpLoginEAS : BottomSheetDialogFragment() {
                 pendingNonSilentCampus = campus
             } else {
                 LogUtils.e("WebView login FAILED")
-                onResponseListener?.onFailed(this)
+                deliverFailure()
                 // 非自动登录时宿主（如“更多”页）的 onFailed 通常为空实现，
                 // 若只回调不消失，BottomSheet 会一直盖在原页面上，用户以为
                 // 登录后“回不到更多界面”。这里兜底关闭弹窗。
@@ -255,12 +270,12 @@ class PopUpLoginEAS : BottomSheetDialogFragment() {
             } catch (e: Exception) {
                 loginInProgress = false
                 LogUtils.e("Failed to parse cookies: ${e.message}")
-                onResponseListener?.onFailed(this)
+                deliverFailure()
                 dismissAllowingStateLoss()
             }
         } else {
             loginInProgress = false
-            onResponseListener?.onFailed(this)
+            deliverFailure()
             dismissAllowingStateLoss()
         }
     }
@@ -285,7 +300,7 @@ class PopUpLoginEAS : BottomSheetDialogFragment() {
                 loginSource.removeObserver(this)
                 loginInProgress = false
                 if (state.state == DataState.STATE.SUCCESS && state.data == true) {
-                    onResponseListener?.onSuccess(this@PopUpLoginEAS)
+                    deliverSuccess()
                 } else {
                     LogUtils.e("WebView cookie login failed: state=${state.state} message=${state.message}")
                     Toast.makeText(
@@ -293,12 +308,34 @@ class PopUpLoginEAS : BottomSheetDialogFragment() {
                         state.message ?: "登录验证失败",
                         Toast.LENGTH_SHORT
                     ).show()
-                    onResponseListener?.onFailed(this@PopUpLoginEAS)
+                    deliverFailure()
                     dismissAllowingStateLoss()
                 }
             }
         }
         loginSource.observe(this, observer)
+    }
+
+    private fun deliverSuccess() {
+        resultDelivered = true
+        onResponseListener?.onSuccess(this)
+    }
+
+    private fun deliverFailure() {
+        resultDelivered = true
+        onResponseListener?.onFailed(this)
+    }
+
+    /**
+     * 未交付结果就关闭弹窗（点"稍后"、下滑、返回）统一按"稍后"回调宿主，
+     * 让宿主回滚"正在重登"的状态；否则页面后续再也弹不出过期提示。
+     */
+    override fun onDismiss(dialog: DialogInterface) {
+        super.onDismiss(dialog)
+        if (!resultDelivered) {
+            LogUtils.d("session expired sheet dismissed without result; treat as postpone")
+            onResponseListener?.onCancelled(this)
+        }
     }
 
     override fun onCancel(dialog: DialogInterface) {
@@ -327,6 +364,8 @@ private fun LoginEASScreen(
     onAutoLaunch: (EASToken.Campus) -> Unit,
     onSuccess: () -> Unit,
     onFailed: () -> Unit,
+    allowLater: Boolean,
+    onLater: () -> Unit,
     onShowAgreement: (Int) -> Unit
 ) {
     val tokens = HitaTheme.tokens
@@ -573,6 +612,25 @@ private fun LoginEASScreen(
                 },
                 modifier = Modifier.padding(start = tokens.spacing.xs)
             )
+        }
+
+        // 「稍后」：显式的暂缓入口，避免用户只能靠下滑关闭而不知道会发生什么
+        if (allowLater) {
+            TextButton(
+                onClick = {
+                    view.performHapticFeedback(HapticFeedbackConstants.CONTEXT_CLICK)
+                    onLater()
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = tokens.spacing.xs)
+            ) {
+                Text(
+                    text = stringResource(R.string.eas_relogin_later),
+                    fontSize = 14.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
         }
     }
 }

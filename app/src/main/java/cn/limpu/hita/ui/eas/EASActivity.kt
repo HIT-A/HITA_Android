@@ -58,9 +58,9 @@ abstract class EASActivity<T : EASViewModel, V : ViewBinding> : HiltBaseActivity
         if (reloginInProgress || sessionRetryCount >= MAX_SESSION_RETRIES) {
             return false
         }
-        sessionRetryCount++
         reloginInProgress = true
         pendingSessionRetryAction = retryAction
+        easRepository.markSessionExpired()
         val tokenCampus = easRepository.getEasToken().campus
 
         ActivityUtils.showEasVerifyWindow<Activity>(
@@ -73,6 +73,7 @@ abstract class EASActivity<T : EASViewModel, V : ViewBinding> : HiltBaseActivity
                 override fun onSuccess(window: PopUpLoginEAS) {
                     window.dismiss()
                     reloginInProgress = false
+                    sessionRetryCount++
                     val started = pendingSessionRetryAction?.invoke() == true
                     pendingSessionRetryAction = null
                     if (!started) {
@@ -81,6 +82,16 @@ abstract class EASActivity<T : EASViewModel, V : ViewBinding> : HiltBaseActivity
                 }
 
                 override fun onFailed(window: PopUpLoginEAS) {
+                    reloginInProgress = false
+                    pendingSessionRetryAction = null
+                }
+
+                /**
+                 * 用户主动"稍后"/下滑/返回：既不算失败也不消耗重试预算，
+                 * 状态必须回滚，否则本页后续再也不会弹出过期提示（只能退出登录或重启应用）。
+                 */
+                override fun onCancelled(window: PopUpLoginEAS) {
+                    LogUtils.d("session expired sheet dismissed by user; keep page usable")
                     reloginInProgress = false
                     pendingSessionRetryAction = null
                 }
@@ -120,6 +131,7 @@ abstract class EASActivity<T : EASViewModel, V : ViewBinding> : HiltBaseActivity
                 if (it.data == true) {
                     onLoginCheckSuccess(false)
                 } else {
+                    easRepository.markSessionExpired()
                     ActivityUtils.showEasVerifyWindow<Activity>(
                         getThis(),
                         easRepository,
@@ -135,6 +147,8 @@ abstract class EASActivity<T : EASViewModel, V : ViewBinding> : HiltBaseActivity
                                 onLoginCheckFailed()
                             }
 
+                            // lock=true 时没有"稍后"，取消会连同宿主页面一起关闭，无需额外处理。
+                            override fun onCancelled(window: PopUpLoginEAS) = Unit
                         })
                 }
 
