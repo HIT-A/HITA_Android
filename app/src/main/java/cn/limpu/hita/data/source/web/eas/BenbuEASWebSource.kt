@@ -794,7 +794,11 @@ class BenbuEASWebSource(
                 || title.contains("attention required")
         if (isJsChallengePage) return true
         if (hasLoginForm && !hasScoreTable) return true
-        if (!hasScoreTable && (title.contains("登录") || title.contains("统一身份认证") || title.contains("ivpn") || text.contains("登录") || text.contains("未登录") || text.contains("认证"))) {
+        val hasExamTable = BenbuExamParser.hasExamTable(doc)
+        if (!hasScoreTable && (
+                title.contains("登录") || title.contains("统一身份认证") || title.contains("ivpn") ||
+                (!hasExamTable && (text.contains("登录") || text.contains("未登录") || text.contains("认证")))
+            )) {
             return true
         }
         return false
@@ -874,7 +878,7 @@ class BenbuEASWebSource(
                     return@execute
                 }
 
-                val termCode = "${term.yearCode}${term.termCode}"
+                val termCode = term.getCode()
 
                 val examTypes = mapOf(
                     "01" to "期末",
@@ -894,15 +898,20 @@ class BenbuEASWebSource(
                         .data("xnxq", termCode)
                         .data("kssjd", kssjd)
                         .timeout(timeout)
+                        .ignoreHttpErrors(true)
                         .followRedirects(true)
+                        .method(Connection.Method.POST)
                         .execute()
 
-                    if (response.statusCode() == 200) {
-                        val examItems = parseExamHtml(response.body(), typeName, term)
-                        allExamItems.addAll(examItems)
-                    } else {
-                        LogUtils.w("getExamItems: $typeName exam query HTTP ${response.statusCode()}")
+                    val body = response.body()
+                    if (isAuthExpiredResponse(response, body)) {
+                        result.postValue(DataState(DataState.STATE.NOT_LOGGED_IN, "登录已失效，请重新登录"))
+                        return@execute
                     }
+                    if (response.statusCode() != 200) {
+                        throw IllegalStateException("${typeName}考试查询失败：HTTP ${response.statusCode()}")
+                    }
+                    allExamItems.addAll(BenbuExamParser.parse(body, typeName, term))
                 }
 
                 LogUtils.success("getExamItems: term=$termCode total=${allExamItems.size}")
@@ -917,130 +926,5 @@ class BenbuEASWebSource(
         return result
     }
 
-    /**
-     * 解析考试查询的HTML响应
-     *
-     * HTML格式：
-     * <table>
-     *   <tr>
-     *     <th>序号</th>
-     *     <th>课程名称</th>
-     *     <th>课程代码</th>
-     *     <th>考试地点</th>
-     *     <th>座位号</th>
-     *     <th>考试具体时间</th>
-     *     <th>考试时间段</th>
-     *   </tr>
-     *   <tr>
-     *     <td>1</td>
-     *     <td>数学分析（2）</td>
-     *     <td>22MA15016</td>
-     *     <td>一校区-正心楼-正心21</td>
-     *     <td></td>
-     *     <td>2026年05月09日(第9周     星期六)10:00-11:30</td>
-     *     <td>期中</td>
-     *   </tr>
-     * </table>
-     *
-     * @param html HTML内容
-     * @param examTypeName 考试类型名称（期末/期中/补考）
-     * @param term 学期信息
-     * @return 考试列表
-     */
-    private fun parseExamHtml(html: String, examTypeName: String, term: TermItem): List<ExamItem> {
-        val examItems = mutableListOf<ExamItem>()
-
-        try {
-            val doc = Jsoup.parse(html)
-
-            // 尝试多种选择器查找表格
-            val table = doc.select("table.bot_line").first()
-                ?: doc.select("table").firstOrNull { it.select("tr").size > 1 }
-
-            if (table == null) {
-                LogUtils.w("parseExamHtml: table not found for $examTypeName")
-                return examItems
-            }
-
-            val rows = table.select("tr")
-
-            for ((index, row) in rows.withIndex()) {
-                if (index == 0) continue
-
-                val cells = row.select("td")
-                if (cells.size < 7) continue
-
-                try {
-                    val courseName = cells[1].text().trim()
-                    val location = cells[3].text().trim()
-                    val dateTimeStr = cells[5].text().trim()
-
-                    val (examDate, examTime) = parseExamDateTime(dateTimeStr)
-
-                    examItems.add(ExamItem().apply {
-                        this.courseName = courseName
-                        this.examLocation = location
-                        this.examDate = examDate
-                        this.examTime = examTime
-                        this.examType = examTypeName
-                        this.campusName = "本部"
-                        this.termId = term.id
-                    })
-
-                } catch (e: Exception) {
-                    LogUtils.e("parseExamHtml: row parse failed", e)
-                }
-            }
-
-        } catch (e: Exception) {
-            LogUtils.e("parseExamHtml: failed", e)
-        }
-
-        return examItems
-    }
-
-    /**
-     * 解析考试日期时间字符串
-     *
-     * 输入格式：2026年05月09日(第9周     星期六)10:00-11:30
-     * 输出：Pair(日期字符串, 时间字符串)
-     *   - 日期：2026-05-09
-     *   - 时间：10:00-11:30
-     *
-     * @param dateTimeStr 日期时间字符串
-     * @return Pair(日期, 时间)
-     */
-    private fun parseExamDateTime(dateTimeStr: String): Pair<String, String> {
-        try {
-            // 提取日期部分：2026年05月09日
-            val dateRegex = Regex("""(\d{4})年(\d{2})月(\d{2})日""")
-            val dateMatch = dateRegex.find(dateTimeStr)
-
-            // 提取时间部分：10:00-11:30
-            val timeRegex = Regex("""(\d{2}:\d{2})-(\d{2}:\d{2})""")
-            val timeMatch = timeRegex.find(dateTimeStr)
-
-            val dateStr = if (dateMatch != null) {
-                val year = dateMatch.groupValues[1]
-                val month = dateMatch.groupValues[2]
-                val day = dateMatch.groupValues[3]
-                "$year-$month-$day"
-            } else {
-                ""
-            }
-
-            val timeStr = if (timeMatch != null) {
-                "${timeMatch.groupValues[1]}-${timeMatch.groupValues[2]}"
-            } else {
-                ""
-            }
-
-            return Pair(dateStr, timeStr)
-
-        } catch (e: Exception) {
-            LogUtils.e("parseExamDateTime: failed for '$dateTimeStr'", e)
-            return Pair("", "")
-        }
-    }
 
 }
