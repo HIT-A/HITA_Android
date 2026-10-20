@@ -150,7 +150,6 @@ class ExamActivity : EASActivity<ExamViewModel, ComposeViewBinding>() {
 
     override fun refresh() {
         isRefreshing = true
-        resetSessionRetryState()
         viewModel.startRefresh()
     }
 

@@ -175,6 +175,10 @@ object ActivityUtils {
                 override fun onFailed(window: PopUpLoginEAS) {
                     onResponseListener.onFailed(window)
                 }
+
+                override fun onCancelled(window: PopUpLoginEAS) {
+                    onResponseListener.onCancelled(window)
+                }
             }
             window.show(activity.supportFragmentManager, "verify")
         } else {
