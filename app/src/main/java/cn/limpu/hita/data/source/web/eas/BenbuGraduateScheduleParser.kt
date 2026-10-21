@@ -5,6 +5,7 @@ import cn.limpu.hita.data.model.eas.TermItem
 import com.google.gson.JsonElement
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
+import org.jsoup.parser.Parser
 
 /** Parser for the graduate gcourse JSON timetable returned by Aura's API. */
 internal object BenbuGraduateScheduleParser {
@@ -55,7 +56,10 @@ internal object BenbuGraduateScheduleParser {
     }
 
     private fun parseCell(html: String, dow: Int, begin: Int, duration: Int, result: MutableList<CourseItem>) {
-        val text = html.replace(Regex("<\\s*br\\s*/?>", RegexOption.IGNORE_CASE), "\n").replace(Regex("<[^>]+>"), "").replace("&nbsp;", " ")
+        // Strip actual markup before decoding, so encoded angle brackets stay literal text.
+        val markupRemoved = html.replace(Regex("<\\s*br\\s*/?>", RegexOption.IGNORE_CASE), "\n")
+            .replace(Regex("<[^>]+>"), "")
+        val text = Parser.unescapeEntities(markupRemoved, false).replace('\u00a0', ' ')
         val pattern = Regex("(?:^|[，,])\\s*([^\\[，,]+?)\\s*((?:\\[[^\\]]*周[^\\]]*\\]\\s*[，,]?\\s*)+)([^\\[]*?)\\s*\\[([^\\]]*)\\]([^，,]*)")
         text.split('\n').map { it.trim() }.filter { it.isNotBlank() }.forEach { line ->
             pattern.findAll(line).forEach { match ->
