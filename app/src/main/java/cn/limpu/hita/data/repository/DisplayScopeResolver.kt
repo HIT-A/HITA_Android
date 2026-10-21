@@ -109,6 +109,7 @@ class DisplayScopeResolver internal constructor(
                 .apply()
         }
         cn.limpu.hita.ui.widgets.WidgetUtils.sendRefreshToAll(application)
+        cn.limpu.hita.feature.livecourse.scheduler.LiveCourseScheduler.autoSchedule(application)
     }
 
     private fun computeResolved(): ResolvedDisplayScope? {
