@@ -324,10 +324,19 @@ class TimetableRefreshMergePolicyTest {
     }
 
     @Test
+    fun plan_doesNotRestoreCoursesIntoExistingEmptyTimetable() {
+        val incoming = listOf(course("高等数学", lessons = 2, from = 1000))
+        val plan = TimetableRefreshMergePolicy.plan(emptyList(), incoming, emptyMap(), NOW)
+        assertTrue(plan.adopt.isEmpty())
+        assertEquals(1, plan.pendingUpdates.size)
+        assertTrue(plan.replacedLocal.isEmpty())
+    }
+
+    @Test
     fun plan_adoptsAllWhenLocalIsEmpty() {
         val incoming = (1..5).map { course("课程$it", lessons = 2, from = it * 1000L) }
 
-        val plan = TimetableRefreshMergePolicy.plan(emptyList(), incoming, emptyMap(), NOW)
+        val plan = TimetableRefreshMergePolicy.plan(emptyList(), incoming, emptyMap(), NOW, allowInitialImport = true)
 
         assertFalse(plan.holdBatch)
         assertEquals(5, plan.adopt.size)
