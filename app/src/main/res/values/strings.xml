@@ -1737,4 +1737,5 @@
     <string name="comparison_busy_label">占用（仅忙闲分享）</string>
     <string name="comparison_actual_course">%1$s · %2$s %3$s</string>
     <string name="comparison_close_details">关闭</string>
+    <string name="timeline_empty_events">今天暂无课程或日程安排</string>
 </resources>

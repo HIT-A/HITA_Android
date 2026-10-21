@@ -26,6 +26,8 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
@@ -170,6 +172,11 @@ private fun AboutScreen(
 
     LaunchedEffect(checkState) {
         val current = checkState ?: return@LaunchedEffect
+        if (current.state == DataState.STATE.NOTHING) return@LaunchedEffect
+        if (current.state == DataState.STATE.LOADING) {
+            buttonState = UpdateButtonState.Loading
+            return@LaunchedEffect
+        }
         view.performHapticFeedback(
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 HapticFeedbackConstants.CONFIRM
@@ -572,14 +579,14 @@ private fun CheckUpdateButton(
         shape = RoundedCornerShape(24.dp),
         colors = ButtonDefaults.buttonColors(
             containerColor = MaterialTheme.colorScheme.primary,
-            contentColor = Color.White
+            contentColor = MaterialTheme.colorScheme.onPrimary
         ),
-        modifier = modifier.size(width = 120.dp, height = 48.dp)
+        modifier = modifier.widthIn(min = 160.dp).heightIn(min = 48.dp)
     ) {
         when (state) {
             UpdateButtonState.Loading -> {
                 CircularProgressIndicator(
-                    color = Color.White,
+                    color = MaterialTheme.colorScheme.onPrimary,
                     strokeWidth = 3.dp,
                     modifier = Modifier.size(22.dp)
                 )
@@ -588,20 +595,20 @@ private fun CheckUpdateButton(
                 Icon(
                     painter = painterResource(R.drawable.ic_baseline_done_24),
                     contentDescription = null,
-                    tint = Color.White
+                    tint = MaterialTheme.colorScheme.onPrimary
                 )
             }
             UpdateButtonState.Failed -> {
                 Icon(
                     painter = painterResource(R.drawable.ic_baseline_error_24),
                     contentDescription = null,
-                    tint = Color.White
+                    tint = MaterialTheme.colorScheme.onPrimary
                 )
             }
             UpdateButtonState.Idle -> {
                 Text(
                     text = stringResource(R.string.check_for_update),
-                    color = Color.White,
+                    color = MaterialTheme.colorScheme.onPrimary,
                     fontSize = 16.sp,
                     maxLines = 1
                 )

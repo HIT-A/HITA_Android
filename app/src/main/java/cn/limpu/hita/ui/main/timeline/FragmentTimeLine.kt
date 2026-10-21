@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -1096,18 +1097,26 @@ private fun TimelineRail(isPassed: Boolean, isFirst: Boolean, isLast: Boolean) {
 
 @Composable
 private fun TimelineEmpty() {
-    Box(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .height(200.dp)
+            .heightIn(min = 200.dp)
             .padding(HitaTheme.tokens.spacing.xxl),
-        contentAlignment = Alignment.Center
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
     ) {
         Icon(
             painter = painterResource(R.drawable.ic_timeline),
             contentDescription = null,
             tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.35f),
-            modifier = Modifier.size(160.dp)
+            modifier = Modifier.size(96.dp)
+        )
+        Spacer(Modifier.height(HitaTheme.tokens.spacing.md))
+        Text(
+            text = stringResource(R.string.timeline_empty_events),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MaterialTheme.typography.bodyLarge,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center
         )
     }
 }

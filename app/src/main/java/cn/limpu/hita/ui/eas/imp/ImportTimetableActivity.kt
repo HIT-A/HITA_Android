@@ -37,7 +37,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -153,7 +152,6 @@ class ImportTimetableActivity :
                     },
                     onPickDate = { pickStartDate() },
                     onShiftWeek = { viewModel.shiftStartDateByWeek(it) },
-                    onUndergraduateChange = { viewModel.changeIsUndergraduate(it) },
                     onEditPeriod = { period, position -> editTimePeriod(period, position) }
                 )
             }
@@ -532,7 +530,6 @@ private fun ImportTimetableScreen(
     onImport: () -> Unit,
     onPickDate: () -> Unit,
     onShiftWeek: (Int) -> Unit,
-    onUndergraduateChange: (Boolean) -> Unit,
     onEditPeriod: (TimePeriodInDay, Int) -> Unit
 ) {
     val tokens = HitaTheme.tokens
@@ -541,8 +538,6 @@ private fun ImportTimetableScreen(
     val scheduleState by viewModel.scheduleStructureLiveData.observeAsState()
     val isUndergraduate by viewModel.isUndergraduateLiveData.observeAsState(true)
     val isBenbu = viewModel.isBenbuTerm(selectedTerm)
-    // 威海只有本科生作息，隐藏切换开关（对齐 iOS）。
-    val showTrainingSwitch = !viewModel.isWeihaiTerm(selectedTerm)
     val context = androidx.compose.ui.platform.LocalContext.current
     val dateText = startDateState?.data?.let { TextTools.getNormalDateText(context, it) }
         ?: stringResource(R.string.no_valid_date)
@@ -670,8 +665,6 @@ private fun ImportTimetableScreen(
                 ScheduleStructureCard(
                     periods = periods,
                     isUndergraduate = isUndergraduate,
-                    showTrainingSwitch = showTrainingSwitch,
-                    onUndergraduateChange = onUndergraduateChange,
                     onEditPeriod = onEditPeriod
                 )
             }
@@ -832,8 +825,6 @@ private fun BenbuCalibrationCard(
 private fun ScheduleStructureCard(
     periods: List<TimePeriodInDay>,
     isUndergraduate: Boolean,
-    showTrainingSwitch: Boolean,
-    onUndergraduateChange: (Boolean) -> Unit,
     onEditPeriod: (TimePeriodInDay, Int) -> Unit
 ) {
     val tokens = HitaTheme.tokens
@@ -866,13 +857,6 @@ private fun ScheduleStructureCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 14.sp
                 )
-                if (showTrainingSwitch) {
-                    Switch(
-                        checked = isUndergraduate,
-                        onCheckedChange = onUndergraduateChange,
-                        modifier = Modifier.padding(start = tokens.spacing.sm)
-                    )
-                }
             }
             Spacer(modifier = Modifier.height(tokens.spacing.sm))
             periods.forEachIndexed { index, period ->
