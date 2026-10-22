@@ -232,7 +232,8 @@ object TimetableRefreshMergePolicy {
         local: List<MergeCourse>,
         incoming: List<MergeCourse>,
         vetoes: Map<String, CourseVetoRecord>,
-        nowMillis: Long
+        nowMillis: Long,
+        allowInitialImport: Boolean = false
     ): TimetableMergePlan {
         val usedIncoming = BooleanArray(incoming.size)
         val replacedPairs = mutableListOf<Pair<MergeCourse, MergeCourse>>()
@@ -353,7 +354,7 @@ object TimetableRefreshMergePolicy {
         }
 
         val added = incoming.filterIndexed { index, _ -> !usedIncoming[index] }
-        if (local.isEmpty()) {
+        if (local.isEmpty() && allowInitialImport) {
             adopt += added
         } else {
             pendingUpdates += added.map { CourseChangeConfirm.addedCourse(it) }

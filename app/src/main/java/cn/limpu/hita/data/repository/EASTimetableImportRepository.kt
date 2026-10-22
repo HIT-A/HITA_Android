@@ -345,7 +345,8 @@ internal class EASTimetableImportRepository(
                                         timetableCode = timetableCode,
                                         timetableName = buildTimetableName(term, easToken.campus),
                                         startMillis = startDate.timeInMillis,
-                                        schedule = safeSchedule
+                                        schedule = safeSchedule,
+                                        isNewTimetable = isNewTimetable
                                     )
                                 } else {
                                     timetableSnapshotStore.capture(
@@ -440,7 +441,8 @@ internal class EASTimetableImportRepository(
         timetableCode: String,
         timetableName: String,
         startMillis: Long,
-        schedule: List<TimePeriodInDay>
+        schedule: List<TimePeriodInDay>,
+        isNewTimetable: Boolean
     ) = timetableMutationLock.exclusive {
         val snapshotOwnerKey = FollowedTeachingSectionStore.ownerKey(easToken)
         val localEvents = eventItemDao.getImportedClassEventsOfTimetableSync(timetable.id)
@@ -475,15 +477,15 @@ internal class EASTimetableImportRepository(
             MergeCourse(subjectId, subject.name, subject.code, lessons.map { it.toMergeLesson(startMillis) })
         }
 
-        // 本地没有任何已导入课程 = 首次导入（新设备/新装/刚导入课表）：
-        // 此时"全部课程"只是初始数据，不是变更，不产生变更提示。
-        val firstImport = localCourses.isEmpty()
+        // 已有课表可能被用户主动清空；只有新建课表才允许自动填入全部课程。
+        val firstImport = isNewTimetable
 
         val plan = TimetableRefreshMergePolicy.plan(
             local = localCourses,
             incoming = incomingCourses,
             vetoes = timetableChangeStore.getVetoes(term.id),
-            nowMillis = System.currentTimeMillis()
+            nowMillis = System.currentTimeMillis(),
+            allowInitialImport = firstImport
         )
         timetableChangeStore.putVetoes(term.id, plan.vetoes)
 
