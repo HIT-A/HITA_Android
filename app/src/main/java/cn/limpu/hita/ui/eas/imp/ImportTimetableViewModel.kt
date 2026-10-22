@@ -50,7 +50,6 @@ class ImportTimetableViewModel @Inject constructor(
             super.setValue(value)
         }
     }
-    val isUndergraduateLiveData = MutableLiveData<Boolean>()
     val scheduleStructureLiveData: MediatorLiveData<DataState<MutableList<TimePeriodInDay>>> =
         MediatorLiveData()
     val snapshotsLiveData: LiveData<DataState<List<TimetableVersionSnapshot>>> =
@@ -66,7 +65,6 @@ class ImportTimetableViewModel @Inject constructor(
     val restoreSnapshotLiveData = MediatorLiveData<DataState<TimetableVersionSnapshot>>()
     private var restoreSnapshotSource: LiveData<DataState<TimetableVersionSnapshot>>? = null
     private var scheduleInnerSource1: LiveData<DataState<MutableList<TimePeriodInDay>>>? = null
-    private var scheduleInnerSource2: LiveData<DataState<MutableList<TimePeriodInDay>>>? = null
 
     init {
         startDateLiveData.value = DataState(Calendar.getInstance())
@@ -94,38 +92,31 @@ class ImportTimetableViewModel @Inject constructor(
         scheduleStructureLiveData.addSource(selectedTermLiveData) { term ->
             scheduleInnerSource1?.let { scheduleStructureLiveData.removeSource(it) }
             if (term == null) return@addSource
-            isUndergraduateLiveData.value?.let { isu ->
-                // 用户已编辑过课表结构（SP 有值）时以用户偏好为准，否则用教务接口/默认值。
-                if (timetablePreferenceSource.hasSavedSchedule()) {
-                    scheduleStructureLiveData.value = DataState(
-                        timetablePreferenceSource.getSchedule(isu), DataState.STATE.SUCCESS
-                    )
-                } else {
-                    val src = easRepo.getScheduleStructure(term, isu)
-                    scheduleInnerSource1 = src
-                    scheduleStructureLiveData.addSource(src) { itt ->
-                        scheduleStructureLiveData.value = itt
-                    }
-                }
-            }
-        }
-        scheduleStructureLiveData.addSource(isUndergraduateLiveData) { isu ->
-            scheduleInnerSource2?.let { scheduleStructureLiveData.removeSource(it) }
-            selectedTermLiveData.value?.let { st ->
-                if (timetablePreferenceSource.hasSavedSchedule()) {
-                    scheduleStructureLiveData.value = DataState(
-                        timetablePreferenceSource.getSchedule(isu), DataState.STATE.SUCCESS
-                    )
-                } else {
-                    val src = easRepo.getScheduleStructure(st, isu)
-                    scheduleInnerSource2 = src
-                    scheduleStructureLiveData.addSource(src) { itt ->
-                        scheduleStructureLiveData.value = itt
-                    }
+            val isUndergraduate = isUndergraduateStudent()
+            // 用户已编辑过课表结构（SP 有值）时以用户偏好为准，否则用教务接口/默认值。
+            if (timetablePreferenceSource.hasSavedSchedule()) {
+                scheduleStructureLiveData.value = DataState(
+                    timetablePreferenceSource.getSchedule(isUndergraduate), DataState.STATE.SUCCESS
+                )
+            } else {
+                val src = easRepo.getScheduleStructure(term, isUndergraduate)
+                scheduleInnerSource1 = src
+                scheduleStructureLiveData.addSource(src) { itt ->
+                    scheduleStructureLiveData.value = itt
                 }
             }
         }
     }
+
+    /**
+     * 作息结构按登录身份自动选择：本科生取本科作息，研究生取研究生作息。
+     *
+     * 导入页已取消“本科生结构/研究生结构”手动切换，避免同一账号出现自相矛盾的作息表；
+     * 威海老教务没有研究生作息，其 [cn.limpu.hita.data.source.web.eas.WeihaiEASWebSource]
+     * 无论传什么都返回本科作息表，因此这里统一按身份传入即可。
+     */
+    private fun isUndergraduateStudent(): Boolean =
+        easRepo.getEasToken().stutype == EASToken.TYPE.UNDERGRAD
 
     fun startRefreshTerms() {
         termsController.value = Trigger.actioning
@@ -133,12 +124,6 @@ class ImportTimetableViewModel @Inject constructor(
 
     fun changeSelectedTerm(termItem: TermItem) {
         selectedTermLiveData.value = termItem
-    }
-
-    fun changeIsUndergraduate(isUnder: Boolean) {
-        // 威海只有本科生作息：忽略任何切换到“研究生结构”的请求。
-        if (isWeihaiTerm() && !isUnder) return
-        isUndergraduateLiveData.value = isUnder
     }
 
     fun startGetAllTerms(): List<TermItem> {
@@ -230,14 +215,6 @@ class ImportTimetableViewModel @Inject constructor(
 
     fun isBenbuTerm(term: TermItem? = selectedTermLiveData.value): Boolean {
         return term != null && easRepo.getEasToken().isBenbuCampus()
-    }
-
-    /**
-     * 威海老教务（jwts）只有本科生作息，不存在“本科生/研究生结构”之分。
-     * 导入页由此隐藏切换开关（对齐 iOS 行为）。
-     */
-    fun isWeihaiTerm(term: TermItem? = selectedTermLiveData.value): Boolean {
-        return term != null && easRepo.getEasToken().campus == EASToken.Campus.WEIHAI
     }
 
     private fun resolveStartDateState(term: TermItem, state: DataState<Calendar>): DataState<Calendar> {
