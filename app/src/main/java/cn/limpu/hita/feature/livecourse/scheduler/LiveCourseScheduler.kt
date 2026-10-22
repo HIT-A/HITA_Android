@@ -8,6 +8,7 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import cn.limpu.hita.data.model.timetable.EventItem
+import cn.limpu.hita.data.repository.DisplayScopeResolver
 import cn.limpu.hita.data.repository.TimetableRepository
 import cn.limpu.hita.feature.livecourse.domain.LiveCourse
 import cn.limpu.hita.feature.livecourse.domain.LiveCourseState
@@ -46,10 +47,12 @@ class LiveCourseScheduler(context: Context) {
 
         val application = appContext as? Application ?: return
         val repository = TimetableRepository(application)
+        val timetableIds = DisplayScopeResolver(application).currentSync()?.timetableIds.orEmpty()
         val now = Instant.ofEpochMilli(nowMillis)
         val candidate = repository.getUpcomingEventsSync(
             nowMillis - LiveCourseStateResolver.DEFAULT_PRE_CLASS_WINDOW.toMillis(),
             nowMillis + LOOK_AHEAD_MILLIS,
+            timetableIds,
         )
             .asSequence()
             .filter { it.type == EventItem.TYPE.CLASS }
