@@ -170,7 +170,7 @@ class ExamActivity : EASActivity<ExamViewModel, ComposeViewBinding>() {
                     onRefresh = { refresh() },
                     onPickTerm = { pickTerm() },
                     onPickExamType = { pickExamType() },
-                    onImportAll = { importAllExams() },
+                    onImportAll = { pickExamImportTarget { importAllExams(it) } },
                     onAddMemo = { openMemoEditor() },
                     onOpenExam = { exam ->
                         ExamDetailFragment(
@@ -279,7 +279,7 @@ class ExamActivity : EASActivity<ExamViewModel, ComposeViewBinding>() {
         return TermNameFormatter.fullTermName(term)
     }
 
-    private fun importAllExams() {
+    private fun importAllExams(timetableId: String) {
         viewModel.examInfoLiveData.value?.let { state ->
             if (state.state != DataState.STATE.SUCCESS) {
                 cn.limpu.hita.utils.LogUtils.d("No exam data to import", "ExamActivity")
@@ -296,9 +296,13 @@ class ExamActivity : EASActivity<ExamViewModel, ComposeViewBinding>() {
             Toast.makeText(this, getString(R.string.importing_exams), Toast.LENGTH_SHORT).show()
 
             Thread {
-                val result = viewModel.importAllExams(exams)
+                val attempt = runCatching { viewModel.importAllExams(exams, timetableId) }
                 runOnUiThread {
                     importInProgress = false
+                    val result = attempt.getOrElse {
+                        Toast.makeText(this, R.string.exam_import_failed, Toast.LENGTH_LONG).show()
+                        return@runOnUiThread
+                    }
                     val success = result.successCount == result.totalCount
                     val partialSuccess = result.successCount > 0 && result.successCount < result.totalCount
                     val allImported = result.successCount == 0 && result.skippedCount > 0
@@ -420,8 +424,15 @@ private fun ExamScreen(
             onPickExamType = onPickExamType,
             onImportAll = onImportAll
         )
+        examState?.message?.takeIf { it.isNotBlank() }?.let { message ->
+            Text(
+                text = message,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = tokens.spacing.lg, vertical = tokens.spacing.sm)
+            )
+        }
         Box(modifier = Modifier.fillMaxSize()) {
-            if (showEmpty && exams.isEmpty() && !isRefreshing) {
+            if (showEmpty && exams.isEmpty() && !isRefreshing && examState?.state == DataState.STATE.SUCCESS) {
                 EmptyExamView(modifier = Modifier.align(Alignment.TopCenter))
             }
             if (exams.isNotEmpty()) {

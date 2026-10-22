@@ -14,7 +14,6 @@ import cn.limpu.hita.data.AppDatabase
 import cn.limpu.hita.data.model.eas.EASToken
 import cn.limpu.hita.data.model.eas.ExamItem
 import cn.limpu.hita.data.model.eas.TermItem
-import cn.limpu.hita.data.model.timetable.Timetable
 import cn.limpu.hita.data.repository.ExamEventMapper
 import cn.limpu.hita.data.repository.EASRepository
 import cn.limpu.hita.data.source.preference.ExamMemoCodec
@@ -23,7 +22,6 @@ import cn.limpu.hita.ui.eas.EASViewModel
 import cn.limpu.hita.utils.LogUtils
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
-import java.sql.Timestamp
 import java.util.*
 import javax.inject.Inject
 
@@ -282,7 +280,7 @@ class ExamViewModel @Inject constructor(
     }
 
     /**
-     * 批量导入考试到默认课表的结果
+     * 批量导入考试到用户确认的课表的结果
      */
     data class ImportResult(
         val totalCount: Int,
@@ -291,10 +289,10 @@ class ExamViewModel @Inject constructor(
     )
 
     /**
-     * 批量导入考试到默认课表
+     * 批量导入考试到用户确认的课表
      *
      * 功能：
-     * 1. 获取或创建默认课表
+     * 1. 验证用户选择的目标课表仍存在
      * 2. 检查每个考试是否已导入（通过课程名称和地点匹配）
      * 3. 只导入未导入的考试
      * 4. 返回导入统计结果
@@ -304,89 +302,52 @@ class ExamViewModel @Inject constructor(
      * @param exams 要导入的考试列表
      * @return ImportResult 包含总数、成功数、跳过数
      */
-    fun importAllExams(exams: List<ExamItem>): ImportResult {
+    fun importAllExams(exams: List<ExamItem>, timetableId: String): ImportResult {
         val appDatabase = AppDatabase.getDatabase(context.applicationContext as Application)
-        val eventItemDao = appDatabase.eventItemDao()
-        val timetableDao = appDatabase.timetableDao()
+        return appDatabase.runInTransaction(java.util.concurrent.Callable {
+            val eventItemDao = appDatabase.eventItemDao()
+            val timetableDao = appDatabase.timetableDao()
 
-        // 获取或创建默认课表
-        val defaultTimetable = timetableDao.getFirstCustomTimetableSync()
-        val timetable = if (defaultTimetable == null) {
-            createDefaultTimetable(timetableDao)
-        } else {
-            defaultTimetable
-        }
-
-        // 获取已导入的考试事件（用于去重）
-        val existingKeys = eventItemDao.getExamEventsSync()
-            .mapTo(mutableSetOf()) { ExamEventMapper.identityKey(it) }
-
-        var successCount = 0
-        var skippedCount = 0
-
-        for (exam in exams) {
-            val examEvent = ExamEventMapper.toEvent(exam, timetable.id, "ExamViewModel")
-            if (examEvent == null) {
-                skippedCount++
-                LogUtils.e("❌ 解析失败: ${exam.courseName}", null, "ExamViewModel")
-                continue
+            val timetable = requireNotNull(timetableDao.getTimetableByIdSync(timetableId)) {
+                context.getString(cn.limpu.hita.R.string.exam_import_target_missing)
             }
 
-            val examKey = ExamEventMapper.identityKey(examEvent)
+            // 获取已导入的考试事件（用于去重）
+            val existingKeys = eventItemDao.getExamEventsSync()
+                .filter { it.timetableId == timetable.id }
+                .mapTo(mutableSetOf()) { ExamEventMapper.identityKey(it) }
 
-            if (!existingKeys.add(examKey)) {
-                skippedCount++
-                LogUtils.d("⏭️ 跳过已导入: ${exam.courseName}", "ExamViewModel")
-                continue
+            var successCount = 0
+            var skippedCount = 0
+
+            for (exam in exams) {
+                val examEvent = ExamEventMapper.toEvent(exam, timetable.id, "ExamViewModel")
+                if (examEvent == null) {
+                    skippedCount++
+                    LogUtils.e("❌ 解析失败: ${exam.courseName}", null, "ExamViewModel")
+                    continue
+                }
+
+                val examKey = ExamEventMapper.identityKey(examEvent)
+
+                if (!existingKeys.add(examKey)) {
+                    skippedCount++
+                    LogUtils.d("⏭️ 跳过已导入: ${exam.courseName}", "ExamViewModel")
+                    continue
+                }
+
+                eventItemDao.insertEventSync(examEvent)
+                successCount++
+                LogUtils.d("✅ 导入成功: ${exam.courseName}", "ExamViewModel")
             }
 
-            eventItemDao.insertEventSync(examEvent)
-            successCount++
-            LogUtils.d("✅ 导入成功: ${exam.courseName}", "ExamViewModel")
-        }
-
-        LogUtils.d("📊 批量导入完成: 总数=${exams.size}, 成功=$successCount, 跳过=$skippedCount", "ExamViewModel")
-        return ImportResult(
-            totalCount = exams.size,
-            successCount = successCount,
-            skippedCount = skippedCount
-        )
-    }
-
-    /**
-     * 创建默认课表
-     * 用于存放EAS导入的课程和AI创建的内容
-     */
-    private fun createDefaultTimetable(timetableDao: cn.limpu.hita.data.source.dao.TimetableDao): Timetable {
-        val defaultPrefix = context.getString(cn.limpu.hita.R.string.default_timetable_name)
-
-        // 查找现有的默认课表，确定编号
-        val existingTables = timetableDao.getTimetableNamesWithDefaultSync("$defaultPrefix%")
-        var maxNumber = 0
-        for (tableName in existingTables) {
-            val number = try {
-                tableName.replace(defaultPrefix, "").trim().toInt()
-            } catch (e: NumberFormatException) {
-                0
-            }
-            if (number > maxNumber) {
-                maxNumber = number
-            }
-        }
-
-        // 创建新的默认课表
-        val newTable = Timetable().apply {
-            id = UUID.randomUUID().toString()
-            name = if (maxNumber > 0) "$defaultPrefix ${maxNumber + 1}" else defaultPrefix
-            code = "" // 空code表示自定义课表
-            startTime = Timestamp(System.currentTimeMillis())
-            createdAt = Timestamp(System.currentTimeMillis())
-        }
-
-        timetableDao.saveTimetableSync(newTable)
-        LogUtils.d("✅ 创建默认课表: ${newTable.name}", "ExamViewModel")
-
-        return newTable
+            LogUtils.d("📊 批量导入完成: 总数=${exams.size}, 成功=$successCount, 跳过=$skippedCount", "ExamViewModel")
+            ImportResult(
+                totalCount = exams.size,
+                successCount = successCount,
+                skippedCount = skippedCount
+            )
+        })
     }
 
 }

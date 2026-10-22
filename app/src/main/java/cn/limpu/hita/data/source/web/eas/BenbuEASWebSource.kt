@@ -880,15 +880,7 @@ class BenbuEASWebSource(
 
                 val termCode = term.getCode()
 
-                val examTypes = mapOf(
-                    "01" to "期末",
-                    "02" to "期中",
-                    "03" to "补考"
-                )
-
-                val allExamItems = mutableListOf<ExamItem>()
-
-                for ((kssjd, typeName) in examTypes) {
+                val examState = BenbuExamQuery.load { kssjd, typeName ->
                     val url = "$hostName/kscx/queryKcForXs1"
                     val response = Jsoup.connect(url)
                         .cookies(token.cookies)
@@ -900,22 +892,20 @@ class BenbuEASWebSource(
                         .timeout(timeout)
                         .ignoreHttpErrors(true)
                         .followRedirects(true)
-                        .method(Connection.Method.POST)
+                        .method(Connection.Method.GET)
                         .execute()
 
                     val body = response.body()
                     if (isAuthExpiredResponse(response, body)) {
-                        result.postValue(DataState(DataState.STATE.NOT_LOGGED_IN, "登录已失效，请重新登录"))
-                        return@execute
+                        throw ExamSessionExpiredException()
                     }
                     if (response.statusCode() != 200) {
                         throw IllegalStateException("${typeName}考试查询失败：HTTP ${response.statusCode()}")
                     }
-                    allExamItems.addAll(BenbuExamParser.parse(body, typeName, term))
+                    BenbuExamParser.parse(body, typeName, term)
                 }
 
-                LogUtils.success("getExamItems: term=$termCode total=${allExamItems.size}")
-                result.postValue(DataState(allExamItems, DataState.STATE.SUCCESS))
+                result.postValue(examState)
 
             } catch (e: Exception) {
                 LogUtils.e("getExamItems: failed", e)

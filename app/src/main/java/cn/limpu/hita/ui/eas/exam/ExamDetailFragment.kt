@@ -38,8 +38,6 @@ import cn.limpu.hita.data.repository.ExamEventMapper
 import cn.limpu.hita.ui.design.HitaComposeTheme
 import cn.limpu.hita.ui.design.HitaTheme
 import cn.limpu.hita.utils.LogUtils
-import java.sql.Timestamp
-import java.util.UUID
 
 class ExamDetailFragment(
     private val exam: ExamItem,
@@ -62,7 +60,7 @@ class ExamDetailFragment(
                 HitaComposeTheme() {
                     ExamDetailSheet(
                         exam = exam,
-                        onImport = { importExamToTimetable() },
+                        onImport = { (activity as? androidx.fragment.app.FragmentActivity)?.pickExamImportTarget { importExamToTimetable(it) } },
                         onEdit = onEdit?.let { callback ->
                             {
                                 dismiss()
@@ -81,23 +79,25 @@ class ExamDetailFragment(
         }
     }
 
-    private fun importExamToTimetable() {
-        val context = requireContext()
+    private fun importExamToTimetable(timetableId: String) {
+        val context = context ?: return
+        val host = activity ?: return
         Toast.makeText(context, "正在导入...", Toast.LENGTH_SHORT).show()
 
         Thread {
             try {
                 val appDatabase = AppDatabase.getDatabase(context.applicationContext as Application)
-                val eventItemDao = appDatabase.eventItemDao()
-                val timetableDao = appDatabase.timetableDao()
-                val defaultTimetable = timetableDao.getFirstCustomTimetableSync()
-                val timetable = defaultTimetable
-                    ?: timetableDao.getTimetableClosestToTimestampSync(System.currentTimeMillis())
-                    ?: timetableDao.getTimetablesSync().firstOrNull()
-                    ?: createDefaultTimetable(timetableDao)
-                val result = importExamEvent(timetable, eventItemDao)
+                val result = appDatabase.runInTransaction(java.util.concurrent.Callable {
+                    val eventItemDao = appDatabase.eventItemDao()
+                    val timetableDao = appDatabase.timetableDao()
+                    val timetable = requireNotNull(timetableDao.getTimetableByIdSync(timetableId)) {
+                        context.getString(R.string.exam_import_target_missing)
+                    }
+                    importExamEvent(context, timetable, eventItemDao)
+                })
 
-                requireActivity().runOnUiThread {
+                host.runOnUiThread {
+                    if (!isAdded || host.isFinishing || host.isDestroyed) return@runOnUiThread
                     Toast.makeText(context, result.message, Toast.LENGTH_SHORT).show()
                     if (result.success) {
                         LogUtils.d("✅ ${result.message}", "ExamDetailFragment")
@@ -108,7 +108,8 @@ class ExamDetailFragment(
                 }
             } catch (e: Exception) {
                 LogUtils.e("❌ 导入考试失败: ${e.message}", e, "ExamDetailFragment")
-                requireActivity().runOnUiThread {
+                host.runOnUiThread {
+                    if (!isAdded || host.isFinishing || host.isDestroyed) return@runOnUiThread
                     Toast.makeText(context, "导入失败: ${e.message}", Toast.LENGTH_SHORT).show()
                 }
             }
@@ -120,35 +121,8 @@ class ExamDetailFragment(
         val message: String
     )
 
-    private fun createDefaultTimetable(timetableDao: cn.limpu.hita.data.source.dao.TimetableDao): Timetable {
-        val defaultPrefix = requireContext().getString(R.string.default_timetable_name)
-        val existingTables = timetableDao.getTimetableNamesWithDefaultSync("$defaultPrefix%")
-        var maxNumber = 0
-        for (tableName in existingTables) {
-            val number = try {
-                tableName.replace(defaultPrefix, "").trim().toInt()
-            } catch (e: NumberFormatException) {
-                0
-            }
-            if (number > maxNumber) {
-                maxNumber = number
-            }
-        }
-
-        val newTable = Timetable().apply {
-            id = UUID.randomUUID().toString()
-            name = if (maxNumber > 0) "$defaultPrefix ${maxNumber + 1}" else defaultPrefix
-            code = ""
-            startTime = Timestamp(System.currentTimeMillis())
-            createdAt = Timestamp(System.currentTimeMillis())
-        }
-
-        timetableDao.saveTimetableSync(newTable)
-        LogUtils.d("✅ 创建默认课表: ${newTable.name}", "ExamDetailFragment")
-        return newTable
-    }
-
     private fun importExamEvent(
+        context: android.content.Context,
         timetable: Timetable,
         eventItemDao: cn.limpu.hita.data.source.dao.EventItemDao
     ): ImportResult {
@@ -156,15 +130,15 @@ class ExamDetailFragment(
             ?: return ImportResult(false, "考试时间格式解析失败")
         val examKey = ExamEventMapper.identityKey(examEvent)
         val isDuplicate = eventItemDao.getExamEventsSync().any { event ->
-            ExamEventMapper.identityKey(event) == examKey
+            event.timetableId == timetable.id && ExamEventMapper.identityKey(event) == examKey
         }
 
         if (isDuplicate) {
-            return ImportResult(false, "该考试已导入默认课表")
+            return ImportResult(false, context.getString(R.string.exam_import_already_in_target))
         }
 
         eventItemDao.insertEventSync(examEvent)
-        return ImportResult(true, "已导入到默认课表: ${timetable.name}")
+        return ImportResult(true, context.getString(R.string.exam_import_target_success, timetable.name.orEmpty()))
     }
 
 }
