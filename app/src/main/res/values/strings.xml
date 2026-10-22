@@ -1483,8 +1483,6 @@
     <string name="starred_article">收藏帖子</string>
     <string name="tab_search_article">帖子</string>
     <string name="success">成功</string>
-    <string name="undergrad_structure">本科生结构</string>
-    <string name="postgrad_structure">研究生结构</string>
     <string name="benbu_start_date_calibration_hint">本部课表默认按该学期第二个周一推断开学日期。若与学校通知不一致，请先左右按周调整或点日期卡片精确修改，再导入。</string>
     <string name="benbu_start_date_prev_week">上一周</string>
     <string name="benbu_start_date_next_week">下一周</string>
