@@ -611,6 +611,8 @@ object ActivityUtils {
         val dialog = AlertDialog.Builder(activity)
             .setTitle(activity.getString(R.string.update_download_progress_title, versionName))
             .setView(container)
+            // Keep polling active until completion or the explicit cancel action.
+            .setCancelable(false)
             .setNegativeButton(R.string.button_cancel) { _, _ ->
                 dm.remove(downloadId)
                 ApkInstallReceiver.clearPendingDownload(activity)

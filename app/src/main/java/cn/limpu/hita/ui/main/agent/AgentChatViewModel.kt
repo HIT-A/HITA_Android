@@ -2,6 +2,7 @@ package cn.limpu.hita.ui.main.agent
 
 import android.app.Application
 import android.net.Uri
+import android.os.Handler
 import android.os.Looper
 import android.util.Base64
 import androidx.lifecycle.LiveData
@@ -52,6 +53,10 @@ class AgentChatViewModel @Inject constructor(
     private val sessionDao = db.chatSessionDao()
     private val messageDao = db.chatMessageDao()
     private val ioExecutor = Executors.newSingleThreadExecutor()
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private val delivery = ChatSessionDelivery()
+    private var restoringSessionId: String? = null
+    private var initializingSession = false
 
     private val _messages = MutableLiveData<List<AgentChatMessage>>(emptyList())
     val messages: LiveData<List<AgentChatMessage>> = _messages
@@ -75,9 +80,8 @@ class AgentChatViewModel @Inject constructor(
     private val sessionPlaceholders = mutableMapOf<String, AgentChatMessage>()
     private val sessionLoadingStates = mutableMapOf<String, Boolean>()
 
-    @Volatile
-    var currentSessionId: String? = null
-        private set
+    val currentSessionId: String?
+        get() = delivery.currentSessionId
 
     private fun publishMessages() {
         if (Looper.myLooper() == Looper.getMainLooper()) {
@@ -103,29 +107,45 @@ class AgentChatViewModel @Inject constructor(
         }
     }
 
-    fun addMessage(message: AgentChatMessage) {
-        val sid = currentSessionId ?: return
-        synchronized(this) {
-            messageList = messageList + message
-            publishMessages()
+    fun addMessage(message: AgentChatMessage, targetSessionId: String? = null) {
+        val sid = targetSessionId ?: currentSessionId ?: return
+        when (delivery.receive(sid)) {
+            ChatSessionDelivery.Destination.DELETED -> return
+            ChatSessionDelivery.Destination.CURRENT -> {
+                messageList = messageList + message
+                publishMessages()
+            }
+            ChatSessionDelivery.Destination.BACKGROUND -> Unit
         }
+        persistMessage(sid, message)
+    }
+
+    private fun persistMessage(sid: String, message: AgentChatMessage) {
         ioExecutor.execute {
-            messageDao.save(
-                ChatMessageEntity(
+            db.runInTransaction {
+                persistChatMessage(
                     sessionId = sid,
-                    role = message.role.name,
-                    text = message.text,
-                    resourceCardsJson = AgentResourceCardCollector.toJson(message.resourceCards),
-                    timestampMs = message.timestampMs,
+                    message = message,
+                    sessionExists = sessionDao::exists,
+                    save = { sessionId, value ->
+                        messageDao.save(ChatMessageEntity(
+                            sessionId = sessionId,
+                            role = value.role.name,
+                            text = value.text,
+                            resourceCardsJson = AgentResourceCardCollector.toJson(value.resourceCards),
+                            timestampMs = value.timestampMs,
+                        ))
+                    },
+                    firstUserText = messageDao::getFirstUserTextSync,
+                    updateTitle = { sessionId, title -> sessionDao.updateTitle(sessionId, title) },
                 )
-            )
-            sessionDao.updateTitle(sid, deriveTitle(), System.currentTimeMillis())
+            }
         }
     }
 
     fun updateOrCreatePlaceholder(text: String, thinking: String? = null, targetSessionId: String? = null) {
         val sid = targetSessionId ?: currentSessionId ?: return
-        if (sid != currentSessionId) return
+        if (sid != currentSessionId || delivery.isDeleted(sid)) return
         synchronized(this) {
             val existing = sessionPlaceholders[sid]
             if (existing != null) {
@@ -155,7 +175,9 @@ class AgentChatViewModel @Inject constructor(
 
     fun replacePlaceholder(finalMessage: AgentChatMessage, targetSessionId: String? = null) {
         val sid = targetSessionId ?: currentSessionId ?: return
-        if (sid == currentSessionId) {
+        val destination = delivery.receive(sid)
+        if (destination == ChatSessionDelivery.Destination.DELETED) return
+        if (destination == ChatSessionDelivery.Destination.CURRENT) {
             synchronized(this) {
                 val existing = sessionPlaceholders[sid]
                 if (existing != null) {
@@ -176,34 +198,18 @@ class AgentChatViewModel @Inject constructor(
         } else {
             sessionPlaceholders.remove(sid)
         }
-        ioExecutor.execute {
-            messageDao.save(
-                ChatMessageEntity(
-                    sessionId = sid,
-                    role = finalMessage.role.name,
-                    text = finalMessage.text,
-                    resourceCardsJson = AgentResourceCardCollector.toJson(finalMessage.resourceCards),
-                    timestampMs = finalMessage.timestampMs,
-                )
-            )
-            sessionDao.updateTitle(sid, deriveTitle(), System.currentTimeMillis())
-        }
-    }
-
-    private fun deriveTitle(): String {
-        val firstUser = messageList.firstOrNull { it.role == AgentChatMessage.Role.USER }
-        return firstUser?.text?.take(20)?.plus(if ((firstUser.text.length) > 20) "…" else "")
-            ?: "新对话"
+        persistMessage(sid, finalMessage)
     }
 
     fun setStatus(text: String) {
         publishStatus(text)
     }
 
-    fun setLoading(loading: Boolean) {
-        val sid = currentSessionId ?: return
+    fun setLoading(loading: Boolean, targetSessionId: String? = null) {
+        val sid = targetSessionId ?: currentSessionId ?: return
+        if (delivery.isDeleted(sid)) return
         sessionLoadingStates[sid] = loading
-        publishLoading(loading)
+        if (sid == currentSessionId) publishLoading(loading || restoringSessionId == sid)
     }
 
     fun setPendingAttachment(uri: Uri?) {
@@ -216,7 +222,9 @@ class AgentChatViewModel @Inject constructor(
 
     fun createNewSession() {
         val session = ChatSession()
-        currentSessionId = session.id
+        delivery.select(session.id)
+        restoringSessionId = null
+        initializingSession = false
         sessionChatHistories[session.id] = mutableListOf()
         sessionPlaceholders.remove(session.id)
         sessionLoadingStates[session.id] = false
@@ -228,12 +236,20 @@ class AgentChatViewModel @Inject constructor(
     }
 
     fun switchToSession(sessionId: String) {
-        if (sessionId == currentSessionId) return
-        currentSessionId = sessionId
-        sessionChatHistories.getOrPut(sessionId) { mutableListOf() }
+        if (sessionId == currentSessionId || delivery.isDeleted(sessionId)) return
+        delivery.select(sessionId)
+        restoringSessionId = sessionId
+        messageList = emptyList()
+        publishMessages()
+        publishStatus("")
+        publishLoading(true)
+        restoreSession(sessionId)
+    }
+
+    private fun restoreSession(sessionId: String) {
+        val ticket = delivery.beginRestore(sessionId)
         ioExecutor.execute {
-            val entities = messageDao.getBySessionSync(sessionId)
-            val restored = entities.map { e ->
+            val restored = messageDao.getBySessionSync(sessionId).map { e ->
                 AgentChatMessage(
                     role = AgentChatMessage.Role.valueOf(e.role),
                     text = e.text,
@@ -241,52 +257,61 @@ class AgentChatViewModel @Inject constructor(
                     timestampMs = e.timestampMs,
                 )
             }
-            val restoredHistory = restored.filter {
-                it.role == AgentChatMessage.Role.USER || it.role == AgentChatMessage.Role.ASSISTANT
-            }.map {
-                ChatMessage(
-                    role = if (it.role == AgentChatMessage.Role.USER) "user" else "assistant",
-                    content = it.text,
-                )
+            mainHandler.post {
+                when (delivery.restoration(ticket)) {
+                    ChatSessionDelivery.RestoreDecision.OBSOLETE -> return@post
+                    ChatSessionDelivery.RestoreDecision.RELOAD -> {
+                        // A response arrived after this read. Its queued insert must finish
+                        // before another read can replace the visible messages/history.
+                        restoreSession(sessionId)
+                        return@post
+                    }
+                    ChatSessionDelivery.RestoreDecision.APPLY -> Unit
+                }
+                restoringSessionId = null
+                sessionChatHistories[sessionId] = restored.filter {
+                    it.role == AgentChatMessage.Role.USER || it.role == AgentChatMessage.Role.ASSISTANT
+                }.map {
+                    ChatMessage(if (it.role == AgentChatMessage.Role.USER) "user" else "assistant", it.text)
+                }.toMutableList()
+                messageList = restored + listOfNotNull(sessionPlaceholders[sessionId])
+                publishMessages()
+                publishLoading(sessionLoadingStates[sessionId] ?: false)
+                publishStatus("")
             }
-            synchronized(this) {
-                messageList = restored
-                sessionChatHistories[sessionId] = restoredHistory.toMutableList()
-                sessionPlaceholders.remove(sessionId)
-            }
-            _messages.postValue(restored)
-            _isLoading.postValue(sessionLoadingStates[sessionId] ?: false)
-            _status.postValue("")
         }
     }
 
     fun deleteSession(session: ChatSession) {
+        // Reject late results immediately, including while the database delete is queued.
+        delivery.delete(session.id)
+        sessionChatHistories.remove(session.id)
+        sessionPlaceholders.remove(session.id)
+        sessionLoadingStates.remove(session.id)
         ioExecutor.execute {
-            messageDao.deleteBySession(session.id)
-            sessionDao.delete(session)
-            sessionChatHistories.remove(session.id)
-            sessionPlaceholders.remove(session.id)
-            sessionLoadingStates.remove(session.id)
-            val nextSessionId = nextSessionIdAfterDeletion(
-                deletedSessionId = session.id,
-                currentSessionId = currentSessionId,
-                remainingLatestSessionId = sessionDao.getLatest()?.id,
-            )
-            when {
-                nextSessionId == null -> createNewSession()
-                nextSessionId != currentSessionId -> switchToSession(nextSessionId)
+            sessionDao.delete(session) // ForeignKey.CASCADE removes the messages atomically.
+            val latestId = sessionDao.getLatest()?.id
+            mainHandler.post {
+                val nextSessionId = nextSessionIdAfterDeletion(session.id, currentSessionId, latestId)
+                when {
+                    nextSessionId == null || delivery.isDeleted(nextSessionId) -> createNewSession()
+                    nextSessionId != currentSessionId -> switchToSession(nextSessionId)
+                }
             }
         }
     }
 
     fun ensureSession() {
-        if (currentSessionId != null) return
+        if (currentSessionId != null || initializingSession) return
+        initializingSession = true
+        publishLoading(true)
         ioExecutor.execute {
-            val latest = sessionDao.getLatest()
-            if (latest != null) {
-                switchToSession(latest.id)
-            } else {
-                createNewSession()
+            val latestId = sessionDao.getLatest()?.id
+            mainHandler.post {
+                initializingSession = false
+                if (currentSessionId != null) return@post
+                if (latestId != null && !delivery.isDeleted(latestId)) switchToSession(latestId)
+                else createNewSession()
             }
         }
     }
@@ -294,16 +319,17 @@ class AgentChatViewModel @Inject constructor(
     fun sendToLlm(
         text: String,
         agentProvider: cn.limpu.hita.agent.core.AgentProvider<TimetableAgentInput, TimetableAgentOutput>,
+        targetSessionId: String? = null,
     ) {
         ensureSession()
-        val sid = currentSessionId ?: return
+        val sid = targetSessionId ?: currentSessionId ?: return
+        if (delivery.isDeleted(sid)) return
         val history = sessionChatHistories.getOrPut(sid) { mutableListOf() }
         val analyticsOperation = UsageAnalyticsClient.begin(UsageAnalyticsEvent.AI_CHAT_STARTED)
         history.add(ChatMessage(role = "user", content = text))
 
         viewModelScope.launch {
-            sessionLoadingStates[sid] = true
-            if (sid == currentSessionId) publishLoading(true)
+            setLoading(true, sid)
 
             LlmChatService.chat(
                 history = history.toList(),
@@ -345,29 +371,26 @@ class AgentChatViewModel @Inject constructor(
                 },
                 onResult = { result ->
                     UsageAnalyticsClient.finish(analyticsOperation, UsageAnalyticsEvent.AI_CHAT_FINISHED, mapOf("outcome" to if (result is LlmChatResult.Success) "success" else "failure"))
-                    sessionLoadingStates[sid] = false
-                    if (sid == currentSessionId) publishLoading(false)
+                    if (delivery.isDeleted(sid)) return@chat
+                    setLoading(false, sid)
                     when (result) {
                         is LlmChatResult.Success -> {
-                            history.add(ChatMessage(role = "assistant", content = result.text))
-                            if (currentSessionId == sid) {
-                                replacePlaceholder(AgentChatMessage(
-                                    role = AgentChatMessage.Role.ASSISTANT,
-                                    text = result.text,
-                                    thinking = result.thinking,
-                                    resourceCards = result.resourceCards,
-                                ), targetSessionId = sid)
-                                setStatus("完成")
-                            }
+                            sessionChatHistories.getOrPut(sid) { mutableListOf() }
+                                .add(ChatMessage(role = "assistant", content = result.text))
+                            replacePlaceholder(AgentChatMessage(
+                                role = AgentChatMessage.Role.ASSISTANT,
+                                text = result.text,
+                                thinking = result.thinking,
+                                resourceCards = result.resourceCards,
+                            ), targetSessionId = sid)
+                            if (currentSessionId == sid) setStatus("完成")
                         }
                         is LlmChatResult.Error -> {
-                            if (currentSessionId == sid) {
-                                replacePlaceholder(AgentChatMessage(
-                                    role = AgentChatMessage.Role.ASSISTANT,
-                                    text = "操作失败: ${result.error}",
-                                ), targetSessionId = sid)
-                                setStatus("失败")
-                            }
+                            replacePlaceholder(AgentChatMessage(
+                                role = AgentChatMessage.Role.ASSISTANT,
+                                text = "操作失败: ${result.error}",
+                            ), targetSessionId = sid)
+                            if (currentSessionId == sid) setStatus("失败")
                         }
                     }
                 },
@@ -381,9 +404,11 @@ class AgentChatViewModel @Inject constructor(
         base64Content: String,
         mimeType: String,
         agentProvider: cn.limpu.hita.agent.core.AgentProvider<TimetableAgentInput, TimetableAgentOutput>,
+        targetSessionId: String? = null,
     ) {
         ensureSession()
-        val sid = currentSessionId ?: return
+        val sid = targetSessionId ?: currentSessionId ?: return
+        if (delivery.isDeleted(sid)) return
         val history = sessionChatHistories.getOrPut(sid) { mutableListOf() }
 
         val analyticsOperation = UsageAnalyticsClient.begin(UsageAnalyticsEvent.AI_CHAT_STARTED)
@@ -391,8 +416,7 @@ class AgentChatViewModel @Inject constructor(
         history.add(ChatMessage(role = "user", content = userMessage))
 
         viewModelScope.launch {
-            sessionLoadingStates[sid] = true
-            if (sid == currentSessionId) publishLoading(true)
+            setLoading(true, sid)
 
             LlmChatService.chatWithAttachment(
                 history = history.toList(),
@@ -436,29 +460,24 @@ class AgentChatViewModel @Inject constructor(
                 },
                 onResult = { result: LlmChatResult ->
                     UsageAnalyticsClient.finish(analyticsOperation, UsageAnalyticsEvent.AI_CHAT_FINISHED, mapOf("outcome" to if (result is LlmChatResult.Success) "success" else "failure"))
-                    sessionLoadingStates[sid] = false
-                    if (sid == currentSessionId) publishLoading(false)
+                    if (delivery.isDeleted(sid)) return@chatWithAttachment
+                    setLoading(false, sid)
                     when (result) {
                         is LlmChatResult.Success -> {
-                            if (!history.any { it.role == "assistant" && it.content == result.text }) {
-                                history.add(ChatMessage(role = "assistant", content = result.text))
-                            }
-                            if (currentSessionId == sid) {
-                                replacePlaceholder(AgentChatMessage(
-                                    role = AgentChatMessage.Role.ASSISTANT,
-                                    text = result.text,
-                                    thinking = result.thinking,
-                                    resourceCards = result.resourceCards,
-                                ), targetSessionId = sid)
-                            }
+                            sessionChatHistories.getOrPut(sid) { mutableListOf() }
+                                .add(ChatMessage(role = "assistant", content = result.text))
+                            replacePlaceholder(AgentChatMessage(
+                                role = AgentChatMessage.Role.ASSISTANT,
+                                text = result.text,
+                                thinking = result.thinking,
+                                resourceCards = result.resourceCards,
+                            ), targetSessionId = sid)
                         }
                         is LlmChatResult.Error -> {
-                            if (currentSessionId == sid) {
-                                replacePlaceholder(AgentChatMessage(
-                                    role = AgentChatMessage.Role.ASSISTANT,
-                                    text = "抱歉，处理过程中出现错误：${result.error}"
-                                ), targetSessionId = sid)
-                            }
+                            replacePlaceholder(AgentChatMessage(
+                                role = AgentChatMessage.Role.ASSISTANT,
+                                text = "抱歉，处理过程中出现错误：${result.error}"
+                            ), targetSessionId = sid)
                         }
                     }
                 },
@@ -483,22 +502,13 @@ class AgentChatViewModel @Inject constructor(
         uri: Uri,
         agentProvider: AgentProvider<TimetableAgentInput, TimetableAgentOutput>,
     ) {
-        setLoading(true)
+        val sid = currentSessionId ?: return
+        if (delivery.isDeleted(sid)) return
+        fun addAttachmentMessage(message: AgentChatMessage) = addMessage(message, sid)
+        setLoading(true, sid)
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 val fileName = getFileName(uri)
-
-                val fileSize = application.contentResolver.openInputStream(uri)?.use { it.available() } ?: 0
-                if (fileSize == 0) {
-                    withContext(Dispatchers.Main) {
-                        setLoading(false)
-                        addMessage(AgentChatMessage(
-                            role = AgentChatMessage.Role.ASSISTANT,
-                            text = "无法打开文件，请重试"
-                        ))
-                    }
-                    return@launch
-                }
 
                 val maxSize = when {
                     fileName.endsWith(".jpg", true) ||
@@ -515,126 +525,126 @@ class AgentChatViewModel @Inject constructor(
                     else -> MAX_FILE_SIZE
                 }
 
-                if (fileSize > maxSize) {
-                    withContext(Dispatchers.Main) {
-                        setLoading(false)
-                        addMessage(AgentChatMessage(
-                            role = AgentChatMessage.Role.ASSISTANT,
-                            text = "文件过大！\n当前文件：${fileName} (${formatFileSize(fileSize)})\n限制：${formatFileSize(maxSize)}\n\n建议：\n- 图片/视频请压缩到10MB以下\n- 文档请控制在20MB以下"
-                        ))
-                    }
-                    return@launch
-                }
-
-                val mimeType = getMimeType(fileName)
-                val needLocalParse = when {
-                    fileSize < 100 * 1024 && isTextFile(fileName) -> true
-                    fileName.endsWith(".docx", true) -> true
-                    fileName.endsWith(".xlsx", true) -> true
-                    fileName.endsWith(".pptx", true) -> true
-                    fileName.endsWith(".pdf", true) -> true
-                    else -> false
-                }
-                val needCloudAI = mimeType.startsWith("image/") || mimeType.startsWith("video/")
-
-                if (!needLocalParse && !needCloudAI) {
-                    withContext(Dispatchers.Main) {
-                        setLoading(false)
-                        addMessage(AgentChatMessage(
-                            role = AgentChatMessage.Role.ASSISTANT,
-                            text = "不支持的文件类型：${fileName}\n\n支持的格式：\n- 文档：PDF、Word、Excel、PowerPoint（本地解析）\n- 图片：JPG、PNG、GIF、WebP、BMP\n- 视频：MP4、MOV、AVI、MKV、WebM"
-                        ))
-                    }
-                    return@launch
-                }
-
-                val cacheDir = application.cacheDir
-                val tempFile = File(cacheDir, fileName)
-                application.contentResolver.openInputStream(uri)?.use { input ->
-                    tempFile.outputStream().use { output ->
-                        val buffer = ByteArray(8192)
-                        var bytesRead: Int
-                        while (input.read(buffer).also { bytesRead = it } > 0) {
-                            output.write(buffer, 0, bytesRead)
-                        }
-                    }
-                }
-
-                val result = when {
-                    fileSize < 100 * 1024 && isTextFile(fileName) -> {
-                        val fileText = tempFile.readText(Charsets.UTF_8)
-                        LocalParseResult.Success("【文本文件】\n$fileText")
-                    }
-                    fileName.endsWith(".pdf", true) -> parsePdfFile(tempFile)
-                    fileName.endsWith(".docx", true) -> parseDocxFile(tempFile)
-                    fileName.endsWith(".xlsx", true) -> parseExcelFile(tempFile)
-                    fileName.endsWith(".pptx", true) -> parsePptxFile(tempFile)
-                    mimeType.startsWith("image/") || mimeType.startsWith("video/") -> null
-                    else -> LocalParseResult.Error("不支持的文件类型")
-                }
-
-                val base64Content = if (result == null && needCloudAI) {
-                    try {
-                        val fileBytes = tempFile.readBytes()
-                        Base64.encodeToString(fileBytes, Base64.NO_WRAP)
-                    } catch (e: OutOfMemoryError) {
+                val input = application.contentResolver.openInputStream(uri)
+                    ?: throw java.io.IOException("无法打开文件，请重试")
+                cacheChatAttachment(input, application.cacheDir, maxSize).use { attachment ->
+                    val fileSize = attachment.byteCount
+                    val tempFile = attachment.file
+                    if (fileSize == 0) {
                         withContext(Dispatchers.Main) {
-                            setLoading(false)
-                            addMessage(AgentChatMessage(
+                            setLoading(false, sid)
+                            addAttachmentMessage(AgentChatMessage(
                                 role = AgentChatMessage.Role.ASSISTANT,
-                                text = "文件过大，无法处理。\n\n建议：\n1. 图片请压缩后重新上传（建议小于5MB）\n2. 视频请剪辑后重新上传（建议小于10MB）\n3. 或使用截图功能"
+                                text = "无法打开文件，请重试"
                             ))
                         }
                         return@launch
                     }
-                } else null
 
-                tempFile.delete()
+                    val mimeType = getMimeType(fileName)
+                    val needLocalParse = when {
+                        fileSize < 100 * 1024 && isTextFile(fileName) -> true
+                        fileName.endsWith(".docx", true) -> true
+                        fileName.endsWith(".xlsx", true) -> true
+                        fileName.endsWith(".pptx", true) -> true
+                        fileName.endsWith(".pdf", true) -> true
+                        else -> false
+                    }
+                    val needCloudAI = mimeType.startsWith("image/") || mimeType.startsWith("video/")
 
-                withContext(Dispatchers.Main) {
-                    when (result) {
-                        is LocalParseResult.Success -> {
-                            val maxLength = 5000
-                            val content = if (result.content.length > maxLength) {
-                                result.content.take(maxLength) + "\n\n...(内容过长，仅显示前${maxLength}字)"
-                            } else result.content
-                            val fullText = "$text\n\n[附件: $fileName]\n$content"
-                            addMessage(AgentChatMessage(role = AgentChatMessage.Role.USER, text = fullText))
-                            sendToLlm(fullText, agentProvider)
+                    if (!needLocalParse && !needCloudAI) {
+                        withContext(Dispatchers.Main) {
+                            setLoading(false, sid)
+                            addAttachmentMessage(AgentChatMessage(
+                                role = AgentChatMessage.Role.ASSISTANT,
+                                text = "不支持的文件类型：${fileName}\n\n支持的格式：\n- 文档：PDF、Word、Excel、PowerPoint（本地解析）\n- 图片：JPG、PNG、GIF、WebP、BMP\n- 视频：MP4、MOV、AVI、MKV、WebM"
+                            ))
                         }
-                        is LocalParseResult.Error -> {
-                            if (needCloudAI && base64Content != null) {
-                                val messageWithFile = "$text\n\n[附件: $fileName]"
-                                addMessage(AgentChatMessage(role = AgentChatMessage.Role.USER, text = messageWithFile))
-                                sendToLlmWithAttachment(text, fileName, base64Content, mimeType, agentProvider)
-                            } else {
-                                setLoading(false)
-                                addMessage(AgentChatMessage(
+                        return@launch
+                    }
+
+                    val result = when {
+                        fileSize < 100 * 1024 && isTextFile(fileName) -> {
+                            val fileText = tempFile.readText(Charsets.UTF_8)
+                            LocalParseResult.Success("【文本文件】\n$fileText")
+                        }
+                        fileName.endsWith(".pdf", true) -> parsePdfFile(tempFile)
+                        fileName.endsWith(".docx", true) -> parseDocxFile(tempFile)
+                        fileName.endsWith(".xlsx", true) -> parseExcelFile(tempFile)
+                        fileName.endsWith(".pptx", true) -> parsePptxFile(tempFile)
+                        mimeType.startsWith("image/") || mimeType.startsWith("video/") -> null
+                        else -> LocalParseResult.Error("不支持的文件类型")
+                    }
+
+                    val base64Content = if (result == null && needCloudAI) {
+                        try {
+                            val fileBytes = tempFile.readBytes()
+                            Base64.encodeToString(fileBytes, Base64.NO_WRAP)
+                        } catch (e: OutOfMemoryError) {
+                            withContext(Dispatchers.Main) {
+                                setLoading(false, sid)
+                                addAttachmentMessage(AgentChatMessage(
                                     role = AgentChatMessage.Role.ASSISTANT,
-                                    text = "附件解析失败：${result.error}\n\n建议：请复制文件内容粘贴到对话框中"
+                                    text = "文件过大，无法处理。\n\n建议：\n1. 图片请压缩后重新上传（建议小于5MB）\n2. 视频请剪辑后重新上传（建议小于10MB）\n3. 或使用截图功能"
                                 ))
                             }
+                            return@launch
                         }
-                        null -> {
-                            if (base64Content != null) {
-                                val messageWithFile = "$text\n\n[附件: $fileName]"
-                                addMessage(AgentChatMessage(role = AgentChatMessage.Role.USER, text = messageWithFile))
-                                sendToLlmWithAttachment(text, fileName, base64Content, mimeType, agentProvider)
-                            } else {
-                                setLoading(false)
-                                addMessage(AgentChatMessage(
-                                    role = AgentChatMessage.Role.ASSISTANT,
-                                    text = "不支持的文件类型，请尝试图片或视频"
-                                ))
+                    } else null
+
+                    withContext(Dispatchers.Main) {
+                        when (result) {
+                            is LocalParseResult.Success -> {
+                                val maxLength = 5000
+                                val content = if (result.content.length > maxLength) {
+                                    result.content.take(maxLength) + "\n\n...(内容过长，仅显示前${maxLength}字)"
+                                } else result.content
+                                val fullText = "$text\n\n[附件: $fileName]\n$content"
+                                addAttachmentMessage(AgentChatMessage(role = AgentChatMessage.Role.USER, text = fullText))
+                                sendToLlm(fullText, agentProvider, targetSessionId = sid)
+                            }
+                            is LocalParseResult.Error -> {
+                                if (needCloudAI && base64Content != null) {
+                                    val messageWithFile = "$text\n\n[附件: $fileName]"
+                                    addAttachmentMessage(AgentChatMessage(role = AgentChatMessage.Role.USER, text = messageWithFile))
+                                    sendToLlmWithAttachment(text, fileName, base64Content, mimeType, agentProvider, targetSessionId = sid)
+                                } else {
+                                    setLoading(false, sid)
+                                    addAttachmentMessage(AgentChatMessage(
+                                        role = AgentChatMessage.Role.ASSISTANT,
+                                        text = "附件解析失败：${result.error}\n\n建议：请复制文件内容粘贴到对话框中"
+                                    ))
+                                }
+                            }
+                            null -> {
+                                if (base64Content != null) {
+                                    val messageWithFile = "$text\n\n[附件: $fileName]"
+                                    addAttachmentMessage(AgentChatMessage(role = AgentChatMessage.Role.USER, text = messageWithFile))
+                                    sendToLlmWithAttachment(text, fileName, base64Content, mimeType, agentProvider, targetSessionId = sid)
+                                } else {
+                                    setLoading(false, sid)
+                                    addAttachmentMessage(AgentChatMessage(
+                                        role = AgentChatMessage.Role.ASSISTANT,
+                                        text = "不支持的文件类型，请尝试图片或视频"
+                                    ))
+                                }
                             }
                         }
                     }
                 }
+            } catch (e: ChatAttachmentTooLargeException) {
+                withContext(Dispatchers.Main) {
+                    setLoading(false, sid)
+                    addAttachmentMessage(AgentChatMessage(
+                        role = AgentChatMessage.Role.ASSISTANT,
+                        text = "文件过大！\n限制：${formatFileSize(e.maxBytes)}\n\n建议：\n- 图片/视频请压缩到10MB以下\n- 文档请控制在20MB以下"
+                    ))
+                }
             } catch (e: Exception) {
                 LogUtils.e("附件处理异常", e)
                 withContext(Dispatchers.Main) {
-                    setLoading(false)
-                    addMessage(AgentChatMessage(
+                    setLoading(false, sid)
+                    addAttachmentMessage(AgentChatMessage(
                         role = AgentChatMessage.Role.ASSISTANT,
                         text = "附件处理失败：${e.message}"
                     ))
@@ -642,8 +652,8 @@ class AgentChatViewModel @Inject constructor(
             } catch (e: OutOfMemoryError) {
                 LogUtils.e("内存不足异常", e)
                 withContext(Dispatchers.Main) {
-                    setLoading(false)
-                    addMessage(AgentChatMessage(
+                    setLoading(false, sid)
+                    addAttachmentMessage(AgentChatMessage(
                         role = AgentChatMessage.Role.ASSISTANT,
                         text = "内存不足，请尝试更小的文件"
                     ))

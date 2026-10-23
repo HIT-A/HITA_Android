@@ -164,7 +164,7 @@ internal class TimetableSnapshotStore(
                 .mapTo(hashSetOf()) { it.subjectId }
             eventDao.deleteCourseFromTimetable(snapshot.timetable.id)
             if (oldSubjectIds.isNotEmpty()) {
-                subjectDao.deleteSubjectsInIdsSync(oldSubjectIds.toList())
+                subjectDao.deleteUnusedSubjectsInTimetableSync(snapshot.timetable.id, oldSubjectIds.toList())
             }
             val restored = snapshot.timetable.toEntity().apply {
                 // Source snapshots restore courses, not current local display management.

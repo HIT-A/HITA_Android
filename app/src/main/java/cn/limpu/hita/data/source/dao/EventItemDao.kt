@@ -32,6 +32,10 @@ interface EventItemDao {
     @Query("DELETE FROM events WHERE timetableId is :timetableId AND source is 'EAS_IMPORT' AND type is 'CLASS'")
     fun deleteCourseFromTimetable(timetableId: String)
 
+    /** Source adoption must preserve manually added sessions and other event types. */
+    @Query("DELETE FROM events WHERE timetableId = :timetableId AND subjectId IN (:subjectIds) AND source = 'EAS_IMPORT' AND type = 'CLASS'")
+    fun deleteImportedClassesFromSubjectsSync(timetableId: String, subjectIds: List<String>)
+
     /**
      * 主课表 / 时间线使用的跨课表时间范围查询。
      *

@@ -3,6 +3,7 @@ package cn.limpu.hita.data.repository
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import androidx.annotation.WorkerThread
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MediatorLiveData
@@ -56,6 +57,7 @@ internal class EASTimetableImportRepository(
     private val timetablePreferenceSource: TimetablePreferenceSource,
     private val appContext: Context,
     private val authEpoch: AtomicLong,
+    private val tokenStateLock: Any,
     private val autoImportInProgress: AtomicBoolean,
 ) {
     private val database by lazy { cn.limpu.hita.data.AppDatabase.getDatabase(appContext) }
@@ -66,7 +68,8 @@ internal class EASTimetableImportRepository(
         startDate: Calendar,
         schedule: List<TimePeriodInDay>,//课表结构
         importTimetableLiveData: MediatorLiveData<DataState<Boolean>>,
-        importMode: TimetableImportMode = TimetableImportMode.REPLACE
+        importMode: TimetableImportMode = TimetableImportMode.REPLACE,
+        importOperation: EasTimetableImportGuard? = null,
     ) {
         startDate.set(Calendar.HOUR_OF_DAY, 0)
         startDate.set(Calendar.MINUTE, 0)
@@ -74,15 +77,19 @@ internal class EASTimetableImportRepository(
         startDate.set(Calendar.DAY_OF_WEEK, Calendar.MONDAY)
         startDate.set(Calendar.SECOND, 0)
         startDate.set(Calendar.MILLISECOND, 0)
-        val easToken = easPreferenceSource.getEasToken()
+        val (easToken, operation) = synchronized(tokenStateLock) {
+            val token = easPreferenceSource.getEasToken()
+            token to (importOperation ?: EasTimetableImportGuard(
+                token, authEpoch.get(), SystemClock.elapsedRealtime() + 90_000L
+            ))
+        }
         val timetableCode = EASTimetableCode.of(easToken.campus, term)
         val legacyTimetableCode = term.getCode()
         LogUtils.d("startImport: term=${term.getCode()}, campus=${easToken.campus}, code=$timetableCode, isLogin=${easToken.isLogin()}")
-        if (easToken.isLogin()) {
-            val finished = AtomicBoolean(false)
+        if (operation.isCurrentSession(authEpoch.get(), easToken)) {
             val timeoutHandler = Handler(Looper.getMainLooper())
             val timeoutRunnable = Runnable {
-                if (finished.compareAndSet(false, true)) {
+                if (operation.finishWaiting()) {
                     importTimetableLiveData.value =
                         DataState(DataState.STATE.FETCH_FAILED, "导入超时，请重试")
                 }
@@ -97,13 +104,14 @@ internal class EASTimetableImportRepository(
                         val courseItems = it.data
                         LogUtils.d( "import: timetable response state=${it.state} term=${term.getCode()} courseCount=${courseItems?.size ?: -1}")
                         if (courseItems.isNullOrEmpty()) {
-                            if (finished.compareAndSet(false, true)) {
+                            if (operation.finishWaiting()) {
                                 timeoutHandler.removeCallbacks(timeoutRunnable)
                                 importTimetableLiveData.value =
                                     DataState(DataState.STATE.FETCH_FAILED, "empty timetable")
                             }
                             return@addSource
                         }
+                        if (!operation.tryStartProcessing()) return@addSource
                         Thread {
                             try {
                                 val meta = if (easToken.campus == EASToken.Campus.SHENZHEN) {
@@ -324,7 +332,7 @@ internal class EASTimetableImportRepository(
                                 }
                                 if (events.isEmpty()) {
                                     LogUtils.w("import: empty events for term=${term.getCode()}")
-                                    if (finished.compareAndSet(false, true)) {
+                                    if (operation.finishWaiting()) {
                                         timeoutHandler.removeCallbacks(timeoutRunnable)
                                         importTimetableLiveData.postValue(
                                             DataState(DataState.STATE.FETCH_FAILED, "empty events")
@@ -332,68 +340,92 @@ internal class EASTimetableImportRepository(
                                     }
                                     return@Thread
                                 }
-                                LogUtils.d( "import: saving ${events.size} events for term=${term.getCode()}")
-                                val snapshotOwnerKey = FollowedTeachingSectionStore.ownerKey(easToken)
-                                if (importMode == TimetableImportMode.MERGE) {
-                                    applyMergedTimetable(
-                                        term = term,
-                                        easToken = easToken,
-                                        timetable = timetable,
-                                        pendingSubjects = pendingSubjects,
-                                        events = events,
-                                        maxTs = maxTs,
-                                        timetableCode = timetableCode,
-                                        timetableName = buildTimetableName(term, easToken.campus),
-                                        startMillis = startDate.timeInMillis,
-                                        schedule = safeSchedule,
-                                        isNewTimetable = isNewTimetable
-                                    )
-                                } else {
-                                    timetableSnapshotStore.capture(
-                                        snapshotOwnerKey,
-                                        term,
-                                        timetable,
-                                        TimetableSnapshotKind.BEFORE_REFRESH
-                                    )
-                                    database.runInTransaction {
-                                        eventItemDao.deleteCourseFromTimetable(timetable.id)
-                                        subjectDao.saveSubjectsSync(pendingSubjects.values.toList())
-                                        eventItemDao.saveEvents(events)
+                                // Keep token -> timetable order, including synchronous token observers.
+                                val committed = synchronized(tokenStateLock) {
+                                    timetableMutationLock.exclusive {
+                                        // Recheck only after taking both locks, before snapshots or Room writes.
+                                        if (!operation.tryBeginCommit(
+                                                authEpoch.get(), easPreferenceSource.getEasToken(),
+                                                SystemClock.elapsedRealtime()
+                                            )) {
+                                            return@exclusive false
+                                        }
+                                        timeoutHandler.removeCallbacks(timeoutRunnable)
+                                        LogUtils.d( "import: saving ${events.size} events for term=${term.getCode()}")
+                                        val snapshotOwnerKey = FollowedTeachingSectionStore.ownerKey(easToken)
+                                        if (importMode == TimetableImportMode.MERGE) {
+                                            applyMergedTimetable(
+                                                term = term,
+                                                easToken = easToken,
+                                                timetable = timetable,
+                                                pendingSubjects = pendingSubjects,
+                                                events = events,
+                                                maxTs = maxTs,
+                                                timetableCode = timetableCode,
+                                                timetableName = buildTimetableName(term, easToken.campus),
+                                                startMillis = startDate.timeInMillis,
+                                                schedule = safeSchedule,
+                                                isNewTimetable = isNewTimetable
+                                            )
+                                        } else {
+                                            timetableSnapshotStore.capture(
+                                                snapshotOwnerKey,
+                                                term,
+                                                timetable,
+                                                TimetableSnapshotKind.BEFORE_REFRESH
+                                            )
+                                            database.runInTransaction {
+                                                eventItemDao.deleteCourseFromTimetable(timetable.id)
+                                                subjectDao.saveSubjectsSync(pendingSubjects.values.toList())
+                                                eventItemDao.saveEvents(events)
 
-                                        // Preserve concurrently edited local display metadata.
-                                        val current = timetableDao.getTimetableByIdSync(timetable.id)
-                                        timetable.name = current?.name ?: buildTimetableName(term, easToken.campus)
-                                        timetable.groupId = current?.groupId
-                                        timetable.startTime = Timestamp(startDate.timeInMillis)
-                                        timetable.endTime = Timestamp(maxTs)
-                                        timetable.code = timetableCode
-                                        timetable.scheduleStructure = safeSchedule
-                                        timetableDao.saveTimetableSync(timetable)
+                                                // Preserve concurrently edited local display metadata.
+                                                val current = timetableDao.getTimetableByIdSync(timetable.id)
+                                                timetable.name = current?.name ?: buildTimetableName(term, easToken.campus)
+                                                timetable.groupId = current?.groupId
+                                                timetable.startTime = Timestamp(startDate.timeInMillis)
+                                                timetable.endTime = Timestamp(maxTs)
+                                                timetable.code = timetableCode
+                                                timetable.scheduleStructure = safeSchedule
+                                                timetableDao.saveTimetableSync(timetable)
+                                            }
+                                            timetableSnapshotStore.capture(
+                                                snapshotOwnerKey,
+                                                term,
+                                                timetable,
+                                                TimetableSnapshotKind.IMPORTED
+                                            )
+                                        }
+                                        // New tables can be created by either REPLACE or MERGE.
+                                        if (isNewTimetable) {
+                                            runCatching {
+                                                TimetableRepository(appContext.applicationContext as android.app.Application)
+                                                    .autoGroupAfterEasImportSync(timetable.id)
+                                            }.onFailure { LogUtils.e("import: auto-group failed", it) }
+                                        }
+                                        cleanupDefaultDuplicateTimetablesAfterImport(timetable.id)
+
+                                        if (operation.finishProcessing()) {
+                                            timeoutHandler.removeCallbacks(timeoutRunnable)
+                                            LogUtils.success("import: term=${term.getCode()} events=${events.size}")
+                                            importTimetableLiveData.postValue(DataState(true, DataState.STATE.SUCCESS))
+                                        }
+                                        true
                                     }
-                                    timetableSnapshotStore.capture(
-                                        snapshotOwnerKey,
-                                        term,
-                                        timetable,
-                                        TimetableSnapshotKind.IMPORTED
-                                    )
                                 }
-                                // New tables can be created by either REPLACE or MERGE.
-                                if (isNewTimetable) {
-                                    runCatching {
-                                        TimetableRepository(appContext.applicationContext as android.app.Application)
-                                            .autoGroupAfterEasImportSync(timetable.id)
-                                    }.onFailure { LogUtils.e("import: auto-group failed", it) }
-                                }
-                                cleanupDefaultDuplicateTimetablesAfterImport(timetable.id)
-
-                                if (finished.compareAndSet(false, true)) {
+                                if (!committed && operation.finishWaiting()) {
                                     timeoutHandler.removeCallbacks(timeoutRunnable)
-                                    LogUtils.success("import: term=${term.getCode()} events=${events.size}")
-                                    importTimetableLiveData.postValue(DataState(true, DataState.STATE.SUCCESS))
+                                    val stillCurrent = synchronized(tokenStateLock) {
+                                        operation.isCurrentSession(authEpoch.get(), easPreferenceSource.getEasToken())
+                                    }
+                                    importTimetableLiveData.postValue(
+                                        if (stillCurrent) DataState(DataState.STATE.FETCH_FAILED, "导入超时，请重试")
+                                        else DataState(DataState.STATE.NOT_LOGGED_IN)
+                                    )
                                 }
                             } catch (e: Exception) {
                                 LogUtils.e( "import: failed for term=${term.getCode()}", e)
-                                if (finished.compareAndSet(false, true)) {
+                                if (operation.finishProcessing()) {
                                     timeoutHandler.removeCallbacks(timeoutRunnable)
                                     importTimetableLiveData.postValue(
                                         DataState(DataState.STATE.FETCH_FAILED, e.message)
@@ -404,10 +436,10 @@ internal class EASTimetableImportRepository(
                     }
                     DataState.STATE.FETCH_FAILED, DataState.STATE.NOT_LOGGED_IN -> {
                         LogUtils.w( "import: timetable fetch failed for term=${term.getCode()} message=${it.message}")
-                        if (finished.compareAndSet(false, true)) {
+                        if (operation.finishWaiting()) {
                             timeoutHandler.removeCallbacks(timeoutRunnable)
                             importTimetableLiveData.value =
-                                DataState(DataState.STATE.FETCH_FAILED, it.message)
+                                DataState(it.state, it.message)
                         }
                     }
                     else -> Unit
@@ -545,7 +577,7 @@ internal class EASTimetableImportRepository(
         database.runInTransaction {
             val replacedSubjectIds = plan.replacedLocal.mapTo(HashSet()) { it.subjectId }
             if (replacedSubjectIds.isNotEmpty()) {
-                eventItemDao.deleteEventsFromSubjectsSync(replacedSubjectIds.toList())
+                eventItemDao.deleteImportedClassesFromSubjectsSync(timetable.id, replacedSubjectIds.toList())
             }
             if (plan.adopt.isNotEmpty()) {
                 val adoptSubjectIds = plan.adopt.mapTo(HashSet()) { it.subjectId }
@@ -794,7 +826,13 @@ internal class EASTimetableImportRepository(
         isUndergraduate: Boolean,
         onResult: ((AutoImportResult) -> Unit)? = null
     ) {
-        val token = easPreferenceSource.getEasToken()
+        val (token, expectedEpoch, operation) = synchronized(tokenStateLock) {
+            val current = easPreferenceSource.getEasToken()
+            val generation = authEpoch.get()
+            Triple(current, generation, EasTimetableImportGuard(
+                current, generation, SystemClock.elapsedRealtime() + 90_000L
+            ))
+        }
         if (!token.isLogin()) {
             onResult?.invoke(AutoImportResult.NOT_LOGGED_IN)
             return
@@ -804,7 +842,6 @@ internal class EASTimetableImportRepository(
             onResult?.invoke(AutoImportResult.SKIPPED_IN_PROGRESS)
             return
         }
-        val expectedEpoch = authEpoch.get()
         Thread {
             // 会话失效优先上报：上层据此引导重登，而不是当作普通失败静默吞掉。
             var result = AutoImportResult.FAILED
@@ -813,11 +850,11 @@ internal class EASTimetableImportRepository(
                 val service = getService(token.campus)
                 val termsState = awaitLiveData(service.getAllTerms(token), 6)
                 LogUtils.d("autoImport: terms state=${termsState.state} count=${termsState.data?.size ?: -1}")
+                if (!isCurrentAuthOperation(expectedEpoch)) return@Thread
                 if (termsState.state == DataState.STATE.NOT_LOGGED_IN) {
                     result = AutoImportResult.NOT_LOGGED_IN
                     return@Thread
                 }
-                if (!isCurrentAuthOperation(expectedEpoch)) return@Thread
                 val term = termsState.data?.firstOrNull { it.isCurrent }
                     ?: termsState.data?.firstOrNull()
                     ?: return@Thread
@@ -825,15 +862,16 @@ internal class EASTimetableImportRepository(
                 val startState = awaitLiveData(service.getStartDate(token, term), 6)
                 val startDate = startState.data
                 LogUtils.d("autoImport: startDate state=${startState.state}")
+                if (!isCurrentAuthOperation(expectedEpoch)) return@Thread
                 if (startState.state == DataState.STATE.NOT_LOGGED_IN) {
                     result = AutoImportResult.NOT_LOGGED_IN
                     return@Thread
                 }
-                if (!isCurrentAuthOperation(expectedEpoch)) return@Thread
                 val scheduleState = awaitLiveData(
                     service.getScheduleStructure(term, isUndergraduate, token),
                     6
                 )
+                if (!isCurrentAuthOperation(expectedEpoch)) return@Thread
                 if (scheduleState.state == DataState.STATE.NOT_LOGGED_IN) {
                     result = AutoImportResult.NOT_LOGGED_IN
                     return@Thread
@@ -867,34 +905,50 @@ internal class EASTimetableImportRepository(
                         startDate,
                         schedule,
                         importLive,
-                        TimetableImportMode.MERGE
+                        TimetableImportMode.MERGE,
+                        importOperation = operation,
                     )
                 }
-                latch.await(25, TimeUnit.SECONDS)
+                if (!latch.await(25, TimeUnit.SECONDS)) {
+                    val cancelled = operation.finishWaiting()
+                    // Only an active local commit may receive a short grace period. FINISHED
+                    // without an observer callback must not leave this worker waiting forever.
+                    if (cancelled || !operation.isCommitting() || !latch.await(5, TimeUnit.SECONDS)) {
+                        mainHandler.post { importLive.removeObserver(observer) }
+                        return@Thread
+                    }
+                }
                 mainHandler.post { importLive.removeObserver(observer) }
+                if (!isCurrentAuthOperation(expectedEpoch)) return@Thread
                 if (importState.get() == DataState.STATE.NOT_LOGGED_IN) {
                     result = AutoImportResult.NOT_LOGGED_IN
                     return@Thread
                 }
-                if (!isCurrentAuthOperation(expectedEpoch)) return@Thread
 
                 val examState = awaitLiveData(service.getExamItems(token, term), 8)
+                if (!isCurrentAuthOperation(expectedEpoch)) return@Thread
                 if (examState.state == DataState.STATE.NOT_LOGGED_IN) {
                     result = AutoImportResult.NOT_LOGGED_IN
                     return@Thread
                 }
-                if (!isCurrentAuthOperation(expectedEpoch)) return@Thread
                 val timetableCode = EASTimetableCode.of(token.campus, term)
-                val timetable = timetableDao.getTimetableByEASCodeCandidatesSync(
-                    EASTimetableCode.candidates(term, token.campus),
-                    timetableCode,
-                    term.getCode()
-                )
-                val importedExamCount = if (timetable == null) {
-                    LogUtils.w("autoImport: skip exams, timetable not found code=$timetableCode")
-                    0
-                } else {
-                    importExamItemsSync(examState.data.orEmpty(), timetable)
+                val importedExamCount = synchronized(tokenStateLock) {
+                    timetableMutationLock.exclusive {
+                        if (!operation.isCurrentSession(authEpoch.get(), easPreferenceSource.getEasToken())) {
+                            return@exclusive 0
+                        }
+                        val timetable = timetableDao.getTimetableByEASCodeCandidatesSync(
+                            EASTimetableCode.candidates(term, token.campus),
+                            timetableCode,
+                            term.getCode()
+                        )
+                        if (timetable == null) {
+                            LogUtils.w("autoImport: skip exams, timetable not found code=$timetableCode")
+                            0
+                        } else {
+                            importExamItemsSync(examState.data.orEmpty(), timetable)
+                        }
+                    }
                 }
                 LogUtils.d(
                     "autoImport: exam state=${examState.state} " +
@@ -906,8 +960,10 @@ internal class EASTimetableImportRepository(
             } catch (error: Exception) {
                 LogUtils.e("autoImport: failed, error=${error.message}", error)
             } finally {
+                operation.finishWaiting()
                 autoImportInProgress.set(false)
-                onResult?.invoke(result)
+                val reportedResult = if (authEpoch.get() == expectedEpoch) result else AutoImportResult.FAILED
+                onResult?.invoke(reportedResult)
             }
         }.start()
     }

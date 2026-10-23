@@ -123,6 +123,7 @@ class EASRepository @Inject constructor(
         timetablePreferenceSource = timetablePreferenceSource,
         appContext = appContext,
         authEpoch = authEpoch,
+        tokenStateLock = tokenStateLock,
         autoImportInProgress = autoImportInProgress,
     )
 
