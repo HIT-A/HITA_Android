@@ -441,6 +441,7 @@ private fun TimetableScreen(
     )
     val timetables by viewModel.timetableLiveData.observeAsState(emptyList())
     val resolvedScope by viewModel.resolvedScope.observeAsState()
+    val calendarPeriods by viewModel.academicCalendarPeriods.observeAsState(emptyList())
     val startTime by viewModel.startTimeLiveData.observeAsState(viewModel.currentStartTime())
     val periodLabel by viewModel.periodLabelLiveData.observeAsState(viewModel.isPeriodLabelEnabled())
     val wallpaperPath by viewModel.wallpaperPathLiveData.observeAsState(viewModel.wallpaperPath())
@@ -453,8 +454,8 @@ private fun TimetableScreen(
     LaunchedEffect(currentPageStart) {
         viewModel.windowStartData[viewModel.startIndex].value = currentPageStart
     }
-    LaunchedEffect(currentPageStart, resolvedScope) {
-        onTitleState(buildTitleState(context, currentPageStart, resolvedScope))
+    LaunchedEffect(currentPageStart, resolvedScope, calendarPeriods) {
+        onTitleState(buildTitleState(context, currentPageStart, resolvedScope, calendarPeriods))
     }
 
     val style = remember(windowEvents, startTime, periodLabel) {
@@ -644,18 +645,18 @@ private fun buildTitleState(
     context: Context,
     currentPageStart: Long,
     scope: ResolvedDisplayScope?,
+    periods: List<cn.limpu.hita.data.source.web.eas.AcademicCalendarPeriod>,
 ): TimetableTitleState {
     if (scope == null) {
         return TimetableTitleState.Single(context.getString(R.string.no_timetable))
     }
-    // 当前周落在学期内的课表(含手动课表),多份命中取 startTime 最小;均未命中显示假期。
-    val hit = scope.timetables
-        .filter { currentPageStart in it.startTime.time..it.endTime.time }
-        .minByOrNull { it.startTime.time }
-    val wk = hit?.getWeekNumber(currentPageStart) ?: -1
+    val result = cn.limpu.hita.data.repository.TimetableCalendarTitle.resolve(scope.timetables, currentPageStart, periods)
     return TimetableTitleState.Week(
-        title = if (wk > 0) context.getString(R.string.week_title, wk)
-            else context.getString(R.string.holiday),
+        title = when {
+            result.week != null -> context.getString(R.string.week_title, result.week)
+            result.vacation -> context.getString(R.string.holiday)
+            else -> context.getString(R.string.outside_selected_term)
+        },
         name = scope.name,
     )
 }
@@ -715,18 +716,16 @@ private fun TimetableWeekContent(
     var isAnimating by remember { mutableStateOf(false) }
     val isAppleGlass = hitaIsAppleGlassSurface()
 
-    val displayOffset = if (isAnimating) animOffset.value else dragAccum
-    val displayAlpha = if (contentWidthPx > 0f) {
-        (1f - (abs(displayOffset) / contentWidthPx).coerceIn(0f, 1f))
-    } else 1f
-
     // 晚间课程提示：当前周有 ≥18:30 开始的课程，且晚间课程尚未滚入视野时显示；
     // 滚到底部附近自动隐藏，避免遮挡正常课表内容；可在课表显示设置中关闭
     val eveningHintHideThresholdPx = with(density) { 64.dp.toPx() }
-    val showEveningHint by remember(events, eveningHintEnabled, displayTimeZone) {
+    val hasEveningEvents = remember(events, displayTimeZone) {
+        events.any { eventMinutes(it.from.time, displayTimeZone) >= EVENING_HINT_START_MINUTES }
+    }
+    val showEveningHint by remember(hasEveningEvents, eveningHintEnabled, scrollState, eveningHintHideThresholdPx) {
         derivedStateOf {
             eveningHintEnabled &&
-                events.any { eventMinutes(it.from.time, displayTimeZone) >= EVENING_HINT_START_MINUTES } &&
+                hasEveningEvents &&
                 scrollState.maxValue > 0 &&
                 scrollState.value < scrollState.maxValue - eveningHintHideThresholdPx
         }
@@ -741,48 +740,55 @@ private fun TimetableWeekContent(
             modifier = Modifier
                 .fillMaxSize()
                 .graphicsLayer {
-                    translationX = displayOffset
-                    alpha = displayAlpha
+                    // Read animation state in the layer phase, without recomposing the grid each frame.
+                    val offset = if (isAnimating) animOffset.value else dragAccum
+                    translationX = offset
+                    alpha = if (contentWidthPx > 0f) {
+                        1f - (abs(offset) / contentWidthPx).coerceIn(0f, 1f)
+                    } else 1f
                 }
                 .onSizeChanged { contentWidthPx = it.width.toFloat() }
                 .pointerInput(startDate) {
                     detectHorizontalDragGestures(
                         onDragEnd = {
                             if (isAnimating) return@detectHorizontalDragGestures
-                            coroutineScope.launch {
-                                val threshold = contentWidthPx * 0.15f
-                                val cur = dragAccum
+                            val cur = dragAccum
+                            val width = contentWidthPx
+                            if (cur == 0f || width <= 0f) {
                                 dragAccum = 0f
-                                when {
-                                    cur > threshold -> {
-                                        isAnimating = true
-                                        animOffset.snapTo(cur)
-                                        animOffset.animateTo(contentWidthPx, tween(150))
-                                        onPrevWeek()
-                                        animOffset.snapTo(-contentWidthPx)
-                                        animOffset.animateTo(0f, tween(150))
-                                        isAnimating = false
+                                return@detectHorizontalDragGestures
+                            }
+                            isAnimating = true
+                            coroutineScope.launch {
+                                try {
+                                    animOffset.snapTo(cur)
+                                    dragAccum = 0f
+                                    when {
+                                        cur > width * 0.15f -> {
+                                            animOffset.animateTo(width, tween(150))
+                                            onPrevWeek()
+                                            animOffset.snapTo(-width)
+                                            animOffset.animateTo(0f, tween(150))
+                                        }
+                                        cur < -width * 0.15f -> {
+                                            animOffset.animateTo(-width, tween(150))
+                                            onNextWeek()
+                                            animOffset.snapTo(width)
+                                            animOffset.animateTo(0f, tween(150))
+                                        }
+                                        else -> animOffset.animateTo(0f, spring())
                                     }
-                                    cur < -threshold -> {
-                                        isAnimating = true
-                                        animOffset.snapTo(cur)
-                                        animOffset.animateTo(-contentWidthPx, tween(150))
-                                        onNextWeek()
-                                        animOffset.snapTo(contentWidthPx)
-                                        animOffset.animateTo(0f, tween(150))
-                                        isAnimating = false
-                                    }
-                                    cur != 0f -> {
-                                        isAnimating = true
-                                        animOffset.snapTo(cur)
-                                        animOffset.animateTo(0f, spring())
-                                        isAnimating = false
-                                    }
+                                } finally {
+                                    dragAccum = 0f
+                                    isAnimating = false
                                 }
                             }
                         },
+                        onDragCancel = { dragAccum = 0f },
                         onHorizontalDrag = { _, drag ->
-                            dragAccum = (dragAccum + drag).coerceIn(-contentWidthPx, contentWidthPx)
+                            if (!isAnimating) {
+                                dragAccum = (dragAccum + drag).coerceIn(-contentWidthPx, contentWidthPx)
+                            }
                         }
                     )
                 }
@@ -1255,35 +1261,37 @@ private fun TimetableEventLayer(
     val baseMinutes = startHour * 60
     BoxWithConstraintsCompat {
         val sectionWidth = maxWidth / 7f
-        val cardPlacements = renderList.map { (positioned, clusterEvents) ->
-            val event = positioned.event
-            val dayLeft = sectionWidth * (TimetableDisplayTime.dayOfWeek(event.from.time, displayTimeZone) - 1)
-            if (clusterEvents != null) {
-                // 合并卡片：覆盖冲突簇的时间并集，宽度与普通卡片一致
-                val clusterMinFrom = clusterEvents.minOf { it.from.time }
-                val clusterMaxTo = clusterEvents.maxOf { it.to.time }
-                val clusterTop =
-                    (eventMinutes(clusterMinFrom, displayTimeZone) - baseMinutes).coerceAtLeast(0).toFloat() * dpPerMinute
-                val clusterDuration = ((clusterMaxTo - clusterMinFrom) / 60000L).toInt().coerceAtLeast(15).toFloat()
-                TimetableCardPlacement(
-                    positioned = positioned,
-                    clusterEvents = clusterEvents,
-                    xOffset = dayLeft + 2.dp,
-                    yOffset = clusterTop,
-                    width = (sectionWidth - 4.dp).coerceAtLeast(0.dp),
-                    height = clusterDuration.toFloat() * dpPerMinute,
-                )
-            } else {
-                val minutesFromBase = (eventMinutes(event.from.time, displayTimeZone) - baseMinutes).coerceAtLeast(0)
-                val duration = event.getDurationInMinutes().coerceAtLeast(15).toFloat()
-                TimetableCardPlacement(
-                    positioned = positioned,
-                    clusterEvents = null,
-                    xOffset = dayLeft + 2.dp,
-                    yOffset = minutesFromBase.toFloat() * dpPerMinute,
-                    width = (sectionWidth - 4.dp).coerceAtLeast(0.dp),
-                    height = duration.toFloat() * dpPerMinute,
-                )
+        val cardPlacements = remember(renderList, displayTimeZone, sectionWidth, baseMinutes, dpPerMinute) {
+            renderList.map { (positioned, clusterEvents) ->
+                val event = positioned.event
+                val dayLeft = sectionWidth * (TimetableDisplayTime.dayOfWeek(event.from.time, displayTimeZone) - 1)
+                if (clusterEvents != null) {
+                    // 合并卡片：覆盖冲突簇的时间并集，宽度与普通卡片一致
+                    val clusterMinFrom = clusterEvents.minOf { it.from.time }
+                    val clusterMaxTo = clusterEvents.maxOf { it.to.time }
+                    val clusterTop =
+                        (eventMinutes(clusterMinFrom, displayTimeZone) - baseMinutes).coerceAtLeast(0).toFloat() * dpPerMinute
+                    val clusterDuration = ((clusterMaxTo - clusterMinFrom) / 60000L).toInt().coerceAtLeast(15).toFloat()
+                    TimetableCardPlacement(
+                        positioned = positioned,
+                        clusterEvents = clusterEvents,
+                        xOffset = dayLeft + 2.dp,
+                        yOffset = clusterTop,
+                        width = (sectionWidth - 4.dp).coerceAtLeast(0.dp),
+                        height = clusterDuration.toFloat() * dpPerMinute,
+                    )
+                } else {
+                    val minutesFromBase = (eventMinutes(event.from.time, displayTimeZone) - baseMinutes).coerceAtLeast(0)
+                    val duration = event.getDurationInMinutes().coerceAtLeast(15).toFloat()
+                    TimetableCardPlacement(
+                        positioned = positioned,
+                        clusterEvents = null,
+                        xOffset = dayLeft + 2.dp,
+                        yOffset = minutesFromBase.toFloat() * dpPerMinute,
+                        width = (sectionWidth - 4.dp).coerceAtLeast(0.dp),
+                        height = duration.toFloat() * dpPerMinute,
+                    )
+                }
             }
         }
 

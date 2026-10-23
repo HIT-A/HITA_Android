@@ -44,6 +44,10 @@ interface SubjectDao {
     @Query("delete from subject where id in (:ids)")
     fun deleteSubjectsInIdsSync(ids: List<String>)
 
+    /** Retain subjects referenced by manual sessions, including legacy cross-table references. */
+    @Query("DELETE FROM subject WHERE timetableId = :timetableId AND id IN (:ids) AND NOT EXISTS (SELECT 1 FROM events WHERE events.subjectId = subject.id)")
+    fun deleteUnusedSubjectsInTimetableSync(timetableId: String, ids: List<String>)
+
     @Query("update subject set color = :color where id =:id")
     fun changeSubjectColorSync(id: String, color: Int)
 

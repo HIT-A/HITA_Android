@@ -98,28 +98,8 @@ class ExamActivity : EASActivity<ExamViewModel, ComposeViewBinding>() {
     }
 
     private fun bindLiveData() {
-        viewModel.termsLiveData.observe(this) { data ->
-            if (data.state == DataState.STATE.SUCCESS) {
-                if (data.data.isNullOrEmpty()) {
-                    isRefreshing = false
-                    showEmpty = true
-                }
-            } else if (data.state == DataState.STATE.NOT_LOGGED_IN) {
-                if (!handleSessionExpired {
-                        refresh()
-                        true
-                    }) {
-                    isRefreshing = false
-                    showEmpty = !viewModel.hasExamMemos()
-                }
-            } else {
-                isRefreshing = false
-                showEmpty = true
-            }
-        }
         viewModel.selectedTermLiveData.observe(this) { term ->
             term?.let {
-                isRefreshing = true
                 if (viewModel.examInfoLiveData.value?.data.isNullOrEmpty()) {
                     Toast.makeText(this, "正在加载考试数据，请稍候...", Toast.LENGTH_SHORT).show()
                 }
@@ -131,7 +111,7 @@ class ExamActivity : EASActivity<ExamViewModel, ComposeViewBinding>() {
                 "ExamActivity: received state=${it.state}, data size=${it.data?.size}",
                 "ExamActivity"
             )
-            isRefreshing = false
+            isRefreshing = it.state == DataState.STATE.LOADING
             if (it.state == DataState.STATE.SUCCESS) {
                 showEmpty = it.data.isNullOrEmpty()
                 resetSessionRetryState()
@@ -149,7 +129,6 @@ class ExamActivity : EASActivity<ExamViewModel, ComposeViewBinding>() {
     }
 
     override fun refresh() {
-        isRefreshing = true
         viewModel.startRefresh()
     }
 

@@ -37,7 +37,8 @@ class TimetableViewModel @Inject constructor(
     private val timetableStyleRepository: TimetableStyleRepository,
     private val changeStore: TimetableChangeStore,
     private val sourceApplier: TimetableSourceApplier,
-    private val scopeResolver: DisplayScopeResolver
+    private val scopeResolver: DisplayScopeResolver,
+    private val academicCalendarRepository: cn.limpu.hita.data.repository.AcademicCalendarRepository
 ) : ViewModel() {
 
     private val timetableController = MutableLiveData<Trigger>()
@@ -80,6 +81,7 @@ class TimetableViewModel @Inject constructor(
 
     /** 当前显示目标（独立课表或组合课表）；主课表/标题/添加事件的归属都经它。 */
     val resolvedScope: LiveData<ResolvedDisplayScope?> = scopeResolver.resolved
+    val academicCalendarPeriods = academicCalendarRepository.periods
     val scopeOptions: LiveData<List<DisplayScopeResolver.ScopeOption>> = scopeResolver.options
 
     /** 显示目标内全部课程的存储色（subjectId → color）；颜色分配器输入,不随周导航变化。 */
@@ -138,6 +140,7 @@ class TimetableViewModel @Inject constructor(
     }
 
     fun startRefresh() {
+        viewModelScope.launch(Dispatchers.IO) { academicCalendarRepository.refresh() }
         timetableRepository.actionPrepareTimetableList()
         timetableController.value = Trigger.actioning
     }

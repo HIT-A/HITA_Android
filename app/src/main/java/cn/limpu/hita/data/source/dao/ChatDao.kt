@@ -23,6 +23,9 @@ interface ChatSessionDao {
     @Query("SELECT * FROM chat_session ORDER BY updatedAt DESC LIMIT 1")
     fun getLatest(): ChatSession?
 
+    @Query("SELECT EXISTS(SELECT 1 FROM chat_session WHERE id = :id)")
+    fun exists(id: String): Boolean
+
     @Query("UPDATE chat_session SET title = :title, updatedAt = :updatedAt WHERE id = :id")
     fun updateTitle(id: String, title: String, updatedAt: Long = System.currentTimeMillis())
 }
@@ -40,6 +43,9 @@ interface ChatMessageDao {
 
     @Query("SELECT * FROM chat_message WHERE sessionId = :sessionId ORDER BY timestampMs ASC")
     fun getBySessionSync(sessionId: String): List<ChatMessageEntity>
+
+    @Query("SELECT text FROM chat_message WHERE sessionId = :sessionId AND role = 'USER' ORDER BY timestampMs ASC LIMIT 1")
+    fun getFirstUserTextSync(sessionId: String): String?
 
     @Query("DELETE FROM chat_message WHERE sessionId = :sessionId")
     fun deleteBySession(sessionId: String)

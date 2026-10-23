@@ -133,7 +133,7 @@ class TimetableSourceApplier internal constructor(
             subject.name = patched.name
             subject.timetableId = timetable.id
             if (!patched.code.isNullOrBlank()) subject.code = patched.code
-            eventItemDao.deleteEventsFromSubjectsSync(listOf(subject.id))
+            eventItemDao.deleteImportedClassesFromSubjectsSync(timetable.id, listOf(subject.id))
             subjectDao.saveSubjectsSync(listOf(subject))
             val events = patched.lessons.map { it.toEventItem(subject.id, timetable.id) }
             if (events.isNotEmpty()) eventItemDao.saveEvents(events)
@@ -151,9 +151,9 @@ class TimetableSourceApplier internal constructor(
 
         val incoming = item.incoming
         if (incoming == null) {
-            // 用户确认该课真实取消：删除本地课程与课次
-            eventItemDao.deleteEventsFromSubjectsSync(listOf(item.subjectId))
-            subjectDao.deleteSubjectsInIdsSync(listOf(item.subjectId))
+            // 用户确认该课真实取消：仅删除教务导入课次，无事件引用时清理科目
+            eventItemDao.deleteImportedClassesFromSubjectsSync(timetable.id, listOf(item.subjectId))
+            subjectDao.deleteUnusedSubjectsInTimetableSync(timetable.id, listOf(item.subjectId))
             return
         }
         val localSubject = subjectDao.getSubjectsSync(timetable.id)
@@ -166,7 +166,7 @@ class TimetableSourceApplier internal constructor(
         subject.name = incoming.name
         subject.timetableId = timetable.id
         if (!incoming.code.isNullOrBlank()) subject.code = incoming.code
-        eventItemDao.deleteEventsFromSubjectsSync(listOf(subject.id))
+        eventItemDao.deleteImportedClassesFromSubjectsSync(timetable.id, listOf(subject.id))
         subjectDao.saveSubjectsSync(listOf(subject))
         eventItemDao.saveEvents(
             incoming.lessons.map { it.toEventItem(subject.id, timetable.id) }

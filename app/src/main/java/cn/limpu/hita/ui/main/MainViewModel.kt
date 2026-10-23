@@ -63,12 +63,13 @@ class MainViewModel @Inject constructor(
 
     // StateFlow 迁移示例：checkUpdateResult 从 LiveData+switchMap 迁移到 Flow 管线。
     // UI 侧用 lifecycleScope.launch { viewModel.checkUpdateResult.collect { ... } } 订阅。
-    private val checkUpdateTrigger = MutableStateFlow<Long?>(null)
+    private var updateRequestSequence = 0L
+    private val checkUpdateTrigger = MutableStateFlow<Pair<Long, Long>?>(null)
 
     @OptIn(ExperimentalCoroutinesApi::class)
     val checkUpdateResult: StateFlow<DataState<CheckUpdateResult>> = checkUpdateTrigger
         .filterNotNull()
-        .flatMapLatest { currentCode ->
+        .flatMapLatest { (currentCode, _) ->
             flow {
                 emit(
                     updateRepository.checkUpdateWithFallback(
@@ -96,6 +97,6 @@ class MainViewModel @Inject constructor(
 
 
     fun checkForUpdate(versionCode: Long) {
-        checkUpdateTrigger.value = versionCode
+        checkUpdateTrigger.value = versionCode to ++updateRequestSequence
     }
 }
