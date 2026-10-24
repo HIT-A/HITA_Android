@@ -2137,7 +2137,7 @@ private fun MainDrawer(
                 Spacer(Modifier.height(12.dp))
                 Text(
                     text = stringResource(R.string.main_drawer_co_authored),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 11.sp,
                     modifier = Modifier.fillMaxWidth(),
                     textAlign = TextAlign.Center

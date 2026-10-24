@@ -63,7 +63,7 @@ internal fun DeveloperCredits(
                             Text(
                                 text = separator,
                                 style = textStyle,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
                                 maxLines = 1,
                                 softWrap = false
                             )

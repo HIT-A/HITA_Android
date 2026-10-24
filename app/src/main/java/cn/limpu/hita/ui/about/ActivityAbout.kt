@@ -61,6 +61,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
@@ -83,6 +84,7 @@ import cn.limpu.hita.ui.design.DeveloperCredits
 import cn.limpu.hita.data.model.ReleaseHistoryItem
 import cn.limpu.hita.ui.design.HitaComposeTheme
 import cn.limpu.hita.ui.design.HitaTheme
+import cn.limpu.hita.ui.design.scrimForWhiteText
 import cn.limpu.hita.utils.ActivityUtils
 import cn.limpu.hita.utils.LogUtils
 import com.limpu.style.ThemeTools
@@ -269,7 +271,7 @@ private fun AboutScreen(
                     Spacer(Modifier.height(12.dp))
                     Text(
                         text = stringResource(R.string.main_drawer_co_authored),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = 11.sp,
                         modifier = Modifier.fillMaxWidth(),
                         textAlign = TextAlign.Center
@@ -355,6 +357,15 @@ private fun AboutHeader(
     onOpenAgreement: () -> Unit,
 ) {
     val tokens = HitaTheme.tokens
+    // 头部是浅色品牌渐变 + 白字：深色模式下 primary 是浅蓝（#6BB5F7），
+    // 白字对比度只有 2.2:1。这里按实际亮度把渐变压暗到达标（≥4.6:1），
+    // 保留品牌色相，避免每套主题各写一份深色头部。
+    val gradientStart = colorResource(R.color.primary)
+    val gradientEnd = colorResource(R.color.color_fade)
+    val headerScrim = maxOf(
+        scrimForWhiteText(gradientStart),
+        scrimForWhiteText(gradientEnd)
+    )
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -362,8 +373,8 @@ private fun AboutHeader(
             .background(
                 Brush.linearGradient(
                     listOf(
-                        colorResource(R.color.primary),
-                        colorResource(R.color.color_fade)
+                        lerp(gradientStart, Color.Black, headerScrim),
+                        lerp(gradientEnd, Color.Black, headerScrim)
                     )
                 )
             )
@@ -420,7 +431,7 @@ private fun AboutHeader(
                 modifier = Modifier.padding(top = tokens.spacing.sm)
             )
             Surface(
-                color = Color.White.copy(alpha = 0.33f),
+                color = Color.Black.copy(alpha = 0.20f),
                 shape = RoundedCornerShape(tokens.radius.full),
                 modifier = Modifier
                     .padding(top = tokens.spacing.md)
