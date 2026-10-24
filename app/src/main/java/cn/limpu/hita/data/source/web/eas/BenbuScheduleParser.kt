@@ -367,62 +367,32 @@ object BenbuScheduleParser {
 
     private fun parseExperimentCell(cellHtml: String, dow: Int, periodLabel: String, periodRange: String): List<CourseItem> {
         val courses = mutableListOf<CourseItem>()
+        val parts = cellHtml.split(Regex("""<\s*/?\s*br\s*/?\s*>""", RegexOption.IGNORE_CASE))
+            .map { Jsoup.parseBodyFragment(it).text().replace('\u00A0', ' ').trim() }
+            .filter { it.isNotBlank() }
+        val schedulePattern = Regex("""\[\d+周第[\d，]+节\]""")
+        var courseName: String? = null
 
-        // 移除<a>标签但保留内容
-        var cleanedHtml = cellHtml.replace(Regex("<a[^>]*>(.*?)</a>", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL)), "$1")
-        // 移除<span class=red>标签但保留内容
-        cleanedHtml = cleanedHtml.replace(Regex("<span[^>]*class=\"red\"[^>]*>(.*?)</span>", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL)), "$1")
-        // 按<br>分割
-        val parts = cleanedHtml.split(Regex("""<\s*/?\s*br\s*/?\s*>""", setOf(RegexOption.IGNORE_CASE)))
-            .map { it.replace(Regex("<[^>]+>"), "").replace(" ", " ").trim() }
-            .filter { part -> part.isNotBlank() && part != "&nbsp;" }
-
-        if (parts.isEmpty()) return courses
-
-        var index = 0
-        while (index < parts.size) {
-            val courseName = parts[index].trim()
-            if (courseName.isEmpty()) {
-                index++
+        for (line in parts) {
+            val schedule = schedulePattern.find(line)
+            if (schedule == null) {
+                // A title is a boundary regardless of its length or words such as 周/节.
+                courseName = line
                 continue
             }
-            index++
 
-            // 收集后续行，直到遇到下一个课程名或结束
-            val details = mutableListOf<String>()
-            while (index < parts.size) {
-                val line = parts[index].trim()
-                // 更准确地判断是否是新的课程名：
-                // - 包含"上课形式"、"周"、"节"之一的是detail
-                // - 或者包含方括号的也是detail
-                // - 其他情况（长度>5且不含上述关键词）可能是新课程名
-                val isDetail = line.contains("上课形式") || line.contains("周") || line.contains("节") || line.contains("[")
-                if (!isDetail && line.length > 5) {
-                    break
-                }
-                details.add(line)
-                index++
-            }
-
-            // 解析详细信息
-            if (details.isNotEmpty()) {
-                // 有detail行，正常解析
-                for (detail in details) {
-                    val course = parseExperimentDetail(courseName, detail, dow, periodLabel, periodRange)
-                    if (course != null) {
-                        courses.add(course)
-                    }
-                }
+            val beforeSchedule = line.substring(0, schedule.range.first).trim()
+            if (beforeSchedule.contains(' ')) {
+                // Combined line: course name + teacher + schedule. Never inherit the previous title.
+                val course = parseExperimentDetailFromCombined(line, dow, periodLabel, periodRange)
+                courseName = course?.name
+                if (course != null) courses.add(course)
             } else {
-                // 没有detail行，可能是courseName本身就包含了完整信息
-                // 尝试从courseName中解析
-                val course = parseExperimentDetailFromCombined(courseName, dow, periodLabel, periodRange)
-                if (course != null) {
-                    courses.add(course)
-                }
+                // Repeated detail lines belong to the most recent explicit course title.
+                val name = courseName ?: continue
+                parseExperimentDetail(name, line, dow, periodLabel, periodRange)?.let(courses::add)
             }
         }
-
         return courses
     }
 
