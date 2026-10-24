@@ -62,6 +62,7 @@ import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
@@ -88,6 +89,7 @@ import cn.limpu.hita.ui.design.hitaIsAppleGlassSurface
 import cn.limpu.hita.ui.design.hitaIsPersona
 import cn.limpu.hita.ui.design.hitaPersonaCardModifier
 import cn.limpu.hita.ui.design.hitaStyleCardShape
+import cn.limpu.hita.ui.design.scrimForWhiteText
 import cn.limpu.hita.ui.widgets.WidgetUtils
 import cn.limpu.hita.utils.EventsUtils
 import cn.limpu.hita.utils.HintUtils
@@ -98,6 +100,9 @@ import cn.limpu.hita.utils.TimeTools.TTY_WK_FOLLOWING
 import dagger.hilt.android.AndroidEntryPoint
 import java.util.Calendar
 import java.util.Collections
+
+/** banner 白字的目标对比度；比正文 4.5 略高，留给副标题的 0.8 alpha。 */
+private const val BANNER_CONTRAST_TARGET = 6.5f
 
 @AndroidEntryPoint
 class FragmentTimeLine : HiltBaseFragmentWithReceiver<ComposeViewBinding>() {
@@ -486,6 +491,21 @@ private fun TimelineHeaderCard(
     val view = LocalView.current
     val isGlass = hitaIsAppleGlassSurface()
     val cardShape = hitaStyleCardShape(20.dp, 16.dp)
+    // banner 上是 24sp/16sp 白字：深色主题下 primary/secondary 常是浅色，
+    // 白字只有 1.7–3.2:1。按亮度把渐变压暗到 6.5:1，副标题再叠 0.8 alpha 也还有 ~4.7:1。
+    val bannerPrimary = MaterialTheme.colorScheme.primary
+    // 波普涂鸦深色模式下 secondary 接近纯白，直接参与渐变会把整块压成灰色，先向 primary 收一点。
+    val bannerSecondary = if (hitaIsPersona()) {
+        lerp(bannerPrimary, MaterialTheme.colorScheme.secondary, 0.45f)
+    } else {
+        MaterialTheme.colorScheme.secondary
+    }
+    val bannerScrim = maxOf(
+        scrimForWhiteText(bannerPrimary, BANNER_CONTRAST_TARGET),
+        scrimForWhiteText(bannerSecondary, BANNER_CONTRAST_TARGET)
+    )
+    val bannerTop = lerp(bannerPrimary, Color.Black, bannerScrim)
+    val bannerBottom = lerp(bannerSecondary, Color.Black, bannerScrim)
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -516,14 +536,11 @@ private fun TimelineHeaderCard(
                     Brush.linearGradient(
                         colors = if (isGlass) {
                             listOf(
-                                MaterialTheme.colorScheme.primary.copy(alpha = 0.48f),
-                                MaterialTheme.colorScheme.secondary.copy(alpha = 0.32f)
+                                bannerTop.copy(alpha = 0.48f),
+                                bannerBottom.copy(alpha = 0.32f)
                             )
                         } else {
-                            listOf(
-                                MaterialTheme.colorScheme.primary,
-                                MaterialTheme.colorScheme.secondary
-                            )
+                            listOf(bannerTop, bannerBottom)
                         }
                     )
                 )
