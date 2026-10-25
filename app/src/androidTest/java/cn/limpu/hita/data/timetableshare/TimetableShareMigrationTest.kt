@@ -1,51 +1,17 @@
 package cn.limpu.hita.data.timetableshare
 
 import androidx.room.Room
-import androidx.sqlite.db.SupportSQLiteDatabase
-import androidx.sqlite.db.SupportSQLiteOpenHelper
-import androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import cn.limpu.hita.data.AppDatabase
-import org.json.JSONObject
+import cn.limpu.hita.data.createLegacyAppDatabase
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class TimetableShareMigrationTest {
-    private fun createLegacyDatabase(name: String, version: Int = 14): SupportSQLiteOpenHelper {
-        val instrumentation = InstrumentationRegistry.getInstrumentation()
-        val context = instrumentation.targetContext
-        context.deleteDatabase(name)
-        val schema = instrumentation.context.assets.open("cn.limpu.hita.data.AppDatabase/$version.json")
-            .bufferedReader().use { JSONObject(it.readText()).getJSONObject("database") }
-        val callback = object : SupportSQLiteOpenHelper.Callback(version) {
-            override fun onCreate(db: SupportSQLiteDatabase) {
-                val entities = schema.getJSONArray("entities")
-                for (i in 0 until entities.length()) {
-                    val entity = entities.getJSONObject(i)
-                    val table = entity.getString("tableName")
-                    db.execSQL(entity.getString("createSql").replace("$" + "{TABLE_NAME}", table))
-                    entity.optJSONArray("indices")?.let { indices ->
-                        for (j in 0 until indices.length()) {
-                            db.execSQL(indices.getJSONObject(j).getString("createSql")
-                                .replace("$" + "{TABLE_NAME}", table))
-                        }
-                    }
-                }
-                val setup = schema.getJSONArray("setupQueries")
-                for (i in 0 until setup.length()) db.execSQL(setup.getString(i))
-            }
-
-            override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) {
-                error("Unexpected legacy database upgrade")
-            }
-        }
-        return FrameworkSQLiteOpenHelperFactory().create(
-            SupportSQLiteOpenHelper.Configuration.builder(context).name(name).callback(callback).build()
-        )
-    }
+    private fun createLegacyDatabase(name: String, version: Int = 14) = createLegacyAppDatabase(name, version)
 
     @Test fun migrates14To17PreservingEveryPersonalColumn() {
         val name = "timetable-share-migration-test-v14"
