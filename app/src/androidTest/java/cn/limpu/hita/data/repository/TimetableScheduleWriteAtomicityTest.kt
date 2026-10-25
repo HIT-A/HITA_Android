@@ -33,7 +33,9 @@ class TimetableScheduleWriteAtomicityTest {
 
     @Before fun setUp() {
         db = Room.inMemoryDatabaseBuilder(app, AppDatabase::class.java).build()
-        repository = TimetableRepository(app, db)
+        repository = TimetableRepository(app, db, DisplayScopeSelector {
+            error("Schedule writes must not change the display scope")
+        })
         db.timetableDao().saveTimetableSync(Timetable().apply {
             id = "table"; name = "秋季课表"
             startTime = Timestamp(start)

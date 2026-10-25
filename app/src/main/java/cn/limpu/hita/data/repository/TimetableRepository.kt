@@ -31,6 +31,10 @@ import cn.limpu.hita.utils.ColorTools
 import java.lang.NumberFormatException
 import java.util.*
 import java.util.concurrent.Executors
+import dagger.hilt.EntryPoint
+import dagger.hilt.InstallIn
+import dagger.hilt.android.EntryPointAccessors
+import dagger.hilt.components.SingletonComponent
 
 import net.fortuna.ical4j.model.component.VAlarm
 
@@ -51,12 +55,36 @@ import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.InputStream
 
+/** Compatibility boundary for callers that do not receive repositories from Hilt. */
+@EntryPoint
+@InstallIn(SingletonComponent::class)
+internal interface DisplayScopeSelectionEntryPoint {
+    fun displayScopeSelector(): DisplayScopeSelector
+}
+
+internal class ApplicationDisplayScopeSelector(private val application: Application) : DisplayScopeSelector {
+    override fun select(scope: DisplayScope) {
+        EntryPointAccessors.fromApplication(application, DisplayScopeSelectionEntryPoint::class.java)
+            .displayScopeSelector().select(scope)
+    }
+}
 
 class TimetableRepository internal constructor(
     val application: Application,
     private val database: AppDatabase,
+    private val displayScopeSelector: DisplayScopeSelector,
 ) {
-    @Inject constructor(application: Application) : this(application, AppDatabase.getDatabase(application))
+    @Inject constructor(application: Application, displayScopeSelector: DisplayScopeSelector) : this(
+        application, AppDatabase.getDatabase(application), displayScopeSelector,
+    )
+
+    // Legacy callers construct this repository directly. Resolve only when a selection is made,
+    // so read-only callers do not initialize the coordinator or its resolver.
+    constructor(application: Application) : this(
+        application,
+        AppDatabase.getDatabase(application),
+        ApplicationDisplayScopeSelector(application),
+    )
 
     companion object {
         private const val EXAM_REMINDER_DAYS = 30
@@ -413,7 +441,7 @@ class TimetableRepository internal constructor(
                 }
             }
         }
-        selected?.let(displayScopeResolver::select)
+        selected?.let(displayScopeSelector::select)
         groupName?.let(::notifyGroupedInto)
     }
 

@@ -1,11 +1,10 @@
 # 历史分层依赖例外：每行是仓库相对路径 + 空白 + 完整 UI 引用。
 # 精确匹配，不按前缀或通配符放行，不绑定行号。仅允许删除，不能新增或替换。
 # 清理引用时同步删除对应行；引用已消失（包括文件删除）而例外残留会失败。
-# 阶段 1.2 清理共享模型/常量；阶段 2.1 处理 DisplayScopeResolver 副作用。
+# 共享模型/常量与 DisplayScopeResolver 的平台刷新依赖已清理。
 # 三个 Worker 的平台入口引用暂保留，后续单独处理。
 # 本地检查：python3 scripts/check_repository.py --base-ref origin/main
 
-app/src/main/java/cn/limpu/hita/data/repository/DisplayScopeResolver.kt	cn.limpu.hita.ui.widgets.WidgetUtils.sendRefreshToAll
 app/src/main/java/cn/limpu/hita/data/work/CourseReminderWorker.kt	cn.limpu.hita.ui.main.MainActivity
 app/src/main/java/cn/limpu/hita/data/work/ScoreReminderWorker.kt	cn.limpu.hita.ui.eas.score.ScoreInquiryActivity
 app/src/main/java/cn/limpu/hita/data/work/WidgetRefreshWorker.kt	cn.limpu.hita.ui.widgets.WidgetUtils

@@ -122,6 +122,7 @@ import cn.limpu.hita.ui.design.DeveloperCredits
 import cn.limpu.hita.data.repository.EASRepository
 import cn.limpu.hita.data.repository.BlogRepository
 import cn.limpu.hita.data.repository.DisplayScopeResolver
+import cn.limpu.hita.data.repository.DisplayScopeSelector
 import cn.limpu.hita.data.repository.EasSettingsRepository
 import cn.limpu.hita.data.repository.KEY_WALLPAPER_PATH
 import cn.limpu.hita.data.repository.TimetableStyleRepository
@@ -208,6 +209,7 @@ class MainActivity : HiltBaseActivity<ComposeViewBinding>(),
     @Inject lateinit var timetableStyleRepository: TimetableStyleRepository
     @Inject lateinit var blogRepository: BlogRepository
     @Inject lateinit var scopeResolver: DisplayScopeResolver
+    @Inject lateinit var scopeSelector: DisplayScopeSelector
 
     protected val viewModel: MainViewModel by viewModels()
 
@@ -902,7 +904,7 @@ class MainActivity : HiltBaseActivity<ComposeViewBinding>(),
 
     private fun onScopeSelected(index: Int) {
         val option = scopeOptionList.getOrNull(index) ?: return
-        scopeResolver.select(option.scope)
+        scopeSelector.select(option.scope)
         // 切到该目标的当前周;目标学期不含今天时跳到第一周周一。
         val now = System.currentTimeMillis()
         val weekMills = 7L * 24 * 3600 * 1000

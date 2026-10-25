@@ -1,6 +1,8 @@
 package cn.limpu.hita.di
 
 import android.content.Context
+import cn.limpu.hita.data.repository.DisplayScopeSelector
+import cn.limpu.hita.feature.timetable.display.DisplayScopeCoordinator
 import cn.limpu.hita.data.source.preference.*
 import cn.limpu.hita.data.source.web.GitHubWebSource
 import cn.limpu.hita.data.source.web.StaticWebSource
@@ -14,6 +16,9 @@ import javax.inject.Singleton
 @Module
 @InstallIn(SingletonComponent::class)
 object RepositoryModule {
+
+    @Provides
+    fun provideDisplayScopeSelector(coordinator: DisplayScopeCoordinator): DisplayScopeSelector = coordinator
 
     @Provides
     @Singleton

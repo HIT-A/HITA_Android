@@ -13,6 +13,7 @@ import cn.limpu.hita.data.model.timetable.EventItem
 import cn.limpu.hita.data.model.timetable.Timetable
 import cn.limpu.hita.data.model.timetable.DisplayScope
 import cn.limpu.hita.data.repository.DisplayScopeResolver
+import cn.limpu.hita.data.repository.DisplayScopeSelector
 import cn.limpu.hita.data.repository.ResolvedDisplayScope
 import cn.limpu.hita.data.repository.TimetableChangeStore
 import cn.limpu.hita.data.repository.TimetableChangeState
@@ -39,6 +40,7 @@ class TimetableViewModel @Inject constructor(
     private val changeStore: TimetableChangeStore,
     private val sourceApplier: TimetableSourceApplier,
     private val scopeResolver: DisplayScopeResolver,
+    private val scopeSelector: DisplayScopeSelector,
     private val academicCalendarRepository: cn.limpu.hita.data.repository.AcademicCalendarRepository
 ) : ViewModel() {
 
@@ -95,7 +97,7 @@ class TimetableViewModel @Inject constructor(
         }
     }
 
-    fun selectScope(scope: DisplayScope) = scopeResolver.select(scope)
+    fun selectScope(scope: DisplayScope) = scopeSelector.select(scope)
 
     val windowEventsData: MutableList<MediatorLiveData<EventStylePair>> =
         mutableListOf()

@@ -9,6 +9,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import cn.limpu.hita.data.AppDatabase
 import cn.limpu.hita.data.model.timetable.EventItem
 import cn.limpu.hita.data.repository.*
+import cn.limpu.hita.feature.timetable.display.DisplayScopeCoordinator
 import cn.limpu.hita.feature.timetableshare.protocol.*
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
@@ -33,10 +34,12 @@ class TimetableManagerImportInstrumentedTest {
         val app = ApplicationProvider.getApplicationContext<Application>()
         val db = Room.inMemoryDatabaseBuilder(app, AppDatabase::class.java).build()
         val store = ViewModelStore()
-        val repository = TimetableRepository(app, db)
+        val resolver = DisplayScopeResolver(app, db)
+        val selector = DisplayScopeCoordinator(resolver::persistSelection, {}, {})
+        val repository = TimetableRepository(app, db, selector)
         lateinit var model: TimetableManagerViewModel
         instrumentation.runOnMainSync {
-            model = TimetableManagerViewModel(repository, DisplayScopeResolver(app, db),
+            model = TimetableManagerViewModel(repository, selector,
                 TimetableSharingRepository(db), TimetableExportRepository(db, app), FriendTimetableRepository(db))
             store.put("manager", model)
         }
