@@ -66,6 +66,7 @@ class TimetableRepository internal constructor(
         ContextCompat.getColor(application, R.color.subject8)
     }
     private val executor = Executors.newSingleThreadExecutor()
+    private val timetableMutationLock = TimetableMutationLock()
     private val handler = Handler(Looper.getMainLooper())
     private val eventItemDao = database.eventItemDao()
     private val timetableDao = database.timetableDao()
@@ -1046,29 +1047,41 @@ class TimetableRepository internal constructor(
     }
 
     fun actionChangeTimetableStartDate(timetable: Timetable, startTime: Long) {
-        executor.execute { changeTimetableStartDateSync(timetable, startTime) }
+        executor.execute {
+            runCatching { changeTimetableStartDateSync(timetable, startTime) }
+                .onFailure { LogUtils.e("Failed to change timetable start date", it) }
+        }
     }
 
+    /** 课表起点与课次偏移同事务写入；以库中最新课表为准，不修改调用方对象。 */
     @WorkerThread
-    internal fun changeTimetableStartDateSync(timetable: Timetable, startTime: Long) {
-        val calendar = TimeTools.getMonday(startTime)
-        val offset = calendar.timeInMillis - timetable.startTime.time
-        timetable.endTime.time = timetable.endTime.time + offset
-        timetable.startTime.time = calendar.timeInMillis
-        timetableDao.saveTimetableSync(timetable)
-        eventItemDao.updateClassesAddOffset(timetableId = timetable.id, offset)
+    internal fun changeTimetableStartDateSync(timetable: Timetable, startTime: Long) = timetableMutationLock.exclusive {
+        database.runInTransaction {
+            val current = timetableDao.getTimetableByIdSync(timetable.id) ?: return@runInTransaction
+            val calendar = TimeTools.getMonday(startTime)
+            val offset = calendar.timeInMillis - current.startTime.time
+            current.endTime.time = current.endTime.time + offset
+            current.startTime.time = calendar.timeInMillis
+            timetableDao.saveTimetableSync(current)
+            eventItemDao.updateClassesAddOffset(timetableId = current.id, offset)
+        }
     }
 
     fun actionChangeTimetableStructure(timetable: Timetable, tp: TimePeriodInDay, position: Int) {
-        executor.execute { changeTimetableStructureSync(timetable, tp, position) }
+        executor.execute {
+            runCatching { changeTimetableStructureSync(timetable, tp, position) }
+                .onFailure { LogUtils.e("Failed to change timetable structure", it) }
+        }
     }
 
+    /** 作息与受影响课次同事务写入；以库中最新课表为准，不修改调用方对象。 */
     @WorkerThread
-    internal fun changeTimetableStructureSync(timetable: Timetable, tp: TimePeriodInDay, position: Int) {
-        timetable.setScheduleStructure(tp, position)
-        run {
-            timetableDao.saveTimetableSync(timetable)
-            val fromToChange = eventItemDao.getClassAtFromNumberSync(timetable.id, position + 1)
+    internal fun changeTimetableStructureSync(timetable: Timetable, tp: TimePeriodInDay, position: Int) = timetableMutationLock.exclusive {
+        database.runInTransaction {
+            val current = timetableDao.getTimetableByIdSync(timetable.id) ?: return@runInTransaction
+            current.setScheduleStructure(tp, position)
+            timetableDao.saveTimetableSync(current)
+            val fromToChange = eventItemDao.getClassAtFromNumberSync(current.id, position + 1)
             val tmp = Calendar.getInstance()
             val ids = mutableListOf<String>()
             for (e in fromToChange) {
@@ -1079,7 +1092,7 @@ class TimetableRepository internal constructor(
                 e.from.time = tmp.timeInMillis
             }
             eventItemDao.saveEvents(fromToChange)
-            val endToChange = eventItemDao.getClassAtToNumberSync(timetable.id, position + 1)
+            val endToChange = eventItemDao.getClassAtToNumberSync(current.id, position + 1)
             for (e in endToChange) {
                 ids.add(e.id)
                 tmp.timeInMillis = e.to.time
