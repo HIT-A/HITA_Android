@@ -9,14 +9,17 @@ import cn.limpu.hita.data.model.timetable.TermSubject
 import cn.limpu.hita.data.model.timetable.Timetable
 import cn.limpu.hita.data.repository.SubjectRepository
 import cn.limpu.hita.data.repository.TimetableRepository
+import cn.limpu.hita.feature.timetable.write.TimetableWriteUseCaseFactory
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 
 @HiltViewModel
 class SubjectViewModel @Inject constructor(
     private val subjectRepository: SubjectRepository,
-    private val timetableRepository: TimetableRepository
+    private val timetableRepository: TimetableRepository,
+    writeUseCaseFactory: TimetableWriteUseCaseFactory,
 ) : ViewModel() {
+    private val timetableWrites = writeUseCaseFactory.create(timetableRepository)
 
     /**
      * LiveData区
@@ -48,18 +51,18 @@ class SubjectViewModel @Inject constructor(
 
     fun deleteCourses(list: Collection<EventItem>) {
         if (list.isEmpty()) return
-        timetableRepository.actionDeleteEvents(list)
+        timetableWrites.delete(list)
     }
 
     fun updateCourses(list: Collection<EventItem>) {
         if (list.isEmpty()) return
-        timetableRepository.actionUpdateEvents(list)
+        timetableWrites.update(list)
     }
 
     fun deleteAllCourses() {
         val all = classesLiveData.value.orEmpty()
         if (all.isNotEmpty()) {
-            timetableRepository.actionDeleteEvents(all)
+            timetableWrites.delete(all)
         }
     }
 }

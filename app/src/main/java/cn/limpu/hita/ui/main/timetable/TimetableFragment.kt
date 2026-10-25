@@ -114,7 +114,6 @@ import cn.limpu.hita.data.model.timetable.TimePeriodInDay
 import cn.limpu.hita.data.model.timetable.Timetable
 import cn.limpu.hita.data.repository.TimetableDecisionItem
 import cn.limpu.hita.data.repository.TimetableHeldBatch
-import cn.limpu.hita.data.repository.TimetableRepository
 import cn.limpu.hita.ui.base.ComposeViewBinding
 import cn.limpu.hita.ui.base.HiltBaseFragment
 import cn.limpu.hita.ui.design.HitaComposeTheme
@@ -147,7 +146,6 @@ import cn.limpu.hita.ui.event.add.PopupAddEvent
 import cn.limpu.hita.ui.main.timetable.views.TimetableCardTextScale
 import cn.limpu.hita.ui.main.timetable.views.TimetableOverlapLayout
 import cn.limpu.hita.ui.main.timetable.views.TimetableOverlapLayout.PositionedEvent
-import cn.limpu.hita.ui.widgets.WidgetUtils
 import cn.limpu.hita.ui.subject.SubjectBatchDeleteDialog
 import cn.limpu.hita.ui.subject.SubjectBatchDeleteScope
 import cn.limpu.hita.ui.subject.SubjectBatchEditDialog
@@ -401,12 +399,7 @@ class TimetableFragment : HiltBaseFragment<ComposeViewBinding>() {
             .setNegativeButton(R.string.button_cancel, null)
             .setPositiveButton(R.string.button_confirm) { _, _ ->
                 view?.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
-                Thread {
-                    activity?.application?.let {
-                        TimetableRepository(it).actionDeleteEvents(eventItems)
-                        activity?.let { act -> WidgetUtils.sendRefreshToAll(act) }
-                    }
-                }.start()
+                viewModel.deleteEvents(eventItems)
             }
             .show()
     }
@@ -615,7 +608,6 @@ private fun TimetableScreen(
                             slotTimes = slotTimes,
                         )
                         viewModel.updateEvents(edited)
-                        WidgetUtils.sendRefreshToAll(context)
                         Toast.makeText(
                             context,
                             context.getString(R.string.subject_batch_updated, edited.size),
@@ -634,7 +626,6 @@ private fun TimetableScreen(
                     onDismiss = { viewModel.clearBatchSession() },
                     onConfirm = {
                         viewModel.deleteEvents(session.events)
-                        WidgetUtils.sendRefreshToAll(context)
                         viewModel.clearBatchSession()
                     },
                 )

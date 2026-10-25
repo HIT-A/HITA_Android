@@ -8,14 +8,17 @@ import cn.limpu.hita.data.model.timetable.EventItem
 import cn.limpu.hita.data.model.timetable.TermSubject
 import cn.limpu.hita.data.repository.SubjectRepository
 import cn.limpu.hita.data.repository.TimetableRepository
+import cn.limpu.hita.feature.timetable.write.TimetableWriteUseCaseFactory
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 
 @HiltViewModel
 class EventItemViewModel @Inject constructor(
     private val subjectRepository: SubjectRepository,
-    private val timetableRepository: TimetableRepository
+    timetableRepository: TimetableRepository,
+    writeUseCaseFactory: TimetableWriteUseCaseFactory,
 ) : ViewModel() {
+    private val timetableWrites = writeUseCaseFactory.create(timetableRepository)
 
     /**
      * 数据区
@@ -38,7 +41,7 @@ class EventItemViewModel @Inject constructor(
 
     fun delete(){
         eventItemLiveData.value?.let {
-            timetableRepository.actionDeleteEvents(listOf(it))
+            timetableWrites.delete(listOf(it))
         }
 
     }

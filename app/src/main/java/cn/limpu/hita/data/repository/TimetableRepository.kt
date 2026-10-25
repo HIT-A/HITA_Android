@@ -73,7 +73,7 @@ class TimetableRepository internal constructor(
     val application: Application,
     private val database: AppDatabase,
     private val displayScopeSelector: DisplayScopeSelector,
-) {
+) : TimetableWriteStore {
     @Inject constructor(application: Application, displayScopeSelector: DisplayScopeSelector) : this(
         application, AppDatabase.getDatabase(application), displayScopeSelector,
     )
@@ -567,16 +567,6 @@ class TimetableRepository internal constructor(
         val name = rawName.trim()
         if (name.isEmpty() || name.codePointCount(0, name.length) > 40) return null
         return name
-    }
-
-    fun actionDeleteEvents(courses: Collection<EventItem>) {
-        val ids = mutableListOf<String>()
-        for (tt in courses) {
-            ids.add(tt.id)
-        }
-        executor.execute {
-            eventItemDao.deleteEventsInIdsSync(ids)
-        }
     }
 
     fun actionNewTimetable() {
@@ -1074,39 +1064,26 @@ class TimetableRepository internal constructor(
         timetableDao.saveTimetableSync(timetable)
     }
 
-    fun actionChangeTimetableStartDate(timetable: Timetable, startTime: Long) {
-        executor.execute {
-            runCatching { changeTimetableStartDateSync(timetable, startTime) }
-                .onFailure { LogUtils.e("Failed to change timetable start date", it) }
-        }
-    }
-
     /** 课表起点与课次偏移同事务写入；以库中最新课表为准，不修改调用方对象。 */
     @WorkerThread
-    internal fun changeTimetableStartDateSync(timetable: Timetable, startTime: Long) = timetableMutationLock.exclusive {
-        database.runInTransaction {
-            val current = timetableDao.getTimetableByIdSync(timetable.id) ?: return@runInTransaction
+    internal fun changeTimetableStartDateSync(timetable: Timetable, startTime: Long): Boolean = timetableMutationLock.exclusive {
+        database.runInTransaction<Boolean> {
+            val current = timetableDao.getTimetableByIdSync(timetable.id) ?: return@runInTransaction false
             val calendar = TimeTools.getMonday(startTime)
             val offset = calendar.timeInMillis - current.startTime.time
             current.endTime.time = current.endTime.time + offset
             current.startTime.time = calendar.timeInMillis
             timetableDao.saveTimetableSync(current)
             eventItemDao.updateClassesAddOffset(timetableId = current.id, offset)
-        }
-    }
-
-    fun actionChangeTimetableStructure(timetable: Timetable, tp: TimePeriodInDay, position: Int) {
-        executor.execute {
-            runCatching { changeTimetableStructureSync(timetable, tp, position) }
-                .onFailure { LogUtils.e("Failed to change timetable structure", it) }
+            true
         }
     }
 
     /** 作息与受影响课次同事务写入；以库中最新课表为准，不修改调用方对象。 */
     @WorkerThread
-    internal fun changeTimetableStructureSync(timetable: Timetable, tp: TimePeriodInDay, position: Int) = timetableMutationLock.exclusive {
-        database.runInTransaction {
-            val current = timetableDao.getTimetableByIdSync(timetable.id) ?: return@runInTransaction
+    internal fun changeTimetableStructureSync(timetable: Timetable, tp: TimePeriodInDay, position: Int): Boolean = timetableMutationLock.exclusive {
+        database.runInTransaction<Boolean> {
+            val current = timetableDao.getTimetableByIdSync(timetable.id) ?: return@runInTransaction false
             current.setScheduleStructure(tp, position)
             timetableDao.saveTimetableSync(current)
             val fromToChange = eventItemDao.getClassAtFromNumberSync(current.id, position + 1)
@@ -1129,45 +1106,63 @@ class TimetableRepository internal constructor(
                 e.to.time = tmp.timeInMillis
             }
             eventItemDao.saveEvents(endToChange)
+            true
         }
     }
 
-    fun actionAddEvents(data:List<EventItem>) {
-        executor.execute {
-            eventItemDao.addEvents(data)
-        }
-    }
-
-    fun actionAddCourseEvents(subject: TermSubject, events: List<EventItem>) {
-        executor.execute { addCourseEventsSync(subject, events) }
+    override fun enqueueWrite(block: () -> Unit) {
+        executor.execute(block)
     }
 
     @WorkerThread
-    fun addCourseEventsSync(subject: TermSubject, events: List<EventItem>) {
-        database.runInTransaction {
-            subjectDao.saveSubjectSync(subject)
-            eventItemDao.addEvents(events)
+    override fun writeSync(operation: TimetableWriteOperation): Boolean = when (operation) {
+        is TimetableWriteOperation.Add -> addScheduleEventsSync(operation.result, operation.subject)
+        is TimetableWriteOperation.Update -> {
+            if (operation.events.isEmpty()) false else {
+                eventItemDao.updateEventsSync(operation.events)
+                true
+            }
         }
+        is TimetableWriteOperation.Delete -> {
+            if (operation.eventIds.isEmpty()) false else {
+                eventItemDao.deleteEventsInIdsSync(operation.eventIds)
+                true
+            }
+        }
+        is TimetableWriteOperation.DeleteSubjects -> {
+            if (operation.subjects.isEmpty()) false else {
+                // Preserve the existing subject-then-events sequence; this is not a new transaction.
+                subjectDao.deleteSubjectsSync(operation.subjects)
+                eventItemDao.deleteEventsFromSubjectsSync(operation.subjects.map { it.id })
+                true
+            }
+        }
+        is TimetableWriteOperation.ChangeStartDate ->
+            changeTimetableStartDateSync(operation.timetable, operation.startTime)
+        is TimetableWriteOperation.ChangeStructure ->
+            changeTimetableStructureSync(operation.timetable, operation.period, operation.position)
     }
 
-    fun actionUpdateEvent(event: EventItem) {
-        executor.execute {
-            eventItemDao.updateEventSync(event)
-        }
-    }
-
-    fun actionUpdateEvents(events: Collection<EventItem>) {
-        if (events.isEmpty()) return
-        executor.execute {
-            eventItemDao.updateEventsSync(events.toList())
-        }
-    }
-
+    /** The subject, sessions and necessary timetable extension either all commit or all roll back. */
     @WorkerThread
-    fun addEventsSync(data: List<EventItem>) {
-        eventItemDao.addEvents(data)
+    private fun addScheduleEventsSync(result: ScheduleEventCreator.Result, subject: TermSubject?): Boolean {
+        if (result.events.isEmpty()) return false
+        return timetableMutationLock.exclusive {
+            database.runInTransaction<Boolean> {
+                val current = checkNotNull(timetableDao.getTimetableByIdSync(result.timetable.id)) {
+                    "The target timetable no longer exists"
+                }
+                if (subject != null) subjectDao.saveSubjectSync(subject)
+                eventItemDao.addEvents(result.events)
+                val maxEndTime = result.events.maxOf { it.to.time }
+                if (maxEndTime > current.endTime.time) {
+                    current.endTime.time = ScheduleEventCreator.expandToWeekEnd(maxEndTime)
+                    timetableDao.saveTimetableSync(current)
+                }
+                true
+            }
+        }
     }
-
 
     fun exportToICS(timetableName: String, timetableId: String): LiveData<DataState<String>> {
         val res = MutableLiveData<DataState<String>>();

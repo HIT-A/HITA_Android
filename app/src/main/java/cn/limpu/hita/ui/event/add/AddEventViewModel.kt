@@ -13,6 +13,7 @@ import cn.limpu.hita.data.model.timetable.TimePeriodInDay
 import cn.limpu.hita.data.model.timetable.Timetable
 import cn.limpu.hita.data.repository.ScheduleEventCreator
 import cn.limpu.hita.data.repository.TimetableRepository
+import cn.limpu.hita.feature.timetable.write.TimetableWriteUseCaseFactory
 import cn.limpu.hita.utils.ColorTools
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.sql.Timestamp
@@ -22,7 +23,10 @@ import javax.inject.Inject
 @HiltViewModel
 class AddEventViewModel @Inject constructor(
     private val eventRepo: TimetableRepository,
+    writeUseCaseFactory: TimetableWriteUseCaseFactory,
 ) : ViewModel() {
+    private val timetableWrites = writeUseCaseFactory.create(eventRepo)
+
     enum class ContentMode {
         EXISTING,
         CUSTOM
@@ -347,7 +351,7 @@ class AddEventViewModel @Inject constructor(
                 )
             }
             val result = buildResult(timetable, content) ?: return
-            ScheduleEventCreator.persistAsync(result, eventRepo, subjectToSave)
+            timetableWrites.add(result, subjectToSave)
         }
     }
 
@@ -374,7 +378,7 @@ class AddEventViewModel @Inject constructor(
             fromNumber = range.fromNumber
             lastNumber = range.lastNumber
         }
-        eventRepo.actionUpdateEvent(edited)
+        timetableWrites.update(listOf(edited))
     }
 
     private fun buildResult(
