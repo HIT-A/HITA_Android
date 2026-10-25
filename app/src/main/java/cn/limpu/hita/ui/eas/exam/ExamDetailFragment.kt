@@ -31,10 +31,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
 import cn.limpu.hita.R
-import cn.limpu.hita.data.AppDatabase
 import cn.limpu.hita.data.model.eas.ExamItem
-import cn.limpu.hita.data.model.timetable.Timetable
-import cn.limpu.hita.data.repository.ExamEventMapper
+import cn.limpu.hita.data.repository.ExamImportRepository
+import cn.limpu.hita.data.repository.ExamImportTargetMissingException
 import cn.limpu.hita.ui.design.HitaComposeTheme
 import cn.limpu.hita.ui.design.HitaTheme
 import cn.limpu.hita.utils.LogUtils
@@ -82,19 +81,20 @@ class ExamDetailFragment(
     private fun importExamToTimetable(timetableId: String) {
         val context = context ?: return
         val host = activity ?: return
-        Toast.makeText(context, "正在导入...", Toast.LENGTH_SHORT).show()
+        Toast.makeText(context, R.string.exam_import_single_progress, Toast.LENGTH_SHORT).show()
 
         Thread {
             try {
-                val appDatabase = AppDatabase.getDatabase(context.applicationContext as Application)
-                val result = appDatabase.runInTransaction(java.util.concurrent.Callable {
-                    val eventItemDao = appDatabase.eventItemDao()
-                    val timetableDao = appDatabase.timetableDao()
-                    val timetable = requireNotNull(timetableDao.getTimetableByIdSync(timetableId)) {
-                        context.getString(R.string.exam_import_target_missing)
-                    }
-                    importExamEvent(context, timetable, eventItemDao)
-                })
+                val imported = ExamImportRepository(context.applicationContext as Application)
+                    .importIntoTimetable(listOf(exam), timetableId)
+                val result = when {
+                    imported.invalidCount > 0 ->
+                        ImportResult(false, context.getString(R.string.exam_import_invalid_time))
+                    imported.duplicateCount > 0 ->
+                        ImportResult(false, context.getString(R.string.exam_import_already_in_target))
+                    else ->
+                        ImportResult(true, context.getString(R.string.exam_import_target_success, imported.timetableName))
+                }
 
                 host.runOnUiThread {
                     if (!isAdded || host.isFinishing || host.isDestroyed) return@runOnUiThread
@@ -107,10 +107,15 @@ class ExamDetailFragment(
                     }
                 }
             } catch (e: Exception) {
-                LogUtils.e("❌ 导入考试失败: ${e.message}", e, "ExamDetailFragment")
+                val reason = if (e is ExamImportTargetMissingException) {
+                    context.getString(R.string.exam_import_target_missing)
+                } else {
+                    e.message
+                }
+                LogUtils.e("❌ 导入考试失败: $reason", e, "ExamDetailFragment")
                 host.runOnUiThread {
                     if (!isAdded || host.isFinishing || host.isDestroyed) return@runOnUiThread
-                    Toast.makeText(context, "导入失败: ${e.message}", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, context.getString(R.string.exam_import_failure_detail, reason), Toast.LENGTH_SHORT).show()
                 }
             }
         }.start()
@@ -120,26 +125,6 @@ class ExamDetailFragment(
         val success: Boolean,
         val message: String
     )
-
-    private fun importExamEvent(
-        context: android.content.Context,
-        timetable: Timetable,
-        eventItemDao: cn.limpu.hita.data.source.dao.EventItemDao
-    ): ImportResult {
-        val examEvent = ExamEventMapper.toEvent(exam, timetable.id, "ExamDetailFragment")
-            ?: return ImportResult(false, "考试时间格式解析失败")
-        val examKey = ExamEventMapper.identityKey(examEvent)
-        val isDuplicate = eventItemDao.getExamEventsSync().any { event ->
-            event.timetableId == timetable.id && ExamEventMapper.identityKey(event) == examKey
-        }
-
-        if (isDuplicate) {
-            return ImportResult(false, context.getString(R.string.exam_import_already_in_target))
-        }
-
-        eventItemDao.insertEventSync(examEvent)
-        return ImportResult(true, context.getString(R.string.exam_import_target_success, timetable.name.orEmpty()))
-    }
 
 }
 

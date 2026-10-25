@@ -1741,6 +1741,9 @@
     <string name="exam_import_failed">考试导入失败，请重新选择课表后重试</string>
     <string name="exam_import_already_in_target">该考试已在所选课表中</string>
     <string name="exam_import_target_success">已导入到课表：%1$s</string>
+    <string name="exam_import_single_progress">正在导入...</string>
+    <string name="exam_import_invalid_time">考试时间格式解析失败</string>
+    <string name="exam_import_failure_detail">导入失败: %1$s</string>
     <string name="timeline_empty_events">今天暂无课程或日程安排</string>
     <string name="outside_selected_term">非所选学期</string>
     <string name="exam_term_load_failed">暂时无法获取可用学期，请点击刷新重试</string>

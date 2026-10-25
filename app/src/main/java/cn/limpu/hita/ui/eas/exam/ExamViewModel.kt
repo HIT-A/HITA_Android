@@ -2,7 +2,6 @@ package cn.limpu.hita.ui.eas.exam
 
 import cn.limpu.hita.data.analytics.UsageAnalyticsClient
 import cn.limpu.hita.data.analytics.UsageAnalyticsEvent
-import android.app.Application
 import android.content.Context
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MediatorLiveData
@@ -10,11 +9,10 @@ import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.switchMap
 import com.limpu.component.data.DataState
 import com.limpu.component.data.Trigger
-import cn.limpu.hita.data.AppDatabase
 import cn.limpu.hita.data.model.eas.EASToken
 import cn.limpu.hita.data.model.eas.ExamItem
 import cn.limpu.hita.data.model.eas.TermItem
-import cn.limpu.hita.data.repository.ExamEventMapper
+import cn.limpu.hita.data.repository.ExamImportRepository
 import cn.limpu.hita.data.repository.EASRepository
 import cn.limpu.hita.data.source.preference.ExamMemoCodec
 import cn.limpu.hita.data.source.preference.ExamMemoStore
@@ -28,7 +26,8 @@ import javax.inject.Inject
 @HiltViewModel
 class ExamViewModel @Inject constructor(
     easRepo: EASRepository,
-    @param:ApplicationContext private val context: Context
+    @param:ApplicationContext private val context: Context,
+    private val examImportRepository: ExamImportRepository,
 ) : EASViewModel(easRepo) {
     /**
      * LiveData区
@@ -300,7 +299,7 @@ class ExamViewModel @Inject constructor(
      *
      * 功能：
      * 1. 验证用户选择的目标课表仍存在
-     * 2. 检查每个考试是否已导入（通过课程名称和地点匹配）
+     * 2. 在目标课表内按统一考试身份键检查是否已导入
      * 3. 只导入未导入的考试
      * 4. 返回导入统计结果
      *
@@ -310,51 +309,12 @@ class ExamViewModel @Inject constructor(
      * @return ImportResult 包含总数、成功数、跳过数
      */
     fun importAllExams(exams: List<ExamItem>, timetableId: String): ImportResult {
-        val appDatabase = AppDatabase.getDatabase(context.applicationContext as Application)
-        return appDatabase.runInTransaction(java.util.concurrent.Callable {
-            val eventItemDao = appDatabase.eventItemDao()
-            val timetableDao = appDatabase.timetableDao()
-
-            val timetable = requireNotNull(timetableDao.getTimetableByIdSync(timetableId)) {
-                context.getString(cn.limpu.hita.R.string.exam_import_target_missing)
-            }
-
-            // 获取已导入的考试事件（用于去重）
-            val existingKeys = eventItemDao.getExamEventsSync()
-                .filter { it.timetableId == timetable.id }
-                .mapTo(mutableSetOf()) { ExamEventMapper.identityKey(it) }
-
-            var successCount = 0
-            var skippedCount = 0
-
-            for (exam in exams) {
-                val examEvent = ExamEventMapper.toEvent(exam, timetable.id, "ExamViewModel")
-                if (examEvent == null) {
-                    skippedCount++
-                    LogUtils.e("❌ 解析失败: ${exam.courseName}", null, "ExamViewModel")
-                    continue
-                }
-
-                val examKey = ExamEventMapper.identityKey(examEvent)
-
-                if (!existingKeys.add(examKey)) {
-                    skippedCount++
-                    LogUtils.d("⏭️ 跳过已导入: ${exam.courseName}", "ExamViewModel")
-                    continue
-                }
-
-                eventItemDao.insertEventSync(examEvent)
-                successCount++
-                LogUtils.d("✅ 导入成功: ${exam.courseName}", "ExamViewModel")
-            }
-
-            LogUtils.d("📊 批量导入完成: 总数=${exams.size}, 成功=$successCount, 跳过=$skippedCount", "ExamViewModel")
-            ImportResult(
-                totalCount = exams.size,
-                successCount = successCount,
-                skippedCount = skippedCount
-            )
-        })
+        val result = examImportRepository.importIntoTimetable(exams, timetableId)
+        return ImportResult(
+            totalCount = result.totalCount,
+            successCount = result.importedCount,
+            skippedCount = result.skippedCount,
+        )
     }
 
 }
