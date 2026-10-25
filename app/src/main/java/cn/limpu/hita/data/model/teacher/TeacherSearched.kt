@@ -1,4 +1,4 @@
-package cn.limpu.hita.ui.search.teacher
+package cn.limpu.hita.data.model.teacher
 
 class TeacherSearched {
     var name:String = ""

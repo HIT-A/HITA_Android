@@ -7,7 +7,7 @@ import androidx.lifecycle.MediatorLiveData
 import androidx.lifecycle.map
 import cn.limpu.hita.data.AppDatabase
 import cn.limpu.hita.data.model.timetable.TermSubject
-import cn.limpu.hita.ui.timetable.detail.TeacherInfo
+import cn.limpu.hita.data.model.timetable.TeacherInfo
 import cn.limpu.hita.utils.ColorTools
 import java.util.concurrent.Executors
 

@@ -5,7 +5,7 @@ import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import cn.limpu.hita.data.source.web.service.TeacherService
 import com.limpu.component.data.DataState
-import cn.limpu.hita.ui.search.teacher.TeacherSearched
+import cn.limpu.hita.data.model.teacher.TeacherSearched
 import cn.limpu.hita.utils.HTMLUtils
 import org.json.JSONObject
 import org.jsoup.Jsoup

@@ -1,5 +1,6 @@
 package cn.limpu.hita.ui.event.add
 
+import cn.limpu.hita.data.model.timetable.CourseTime
 import android.app.Application
 import androidx.room.Room
 import androidx.test.ext.junit.runners.AndroidJUnit4

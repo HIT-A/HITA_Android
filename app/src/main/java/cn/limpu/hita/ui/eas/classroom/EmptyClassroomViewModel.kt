@@ -1,5 +1,7 @@
 package cn.limpu.hita.ui.eas.classroom
 
+import cn.limpu.hita.data.model.classroom.BuildingItem
+import cn.limpu.hita.data.model.classroom.ClassroomItem
 import androidx.lifecycle.*
 import cn.limpu.hita.data.analytics.UsageAnalyticsClient
 import cn.limpu.hita.data.analytics.UsageAnalyticsEvent

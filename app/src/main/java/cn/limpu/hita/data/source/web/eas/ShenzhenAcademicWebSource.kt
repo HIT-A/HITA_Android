@@ -43,8 +43,8 @@ import cn.limpu.hita.data.model.timetable.TimePeriodInDay
 import cn.limpu.hita.data.source.web.service.EASService
 import cn.limpu.hita.data.repository.EasCredentialReloginPolicy
 import cn.limpu.hita.data.source.preference.EasCredential
-import cn.limpu.hita.ui.eas.classroom.BuildingItem
-import cn.limpu.hita.ui.eas.classroom.ClassroomItem
+import cn.limpu.hita.data.model.classroom.BuildingItem
+import cn.limpu.hita.data.model.classroom.ClassroomItem
 import cn.limpu.hita.utils.JsonUtils
 import cn.limpu.hita.utils.CourseCodeUtils
 import com.google.gson.JsonArray

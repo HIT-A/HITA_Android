@@ -10,8 +10,8 @@ import cn.limpu.hita.data.model.timetable.TermSubject
 import cn.limpu.hita.data.model.timetable.TimeInDay
 import cn.limpu.hita.data.model.timetable.TimePeriodInDay
 import cn.limpu.hita.data.source.web.service.EASService
-import cn.limpu.hita.ui.eas.classroom.BuildingItem
-import cn.limpu.hita.ui.eas.classroom.ClassroomItem
+import cn.limpu.hita.data.model.classroom.BuildingItem
+import cn.limpu.hita.data.model.classroom.ClassroomItem
 import org.json.JSONObject
 import org.jsoup.Connection
 import org.jsoup.Jsoup

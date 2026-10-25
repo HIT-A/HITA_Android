@@ -7,7 +7,7 @@ import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Update
 import cn.limpu.hita.data.model.timetable.EventItem
-import cn.limpu.hita.ui.timetable.detail.TeacherInfo
+import cn.limpu.hita.data.model.timetable.TeacherInfo
 
 @Dao
 interface EventItemDao {

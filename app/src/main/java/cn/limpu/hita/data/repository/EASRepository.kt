@@ -36,8 +36,8 @@ import cn.limpu.hita.data.source.web.eas.BenbuEASWebSource
 import cn.limpu.hita.data.source.web.eas.EASWebSource
 import cn.limpu.hita.data.source.web.eas.WeihaiEASWebSource
 import cn.limpu.hita.data.source.web.service.EASService
-import cn.limpu.hita.ui.eas.classroom.BuildingItem
-import cn.limpu.hita.ui.eas.classroom.ClassroomItem
+import cn.limpu.hita.data.model.classroom.BuildingItem
+import cn.limpu.hita.data.model.classroom.ClassroomItem
 import cn.limpu.hita.utils.LiveDataUtils
 import cn.limpu.hita.utils.TimeTools.getDateAtWOT
 import cn.limpu.hita.utils.TermNameFormatter

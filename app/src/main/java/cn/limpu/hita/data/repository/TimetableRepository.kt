@@ -25,7 +25,7 @@ import cn.limpu.hita.data.model.timetable.TimePeriodInDay
 import cn.limpu.hita.data.model.timetable.Timetable
 import cn.limpu.hita.data.model.timetable.TimetableGroupEntity
 import cn.limpu.hita.data.source.preference.EasPreferenceSource
-import cn.limpu.hita.ui.main.timetable.TimetableFragment.Companion.WEEK_MILLS
+import cn.limpu.hita.data.model.timetable.WEEK_MILLS
 import cn.limpu.hita.utils.TimeTools
 import cn.limpu.hita.utils.ColorTools
 import java.lang.NumberFormatException

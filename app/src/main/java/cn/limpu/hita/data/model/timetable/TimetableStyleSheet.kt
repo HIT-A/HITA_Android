@@ -1,8 +1,7 @@
-package cn.limpu.hita.ui.main.timetable
+package cn.limpu.hita.data.model.timetable
 
 import android.view.Gravity
 import androidx.compose.runtime.Immutable
-import cn.limpu.hita.data.model.timetable.TimeInDay
 
 enum class CourseBubbleStyle(val storageValue: String) {
     SOLID("solid"),

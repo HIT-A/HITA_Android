@@ -3,7 +3,6 @@ package cn.limpu.hita.data.model.timetable
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
-import cn.limpu.hita.ui.main.timetable.TimetableFragment.Companion.WEEK_MILLS
 import java.sql.Timestamp
 import java.util.*
 

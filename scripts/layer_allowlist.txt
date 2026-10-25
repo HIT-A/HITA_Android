@@ -5,36 +5,7 @@
 # 三个 Worker 的平台入口引用暂保留，后续单独处理。
 # 本地检查：python3 scripts/check_repository.py --base-ref origin/main
 
-app/src/main/java/cn/limpu/hita/data/model/timetable/Timetable.kt	cn.limpu.hita.ui.main.timetable.TimetableFragment.Companion.WEEK_MILLS
 app/src/main/java/cn/limpu/hita/data/repository/DisplayScopeResolver.kt	cn.limpu.hita.ui.widgets.WidgetUtils.sendRefreshToAll
-app/src/main/java/cn/limpu/hita/data/repository/EASRepository.kt	cn.limpu.hita.ui.eas.classroom.BuildingItem
-app/src/main/java/cn/limpu/hita/data/repository/EASRepository.kt	cn.limpu.hita.ui.eas.classroom.ClassroomItem
-app/src/main/java/cn/limpu/hita/data/repository/ScheduleEventCreator.kt	cn.limpu.hita.ui.event.add.CourseTime
-app/src/main/java/cn/limpu/hita/data/repository/SubjectRepository.kt	cn.limpu.hita.ui.timetable.detail.TeacherInfo
-app/src/main/java/cn/limpu/hita/data/repository/TeacherInfoRepository.kt	cn.limpu.hita.ui.search.teacher.TeacherSearched
-app/src/main/java/cn/limpu/hita/data/repository/TimetableRepository.kt	cn.limpu.hita.ui.main.timetable.TimetableFragment.Companion.WEEK_MILLS
-app/src/main/java/cn/limpu/hita/data/repository/TimetableStyleRepository.kt	cn.limpu.hita.ui.main.timetable.CourseBubbleStyle
-app/src/main/java/cn/limpu/hita/data/repository/TimetableStyleRepository.kt	cn.limpu.hita.ui.main.timetable.TimetableStyleSheet
-app/src/main/java/cn/limpu/hita/data/source/dao/EventItemDao.kt	cn.limpu.hita.ui.timetable.detail.TeacherInfo
-app/src/main/java/cn/limpu/hita/data/source/web/TeacherWebSource.kt	cn.limpu.hita.ui.search.teacher.TeacherSearched
-app/src/main/java/cn/limpu/hita/data/source/web/eas/AbstractEASWebSource.kt	cn.limpu.hita.ui.eas.classroom.BuildingItem
-app/src/main/java/cn/limpu/hita/data/source/web/eas/AbstractEASWebSource.kt	cn.limpu.hita.ui.eas.classroom.ClassroomItem
-app/src/main/java/cn/limpu/hita/data/source/web/eas/BenbuClassroomParser.kt	cn.limpu.hita.ui.eas.classroom.ClassroomItem
-app/src/main/java/cn/limpu/hita/data/source/web/eas/BenbuEASWebSource.kt	cn.limpu.hita.ui.eas.classroom.BuildingItem
-app/src/main/java/cn/limpu/hita/data/source/web/eas/BenbuEASWebSource.kt	cn.limpu.hita.ui.eas.classroom.ClassroomItem
-app/src/main/java/cn/limpu/hita/data/source/web/eas/EASWebSource.kt	cn.limpu.hita.ui.eas.classroom.BuildingItem
-app/src/main/java/cn/limpu/hita/data/source/web/eas/EASWebSource.kt	cn.limpu.hita.ui.eas.classroom.ClassroomItem
-app/src/main/java/cn/limpu/hita/data/source/web/eas/ShenzhenAcademicWebSource.kt	cn.limpu.hita.ui.eas.classroom.BuildingItem
-app/src/main/java/cn/limpu/hita/data/source/web/eas/ShenzhenAcademicWebSource.kt	cn.limpu.hita.ui.eas.classroom.ClassroomItem
-app/src/main/java/cn/limpu/hita/data/source/web/eas/ShenzhenWebAcademicParser.kt	cn.limpu.hita.ui.eas.classroom.BuildingItem
-app/src/main/java/cn/limpu/hita/data/source/web/eas/ShenzhenWebAcademicParser.kt	cn.limpu.hita.ui.eas.classroom.ClassroomItem
-app/src/main/java/cn/limpu/hita/data/source/web/eas/WeihaiEASWebSource.kt	cn.limpu.hita.ui.eas.classroom.BuildingItem
-app/src/main/java/cn/limpu/hita/data/source/web/eas/WeihaiEASWebSource.kt	cn.limpu.hita.ui.eas.classroom.ClassroomItem
-app/src/main/java/cn/limpu/hita/data/source/web/service/AdditionalService.kt	cn.limpu.hita.ui.eas.classroom.BuildingItem
-app/src/main/java/cn/limpu/hita/data/source/web/service/AdditionalService.kt	cn.limpu.hita.ui.eas.classroom.ClassroomItem
-app/src/main/java/cn/limpu/hita/data/source/web/service/EASService.kt	cn.limpu.hita.ui.eas.classroom.BuildingItem
-app/src/main/java/cn/limpu/hita/data/source/web/service/EASService.kt	cn.limpu.hita.ui.eas.classroom.ClassroomItem
-app/src/main/java/cn/limpu/hita/data/source/web/service/TeacherService.kt	cn.limpu.hita.ui.search.teacher.TeacherSearched
 app/src/main/java/cn/limpu/hita/data/work/CourseReminderWorker.kt	cn.limpu.hita.ui.main.MainActivity
 app/src/main/java/cn/limpu/hita/data/work/ScoreReminderWorker.kt	cn.limpu.hita.ui.eas.score.ScoreInquiryActivity
 app/src/main/java/cn/limpu/hita/data/work/WidgetRefreshWorker.kt	cn.limpu.hita.ui.widgets.WidgetUtils

@@ -54,9 +54,9 @@ import cn.limpu.hita.ui.design.hitaIsSoraCloud
 import cn.limpu.hita.ui.design.hitaIsSumi
 import cn.limpu.hita.ui.design.hitaStyleCardShape
 import cn.limpu.hita.ui.main.timetable.ColorContrast
-import cn.limpu.hita.ui.main.timetable.CourseBubbleStyle
+import cn.limpu.hita.data.model.timetable.CourseBubbleStyle
 import cn.limpu.hita.ui.main.timetable.TimetableDisplayTime
-import cn.limpu.hita.ui.main.timetable.TimetableStyleSheet
+import cn.limpu.hita.data.model.timetable.TimetableStyleSheet
 import java.time.Instant
 import java.time.format.DateTimeFormatter
 

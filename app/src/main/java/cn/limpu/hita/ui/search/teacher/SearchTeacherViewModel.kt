@@ -1,5 +1,6 @@
 package cn.limpu.hita.ui.search.teacher
 
+import cn.limpu.hita.data.model.teacher.TeacherSearched
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.map
 import com.limpu.component.data.DataState
