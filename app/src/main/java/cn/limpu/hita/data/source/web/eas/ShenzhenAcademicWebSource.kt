@@ -1,7 +1,5 @@
 package cn.limpu.hita.data.source.web.eas
 
-import android.annotation.SuppressLint
-import android.util.Base64
 import androidx.annotation.WorkerThread
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
@@ -11,10 +9,8 @@ import cn.limpu.hita.data.model.eas.CourseSelectionCourseResult
 import cn.limpu.hita.data.model.eas.CourseSelectionCourseStatus
 import cn.limpu.hita.data.model.eas.CourseSelectionJob
 import cn.limpu.hita.data.model.eas.CourseSelectionJobCourse
-import cn.limpu.hita.data.model.eas.CourseItem
 import cn.limpu.hita.data.model.eas.CourseScoreItem
 import cn.limpu.hita.data.model.eas.EASToken
-import cn.limpu.hita.data.model.eas.ExamItem
 import cn.limpu.hita.data.model.eas.ScoreQueryResult
 import cn.limpu.hita.data.model.eas.ScoreSummary
 import cn.limpu.hita.data.model.eas.ScoreSummaryScope
@@ -37,35 +33,73 @@ import cn.limpu.hita.data.model.eas.ShenzhenTrainingPlanCourse
 import cn.limpu.hita.data.model.eas.ShenzhenTrainingPlanDetail
 import cn.limpu.hita.data.model.eas.ShenzhenTrainingPlanLevel
 import cn.limpu.hita.data.model.eas.TermItem
-import cn.limpu.hita.data.model.timetable.TermSubject
-import cn.limpu.hita.data.model.timetable.TimeInDay
-import cn.limpu.hita.data.model.timetable.TimePeriodInDay
 import cn.limpu.hita.data.source.web.service.EASService
-import cn.limpu.hita.data.repository.EasCredentialReloginPolicy
-import cn.limpu.hita.data.source.preference.EasCredential
-import cn.limpu.hita.data.model.classroom.BuildingItem
-import cn.limpu.hita.data.model.classroom.ClassroomItem
 import cn.limpu.hita.utils.JsonUtils
-import cn.limpu.hita.utils.CourseCodeUtils
 import com.google.gson.JsonArray
 import com.google.gson.JsonElement
-import com.google.gson.JsonObject
 import com.google.gson.JsonParseException
 import com.google.gson.JsonParser
 import java.io.IOException
-import java.math.BigInteger
-import java.security.KeyFactory
-import java.security.PublicKey
-import java.security.spec.RSAPublicKeySpec
-import java.security.spec.X509EncodedKeySpec
-import java.text.SimpleDateFormat
-import java.util.Calendar
 import java.util.Locale
-import java.util.concurrent.ConcurrentHashMap
-import javax.crypto.Cipher
 import org.json.JSONObject
 import org.jsoup.Connection
-import org.jsoup.Jsoup
+
+internal object ShenzhenSelectedCourseIdentityParser {
+    private val rawIdentityKeys = setOf("id", "rwid", "rwh", "selectionrequestid", "taskid")
+
+    fun parse(body: String): Set<String> {
+        val root = try {
+            JsonParser().parse(body)
+        } catch (_: JsonParseException) {
+            return emptySet()
+        }
+        if (!root.isJsonObject) return emptySet()
+        val rows = findSelectedRows(root) ?: return emptySet()
+        return buildSet {
+            rows.forEach { element ->
+                val row = element.takeIf { it.isJsonObject }?.asJsonObject ?: return@forEach
+                row.entrySet().forEach { (key, value) ->
+                    val normalizedKey = key.replace("_", "").lowercase(Locale.ROOT)
+                    if (normalizedKey in rawIdentityKeys) {
+                        rawString(value)?.let(::add)
+                    }
+                }
+            }
+        }
+    }
+
+    private fun findSelectedRows(element: JsonElement): JsonArray? {
+        if (!element.isJsonObject) return null
+        val objectValue = element.asJsonObject
+        objectValue.entrySet()
+            .firstOrNull { (key, _) -> key.replace("_", "").equals("yxkclist", ignoreCase = true) }
+            ?.value
+            ?.let(::rowsFromContainer)
+            ?.let { return it }
+        for (wrapper in listOf("content", "data", "result")) {
+            objectValue.get(wrapper)?.let(::findSelectedRows)?.let { return it }
+        }
+        return null
+    }
+
+    private fun rowsFromContainer(element: JsonElement): JsonArray? = when {
+        element.isJsonArray -> element.asJsonArray
+        element.isJsonObject -> {
+            val objectValue = element.asJsonObject
+            sequenceOf("list", "rows")
+                .mapNotNull { key -> objectValue.get(key)?.takeIf { it.isJsonArray }?.asJsonArray }
+                .firstOrNull()
+        }
+        else -> null
+    }
+
+    private fun rawString(value: JsonElement): String? = value
+        .takeIf { it.isJsonPrimitive }
+        ?.asJsonPrimitive
+        ?.asString
+        ?.trim()
+        ?.takeIf { it.isNotEmpty() && !it.equals("null", ignoreCase = true) }
+}
 
 /**
  * 深圳校区教务学术模块：选课、成绩、培养方案。
@@ -74,25 +108,19 @@ import org.jsoup.Jsoup
  */
 internal class ShenzhenAcademicWebSource(
     private val authedFormPost: (token: EASToken, path: String, data: Map<String, String>) -> Connection.Response,
+    private val jsonPost: (token: EASToken, path: String, body: String, rolecode: String) -> Connection.Response,
     private val jwFormPost: (token: EASToken, path: String, data: Map<String, String>, refererPath: String) -> Connection.Response,
     private val jwJsonPost: (token: EASToken, path: String, body: String, refererPath: String) -> Connection.Response,
     private val jwSelectionFormPostOnce: (token: EASToken, path: String, data: Map<String, String>, refererPath: String) -> Connection.Response,
+    private val isAuthExpiredResponse: (resp: Connection.Response) -> Boolean,
+    private val isAuthExpiredJson: (jo: JSONObject?) -> Boolean,
     private val isJwAuthenticationExpired: (resp: Connection.Response) -> Boolean,
+    private val mergeShenzhenCourseSelectionCookies: (token: EASToken, response: Connection.Response) -> Unit,
     private val onTokenRefreshed: ((EASToken) -> Unit)?,
     private val buildTermDisplayName: (yearName: String?, termName: String?) -> String,
     private val shenzhenSelectedSubjectsForm: (token: EASToken, term: TermItem) -> Map<String, String>,
     private val requestShenzhenWebSelectedSubjects: (token: EASToken, term: TermItem) -> Connection.Response,
 ) {
-
-    private fun mergeShenzhenCourseSelectionCookies(
-        token: EASToken,
-        response: Connection.Response
-    ) {
-        synchronized(token) {
-            token.webCookies.putAll(response.cookies())
-        }
-        onTokenRefreshed?.invoke(token)
-    }
 
     // ================================================================ 学年学期列表
     fun getAllTerms(token: EASToken): LiveData<DataState<List<TermItem>>> {
@@ -123,7 +151,7 @@ internal class ShenzhenAcademicWebSource(
                     terms.add(term)
                 }
                 res.postValue(DataState(terms, DataState.STATE.SUCCESS))
-} catch (e: Exception) {
+            } catch (e: Exception) {
                 LogUtils.e("getAllTerms: failed, error=${e.message}", e)
                 res.postValue(DataState(DataState.STATE.FETCH_FAILED, e.message))
             }
@@ -1525,5 +1553,338 @@ internal class ShenzhenAcademicWebSource(
             }
         }.start()
         return result
+    }
+
+    // ================================================================ 成绩
+    fun getPersonalScores(
+        term: TermItem,
+        token: EASToken,
+        testType: EASService.TestType
+    ): LiveData<DataState<List<CourseScoreItem>>> {
+        if (token.accessToken.isNullOrBlank() && token.hasShenzhenWebSession()) {
+            return getShenzhenWebPersonalScores(term, token, testType)
+        }
+        val res = MutableLiveData<DataState<List<CourseScoreItem>>>()
+        Thread {
+            val result: MutableList<CourseScoreItem> = ArrayList()
+            try {
+                val qzqmFlag = when (testType) {
+                    EASService.TestType.NORMAL -> "qm"
+                    EASService.TestType.RESIT  -> "qz"
+                    else -> "qm"
+                }
+                val body = """{"xn":"${term.yearCode}","xq":"${term.termCode}","qzqmFlag":"$qzqmFlag","type":"json"}"""
+                val resp = jsonPost(token, "/app/cjgl/xscjList?_lang=zh_CN", body, "06")
+                val jo = JsonUtils.getJsonObject(resp.body())
+                if (isAuthExpiredResponse(resp) || isAuthExpiredJson(jo)) {
+                    res.postValue(DataState(DataState.STATE.NOT_LOGGED_IN))
+                    return@Thread
+                }
+                val content = jo?.optJSONArray("content")
+                content?.let {
+                    for (i in 0 until it.length()) {
+                        val tp = it.optJSONObject(i) ?: continue
+                        val item = CourseScoreItem()
+                        item.courseCode = tp.optString("kcdm")
+                        item.courseName = tp.optString("kcmc")
+                        item.credits = tp.optString("xf").toFloatOrNull() ?: 0f
+                        item.finalScoresText = tp.optString("zf").trim().ifBlank { null }
+                        item.finalScores = item.finalScoresText?.toIntOrNull() ?: -1
+                        item.courseProperty = tp.optString("kcxz")
+                        item.courseCategory = tp.optString("kclb", tp.optString("kclbmc", ""))
+                        item.termName = tp.optString("xnxq", term.yearCode + term.termCode)
+                        item.assessMethod = tp.optString("khfs", "")
+                        result.add(item)
+                    }
+                    res.postValue(DataState(result))
+                } ?: run {
+                    res.postValue(DataState(DataState.STATE.FETCH_FAILED))
+                }
+            } catch (e: Exception) {
+                LogUtils.e("getPersonalScores: failed, error=${e.message}", e)
+                res.postValue(DataState(DataState.STATE.FETCH_FAILED, e.message))
+            }
+        }.start()
+        return res
+    }
+
+    fun getPersonalScoresWithSummary(
+        term: TermItem,
+        token: EASToken,
+        testType: EASService.TestType
+    ): LiveData<DataState<ScoreQueryResult>> {
+        if (token.accessToken.isNullOrBlank() && token.hasShenzhenWebSession()) {
+            return getShenzhenWebPersonalScoresWithSummary(term, token, testType)
+        }
+        val res = MutableLiveData<DataState<ScoreQueryResult>>()
+        Thread {
+            val result: MutableList<CourseScoreItem> = ArrayList()
+            try {
+                val qzqmFlag = when (testType) {
+                    EASService.TestType.NORMAL -> "qm"
+                    EASService.TestType.RESIT  -> "qz"
+                    else -> "qm"
+                }
+                val body = """{"xn":"${term.yearCode}","xq":"${term.termCode}","qzqmFlag":"$qzqmFlag","type":"json"}"""
+                val resp = jsonPost(token, "/app/cjgl/xscjList?_lang=zh_CN", body, "06")
+                val jo = JsonUtils.getJsonObject(resp.body())
+                if (isAuthExpiredResponse(resp) || isAuthExpiredJson(jo)) {
+                    res.postValue(DataState(DataState.STATE.NOT_LOGGED_IN))
+                    return@Thread
+                }
+                val content = jo?.optJSONArray("content")
+                content?.let {
+                    for (i in 0 until it.length()) {
+                        val tp = it.optJSONObject(i) ?: continue
+                        val item = CourseScoreItem()
+                        item.courseCode = tp.optString("kcdm")
+                        item.courseName = tp.optString("kcmc")
+                        item.credits = tp.optString("xf").toFloatOrNull() ?: 0f
+                        item.finalScoresText = tp.optString("zf").trim().ifBlank { null }
+                        item.finalScores = item.finalScoresText?.toIntOrNull() ?: -1
+                        item.courseProperty = tp.optString("kcxz")
+                        item.courseCategory = tp.optString("kclb", tp.optString("kclbmc", ""))
+                        item.termName = tp.optString("xnxq", term.yearCode + term.termCode)
+                        item.assessMethod = tp.optString("khfs", "")
+                        result.add(item)
+                    }
+                    // 课程成绩先返回，汇总接口较慢或超时时不能阻塞列表展示。
+                    val stableItems = result.toList()
+                    var latestResult = ScoreQueryResult(stableItems, extractScoreSummary(jo))
+                    LogUtils.d(
+                        "getPersonalScoresWithSummary: API items=${stableItems.size} " +
+                            "summary=${latestResult.summary != null}"
+                    )
+                    res.postValue(DataState(latestResult))
+
+                    fetchLegacyCumulativeScoreSummary(token)?.let { cumulative ->
+                        latestResult = ScoreQueryResult(stableItems, cumulative)
+                        res.postValue(DataState(latestResult))
+                    }
+                    when (val official = fetchOfficialWebScoreSummary(term, token)) {
+                        is OfficialWebScoreSummaryResult.Available -> {
+                            latestResult = ScoreQueryResult(stableItems, official.summary)
+                            res.postValue(DataState(latestResult))
+                        }
+                        OfficialWebScoreSummaryResult.AuthExpired -> {
+                            LogUtils.w(
+                                "getPersonalScoresWithSummary: Web summary session expired; " +
+                                    "preserving ${stableItems.size} API items"
+                            )
+                            res.postValue(ScoreQueryStatePolicy.sessionExpired(latestResult))
+                        }
+                        OfficialWebScoreSummaryResult.Unavailable -> Unit
+                    }
+                } ?: run {
+                    res.postValue(DataState(DataState.STATE.FETCH_FAILED))
+                }
+            } catch (e: Exception) {
+                LogUtils.e("getPersonalScoresWithSummary: failed, error=${e.message}", e)
+                res.postValue(DataState(DataState.STATE.FETCH_FAILED, e.message))
+            }
+        }.start()
+        return res
+    }
+
+    private data class ShenzhenWebScoreResult(
+        val items: List<CourseScoreItem>,
+        val authExpired: Boolean = false
+    )
+
+    private sealed class OfficialWebScoreSummaryResult {
+        data class Available(val summary: ScoreSummary) : OfficialWebScoreSummaryResult()
+        object AuthExpired : OfficialWebScoreSummaryResult()
+        object Unavailable : OfficialWebScoreSummaryResult()
+    }
+
+    private fun getShenzhenWebPersonalScores(
+        term: TermItem,
+        token: EASToken,
+        testType: EASService.TestType
+    ): LiveData<DataState<List<CourseScoreItem>>> {
+        val result = MutableLiveData<DataState<List<CourseScoreItem>>>()
+        Thread {
+            try {
+                val fetched = fetchShenzhenWebScoreItems(term, token, testType)
+                if (fetched.authExpired) {
+                    result.postValue(DataState(DataState.STATE.NOT_LOGGED_IN, "深圳 Web 会话已失效"))
+                } else {
+                    result.postValue(DataState(fetched.items, DataState.STATE.SUCCESS))
+                }
+            } catch (error: Exception) {
+                result.postValue(DataState(DataState.STATE.FETCH_FAILED, error.message))
+            }
+        }.start()
+        return result
+    }
+
+    private fun getShenzhenWebPersonalScoresWithSummary(
+        term: TermItem,
+        token: EASToken,
+        testType: EASService.TestType
+    ): LiveData<DataState<ScoreQueryResult>> {
+        val result = MutableLiveData<DataState<ScoreQueryResult>>()
+        Thread {
+            try {
+                val fetched = fetchShenzhenWebScoreItems(term, token, testType)
+                if (fetched.authExpired) {
+                    result.postValue(DataState(DataState.STATE.NOT_LOGGED_IN, "深圳 Web 会话已失效"))
+                    return@Thread
+                }
+                var latestResult = ScoreQueryResult(fetched.items, null)
+                result.postValue(DataState(latestResult, DataState.STATE.SUCCESS))
+                when (val official = fetchOfficialWebScoreSummary(term, token)) {
+                    is OfficialWebScoreSummaryResult.Available -> {
+                        latestResult = ScoreQueryResult(fetched.items, official.summary)
+                        result.postValue(DataState(latestResult, DataState.STATE.SUCCESS))
+                    }
+                    OfficialWebScoreSummaryResult.AuthExpired -> {
+                        result.postValue(ScoreQueryStatePolicy.sessionExpired(latestResult))
+                    }
+                    OfficialWebScoreSummaryResult.Unavailable -> Unit
+                }
+            } catch (error: Exception) {
+                result.postValue(DataState(DataState.STATE.FETCH_FAILED, error.message))
+            }
+        }.start()
+        return result
+    }
+
+    private fun fetchShenzhenWebScoreItems(
+        term: TermItem,
+        token: EASToken,
+        testType: EASService.TestType
+    ): ShenzhenWebScoreResult {
+        val isMidterm = testType == EASService.TestType.RESIT
+        val path = if (isMidterm) "/cjgl/grcjcx/qzcjcx" else "/cjgl/grcjcx/grcjcx"
+        val body = if (isMidterm) {
+            JSONObject()
+                .put("xn", term.yearCode)
+                .put("xq", term.termCode)
+                .put("kcmc", "")
+                .put("pylx", token.getStudentType())
+                .put("current", 1)
+                .put("pageSize", 1000)
+                .toString()
+        } else {
+            JSONObject()
+                .put("xn", term.yearCode)
+                .put("xq", term.termCode)
+                .put("kcmc", JSONObject.NULL)
+                .put("cxbj", "-1")
+                .put("pylx", token.getStudentType())
+                .put("current", 1)
+                .put("pageSize", 1000)
+                .put("xscjlb", JSONObject.NULL)
+                .put("sffx", JSONObject.NULL)
+                .toString()
+        }
+        val response = jwJsonPost(token, path, body, "/cjgl/grcjcx")
+        if (isJwAuthenticationExpired(response)) return ShenzhenWebScoreResult(emptyList(), authExpired = true)
+        if (response.statusCode() != 200) {
+            throw IllegalStateException("成绩接口 HTTP ${response.statusCode()}")
+        }
+        val parsed = ShenzhenWebScoreParser.parse(response.body(), term)
+            ?: throw IllegalStateException("成绩接口返回非 JSON 数据")
+        if (parsed.code != 0 && parsed.code != 200) {
+            throw IllegalStateException(parsed.message.ifBlank { "成绩查询失败" })
+        }
+        return ShenzhenWebScoreResult(parsed.items)
+    }
+
+    /** 深圳 Web 教务的官方 GPA / 平均学分绩汇总，参数与当前所选学期一致。 */
+    private fun fetchOfficialWebScoreSummary(
+        term: TermItem,
+        token: EASToken
+    ): OfficialWebScoreSummaryResult {
+        return try {
+            val body = JSONObject()
+                .put("xn", term.yearCode)
+                .put("xq", term.termCode)
+                .put("pylx", token.getStudentType())
+                .toString()
+            val resp = jwJsonPost(
+                token,
+                "/cjgl/grcjcx/getgpa",
+                body,
+                "/cjgl/grcjcx"
+            )
+            if (isJwAuthenticationExpired(resp)) {
+                return OfficialWebScoreSummaryResult.AuthExpired
+            }
+            if (resp.statusCode() != 200) return OfficialWebScoreSummaryResult.Unavailable
+            val jo = JsonUtils.getJsonObject(resp.body())
+                ?: return OfficialWebScoreSummaryResult.Unavailable
+            val values = ScoreSummaryParser.shenzhenKeys().associateWith { key ->
+                jo.optString(key, "")
+            }
+            ScoreSummaryParser.fromShenzhenGpa(values)
+                ?.let(OfficialWebScoreSummaryResult::Available)
+                ?: OfficialWebScoreSummaryResult.Unavailable
+        } catch (_: Exception) {
+            OfficialWebScoreSummaryResult.Unavailable
+        }
+    }
+
+    /** 旧 App API 只提供累计学分绩与排名，不包含可验证的 GPA。 */
+    private fun fetchLegacyCumulativeScoreSummary(token: EASToken): ScoreSummary? {
+        return try {
+            val body = """{"type":"json","ksxnxq":"-1-1","jsxnxq":"-1-1","pylx":"${token.getStudentType()}"}"""
+            val resp = jsonPost(token, "/app/cjgl/xfj", body, "06")
+            val jo = JsonUtils.getJsonObject(resp.body())
+            if (isAuthExpiredResponse(resp) || isAuthExpiredJson(jo)) {
+                return null
+            }
+            val xfj = jo?.optJSONObject("content")?.optJSONObject("xfj") ?: return null
+            val weightedAverage = xfj.optString("XFJ", "").trim()
+            val rank = xfj.optString("RANK", "").trim()
+            val total = xfj.optString("ZYZRS", "").trim()
+            if (weightedAverage.isBlank() && rank.isBlank() && total.isBlank()) null
+            else ScoreSummary(
+                weightedAverage = weightedAverage,
+                rank = rank,
+                total = total,
+                scope = ScoreSummaryScope.CUMULATIVE
+            )
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun extractScoreSummary(jo: JSONObject?): ScoreSummary? {
+        if (jo == null) return null
+        val weightedAverageKeys = listOf("xfjd", "pjxfjd", "avgxfjd", "xuefenji")
+        val gpaKeys = listOf("gpa", "GPA")
+        val rankKeys = listOf("pm", "rank", "paiming", "pmj")
+        val totalKeys = listOf("pmrs", "rank_total", "total", "zrs", "rs")
+        val objects = buildList {
+            add(jo)
+            jo.optJSONObject("summary")?.let { add(it) }
+            jo.optJSONObject("statistics")?.let { add(it) }
+            jo.optJSONObject("data")?.let { add(it) }
+            jo.optJSONObject("extra")?.let { add(it) }
+        }
+        val weightedAverage = objects.firstNotNullOfOrNull {
+            findFirstString(it, weightedAverageKeys)
+        }.orEmpty()
+        val gpa = objects.firstNotNullOfOrNull { findFirstString(it, gpaKeys) }.orEmpty()
+        val rank = objects.firstNotNullOfOrNull { findFirstString(it, rankKeys) }.orEmpty()
+        val total = objects.firstNotNullOfOrNull { findFirstString(it, totalKeys) }.orEmpty()
+        if (weightedAverage.isBlank() && gpa.isBlank() && rank.isBlank() && total.isBlank()) return null
+        return ScoreSummary(
+            weightedAverage = weightedAverage,
+            gpa = gpa,
+            rank = rank,
+            total = total,
+            scope = ScoreSummaryScope.UNKNOWN
+        )
+    }
+
+    private fun findFirstString(obj: JSONObject, keys: List<String>): String? {
+        for (key in keys) {
+            val value = obj.optString(key, "").trim()
+            if (value.isNotEmpty()) return value
+        }
+        return null
     }
 }
