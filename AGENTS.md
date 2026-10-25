@@ -186,6 +186,7 @@ refactor/xxx    # 重构（不改行为）
 
 **流程**：
 1. 更新 `app/build.gradle` 中的 `appVersionCodeValue` 和 `appVersionNameValue`，并同步 `README.md` 的版本徽标与「最新版本」文字
+   - 若本版升了 `AppDatabase.VERSION`，把新版本号加入 `AppDatabaseUpgradePathTest.SHIPPED_VERSIONS`（升级测试覆盖所有已发布旧版本）
 2. `git commit` + `git push origin` + `git push upstream`
 3. 两侧创建 release + 上传 APK（注意加版本化文件名）：
 ```bash

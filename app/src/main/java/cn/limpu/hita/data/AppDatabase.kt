@@ -41,7 +41,7 @@ import java.util.UUID
 
 @Database(
     entities = [EventItem::class, TermSubject::class, Timetable::class, ChatSession::class, ChatMessageEntity::class, ClassroomCacheEntity::class, ScoreCacheEntity::class, ScoreTermCacheEntity::class, ScoreDetailCacheEntity::class, BlogArticle::class, CampusNotice::class, ShareIdentityEntity::class, FriendTimetableEntity::class, TimetableGroupEntity::class],
-    version = 17
+    version = AppDatabase.VERSION
 )
 @androidx.room.TypeConverters(TypeConverters::class)
 abstract class AppDatabase : RoomDatabase() {
@@ -64,6 +64,30 @@ abstract class AppDatabase : RoomDatabase() {
 
         private const val DB_NAME = "hita"
 
+        /** 当前 schema 版本；升级时同步新增迁移并导出 schema JSON。 */
+        const val VERSION = 17
+
+        /** 完整迁移链（1 → [VERSION]），应用与升级测试共用同一份。 */
+        internal val ALL_MIGRATIONS: Array<Migration>
+            get() = arrayOf(
+                MIGRATION_1_2,
+                MIGRATION_2_3,
+                MIGRATION_3_4,
+                MIGRATION_4_5,
+                MIGRATION_5_6,
+                MIGRATION_6_7,
+                MIGRATION_7_8,
+                MIGRATION_8_9,
+                MIGRATION_9_10,
+                MIGRATION_10_11,
+                MIGRATION_11_12,
+                MIGRATION_12_13,
+                MIGRATION_13_14,
+                MIGRATION_14_15,
+                MIGRATION_15_16,
+                MIGRATION_16_17,
+            )
+
         @JvmStatic
         fun getDatabase(context: Context): AppDatabase {
             INSTANCE?.let { return it }
@@ -73,24 +97,8 @@ abstract class AppDatabase : RoomDatabase() {
                     context.applicationContext,
                     AppDatabase::class.java,
                     DB_NAME,
-                ).addMigrations(
-                    MIGRATION_1_2,
-                    MIGRATION_2_3,
-                    MIGRATION_3_4,
-                    MIGRATION_4_5,
-                    MIGRATION_5_6,
-                    MIGRATION_6_7,
-                    MIGRATION_7_8,
-                    MIGRATION_8_9,
-                    MIGRATION_9_10,
-                    MIGRATION_10_11,
-                    MIGRATION_11_12,
-                    MIGRATION_12_13,
-                    MIGRATION_13_14,
-                    MIGRATION_14_15,
-                    MIGRATION_15_16,
-                    MIGRATION_16_17,
-                ).fallbackToDestructiveMigration(true)
+                ).addMigrations(*ALL_MIGRATIONS)
+                    .fallbackToDestructiveMigration(true)
                     .build()
                 INSTANCE = opened
                 return opened
