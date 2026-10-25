@@ -98,7 +98,6 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     DB_NAME,
                 ).addMigrations(*ALL_MIGRATIONS)
-                    .fallbackToDestructiveMigration(true)
                     .build()
                 INSTANCE = opened
                 return opened
