@@ -91,16 +91,20 @@ class TimetableSourceApplier internal constructor(
     /**
      * 用户对时间/地点/教师/新增课的多选确认。
      * [adopted] 为勾选采纳的指纹；[remember] 为忽略且要求记住的指纹。
+     * 所有课表同一事务落库，提交成功后才清除待确认项、记住忽略；失败时两者原样保留可重试。
      */
     fun applyPendingConfirmations(adopted: Set<String>, remember: Collection<String>) {
         timetableMutationLock.exclusive {
-            changeStore.rememberIgnored(remember)
-            val updates = changeStore.consumePendingUpdates()
-            if (updates.isEmpty()) return
-            val byTimetable = updates.groupBy { it.timetableId }
-            for ((timetableId, group) in byTimetable) {
-                database.runInTransaction { applyPendingGroup(timetableId, group, adopted) }
+            val state = changeStore.currentState()
+            if (state.pendingUpdates.isNotEmpty()) {
+                database.runInTransaction {
+                    for ((timetableId, group) in state.pendingUpdates.groupBy { it.timetableId }) {
+                        applyPendingGroup(timetableId, group, adopted)
+                    }
+                }
+                changeStore.clearPendingUpdates(state.pendingRevision)
             }
+            changeStore.rememberIgnored(remember)
         }
     }
 
