@@ -5,7 +5,6 @@ import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import cn.limpu.hita.data.model.eas.*
 import cn.limpu.hita.data.model.eas.CourseItem
-import cn.limpu.hita.data.model.eas.CourseScoreItem
 import cn.limpu.hita.data.model.eas.EASToken
 import cn.limpu.hita.data.model.eas.ShenzhenCourseCatalogItem
 import cn.limpu.hita.data.model.eas.ShenzhenCourseCatalogSource
@@ -13,7 +12,6 @@ import cn.limpu.hita.data.model.eas.TermItem
 import cn.limpu.hita.data.model.timetable.TermSubject
 import cn.limpu.hita.data.model.timetable.TimeInDay
 import cn.limpu.hita.data.model.timetable.TimePeriodInDay
-import cn.limpu.hita.data.source.web.service.EASService
 import cn.limpu.hita.utils.CourseCodeUtils
 import cn.limpu.hita.utils.JsonUtils
 import cn.limpu.hita.utils.LogUtils
@@ -25,16 +23,52 @@ import java.util.concurrent.ConcurrentHashMap
 import org.json.JSONObject
 import org.jsoup.Connection
 
+/** 深圳课表查询与解析；通过注入函数使用宿主的 HTTP 请求和会话认证能力。 */
 internal class ShenzhenTimetableWebSource(
     private val jwFormPost: (EASToken, String, Map<String, String>, String) -> Connection.Response,
     private val jsonPost: (EASToken, String, String, String) -> Connection.Response,
-    private val jwJsonPost: (EASToken, String, String, String) -> Connection.Response,
     private val isJwAuthenticationExpired: (Connection.Response) -> Boolean,
-    private val isAuthExpiredResponse: (Connection.Response) -> Boolean,
-    private val isAuthExpiredJson: (JSONObject?) -> Boolean,
     private val debugWeek: Int,
     private val debugDow: Int,
 ) {
+    @SuppressLint("SimpleDateFormat")
+    fun getStartDate(token: EASToken, term: TermItem): LiveData<DataState<Calendar>> {
+        if (token.accessToken.isNullOrBlank() && token.hasShenzhenWebSession()) {
+            return getShenzhenCoursePlanningStartDate(token, term)
+        }
+        val res = MutableLiveData<DataState<Calendar>>()
+        Thread {
+            try {
+                val calendar = Calendar.getInstance()
+                calendar.firstDayOfWeek = Calendar.MONDAY
+                // 用第1周课表矩阵接口获取第1天日期
+                val weekBody = """{"xn":"${term.yearCode}","xq":"${term.termCode}","zc":"1","type":"json"}"""
+                val weekResp = jsonPost(token, "/app/Kbcx/query", weekBody, "06")
+                val weekJo = JsonUtils.getJsonObject(weekResp.body())
+                val contentArr = weekJo?.optJSONArray("content")
+                val df = SimpleDateFormat("yyyy-MM-dd")
+                if (contentArr != null) {
+                    for (i in 0 until contentArr.length()) {
+                        val obj = contentArr.optJSONObject(i) ?: continue
+                        val rqList = obj.optJSONArray("rqList") ?: continue
+                        val firstDay = rqList.optJSONObject(0) ?: continue
+                        val rq = firstDay.optString("RQ")
+                        if (rq.isNotEmpty()) {
+                            val parsed = df.parse(rq)
+                            if (parsed != null) calendar.timeInMillis = parsed.time
+                        }
+                        break
+                    }
+                }
+                res.postValue(DataState(calendar))
+            } catch (e: Exception) {
+                LogUtils.e("getStartDate: failed, error=${e.message}", e)
+                res.postValue(DataState(DataState.STATE.FETCH_FAILED, e.message))
+            }
+        }.start()
+        return res
+    }
+
     fun getShenzhenCoursePlanningStartDate(
         token: EASToken,
         term: TermItem
@@ -1370,81 +1404,6 @@ internal class ShenzhenTimetableWebSource(
         }.toMutableList()
     }
 
-    // ================================================================ 成绩
-    fun getPersonalScores(
-        term: TermItem,
-        token: EASToken,
-        testType: EASService.TestType
-    ): LiveData<DataState<List<CourseScoreItem>>> {
-        if (token.accessToken.isNullOrBlank() && token.hasShenzhenWebSession()) {
-            return getShenzhenWebPersonalScores(term, token, testType)
-        }
-        val res = MutableLiveData<DataState<List<CourseScoreItem>>>()
-        Thread {
-            val result: MutableList<CourseScoreItem> = ArrayList()
-            try {
-                val qzqmFlag = when (testType) {
-                    EASService.TestType.NORMAL -> "qm"
-                    EASService.TestType.RESIT  -> "qz"
-                    else -> "qm"
-                }
-                val body = """{"xn":"${term.yearCode}","xq":"${term.termCode}","qzqmFlag":"$qzqmFlag","type":"json"}"""
-                val resp = jsonPost(token, "/app/cjgl/xscjList?_lang=zh_CN", body, "06")
-                val jo = JsonUtils.getJsonObject(resp.body())
-                if (isAuthExpiredResponse(resp) || isAuthExpiredJson(jo)) {
-                    res.postValue(DataState(DataState.STATE.NOT_LOGGED_IN))
-                    return@Thread
-                }
-                val content = jo?.optJSONArray("content")
-                content?.let {
-                    for (i in 0 until it.length()) {
-                        val tp = it.optJSONObject(i) ?: continue
-                        val item = CourseScoreItem()
-                        item.courseCode = tp.optString("kcdm")
-                        item.courseName = tp.optString("kcmc")
-                        item.credits = tp.optString("xf").toFloatOrNull() ?: 0f
-                        item.finalScoresText = tp.optString("zf").trim().ifBlank { null }
-                        item.finalScores = item.finalScoresText?.toIntOrNull() ?: -1
-                        item.courseProperty = tp.optString("kcxz")
-                        item.courseCategory = tp.optString("kclb", tp.optString("kclbmc", ""))
-                        item.termName = tp.optString("xnxq", term.yearCode + term.termCode)
-                        item.assessMethod = tp.optString("khfs", "")
-                        result.add(item)
-                    }
-                    res.postValue(DataState(result))
-                } ?: run {
-                    res.postValue(DataState(DataState.STATE.FETCH_FAILED))
-                }
-            } catch (e: Exception) {
-                LogUtils.e("getPersonalScores: failed, error=${e.message}", e)
-                res.postValue(DataState(DataState.STATE.FETCH_FAILED, e.message))
-            }
-        }.start()
-        return res
-    }
-
-
-    private fun getShenzhenWebPersonalScores(
-        term: TermItem,
-        token: EASToken,
-        testType: EASService.TestType
-    ): LiveData<DataState<List<CourseScoreItem>>> {
-        val result = MutableLiveData<DataState<List<CourseScoreItem>>>()
-        Thread {
-            try {
-                val fetched = fetchShenzhenWebScoreItems(term, token, testType)
-                if (fetched.authExpired) {
-                    result.postValue(DataState(DataState.STATE.NOT_LOGGED_IN, "深圳 Web 会话已失效"))
-                } else {
-                    result.postValue(DataState(fetched.items, DataState.STATE.SUCCESS))
-                }
-            } catch (error: Exception) {
-                result.postValue(DataState(DataState.STATE.FETCH_FAILED, error.message))
-            }
-        }.start()
-        return result
-    }
-
     private fun extractSessionHint(kbxx: String): String? {
         if (kbxx.isBlank()) return null
         val firstLine = kbxx.lineSequence().map { it.trim() }.firstOrNull { it.isNotBlank() } ?: return null
@@ -1587,48 +1546,6 @@ internal class ShenzhenTimetableWebSource(
         val xqj: Int
     )
 
-    internal fun fetchShenzhenWebScoreItems(
-        term: TermItem,
-        token: EASToken,
-        testType: EASService.TestType
-    ): ShenzhenWebScoreResult {
-        val isMidterm = testType == EASService.TestType.RESIT
-        val path = if (isMidterm) "/cjgl/grcjcx/qzcjcx" else "/cjgl/grcjcx/grcjcx"
-        val body = if (isMidterm) {
-            JSONObject()
-                .put("xn", term.yearCode)
-                .put("xq", term.termCode)
-                .put("kcmc", "")
-                .put("pylx", token.getStudentType())
-                .put("current", 1)
-                .put("pageSize", 1000)
-                .toString()
-        } else {
-            JSONObject()
-                .put("xn", term.yearCode)
-                .put("xq", term.termCode)
-                .put("kcmc", JSONObject.NULL)
-                .put("cxbj", "-1")
-                .put("pylx", token.getStudentType())
-                .put("current", 1)
-                .put("pageSize", 1000)
-                .put("xscjlb", JSONObject.NULL)
-                .put("sffx", JSONObject.NULL)
-                .toString()
-        }
-        val response = jwJsonPost(token, path, body, "/cjgl/grcjcx")
-        if (isJwAuthenticationExpired(response)) return ShenzhenWebScoreResult(emptyList(), authExpired = true)
-        if (response.statusCode() != 200) {
-            throw IllegalStateException("成绩接口 HTTP ${response.statusCode()}")
-        }
-        val parsed = ShenzhenWebScoreParser.parse(response.body(), term)
-            ?: throw IllegalStateException("成绩接口返回非 JSON 数据")
-        if (parsed.code != 0 && parsed.code != 200) {
-            throw IllegalStateException(parsed.message.ifBlank { "成绩查询失败" })
-        }
-        return ShenzhenWebScoreResult(parsed.items)
-    }
-
     private fun isLikelyClassroomToken(token: String): Boolean {
         val trimmed = token.trim()
         if (trimmed.isBlank()) return false
@@ -1638,16 +1555,5 @@ internal class ShenzhenTimetableWebSource(
         if (!hasLetter || !hasDigit) return false
         // 全部字符必须是 ASCII 字母、数字、-、_
         return trimmed.all { it.isLetterOrDigit() || it == '-' || it == '_' }
-    }
-
-    internal data class ShenzhenWebScoreResult(
-        val items: List<CourseScoreItem>,
-        val authExpired: Boolean = false
-    )
-
-    private sealed class OfficialWebScoreSummaryResult {
-        data class Available(val summary: ScoreSummary) : OfficialWebScoreSummaryResult()
-        object AuthExpired : OfficialWebScoreSummaryResult()
-        object Unavailable : OfficialWebScoreSummaryResult()
     }
 }
