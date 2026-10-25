@@ -211,6 +211,6 @@ gh release upload v<version> app/build/outputs/apk/release/app-release.apk#HITA_
 
 ### 常见陷阱
 - **EAS HTML 解析**：三校区（深圳/本部/威海）的 HTML 结构不同，改 EAS 相关代码要同时确认三校区
-- **数据库迁移**：Room schema 变更需要升 `@Database` version + 写 migration，否则老用户安装会 crash
+- **数据库迁移**：Room schema 变更需要升 `AppDatabase.VERSION` + 在 `ALL_MIGRATIONS` 中注册 migration，否则老用户安装会 crash（没有破坏性回退；`AppDatabaseMigrationChainTest` 会拦下迁移链缺口）
 - **主线程网络请求**：所有 EAS/Retrofit 调用必须在协程里，不要在主线程做网络 IO
 - **Hardcoded 中文**：UI 文字放 `strings.xml`（当前仅中文 `values/`，无英文资源）
