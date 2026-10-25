@@ -159,17 +159,16 @@ class TimetableChangeStore @Inject constructor(application: Application) {
         mutate { state ->
             state.copy(
                 pendingUpdates = updates,
-                pendingRevision = System.currentTimeMillis(),
+                // 单调递增：同一毫秒内的两次刷新也要能被 clearPendingUpdates 区分
+                pendingRevision = maxOf(System.currentTimeMillis(), state.pendingRevision + 1),
             )
         }
     }
 
-    fun consumePendingUpdates(): List<PendingCourseUpdate> = synchronized(lock) {
-        val updates = cached.pendingUpdates
-        if (updates.isNotEmpty()) {
-            mutate { state -> state.copy(pendingUpdates = emptyList()) }
-        }
-        updates
+    /** 采纳结果提交后调用；期间若有新一批待确认写入（revision 已变）则保留新数据。 */
+    fun clearPendingUpdates(revision: Long) = synchronized(lock) {
+        if (cached.pendingRevision != revision || cached.pendingUpdates.isEmpty()) return@synchronized
+        mutate { state -> state.copy(pendingUpdates = emptyList()) }
     }
 
     fun rememberIgnored(fingerprints: Collection<String>) = synchronized(lock) {

@@ -151,4 +151,25 @@ class TimetablePendingConfirmationRecoveryTest {
         assertEquals(first, second)
         assertEquals(1, db.subjectDao().getSubjectsSync(table.id).size)
     }
+
+    @Test fun clearingWithStaleRevisionKeepsNewerPendingUpdates() {
+        val older = placeChange(table("table"), "B202")
+        changes.recordPendingUpdates(older)
+        val staleRevision = changes.currentState().pendingRevision
+        val newer = placeChange(table("table-b"), "C303")
+        changes.recordPendingUpdates(newer)
+
+        changes.clearPendingUpdates(staleRevision)
+
+        assertEquals(newer, changes.currentState().pendingUpdates)
+    }
+
+    @Test fun consecutiveRecordsGetDistinctRevisions() {
+        val updates = placeChange(table("table"), "B202")
+        val revisions = (1..5).map {
+            changes.recordPendingUpdates(updates)
+            changes.currentState().pendingRevision
+        }
+        assertEquals(revisions.size, revisions.toSet().size)
+    }
 }
