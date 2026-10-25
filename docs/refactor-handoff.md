@@ -4,9 +4,9 @@
 
 ## 1. 当前状态
 
-- `main` 位于 `b0187a1`，阶段 0 全部完成，工作区干净。
+- 阶段 1.1 开工基线为 `origin/main` 的 `e13da72`（`b0187a1` 之后新增了本文档）。`chore/layer-dependency-check` 已实现 1.1 并完成本地检查，等待提交确认与 PR CI 验证。
 - 远端：`origin` = `HIT-A/HITA_Android`（PR 与 CI 在这里），`fork` = `Chami537/HITA_Agent`（只在发布时推送）。本机没有 `upstream`。
-- CI（`.github/workflows/android-ci.yml`）有两个 job：`build-and-test`（仓库检查 + JVM 单测 + Debug 构建）、`device-tests`（API 35 模拟器上跑全部 `:app` androidTest，约 7 分钟，目前 73 项全过）。
+- CI（`.github/workflows/android-ci.yml`）有两个 job：`build-and-test`（仓库检查 + JVM 单测 + Debug 构建）、`device-tests`（API 35 模拟器上跑全部 `:app` androidTest，约 7 分钟，阶段 0 最后验证为 73 项全过）。阶段 1.1 开工静态核对仍有 73 个 `@Test`，本项设备结果待 PR CI 验证。
 - **本机没有设备/模拟器**，设备测试只能靠 CI；结果在 artifact `device-test-results`。
 
 ## 2. 总体方案与进度
@@ -14,7 +14,7 @@
 | 阶段 | 内容 | 状态 |
 |---|---|---|
 | 0 | 固定基线、修复数据写入失败窗口、升级路径测试、CI 设备测试 | **完成** |
-| 1 | 依赖方向检查（data 不依赖 ui）、共享模型归位、深圳教务拆分类接入 | 待开始（下一步） |
+| 1 | 依赖方向检查（data 不依赖 ui）、共享模型归位、深圳教务拆分类接入 | 1.1 已实现、本地检查通过，待提交及 PR CI；1.2–1.4 尚未开始 |
 | 2 | 显示目标副作用集中（DisplayScopeCoordinator）、课表写入用例入口、考试导入入口统一 | 未开始 |
 | 3 | 教务一次性请求改 suspend、EASRepository 注入、聊天会话/附件拆分、AgentToolExecutor 结果语义 | 未开始 |
 | 4 | 拆 MainActivity → TimetableFragment → WebViewLoginActivity → SubjectActivity | 未开始 |
@@ -52,13 +52,19 @@
 - **CI artifact 解析**：设备测试 XML 可能含非法字符引用（指纹里的 `\u001f`），`ElementTree` 会报错，用正则提取 `<testcase>`/`<failure>`。
 - **等待 CI 的脚本**：`gh run list --json ... --jq` 输出多行 JSON 时不要接 `head -1`，用 `--jq '[...][0] | "\(.status) \(.conclusion)"'` 这类单行输出再判断，否则循环永远不结束。
 
-## 5. 下一步：阶段 1 具体方案（尚未向用户讲解确认）
+## 5. 阶段 1 具体方案（1.1 已确认，1.2–1.4 待分别确认）
 
 ### 1.1 `chore/layer-dependency-check`
 
-在 `scripts/check_repository.py` 加规则：`app/src/main/java/cn/limpu/hita/data/**`、`feature/timetableshare/protocol/**`、`feature/timetablecompare/**` 中禁止出现 `cn.limpu.hita.ui.`（import 与完全限定名都查）。例外名单放 `scripts/layer_allowlist.txt`；名单中的文件若已无违规引用也判失败，保证名单只减不增。在 `scripts/test_check_repository.py` 补用例。
+在 `scripts/check_repository.py` 加规则：`app/src/main/java/cn/limpu/hita/data/**`、`feature/timetableshare/protocol/**`、`feature/timetablecompare/**` 的 Kotlin/Java 主源码中禁止出现 `cn.limpu.hita.ui.` 引用（后两者相对 `app/src/main/java/cn/limpu/hita/`；import 与完全限定名都查）。源码文本检查也覆盖注释和字符串，不做语言语义或间接依赖分析。
 
-当前违规（2026-10-25 核对）：
+用户确认的补强：`scripts/layer_allowlist.txt` 按「文件路径 + 完整引用」精确豁免；不绑定行号。同文件新增其他引用、重复/无效/过期例外均报错。PR CI 使用 base SHA 比较例外集合，只能删减，不能新增或替换；首次建立名单时从基线源码核验已有引用，不能直接放行当前源码中的新增依赖。基线读取失败即检查失败。本地用 `--base-ref origin/main` 启用相同比较，普通检查仅校验当前状态。
+
+在 `scripts/test_check_repository.py` 补检查器用例，同步 CI、README_DEV 和 AGENTS/CLAUDE；本项不改 Android 业务代码。规则与测试拟同一提交，提交、推送和 PR 均须另获确认。具体运行命令见 [开发指南](../README_DEV.md)。
+
+本地验证（2026-10-25）：Python 测试 21 项通过（原有 4 项 + 新增 17 项）；带 `--base-ref origin/main` 的仓库检查、`project_health_check.sh`、`code_consistency_check.sh` 通过。`./gradlew :app:testDebugUnitTest :app:assembleDebug --console=plain` 成功，125 个任务均为 `UP-TO-DATE`，复用了现有单测/构建结果，没有重新执行 JVM 测试。设备测试尚未运行，以后续 PR 的 `device-tests` 为准。
+
+当前违规（2026-10-25 在 `e13da72` 重新核对）：共 23 个文件、33 处引用，其中 22 个文件含 32 条 import，另 1 个文件使用完全限定名。初始名单为 33 条精确例外。
 
 - import：`data/model/timetable/Timetable.kt`、`data/repository/{EASRepository,ScheduleEventCreator,SubjectRepository,TeacherInfoRepository,TimetableRepository,TimetableStyleRepository}.kt`、`data/source/dao/EventItemDao.kt`、`data/source/web/TeacherWebSource.kt`、`data/source/web/eas/{AbstractEASWebSource,BenbuClassroomParser,BenbuEASWebSource,EASWebSource,ShenzhenAcademicWebSource,ShenzhenWebAcademicParser,WeihaiEASWebSource}.kt`、`data/source/web/service/{AdditionalService,EASService,TeacherService}.kt`、`data/work/{CourseReminderWorker,ScoreReminderWorker,WidgetRefreshWorker}.kt`。
 - 完全限定名：`data/repository/DisplayScopeResolver.kt` 调用 `ui.widgets.WidgetUtils` 与 `feature.livecourse...LiveCourseScheduler`（后者不在 ui 包，但属同类副作用，阶段 2.1 处理）。
@@ -70,7 +76,7 @@
 
 ### 1.3 / 1.4 深圳教务拆分类接入
 
-- `ShenzhenTimetableWebSource`（约 1650 行，57 个方法）与 `ShenzhenAcademicWebSource`（约 1530 行，21 个方法）来自 `de20418`，全仓无调用；生产只用 `EASWebSource`（约 4650 行）。拆分后 `EASWebSource` 有 2 次提交、拆分类 1 次，漂移较小。
+- `ShenzhenTimetableWebSource`（1653 行，57 个函数）与 `ShenzhenAcademicWebSource`（1529 行，21 个函数）来自 `de20418`，源码搜索只有类定义、无调用；生产深圳路径仍用 `EASWebSource`（4654 行）。拆分后非合并提交分别为：`EASWebSource` 2 次、课表拆分类 1 次、学业拆分类 0 次；这些数字不能代替后续逐方法行为核对。
 - 步骤：一次性脚本逐方法对比两份实现并把差异贴进 PR → 将 `EASWebSource` 新修复补到拆分类 → 引入 MockWebServer，以脱敏的深圳响应做新旧对照测试 → `EASWebSource` 持有会话并委托给拆分类、删除重复实现。课表、学业各一个 PR。
 - `EASRepository` 直接 `new EASWebSource(...)`（含 token 刷新与凭据回调），接入时不改构造方式，注入留到阶段 3。动 EAS 必须同时跑本部、威海的解析测试。
 
@@ -79,4 +85,4 @@
 - `TimetableSourceApplier.applyHeldBatch` 在事务内调用 `changeStore.clearTerm`（写文件），仅在事务提交本身失败时有问题，建议单独记 issue。
 - `AgentChatViewModel` 的 `ioExecutor` 没有 `onCleared`/shutdown（阶段 3.3）。
 - `fix/audit-stability`、`fix/experiment-course-name` 等已合并的远端分支可按「合完就删」清理（需用户确认）。
-- 原方案文档中的数量统计（86 处 `Thread {`、22 个 data→ui 文件等）是 2026-10-25 的快照，开工前重新核对。
+- `e13da72` 的 `Thread {` 文本统计：app 主源码 86 处、所有模块主源码 89 处、包含测试的已跟踪 Kotlin/Java 文件共 92 处。data→ui 为 22 个 import 文件加 1 个完全限定名文件；后续核对须保持统计口径一致。

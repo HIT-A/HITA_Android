@@ -13,14 +13,25 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Fetch layer dependency baseline
+        if: github.event_name == 'pull_request'
+        env:
+          LAYER_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: git fetch --no-tags --depth=1 origin "$LAYER_BASE_SHA"
 
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
       - name: Repository and documentation checks
+        env:
+          LAYER_BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           python3 scripts/test_check_repository.py
-          python3 scripts/check_repository.py
+          args=()
+          if [[ -n "$LAYER_BASE_SHA" ]]; then
+            args+=(--base-ref "$LAYER_BASE_SHA")
+          fi
+          python3 scripts/check_repository.py "${args[@]}"
 
       - uses: actions/setup-java@v4
         with:
