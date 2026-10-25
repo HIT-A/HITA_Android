@@ -121,7 +121,7 @@ Defined in `app/build.gradle`:
 
 ### Repository and PDF checks
 
-`./project_health_check.sh` validates required project files and repository hygiene. `./code_consistency_check.sh` runs the same hygiene gate; it does not assign arbitrary scores to names or constants. CI also runs JVM tests and Debug assembly. Local Markdown file links, runtime databases, APKs and stale build artifacts are checked by `python3 scripts/check_repository.py`; Room JSON schemas and source fonts are retained.
+`./project_health_check.sh` validates required project files and repository hygiene. `./code_consistency_check.sh` runs the same hygiene gate; it does not assign arbitrary scores to names or constants. CI also runs JVM tests, Debug assembly, and all `app` instrumentation tests on an API 35 emulator. Local Markdown file links, runtime databases, APKs and stale build artifacts are checked by `python3 scripts/check_repository.py`; Room JSON schemas and source fonts are retained.
 
 PDF resources come from the pinned PDFBox Android dependency. Initialize `PDFBoxResourceLoader` in `HApplication` before parsing; do not reflect into internal CMap caches or re-copy library assets. Chinese PDF regression tests use predefined GB1/CNS1 CMaps without embedded ToUnicode shortcuts; run `PdfResourceInstrumentedTest` on a device after changing PDF dependencies or packaging.
 

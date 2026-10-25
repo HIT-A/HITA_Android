@@ -30,13 +30,14 @@ class ManualCourseCreationInstrumentedTest {
                 endTime = Timestamp(10_000_000_000L)
             }
             db.timetableDao().saveTimetableSync(timetable)
-            val viewModel = AddEventViewModel(TimetableRepository(application, db))
             val courseTime = CourseTime().apply {
                 dow = 1
                 weeks = listOf(1, 2)
                 period = TimePeriodInDay(TimeInDay(18, 45), TimeInDay(20, 30))
             }
             instrumentation.runOnMainSync {
+                // ViewModel 构造时会 setValue，生产环境由 ViewModelProvider 在主线程创建
+                val viewModel = AddEventViewModel(TimetableRepository(application, db))
                 viewModel.init(false, timetable, null, null)
                 viewModel.setDateMode(AddEventViewModel.DateMode.WEEKLY)
                 viewModel.nameLiveData.value = "自习"

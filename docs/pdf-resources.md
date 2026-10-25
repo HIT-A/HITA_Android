@@ -15,4 +15,4 @@ PDFBox Android `2.0.27.0` 的 AAR 已包含所需字体、glyph list 和 CMap。
 
 [测试](../app/src/androidTest/java/cn/limpu/hita/agent/document/PdfResourceInstrumentedTest.kt) 动态生成原创一页 PDF，使用预定义 Adobe GB1/CNS1 CMap，不嵌入字体或 ToUnicode 映射，核对完整简体/繁体课程字符串与页数。测试直接驱动 PDFBox API（`PDDocument.load` + `PDFTextStripper`，与 `AgentChatViewModel.parsePdfFile` 同一路径），依赖应用真实初始化；不会在测试中偷偷补初始化。
 
-Android CI 在 API 35 模拟器执行该测试，本机在独立 API 36 模拟器验证。更换 PDF 库版本、初始化代码或资源打包规则后必须重跑。测试不覆盖扫描件 OCR、所有中文字体或任意复杂排版，不能将这些样例通过解释为所有 PDF 格式都受支持。
+Android CI 的 device-tests 任务在 API 35 模拟器执行全部设备测试（含该测试），本机在独立 API 36 模拟器验证。更换 PDF 库版本、初始化代码或资源打包规则后必须重跑。测试不覆盖扫描件 OCR、所有中文字体或任意复杂排版，不能将这些样例通过解释为所有 PDF 格式都受支持。
