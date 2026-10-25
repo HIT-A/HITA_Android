@@ -95,3 +95,27 @@ APK 和构建元信息从 CI / Release 获取；源码树不保存旧 `app/debug
 运行 `./project_health_check.sh` 检查必要项目文件和仓库卫生，`./code_consistency_check.sh` 为兼容入口。检查器验证本地 Markdown 文件链接，并阻止运行数据库、APK 和旧可执行文件重新进入 Git；它不检查外部链接和标题锚点，不使用命名数量作为质量评分。JVM 测试、Debug 编译和全部设备测试（API 35 模拟器，含中文 PDF 回归）由 CI 执行。
 
 PDF 依赖自带资源的约定、去重依据和回归命令见 [PDF 资源](docs/pdf-resources.md)。
+
+### 分层依赖检查
+
+同一检查器还禁止以下目录中的 `.kt` / `.java` 主源码引用 `cn.limpu.hita.ui.`，路径均相对 `app/src/main/java/cn/limpu/hita/`：
+
+- `data/`
+- `feature/timetableshare/protocol/`
+- `feature/timetablecompare/`
+
+这是源码文本检查，覆盖 import、别名 import、Java static import、通配符 import 和完全限定名，也检查注释及字符串中的完整引用；不解析 Kotlin/Java 语义或间接依赖。范围外源码和测试目录不受此规则限制。与其他仓库检查一致，扫描已跟踪文件及未被 Git 忽略的新文件。
+
+历史依赖暂记在 [scripts/layer_allowlist.txt](scripts/layer_allowlist.txt)：每行是「仓库相对路径 + 空白 + 完整引用」，空行和以 `#` 开头的整行注释允许保留。匹配不绑定行号，也不按前缀或通配符放行。同文件新增其他 UI 引用仍然失败。清理引用或删除文件时必须同步删除例外；重复、无效、过期例外均会失败。
+
+```bash
+python3 scripts/test_check_repository.py
+python3 scripts/check_repository.py                       # 检查当前文件与例外是否一致
+git fetch origin
+python3 scripts/check_repository.py --base-ref origin/main # 另外校验例外只能删减
+./project_health_check.sh
+./code_consistency_check.sh
+./gradlew :app:testDebugUnitTest :app:assembleDebug --console=plain
+```
+
+PR CI 会获取并使用该 PR 的 base SHA，要求当前例外集合是基线名单的子集，新增、替换例外均失败。首次引入名单时若基线尚无名单，仅允许基线源码中已存在的精确引用；空名单不会触发重新初始化。基线获取或读取失败会报错，不会跳过比较。普通检查命令和 push CI 仅检查当前状态，历史集合比较由 `--base-ref` 显式启用。

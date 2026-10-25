@@ -122,6 +122,8 @@ Defined in `app/build.gradle`:
 
 `./project_health_check.sh` validates required project files and repository hygiene. `./code_consistency_check.sh` runs the same hygiene gate; it does not assign arbitrary scores to names or constants. CI also runs JVM tests, Debug assembly, and all `app` instrumentation tests on an API 35 emulator. Local Markdown file links, runtime databases, APKs and stale build artifacts are checked by `python3 scripts/check_repository.py`; Room JSON schemas and source fonts are retained.
 
+The same checker rejects textual `cn.limpu.hita.ui.` references in Kotlin/Java sources under `app/src/main/java/cn/limpu/hita/data/`, `feature/timetableshare/protocol/`, and `feature/timetablecompare/` (the latter two relative to `app/src/main/java/cn/limpu/hita/`). Historical exceptions in `scripts/layer_allowlist.txt` match an exact source path plus reference; remove the entry when its reference disappears. PR CI compares exceptions with the PR base commit and rejects additions or replacements. Run `python3 scripts/check_repository.py --base-ref origin/main` locally after fetching; see [README_DEV.md](README_DEV.md) for scope and baseline initialization.
+
 PDF resources come from the pinned PDFBox Android dependency. Initialize `PDFBoxResourceLoader` in `HApplication` before parsing; do not reflect into internal CMap caches or re-copy library assets. Chinese PDF regression tests use predefined GB1/CNS1 CMaps without embedded ToUnicode shortcuts; run `PdfResourceInstrumentedTest` on a device after changing PDF dependencies or packaging.
 
 ## Development Workflow
