@@ -69,9 +69,10 @@ agent/
 ├── remote/      # AgentBackendClient (agent-backend HTTP), PrServerClient (course resource HTTP)
 ├── tools/       # Chat ReActTool interface, ReActToolRegistry, and concrete tools
 ├── subject/     # Subject README agent (course detail fetcher)
-├── timetable/   # Timetable agent (local timetable queries + calendar add)
-└── document/    # File parsers: PDF, DOCX, XLSX, PPTX, TXT — Strategy pattern via FileParserDispatcher
+└── timetable/   # Timetable agent (local timetable queries + calendar add)
 ```
+
+**Chat attachments**: PDF, DOCX, XLSX, PPTX and TXT attachments are currently copied with a byte cap (`cacheChatAttachment` in `ChatAttachmentFile.kt`) and parsed inside `AgentChatViewModel` (`ui/main/agent/`); there is no `agent/document` package or `FileParserDispatcher`. Extracting a dedicated attachment processor is a planned refactor, not current structure.
 
 **Chat ReAct path**: `LlmChatService.chat()` calls `localReAct()` to run the reasoning/tool loop on Android. Chat tools implement `ReActTool`, are registered in `ReActToolRegistry`, receive `ReActToolInput`, and return textual observations. Model requests go through `LlmClient` and the configured provider. The chat entry point currently does not use the backend ReAct loop.
 
@@ -127,11 +128,11 @@ PDF resources come from the pinned PDFBox Android dependency. Initialize `PDFBox
 
 ### 每次会话开始时 — Claude 必须执行
 
-先拉取上游：
+先拉取远端（`origin` 即 `HIT-A/HITA_Android`）：
 
 ```bash
-git fetch upstream
-git log HEAD..upstream/$(git branch --show-current) --oneline
+git fetch origin
+git log HEAD..origin/main --oneline
 ```
 
 有差异 → 报告用户，等用户决定 merge/rebase 后再继续。
@@ -167,7 +168,7 @@ refactor/xxx    # 重构（不改行为）
 ### 提交与推送纪律
 
 - **Commit 前必须先问用户确认**，不得自动 commit
-- **Push 前必须先问用户确认**（包括 origin 和 upstream），不得自动 push
+- **Push 前必须先问用户确认**（包括 origin 和 fork），不得自动 push
 - 即使用户说 "修好了就提交"，也应该在修改完成后展示 diff 摘要，等用户说 "commit" 再执行
 
 ### 提交前检查
@@ -184,7 +185,7 @@ refactor/xxx    # 重构（不改行为）
 **流程**：
 1. 更新 `app/build.gradle` 中的 `appVersionCodeValue` 和 `appVersionNameValue`，并同步 `README.md` 的版本徽标与「最新版本」文字
    - 若本版升了 `AppDatabase.VERSION`，把新版本号加入 `AppDatabaseUpgradePathTest.SHIPPED_VERSIONS`（升级测试覆盖所有已发布旧版本）
-2. `git commit` + `git push origin` + `git push upstream`
+2. `git commit` + `git push origin` + `git push fork`（`fork` 远端为 `Chami537/HITA_Agent`，本地未配置时先 `git remote add fork git@github.com:Chami537/HITA_Agent.git`）
 3. 两侧创建 release + 上传 APK（注意加版本化文件名）：
 ```bash
 gh release create v<version> --repo Chami537/HITA_Agent --target <branch> --title "v<version>" --notes "..."
