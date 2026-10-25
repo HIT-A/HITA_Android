@@ -1046,19 +1046,27 @@ class TimetableRepository internal constructor(
     }
 
     fun actionChangeTimetableStartDate(timetable: Timetable, startTime: Long) {
+        executor.execute { changeTimetableStartDateSync(timetable, startTime) }
+    }
+
+    @WorkerThread
+    internal fun changeTimetableStartDateSync(timetable: Timetable, startTime: Long) {
         val calendar = TimeTools.getMonday(startTime)
         val offset = calendar.timeInMillis - timetable.startTime.time
         timetable.endTime.time = timetable.endTime.time + offset
         timetable.startTime.time = calendar.timeInMillis
-        executor.execute {
-            timetableDao.saveTimetableSync(timetable)
-            eventItemDao.updateClassesAddOffset(timetableId = timetable.id, offset)
-        }
+        timetableDao.saveTimetableSync(timetable)
+        eventItemDao.updateClassesAddOffset(timetableId = timetable.id, offset)
     }
 
     fun actionChangeTimetableStructure(timetable: Timetable, tp: TimePeriodInDay, position: Int) {
+        executor.execute { changeTimetableStructureSync(timetable, tp, position) }
+    }
+
+    @WorkerThread
+    internal fun changeTimetableStructureSync(timetable: Timetable, tp: TimePeriodInDay, position: Int) {
         timetable.setScheduleStructure(tp, position)
-        executor.execute {
+        run {
             timetableDao.saveTimetableSync(timetable)
             val fromToChange = eventItemDao.getClassAtFromNumberSync(timetable.id, position + 1)
             val tmp = Calendar.getInstance()
