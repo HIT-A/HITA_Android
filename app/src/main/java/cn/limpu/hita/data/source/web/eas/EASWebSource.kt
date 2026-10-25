@@ -143,10 +143,12 @@ class EASWebSource internal constructor(
     private val courseSelectionTimeoutMillis: Int? = null,
     private val courseSelectionTransport: ShenzhenCourseSelectionTransport =
         ShenzhenCourseSelectionTransport { request -> request.execute() },
-    private val credentialProvider: (EASToken.Campus, String?) -> EasCredential? = { _, _ -> null }
+    private val credentialProvider: (EASToken.Campus, String?) -> EasCredential? = { _, _ -> null },
+    private val apiHostOverride: String? = null,
+    private val webHostOverride: String? = null,
 ) : EASService {
 
-    private val hostName = "https://mjw.hitsz.edu.cn/incoSpringBoot"
+    private val hostName = apiHostOverride?.trimEnd('/') ?: "https://mjw.hitsz.edu.cn/incoSpringBoot"
     private val jwDirectHostName = "https://jw.hitsz.edu.cn"
     private val jwProxyHostName = "https://jw-hitsz-edu-cn.hitsz.edu.cn"
     private val basicAuth = "Basic aW5jb246MTIzNDU="
@@ -157,7 +159,8 @@ class EASWebSource internal constructor(
     private val overviewTermDatesCache = ConcurrentHashMap<String, List<String>>()
 
     private fun jwHostName(token: EASToken): String =
-        if (token.webBaseUrl?.trimEnd('/') == jwProxyHostName) jwProxyHostName else jwDirectHostName
+        webHostOverride?.trimEnd('/')
+            ?: if (token.webBaseUrl?.trimEnd('/') == jwProxyHostName) jwProxyHostName else jwDirectHostName
 
     private fun jwRequestTimeout(path: String): Int = if (
         listOf(
