@@ -1,18 +1,17 @@
 package cn.limpu.hita.data
 
 import androidx.room.Room
-import androidx.room.testing.MigrationTestHelper
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import cn.limpu.hita.data.model.timetable.EventItem
 import org.junit.After
 import org.junit.Assert.*
-import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 
 /**
- * 已发布版本的数据库升级到当前版本：最终 schema 与导出 JSON 完全一致，且个人数据逐字段保留。
+ * 已发布版本的数据库升级到当前版本：Room 打开时按当前 schema 校验列/索引/外键，表集合与导出 JSON 一致，
+ * 且个人数据逐字段保留。
  * 发版若升了数据库版本，把新的 [AppDatabase.VERSION] 加入 [SHIPPED_VERSIONS]。
  */
 @RunWith(AndroidJUnit4::class)
@@ -30,8 +29,6 @@ class AppDatabaseUpgradePathTest {
 
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
 
-    @get:Rule val helper = MigrationTestHelper(instrumentation, AppDatabase::class.java)
-
     @After fun tearDown() {
         instrumentation.targetContext.deleteDatabase(DB_NAME)
     }
@@ -40,18 +37,16 @@ class AppDatabaseUpgradePathTest {
         val olderVersions = SHIPPED_VERSIONS.filter { it < AppDatabase.VERSION }
         assertTrue(olderVersions.isNotEmpty())
         for (version in olderVersions) {
-            instrumentation.targetContext.deleteDatabase(DB_NAME)
             seed(version)
-
-            helper.runMigrationsAndValidate(DB_NAME, AppDatabase.VERSION, true, *AppDatabase.ALL_MIGRATIONS).close()
-
-            assertPersonalDataKept(version)
+            assertMigratedDatabase(version)
         }
     }
 
     /** 9/11/14 中 timetable、subject、events、chat_* 列完全一致，同一份种子数据适用。 */
     private fun seed(version: Int) {
-        helper.createDatabase(DB_NAME, version).use { db ->
+        val legacy = createLegacyAppDatabase(DB_NAME, version)
+        try {
+            val db = legacy.writableDatabase
             db.execSQL(
                 "INSERT INTO timetable (id, name, code, startTime, endTime, createdAt, scheduleStructure) VALUES (?, ?, ?, ?, ?, ?, ?)",
                 arrayOf<Any?>("table", "秋季课表", "BENBU:2026-2027-1", START, START + 120 * 86400000L, 1L, STRUCTURE)
@@ -72,6 +67,8 @@ class AppDatabaseUpgradePathTest {
                 "INSERT INTO chat_message (id, sessionId, role, text, resourceCardsJson, timestampMs) VALUES (?, ?, ?, ?, ?, ?)",
                 arrayOf<Any?>("message", "session", "USER", "明天有什么课？", "[]", 15L)
             )
+        } finally {
+            legacy.close()
         }
     }
 
@@ -84,13 +81,19 @@ class AppDatabaseUpgradePathTest {
         )
     }
 
-    /** 用应用实际的构建方式打开，同时覆盖 Room 打开时的 schema 校验。 */
-    private fun assertPersonalDataKept(version: Int) {
+    /** 用应用实际的构建方式打开：首次访问执行迁移，并由 Room 按当前 schema 校验。 */
+    private fun assertMigratedDatabase(version: Int) {
         val db = Room.databaseBuilder(instrumentation.targetContext, AppDatabase::class.java, DB_NAME)
             .addMigrations(*AppDatabase.ALL_MIGRATIONS)
             .build()
         try {
             val message = "from v$version"
+            val tables = db.openHelper.writableDatabase
+                .query("SELECT name FROM sqlite_master WHERE type = 'table'").use { cursor ->
+                    generateSequence { if (cursor.moveToNext()) cursor.getString(0) else null }.toSet()
+                }.filterNot { it == "android_metadata" || it == "room_master_table" || it.startsWith("sqlite_") }
+            assertEquals("$message：迁移后不应残留或缺少表", legacySchemaTables(AppDatabase.VERSION), tables.toSet())
+
             val table = requireNotNull(db.timetableDao().getTimetableByIdSync("table")) { message }
             assertEquals(message, "秋季课表", table.name)
             assertEquals(message, "BENBU:2026-2027-1", table.code)
