@@ -32,6 +32,18 @@ class ShareSnapshotBuilderTest {
         val result = ShareSnapshotBuilder().build(tt, days.reversed().map { event(tt, it) }, id, "小林", ShareMode.FULL)
         assertEquals(days.map { SharedOccurrence(time("${it}T08:30:00"), time("${it}T10:15:00"), 0, "秘密教室") }, result.occurrences)
     }
+    @Test fun olderCoursesAttachedToAutumnTimetableDoNotBlockSharing() {
+        val tt = timetable()
+        val springLab = event(tt, "2026-03-27").apply { name = "春季实验" }
+        val springExam = event(tt, "2026-06-27").apply { name = "春季考试" }
+        val autumnClass = event(tt, "2026-09-01").apply { name = "秋季课程" }
+        for (mode in ShareMode.entries) {
+            val snapshot = ShareSnapshotBuilder().build(tt, listOf(springLab, springExam, autumnClass), id, "小林", mode)
+            assertEquals(1, snapshot.occurrences.size)
+            assertEquals(time("2026-09-01T08:30:00"), snapshot.occurrences.single().startMillis)
+            if (mode == ShareMode.FULL) assertEquals(listOf("秋季课程"), snapshot.courses)
+        }
+    }
     @Test fun busyStripsDetailsBeforeEncodingAndMergesRegardlessOfGrouping() {
         val tt = timetable()
         val events = listOf(event(tt), event(tt, subject = "second").apply { from = Timestamp(time("2026-08-31T10:15:00")); to = Timestamp(time("2026-08-31T12:15:00")); name = "物理" })
