@@ -61,6 +61,7 @@ internal class EASTimetableImportRepository(
     private val autoImportInProgress: AtomicBoolean,
 ) {
     private val database by lazy { cn.limpu.hita.data.AppDatabase.getDatabase(appContext) }
+    private val examImportRepository by lazy { ExamImportRepository(database) }
 
     private var timetableWebLiveData: LiveData<DataState<List<CourseItem>>>? = null
     fun startImportTimetableOfTerm(
@@ -946,7 +947,7 @@ internal class EASTimetableImportRepository(
                             LogUtils.w("autoImport: skip exams, timetable not found code=$timetableCode")
                             0
                         } else {
-                            importExamItemsSync(examState.data.orEmpty(), timetable)
+                            examImportRepository.importAutomatically(examState.data.orEmpty(), timetable).importedCount
                         }
                     }
                 }
@@ -975,23 +976,6 @@ internal class EASTimetableImportRepository(
     /** 重新登录后调用：清空「记住忽略」指纹，让上游现状重新提示一次。 */
     fun clearIgnoredTimetableChangeFingerprints() {
         timetableChangeStore.clearIgnoredFingerprints()
-    }
-
-    @WorkerThread
-    private fun importExamItemsSync(exams: List<ExamItem>, timetable: Timetable): Int {
-        if (exams.isEmpty()) return 0
-        val existingKeys = eventItemDao.getExamEventsSync()
-            .mapTo(mutableSetOf()) { ExamEventMapper.identityKey(it) }
-        var importedCount = 0
-
-        for (exam in exams) {
-            val examEvent = ExamEventMapper.toEvent(exam, timetable.id, "EASRepository") ?: continue
-            val key = ExamEventMapper.identityKey(examEvent)
-            if (!existingKeys.add(key)) continue
-            eventItemDao.insertEventSync(examEvent)
-            importedCount++
-        }
-        return importedCount
     }
 
     private fun <T> awaitLiveData(
