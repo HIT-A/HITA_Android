@@ -1,5 +1,6 @@
 package cn.limpu.hita.ui.search.teacher
 
+import cn.limpu.hita.data.model.teacher.TeacherSearched
 import android.content.Context
 import android.os.Bundle
 import android.view.LayoutInflater

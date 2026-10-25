@@ -58,7 +58,7 @@ import cn.limpu.hita.ui.design.HitaTheme
 import cn.limpu.hita.ui.design.HitaThemeStyle
 import cn.limpu.hita.ui.design.hitaCoursePaletteFor
 import cn.limpu.hita.ui.design.hitaIsPersona
-import cn.limpu.hita.ui.main.timetable.CourseBubbleStyle
+import cn.limpu.hita.data.model.timetable.CourseBubbleStyle
 import com.limpu.style.ThemeTools
 import dagger.hilt.android.AndroidEntryPoint
 

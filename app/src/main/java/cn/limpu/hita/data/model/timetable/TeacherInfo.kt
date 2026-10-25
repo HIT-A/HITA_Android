@@ -1,4 +1,4 @@
-package cn.limpu.hita.ui.timetable.detail
+package cn.limpu.hita.data.model.timetable
 
 import androidx.room.ColumnInfo
 

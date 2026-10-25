@@ -11,8 +11,8 @@ import androidx.lifecycle.MutableLiveData
 import com.limpu.component.data.booleanLiveData
 import com.limpu.component.data.intLiveData
 import com.limpu.component.data.stringLiveData
-import cn.limpu.hita.ui.main.timetable.TimetableStyleSheet
-import cn.limpu.hita.ui.main.timetable.CourseBubbleStyle
+import cn.limpu.hita.data.model.timetable.TimetableStyleSheet
+import cn.limpu.hita.data.model.timetable.CourseBubbleStyle
 
 private const val SP_NAME = "timetable_style"
 const val KEY_START_DATE = "start_date"

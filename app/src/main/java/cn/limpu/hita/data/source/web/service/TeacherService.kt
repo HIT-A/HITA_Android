@@ -2,7 +2,7 @@ package cn.limpu.hita.data.source.web.service
 
 import androidx.lifecycle.LiveData
 import com.limpu.component.data.DataState
-import cn.limpu.hita.ui.search.teacher.TeacherSearched
+import cn.limpu.hita.data.model.teacher.TeacherSearched
 
 interface TeacherService {
 

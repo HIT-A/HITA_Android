@@ -19,7 +19,7 @@ import cn.limpu.hita.data.repository.KEY_COURSE_BUBBLE_STYLE
 import cn.limpu.hita.data.repository.KEY_EVENING_HINT
 import cn.limpu.hita.data.repository.KEY_ZOOM_COMPRESSED
 import cn.limpu.hita.data.repository.KEY_FONT_SIZE_LEVEL
-import cn.limpu.hita.ui.main.timetable.CourseBubbleStyle
+import cn.limpu.hita.data.model.timetable.CourseBubbleStyle
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 

@@ -6,8 +6,8 @@ import cn.limpu.hita.data.model.eas.TermItem
 import cn.limpu.hita.data.model.timetable.TermSubject
 import cn.limpu.hita.data.model.timetable.TimeInDay
 import cn.limpu.hita.data.model.timetable.TimePeriodInDay
-import cn.limpu.hita.ui.eas.classroom.BuildingItem
-import cn.limpu.hita.ui.eas.classroom.ClassroomItem
+import cn.limpu.hita.data.model.classroom.BuildingItem
+import cn.limpu.hita.data.model.classroom.ClassroomItem
 import com.google.gson.JsonArray
 import com.google.gson.JsonElement
 import com.google.gson.JsonObject

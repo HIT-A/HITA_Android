@@ -1,5 +1,8 @@
 package cn.limpu.hita.ui.main.timetable
 
+import cn.limpu.hita.data.model.timetable.CourseBubbleStyle
+import cn.limpu.hita.data.model.timetable.TimetableStyleSheet
+import cn.limpu.hita.data.model.timetable.WEEK_MILLS
 import android.content.Context
 import android.graphics.Color as AndroidColor
 import android.os.Bundle
@@ -171,7 +174,6 @@ class TimetableFragment : HiltBaseFragment<ComposeViewBinding>() {
 
     companion object {
         const val WINDOW_SIZE: Int = 5
-        const val WEEK_MILLS: Long = 1000 * 60 * 60 * 24 * 7
     }
 
     fun navigateToWeek(mondayMillis: Long) {
@@ -496,7 +498,7 @@ private fun TimetableScreen(
         hit?.scheduleStructure ?: Timetable().scheduleStructure
     }
     val showTodayFab = currentPageStart > System.currentTimeMillis() ||
-            System.currentTimeMillis() >= currentPageStart + TimetableFragment.WEEK_MILLS
+            System.currentTimeMillis() >= currentPageStart + WEEK_MILLS
 
     Box(modifier = Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize()) {
@@ -510,10 +512,10 @@ private fun TimetableScreen(
                     dateColor = if (wallpaperPath.isBlank()) MaterialTheme.colorScheme.onSurface else Color(dateColorInt),
                     labelColor = if (wallpaperPath.isBlank()) MaterialTheme.colorScheme.onSurfaceVariant else Color(labelColorInt),
                     onPrevWeek = {
-                        viewModel.currentPageStartDate.value = currentPageStart - TimetableFragment.WEEK_MILLS
+                        viewModel.currentPageStartDate.value = currentPageStart - WEEK_MILLS
                     },
                     onNextWeek = {
-                        viewModel.currentPageStartDate.value = currentPageStart + TimetableFragment.WEEK_MILLS
+                        viewModel.currentPageStartDate.value = currentPageStart + WEEK_MILLS
                     },
                     onEventClick = onEventClick,
                     onEventLongClick = onEventLongClick,

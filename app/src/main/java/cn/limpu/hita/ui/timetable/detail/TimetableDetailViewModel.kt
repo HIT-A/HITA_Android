@@ -1,5 +1,6 @@
 package cn.limpu.hita.ui.timetable.detail
 
+import cn.limpu.hita.data.model.timetable.TeacherInfo
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel

@@ -45,7 +45,7 @@ import cn.limpu.hita.data.model.eas.TermItem
 import cn.limpu.hita.data.model.timetable.TimePeriodInDay
 import cn.limpu.hita.ui.design.HitaComposeTheme
 import cn.limpu.hita.ui.design.HitaTheme
-import cn.limpu.hita.ui.eas.classroom.ClassroomItem
+import cn.limpu.hita.data.model.classroom.ClassroomItem
 import cn.limpu.hita.utils.TimeTools
 
 class EmptyClassroomDetailFragment(

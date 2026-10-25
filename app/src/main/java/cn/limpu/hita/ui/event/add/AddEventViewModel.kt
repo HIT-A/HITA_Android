@@ -1,5 +1,6 @@
 package cn.limpu.hita.ui.event.add
 
+import cn.limpu.hita.data.model.timetable.CourseTime
 import androidx.lifecycle.MediatorLiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.Observer

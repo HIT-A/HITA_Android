@@ -1,5 +1,7 @@
 package cn.limpu.hita.ui.eas.classroom
 
+import cn.limpu.hita.data.model.classroom.BuildingItem
+import cn.limpu.hita.data.model.classroom.ClassroomItem
 import android.os.Bundle
 import androidx.activity.viewModels
 import androidx.compose.foundation.background

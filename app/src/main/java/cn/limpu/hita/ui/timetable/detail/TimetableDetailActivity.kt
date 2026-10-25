@@ -1,5 +1,6 @@
 package cn.limpu.hita.ui.timetable.detail
 
+import cn.limpu.hita.data.model.timetable.TeacherInfo
 import android.content.Intent
 import android.os.Bundle
 import android.view.HapticFeedbackConstants

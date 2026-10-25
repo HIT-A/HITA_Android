@@ -1,5 +1,6 @@
 package cn.limpu.hita.ui.main.timetable
 
+import cn.limpu.hita.data.model.timetable.TimetableStyleSheet
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MediatorLiveData
 import androidx.lifecycle.MutableLiveData
@@ -20,7 +21,7 @@ import cn.limpu.hita.data.repository.TimetableSourceApplier
 import cn.limpu.hita.data.repository.TimetableStyleRepository
 import cn.limpu.hita.data.repository.KEY_WALLPAPER_PATH
 import cn.limpu.hita.utils.LogUtils
-import cn.limpu.hita.ui.main.timetable.TimetableFragment.Companion.WEEK_MILLS
+import cn.limpu.hita.data.model.timetable.WEEK_MILLS
 import cn.limpu.hita.ui.subject.SubjectBatchDeleteScope
 import cn.limpu.hita.ui.subject.SubjectBatchEditScope
 import cn.limpu.hita.ui.main.timetable.TimetableFragment.Companion.WINDOW_SIZE

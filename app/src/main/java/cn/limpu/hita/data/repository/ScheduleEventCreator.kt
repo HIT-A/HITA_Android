@@ -5,7 +5,7 @@ import cn.limpu.hita.data.model.timetable.EventItem
 import cn.limpu.hita.data.model.timetable.TermSubject
 import cn.limpu.hita.data.model.timetable.TimePeriodInDay
 import cn.limpu.hita.data.model.timetable.Timetable
-import cn.limpu.hita.ui.event.add.CourseTime
+import cn.limpu.hita.data.model.timetable.CourseTime
 import java.sql.Timestamp
 import java.util.Calendar
 

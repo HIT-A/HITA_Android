@@ -55,7 +55,7 @@ import cn.limpu.hita.data.model.timetable.TimePeriodInDay
 import cn.limpu.hita.data.model.timetable.Timetable
 import cn.limpu.hita.ui.design.HitaComposeTheme
 import cn.limpu.hita.ui.design.HitaTheme
-import cn.limpu.hita.ui.event.add.CourseTime
+import cn.limpu.hita.data.model.timetable.CourseTime
 import cn.limpu.hita.utils.TimeTools
 import com.limpu.style.widgets.MWheel3DView
 import java.util.Calendar

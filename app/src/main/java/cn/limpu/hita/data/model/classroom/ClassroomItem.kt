@@ -1,4 +1,4 @@
-package cn.limpu.hita.ui.eas.classroom
+package cn.limpu.hita.data.model.classroom
 
 import org.json.JSONObject
 import java.io.Serializable

@@ -5,7 +5,7 @@ import android.text.TextUtils
 import cn.limpu.hita.R
 import cn.limpu.hita.data.model.timetable.TimeInDay
 import cn.limpu.hita.data.model.timetable.TimePeriodInDay
-import cn.limpu.hita.ui.main.timetable.TimetableFragment.Companion.WEEK_MILLS
+import cn.limpu.hita.data.model.timetable.WEEK_MILLS
 import java.sql.Timestamp
 import java.text.SimpleDateFormat
 import java.util.*

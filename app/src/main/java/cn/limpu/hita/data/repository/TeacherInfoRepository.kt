@@ -5,7 +5,7 @@ import androidx.lifecycle.LiveData
 import javax.inject.Inject
 import cn.limpu.hita.data.source.web.TeacherWebSource
 import com.limpu.component.data.DataState
-import cn.limpu.hita.ui.search.teacher.TeacherSearched
+import cn.limpu.hita.data.model.teacher.TeacherSearched
 
 class TeacherInfoRepository @Inject constructor(application: Application) {
 

@@ -1,5 +1,6 @@
 package cn.limpu.hita.ui.main.timetable
 
+import cn.limpu.hita.data.model.timetable.TimetableStyleSheet
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotSame

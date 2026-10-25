@@ -1,6 +1,6 @@
 package cn.limpu.hita.data.source.web.eas
 
-import cn.limpu.hita.ui.eas.classroom.ClassroomItem
+import cn.limpu.hita.data.model.classroom.ClassroomItem
 import org.json.JSONObject
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Element

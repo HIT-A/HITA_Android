@@ -1,7 +1,5 @@
-package cn.limpu.hita.ui.event.add
+package cn.limpu.hita.data.model.timetable
 
-import cn.limpu.hita.data.model.timetable.TimeInDay
-import cn.limpu.hita.data.model.timetable.TimePeriodInDay
 import java.sql.Time
 import java.util.*
 
