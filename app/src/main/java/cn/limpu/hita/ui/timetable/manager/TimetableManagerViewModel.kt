@@ -18,7 +18,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import cn.limpu.hita.data.model.timetable.DisplayScope
 import cn.limpu.hita.data.model.timetable.Timetable
-import cn.limpu.hita.data.repository.DisplayScopeResolver
+import cn.limpu.hita.data.repository.DisplayScopeSelector
 import cn.limpu.hita.data.repository.IcsImportResult
 import cn.limpu.hita.data.repository.TimetableRepository
 import com.limpu.component.data.DataState
@@ -29,7 +29,7 @@ import javax.inject.Inject
 @HiltViewModel
 class TimetableManagerViewModel @Inject constructor(
     private val timetableRepository: TimetableRepository,
-    private val scopeResolver: DisplayScopeResolver,
+    private val scopeSelector: DisplayScopeSelector,
     private val sharingRepository: cn.limpu.hita.data.repository.TimetableSharingRepository,
     private val exportRepository: cn.limpu.hita.data.repository.TimetableExportRepository,
     private val friendRepository: FriendTimetableRepository,
@@ -126,14 +126,14 @@ class TimetableManagerViewModel @Inject constructor(
     /** 导入完成后把课表加入既有组合,并切显示目标过去。 */
     fun joinGroup(timetableId: String, groupId: String) {
         timetableRepository.actionAddToGroup(timetableId, groupId) { added ->
-            if (added) scopeResolver.select(DisplayScope.Group(groupId))
+            if (added) scopeSelector.select(DisplayScope.Group(groupId))
         }
     }
 
     /** 导入完成后新建组合(含同屏目标与新课表),并切显示目标过去。 */
     fun createGroupWith(targetTimetableId: String, newTimetableId: String) {
         timetableRepository.actionCreateGroupWithMembers(listOf(targetTimetableId, newTimetableId)) { groupId ->
-            if (groupId != null) scopeResolver.select(DisplayScope.Group(groupId))
+            if (groupId != null) scopeSelector.select(DisplayScope.Group(groupId))
         }
     }
 

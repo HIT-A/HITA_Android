@@ -10,6 +10,7 @@ import cn.limpu.hita.data.model.timetable.EventItem
 import cn.limpu.hita.data.model.timetable.TimeInDay
 import cn.limpu.hita.data.model.timetable.TimePeriodInDay
 import cn.limpu.hita.data.model.timetable.Timetable
+import cn.limpu.hita.data.repository.DisplayScopeSelector
 import cn.limpu.hita.data.repository.TimetableRepository
 import com.limpu.component.data.DataState
 import org.junit.Assert.assertEquals
@@ -38,7 +39,10 @@ class ManualCourseCreationInstrumentedTest {
             }
             instrumentation.runOnMainSync {
                 // ViewModel 构造时会 setValue，生产环境由 ViewModelProvider 在主线程创建
-                val viewModel = AddEventViewModel(TimetableRepository(application, db))
+                val repository = TimetableRepository(application, db, DisplayScopeSelector {
+                    error("Manual course creation must not change the display scope")
+                })
+                val viewModel = AddEventViewModel(repository)
                 viewModel.init(false, timetable, null, null)
                 viewModel.setDateMode(AddEventViewModel.DateMode.WEEKLY)
                 viewModel.nameLiveData.value = "自习"

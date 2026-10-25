@@ -100,16 +100,14 @@ class DisplayScopeResolver internal constructor(
     }
     val options: LiveData<List<ScopeOption>> get() = _options
 
-    /** 用户切换显示目标；持久化，重启后保持。同时刷新桌面小组件。 */
-    fun select(scope: DisplayScope) {
+    /** 仅保存选择；完整的切换操作经 [DisplayScopeSelector] 编排。 */
+    internal fun persistSelection(scope: DisplayScope) {
         synchronized(selectionLock) {
             sp.edit()
                 .putString(KEY_TYPE, DisplayScope.typeOf(scope))
                 .putString(KEY_ID, scope.id)
                 .apply()
         }
-        cn.limpu.hita.ui.widgets.WidgetUtils.sendRefreshToAll(application)
-        cn.limpu.hita.feature.livecourse.scheduler.LiveCourseScheduler.autoSchedule(application)
     }
 
     private fun computeResolved(): ResolvedDisplayScope? {

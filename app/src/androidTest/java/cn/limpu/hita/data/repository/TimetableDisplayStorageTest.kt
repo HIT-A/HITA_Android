@@ -13,6 +13,7 @@ import cn.limpu.hita.data.model.timetable.DisplayScope
 import cn.limpu.hita.data.model.timetable.EventItem
 import cn.limpu.hita.data.model.timetable.Timetable
 import cn.limpu.hita.data.model.timetable.TimetableGroupEntity
+import cn.limpu.hita.feature.timetable.display.DisplayScopeCoordinator
 import cn.limpu.hita.feature.timetableshare.protocol.*
 import cn.limpu.hita.ui.main.timeline.FragmentTimelineViewModel
 import com.limpu.component.data.DataState
@@ -22,6 +23,7 @@ import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.sql.Timestamp
+import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -32,14 +34,46 @@ class TimetableDisplayStorageTest {
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
     private lateinit var db: AppDatabase
     private lateinit var repository: TimetableRepository
+    private lateinit var selectionResolver: DisplayScopeResolver
+    private lateinit var coordinator: DisplayScopeCoordinator
+    private val selections = CopyOnWriteArrayList<DisplayScope>()
+    private val selectionTransactions = CopyOnWriteArrayList<Boolean>()
+    private val refreshes = CopyOnWriteArrayList<Refresh>()
+    private var onWidgetRefresh: () -> Unit = {}
     private val preferences get() = app.getSharedPreferences("timetable_display_scope", 0)
     private var previousPreferences: Map<String, *> = emptyMap<String, Any>()
+
+    private data class Refresh(val source: String, val type: String?, val id: String?)
 
     @Before fun setUp() {
         previousPreferences = preferences.all
         preferences.edit().clear().commit()
         db = Room.inMemoryDatabaseBuilder(app, AppDatabase::class.java).build()
-        repository = TimetableRepository(app, db)
+        selectionResolver = DisplayScopeResolver(app, db)
+        coordinator = DisplayScopeCoordinator(
+            persistSelection = { scope ->
+                selections += scope
+                selectionTransactions += db.inTransaction()
+                selectionResolver.persistSelection(scope)
+            },
+            refreshWidgets = {
+                recordRefresh("widgets")
+                onWidgetRefresh()
+            },
+            scheduleLiveCourse = { recordRefresh("liveCourse") },
+        )
+        repository = TimetableRepository(app, db, coordinator)
+    }
+
+    private fun recordRefresh(source: String) {
+        refreshes += Refresh(source, preferences.getString("display_scope_type", null),
+            preferences.getString("display_scope_id", null))
+    }
+
+    private fun clearSelectionRecords() {
+        selections.clear()
+        selectionTransactions.clear()
+        refreshes.clear()
     }
 
     @After fun tearDown() {
@@ -221,12 +255,143 @@ class TimetableDisplayStorageTest {
     @Test fun newEasTableGroupsWithPreviousDefaultInsteadOfSelectingItself() {
         table("old", start = 1000)
         table("new", start = 0)
+        var visibleAtRefresh: ResolvedDisplayScope? = null
+        onWidgetRefresh = { visibleAtRefresh = selectionResolver.currentSync() }
         repository.autoGroupAfterEasImportSync("new")
         val resolver = DisplayScopeResolver(app, db)
         val scope = resolver.currentSync()!!
         assertTrue(scope.scope is DisplayScope.Group)
         assertEquals(setOf("old", "new"), scope.timetableIds.toSet())
         assertEquals(1, db.timetableGroupDao().getGroupsSync().size)
+        assertEquals(listOf(scope.scope), selections)
+        assertEquals("Selection must follow the grouping transaction", listOf(false), selectionTransactions)
+        assertEquals(scope.scope, visibleAtRefresh!!.scope)
+        assertEquals(setOf("old", "new"), visibleAtRefresh!!.timetableIds.toSet())
+        assertEquals(listOf(Refresh("widgets", "group", scope.scope.id),
+            Refresh("liveCourse", "group", scope.scope.id)), refreshes)
+    }
+
+    @Test fun addingEasTableToExistingGroupDoesNotSelectOrRefreshAgain() {
+        group("g")
+        table("old", "g"); table("other", "g"); table("new")
+        coordinator.select(DisplayScope.Group("g"))
+        clearSelectionRecords()
+
+        repository.autoGroupAfterEasImportSync("new")
+
+        assertEquals(setOf("old", "other", "new"), db.timetableGroupDao().getMembersSync("g").map { it.id }.toSet())
+        assertEquals("g", preferences.getString("display_scope_id", null))
+        assertTrue(selections.isEmpty())
+        assertTrue(refreshes.isEmpty())
+    }
+
+    @Test fun automaticGroupingNoOpsDoNotSelectOrRefresh() {
+        table("only")
+        // No other display target, and no imported row, respectively.
+        repository.autoGroupAfterEasImportSync("only")
+        repository.autoGroupAfterEasImportSync("missing")
+        assertTrue(selections.isEmpty())
+        assertTrue(refreshes.isEmpty())
+
+        coordinator.select(DisplayScope.Single("only"))
+        clearSelectionRecords()
+        repository.autoGroupAfterEasImportSync("only")
+        group("g")
+        table("already-grouped", "g")
+        repository.autoGroupAfterEasImportSync("already-grouped")
+
+        assertEquals(listOf("already-grouped"), db.timetableGroupDao().getMembersSync("g").map { it.id })
+        assertNull(db.timetableDao().getTimetableByIdSync("only")!!.groupId)
+        assertTrue(selections.isEmpty())
+        assertTrue(refreshes.isEmpty())
+    }
+
+    @Test fun failedAutomaticGroupingRollsBackBeforeAnySelectionOrRefresh() {
+        table("old"); table("new")
+        db.openHelper.writableDatabase.execSQL("CREATE TRIGGER reject_auto_group BEFORE UPDATE OF groupId ON timetable WHEN NEW.id = 'new' BEGIN SELECT RAISE(ABORT, 'injected auto group failure'); END")
+
+        try {
+            repository.autoGroupAfterEasImportSync("new")
+            fail("Automatic grouping must propagate its transaction failure")
+        } catch (failure: android.database.sqlite.SQLiteException) {
+            assertTrue(failure.message.orEmpty().contains("injected auto group failure"))
+        }
+
+        assertTrue(db.timetableGroupDao().getGroupsSync().isEmpty())
+        assertTrue(db.timetableDao().getTimetablesSync().all { it.groupId == null })
+        assertFalse(preferences.contains("display_scope_id"))
+        assertTrue(selections.isEmpty())
+        assertTrue(refreshes.isEmpty())
+    }
+
+    @Test fun selectionIsVisibleDuringRefreshAndEventuallyToBothResolvers() {
+        table("a"); table("b", start = 1000)
+        val otherResolver = DisplayScopeResolver(app, db)
+        val initial = List(2) { CountDownLatch(1) }
+        val updated = List(2) { CountDownLatch(1) }
+        val observers = listOf(selectionResolver, otherResolver).mapIndexed { index, resolver ->
+            val observer = Observer<ResolvedDisplayScope?> { scope ->
+                when (scope?.scope) {
+                    DisplayScope.Single("a") -> initial[index].countDown()
+                    DisplayScope.Single("b") -> updated[index].countDown()
+                    else -> Unit
+                }
+            }
+            resolver to observer
+        }
+        instrumentation.runOnMainSync {
+            observers.forEach { (resolver, observer) -> resolver.resolved.observeForever(observer) }
+        }
+        try {
+            initial.forEach { assertTrue("Both readers must first observe the default", it.await(10, TimeUnit.SECONDS)) }
+
+            coordinator.select(DisplayScope.Single("b"))
+
+            assertEquals(listOf(Refresh("widgets", "single", "b"),
+                Refresh("liveCourse", "single", "b")), refreshes)
+            assertEquals(DisplayScope.Single("b"), selectionResolver.currentSync()!!.scope)
+            assertEquals(DisplayScope.Single("b"), otherResolver.currentSync()!!.scope)
+            updated.forEach { assertTrue("Both readers must observe the new preference", it.await(10, TimeUnit.SECONDS)) }
+        } finally {
+            instrumentation.runOnMainSync {
+                observers.forEach { (resolver, observer) -> resolver.resolved.removeObserver(observer) }
+            }
+        }
+    }
+
+    @Test fun liveDataFallbackClearsInvalidSelectionWithoutPlatformRefresh() {
+        table("a")
+        val selected = table("b", start = 1000)
+        coordinator.select(DisplayScope.Single("b"))
+        clearSelectionRecords()
+        val initial = CountDownLatch(1)
+        val fallback = CountDownLatch(1)
+        val preferenceCleared = CountDownLatch(1)
+        val observer = Observer<ResolvedDisplayScope?> { scope ->
+            if (scope?.scope == DisplayScope.Single("b")) initial.countDown()
+            if (scope?.scope == DisplayScope.Single("a")) fallback.countDown()
+        }
+        val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (key == "display_scope_id" && !preferences.contains(key)) preferenceCleared.countDown()
+        }
+        preferences.registerOnSharedPreferenceChangeListener(listener)
+        instrumentation.runOnMainSync { selectionResolver.resolved.observeForever(observer) }
+        try {
+            assertTrue(initial.await(10, TimeUnit.SECONDS))
+            repository.actionDeleteTimetables(listOf(selected))
+            flush()
+
+            assertTrue("LiveData must fall back after deletion", fallback.await(10, TimeUnit.SECONDS))
+            assertTrue("The authoritative fallback must clear the preference", preferenceCleared.await(10, TimeUnit.SECONDS))
+            assertEquals(DisplayScope.Single("a"), selectionResolver.currentSync()!!.scope)
+            assertFalse(preferences.contains("display_scope_type"))
+            assertFalse(preferences.contains("display_scope_id"))
+            assertTrue(selections.isEmpty())
+            assertTrue(refreshes.isEmpty())
+        } finally {
+            preferences.unregisterOnSharedPreferenceChangeListener(listener)
+            instrumentation.runOnMainSync { selectionResolver.resolved.removeObserver(observer) }
+        }
     }
 
     @Test fun danglingLegacyMemberStillAppearsAsAnIndependentDisplayOption() {
@@ -241,15 +406,18 @@ class TimetableDisplayStorageTest {
         group("g")
         table("a", "g"); table("b", "g"); table("unrelated", start = 1000)
         val resolver = DisplayScopeResolver(app, db)
-        resolver.select(DisplayScope.Single("a"))
+        coordinator.select(DisplayScope.Single("a"))
         assertEquals(setOf("a", "b"), resolver.currentSync()!!.timetableIds.toSet())
-        resolver.select(DisplayScope.Group("g"))
+        coordinator.select(DisplayScope.Group("g"))
+        clearSelectionRecords()
         repository.actionDissolveGroup("g")
         flush()
         val fallback = resolver.currentSync()!!
         assertTrue(fallback.scope is DisplayScope.Single)
         assertFalse(preferences.contains("display_scope_id"))
         assertTrue(db.timetableDao().getTimetablesSync().all { it.groupId == null })
+        assertTrue(selections.isEmpty())
+        assertTrue(refreshes.isEmpty())
     }
 
     @Test fun groupSelectionBeforeRoomEmissionIsNotErasedByStaleSnapshot() {
@@ -274,7 +442,7 @@ class TimetableDisplayStorageTest {
                         db.timetableGroupDao().setTimetableGroupSync("b", "g")
                     }
                 }.get(10, TimeUnit.SECONDS)
-                resolver.select(DisplayScope.Group("g"))
+                coordinator.select(DisplayScope.Group("g"))
             }
             assertTrue(grouped.await(10, TimeUnit.SECONDS))
             instrumentation.waitForIdleSync()
