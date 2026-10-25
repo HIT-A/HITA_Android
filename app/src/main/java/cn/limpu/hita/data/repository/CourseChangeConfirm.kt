@@ -197,41 +197,61 @@ object CourseChangeConfirm {
         kinds: Set<PendingChangeKind>,
     ): List<MergeLesson> {
         if (incomingLessons.isEmpty()) return localLessons
-        val incomingByWeek = incomingLessons.associateBy { it.weekOfTerm }
         val adoptTime = PendingChangeKind.TIME in kinds
         val adoptWeeks = PendingChangeKind.WEEKS in kinds
         val adoptPlace = PendingChangeKind.PLACE in kinds
         val adoptTeacher = PendingChangeKind.TEACHER in kinds
         if (!adoptTime && !adoptWeeks && !adoptPlace && !adoptTeacher) return localLessons
 
+        val incomingByWeek = incomingLessons.groupBy { it.weekOfTerm }
         val localWeeks = localLessons.map { it.weekOfTerm }.toSet()
-        val patched = localLessons.map { lesson ->
-            val incoming = incomingByWeek[lesson.weekOfTerm]
-            if (incoming == null) {
-                lesson
-            } else {
-                lesson.copy(
-                    fromMillis = if (adoptTime) incoming.fromMillis else lesson.fromMillis,
-                    toMillis = if (adoptTime) incoming.toMillis else lesson.toMillis,
-                    fromNumber = if (adoptTime) incoming.fromNumber else lesson.fromNumber,
-                    lastNumber = if (adoptTime) incoming.lastNumber else lesson.lastNumber,
-                    place = if (adoptPlace) incoming.place else lesson.place,
-                    teacher = if (adoptTeacher) incoming.teacher else lesson.teacher,
-                    name = incoming.name.ifBlank { lesson.name },
-                )
+        val result = mutableListOf<MergeLesson>()
+        for ((week, locals) in localLessons.groupBy { it.weekOfTerm }) {
+            val incoming = incomingByWeek[week].orEmpty()
+            if (incoming.isEmpty()) {
+                if (!adoptWeeks || week == 0) result += locals
+                continue
             }
+            val remaining = incoming.indices.toMutableSet()
+            val matches = mutableMapOf<Int, Int>()
+            // Reserve unchanged time ranges first, so a moved session cannot steal another session.
+            locals.forEachIndexed { index, lesson ->
+                val exact = remaining.firstOrNull {
+                    incoming[it].fromMillis == lesson.fromMillis && incoming[it].toMillis == lesson.toMillis
+                }
+                if (exact != null) {
+                    matches[index] = exact
+                    remaining.remove(exact)
+                }
+            }
+            val unmatchedLocal = locals.indices.filterNot { it in matches }
+                .sortedWith(compareBy({ locals[it].fromMillis }, { locals[it].toMillis }))
+            val unmatchedIncoming = remaining.sortedWith(compareBy({ incoming[it].fromMillis }, { incoming[it].toMillis }))
+            unmatchedLocal.zip(unmatchedIncoming).forEach { (localIndex, incomingIndex) ->
+                matches[localIndex] = incomingIndex
+                remaining.remove(incomingIndex)
+            }
+            locals.forEachIndexed { index, lesson ->
+                val replacement = matches[index]?.let { incoming[it] }
+                if (replacement != null) {
+                    result += lesson.copy(
+                        fromMillis = if (adoptTime) replacement.fromMillis else lesson.fromMillis,
+                        toMillis = if (adoptTime) replacement.toMillis else lesson.toMillis,
+                        fromNumber = if (adoptTime) replacement.fromNumber else lesson.fromNumber,
+                        lastNumber = if (adoptTime) replacement.lastNumber else lesson.lastNumber,
+                        place = if (adoptPlace) replacement.place else lesson.place,
+                        teacher = if (adoptTeacher) replacement.teacher else lesson.teacher,
+                        name = replacement.name.ifBlank { lesson.name },
+                    )
+                } else if (!adoptTime) {
+                    result += lesson
+                }
+            }
+            // TIME includes accepting changes to the number of sessions within an existing week.
+            if (adoptTime) result += remaining.map { incoming[it] }
         }
-        val extra = if (adoptWeeks) {
-            incomingLessons.filter { it.weekOfTerm !in localWeeks }
-        } else {
-            emptyList()
-        }
-        val kept = if (adoptWeeks) {
-            patched.filter { incomingByWeek.containsKey(it.weekOfTerm) || it.weekOfTerm == 0 }
-        } else {
-            patched
-        }
-        return kept + extra
+        if (adoptWeeks) result += incomingLessons.filter { it.weekOfTerm !in localWeeks }
+        return result
     }
 
     private fun describeSlot(slot: LessonSlotChange): String =

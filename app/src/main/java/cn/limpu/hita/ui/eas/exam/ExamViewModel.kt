@@ -34,6 +34,7 @@ class ExamViewModel @Inject constructor(
      * LiveData区
      */
     private val pageController = MutableLiveData<Trigger>()
+    private val termLoadGate = ExamTermLoadGate()
 
     val termsLiveData: LiveData<DataState<List<TermItem>>> = pageController.switchMap {
         return@switchMap easRepo.getAllTerms()
@@ -49,10 +50,12 @@ class ExamViewModel @Inject constructor(
     init {
         // 初始化默认值，避免筛选时把所有数据都过滤掉
         selectedExamTypeLiveData.value = ExamType.ALL
+        // Term loading follows the screen lifecycle rather than a permanent observer.
+        examInfoLiveData.addSource(termsLiveData) { handleTermLoad(it) }
         examInfoLiveData.addSource(rawExamLiveData) { publishFilteredExamState() }
         examInfoLiveData.addSource(selectedTermLiveData) { publishFilteredExamState() }
         examInfoLiveData.addSource(selectedExamTypeLiveData) { publishFilteredExamState() }
-        publishMergedExamState()
+        rawExamLiveData.value = mergeExamDataState(lastRemoteExams, examMemoStore.getAll(), null)
     }
 
     /**
@@ -87,36 +90,20 @@ class ExamViewModel @Inject constructor(
         lastRefreshTime = currentTime
         previousTerm = selectedTerm
 
-        // 触发学期列表加载（首次加载或学期变更时需要）
         if (selectedTerm == null) {
+            termLoadGate.begin()
+            rawExamLiveData.value = DataState(
+                ExamMemoCodec.merge(lastRemoteExams, examMemoStore.getAll()),
+                DataState.STATE.LOADING
+            )
             pageController.value = Trigger.actioning
-        }
-
-        // 如果学期为null，等待学期列表加载，不提前设置本地数据
-        if (selectedTerm == null) {
-            LogUtils.d("⏳ term is null, waiting for term list to load first", "ExamViewModel")
-            termsLiveData.observeForever(object : androidx.lifecycle.Observer<DataState<List<TermItem>>> {
-                override fun onChanged(value: DataState<List<TermItem>>) {
-                    val result = value
-                    if (result.state == DataState.STATE.SUCCESS) {
-                        val termList = result.data
-                        if (termList != null && termList.isNotEmpty()) {
-                            // 找到当前学期并自动选择
-                            val currentTerm = termList.find { it.isCurrent } ?: termList.firstOrNull()
-                            currentTerm?.let {
-                                LogUtils.d("✅ auto-selected current term: ${it.name}", "ExamViewModel")
-                                selectedTermLiveData.value = it
-                                // 移除观察者
-                                termsLiveData.removeObserver(this)
-                                // 触发考试查询
-                                startRefresh()
-                            }
-                        }
-                    }
-                }
-            })
             return
         }
+        termLoadGate.cancel()
+        rawExamLiveData.value = DataState(
+            ExamMemoCodec.merge(lastRemoteExams, examMemoStore.getAll()),
+            DataState.STATE.LOADING
+        )
 
         pageController.value = Trigger.actioning
 
@@ -162,6 +149,25 @@ class ExamViewModel @Inject constructor(
         newLiveData.observeForever(newObserver)
         currentExamSource = newLiveData
         examInfoObserver = newObserver
+    }
+
+    private fun handleTermLoad(state: DataState<List<TermItem>>) {
+        when (val outcome = termLoadGate.consume(state)) {
+            is ExamTermLoadOutcome.Selected -> {
+                selectedTermLiveData.value = outcome.term
+                startRefresh()
+            }
+            is ExamTermLoadOutcome.Failed -> {
+                rawExamLiveData.value = DataState(
+                    ExamMemoCodec.merge(lastRemoteExams, examMemoStore.getAll()),
+                    outcome.state
+                ).apply {
+                    message = outcome.message?.takeIf(String::isNotBlank)
+                        ?: context.getString(cn.limpu.hita.R.string.exam_term_load_failed)
+                }
+            }
+            ExamTermLoadOutcome.Waiting, ExamTermLoadOutcome.Ignored -> Unit
+        }
     }
 
     fun saveExamMemo(item: ExamItem): String? {
@@ -217,6 +223,7 @@ class ExamViewModel @Inject constructor(
     private var previousTerm: TermItem? = null
 
     override fun onCleared() {
+        termLoadGate.cancel()
         super.onCleared()
         examInfoObserver?.let { observer ->
             currentExamSource?.removeObserver(observer)
