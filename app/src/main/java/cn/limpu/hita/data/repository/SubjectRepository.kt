@@ -147,16 +147,11 @@ class SubjectRepository @Inject constructor(application: Application) {
     }
 
 
-    /**
-     * 动作：删除科目及其事件
-     */
-    fun actionDeleteSubjects(subjects: List<TermSubject>) {
-        executor.execute {
-            subjectDao.deleteSubjectsSync(subjects)
-            val ids = subjects.getIds()
-            eventItemDao.deleteEventsFromSubjectsSync(ids)
-        }
+    /** Keep whole-course deletion ordered with color resets that read and replace subjects. */
+    internal fun enqueueWrite(block: () -> Unit) {
+        executor.execute(block)
     }
+
     fun actionChangeSubjectColor(subjectId:String,color:Int) {
         executor.execute {
             subjectDao.changeSubjectColorSync(subjectId,color)
@@ -182,12 +177,4 @@ class SubjectRepository @Inject constructor(application: Application) {
         return res
     }
 
-}
-
-fun List<TermSubject>.getIds(): List<String> {
-    val ids = mutableListOf<String>()
-    for (s in this) {
-        ids.add(s.id)
-    }
-    return ids
 }

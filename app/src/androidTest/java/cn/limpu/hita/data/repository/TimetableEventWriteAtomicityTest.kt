@@ -5,6 +5,7 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import cn.limpu.hita.data.AppDatabase
+import cn.limpu.hita.feature.timetable.write.TimetableWriteUseCase
 import cn.limpu.hita.data.model.timetable.EventItem
 import cn.limpu.hita.data.model.timetable.TermSubject
 import cn.limpu.hita.data.model.timetable.Timetable
@@ -217,7 +218,13 @@ class TimetableEventWriteAtomicityTest {
 
     // Keep all behavior assertions above while changing only this seam to the unified write use case.
     private fun persist(result: ScheduleEventCreator.Result, subjectToSave: TermSubject? = null) {
-        ScheduleEventCreator.persist(result, repository, subjectToSave)
+        TimetableWriteUseCase(
+            store = repository,
+            refreshWidgets = {},
+            deliverResult = { it() },
+            onWriteFailure = { throw AssertionError("Unexpected asynchronous write", it) },
+            onRefreshFailure = { throw AssertionError("Unexpected refresh failure", it) },
+        ).addSync(result, subjectToSave)
     }
 
     private fun events(

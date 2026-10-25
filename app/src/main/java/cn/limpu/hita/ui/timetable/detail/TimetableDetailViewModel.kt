@@ -11,14 +11,19 @@ import cn.limpu.hita.data.model.timetable.TimePeriodInDay
 import cn.limpu.hita.data.model.timetable.Timetable
 import cn.limpu.hita.data.repository.SubjectRepository
 import cn.limpu.hita.data.repository.TimetableRepository
+import cn.limpu.hita.feature.timetable.write.TimetableWriteUseCaseFactory
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 
 @HiltViewModel
 class TimetableDetailViewModel @Inject constructor(
     private val timetableRepository: TimetableRepository,
-    private val subjectsRepository: SubjectRepository
+    private val subjectsRepository: SubjectRepository,
+    writeUseCaseFactory: TimetableWriteUseCaseFactory,
 ) : ViewModel() {
+    private val timetableWrites = writeUseCaseFactory.create(timetableRepository)
+    // Color resets read and replace subjects on this queue; deletion must stay ordered with them.
+    private val subjectWrites = writeUseCaseFactory.create(timetableRepository, subjectsRepository::enqueueWrite)
 
 
     /**
@@ -62,13 +67,13 @@ class TimetableDetailViewModel @Inject constructor(
 
     fun startChangeTimetableStructure(tp: TimePeriodInDay, position: Int) {
         timetableLiveData.value?.let {
-            timetableRepository.actionChangeTimetableStructure(it, tp, position)
+            timetableWrites.changeStructure(it, tp, position)
         }
     }
 
     fun startChangeTimetableStartTime(startTime: Long) {
         timetableLiveData.value?.let {
-            timetableRepository.actionChangeTimetableStartDate(it, startTime)
+            timetableWrites.changeStartDate(it, startTime)
         }
     }
 
@@ -79,7 +84,7 @@ class TimetableDetailViewModel @Inject constructor(
     }
 
     fun startDeleteSubjects(subjects: Collection<TermSubject>) {
-        subjectsRepository.actionDeleteSubjects(subjects.toList())
+        subjectWrites.deleteSubjects(subjects)
     }
 
     fun startChangeSubjectColor(subjectId:String,color:Int) {

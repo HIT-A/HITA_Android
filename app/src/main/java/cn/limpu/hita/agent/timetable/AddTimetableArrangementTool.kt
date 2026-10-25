@@ -5,6 +5,7 @@ import cn.limpu.hita.agent.core.AgentToolResult
 import cn.limpu.hita.data.repository.DisplayScopeResolver
 import cn.limpu.hita.data.repository.ScheduleEventCreator
 import cn.limpu.hita.data.repository.TimetableRepository
+import cn.limpu.hita.feature.timetable.write.TimetableWriteUseCaseFactory
 import cn.limpu.hita.utils.LogUtils
 import kotlin.concurrent.thread
 
@@ -72,8 +73,7 @@ class AddTimetableArrangementTool : AgentTool<TimetableAgentInput, TimetableAgen
                 )
                 LogUtils.d("[DEBUG] Created events: count=${result.events.size}, timetableId=${timetable.id}")
 
-                ScheduleEventCreator.persist(result, repository)
-                LogUtils.d("[DEBUG] addEventsSync called successfully")
+                TimetableWriteUseCaseFactory(input.application).create(repository).addSync(result)
 
                 LogUtils.d("[DEBUG] Tool execution successful, returning result")
                 onResult(

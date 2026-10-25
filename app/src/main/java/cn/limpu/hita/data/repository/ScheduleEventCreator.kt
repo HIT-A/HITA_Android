@@ -1,9 +1,7 @@
 package cn.limpu.hita.data.repository
 
-import androidx.annotation.WorkerThread
 import cn.limpu.hita.data.model.timetable.EventItem
 import cn.limpu.hita.data.model.timetable.TermSubject
-import cn.limpu.hita.data.model.timetable.TimePeriodInDay
 import cn.limpu.hita.data.model.timetable.Timetable
 import cn.limpu.hita.data.model.timetable.CourseTime
 import java.sql.Timestamp
@@ -77,52 +75,7 @@ object ScheduleEventCreator {
         return Result(events, timetable)
     }
 
-    @WorkerThread
-    fun persist(
-        result: Result,
-        timetableRepository: TimetableRepository,
-        subjectToSave: TermSubject? = null,
-    ) {
-        if (result.events.isEmpty()) return
-        if (subjectToSave != null) {
-            timetableRepository.addCourseEventsSync(subjectToSave, result.events)
-        } else {
-            timetableRepository.addEventsSync(result.events)
-        }
-        extendTimetableIfNeeded(timetableRepository, result.timetable, result.events)
-    }
-
-    fun persistAsync(
-        result: Result,
-        timetableRepository: TimetableRepository,
-        subjectToSave: TermSubject? = null,
-    ) {
-        if (result.events.isEmpty()) return
-        if (subjectToSave != null) {
-            timetableRepository.actionAddCourseEvents(subjectToSave, result.events)
-        } else {
-            timetableRepository.actionAddEvents(result.events)
-        }
-        val maxEndTime = result.events.maxOfOrNull { it.to.time } ?: return
-        if (maxEndTime > result.timetable.endTime.time) {
-            val timetable = result.timetable
-            timetable.endTime.time = expandToWeekEnd(maxEndTime)
-            timetableRepository.actionSaveTimetable(timetable)
-        }
-    }
-
-    private fun extendTimetableIfNeeded(
-        timetableRepository: TimetableRepository,
-        timetable: Timetable,
-        events: List<EventItem>,
-    ) {
-        val maxEndTime = events.maxOfOrNull { it.to.time } ?: return
-        if (maxEndTime <= timetable.endTime.time) return
-        timetable.endTime.time = expandToWeekEnd(maxEndTime)
-        timetableRepository.saveTimetableSync(timetable)
-    }
-
-    private fun expandToWeekEnd(timestamp: Long): Long {
+    internal fun expandToWeekEnd(timestamp: Long): Long {
         return Calendar.getInstance().apply {
             timeInMillis = timestamp
             firstDayOfWeek = Calendar.MONDAY

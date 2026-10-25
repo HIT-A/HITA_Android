@@ -21,6 +21,7 @@ import cn.limpu.hita.data.repository.TimetableRepository
 import cn.limpu.hita.data.repository.TimetableSourceApplier
 import cn.limpu.hita.data.repository.TimetableStyleRepository
 import cn.limpu.hita.data.repository.KEY_WALLPAPER_PATH
+import cn.limpu.hita.feature.timetable.write.TimetableWriteUseCaseFactory
 import cn.limpu.hita.utils.LogUtils
 import cn.limpu.hita.data.model.timetable.WEEK_MILLS
 import cn.limpu.hita.ui.subject.SubjectBatchDeleteScope
@@ -41,8 +42,10 @@ class TimetableViewModel @Inject constructor(
     private val sourceApplier: TimetableSourceApplier,
     private val scopeResolver: DisplayScopeResolver,
     private val scopeSelector: DisplayScopeSelector,
-    private val academicCalendarRepository: cn.limpu.hita.data.repository.AcademicCalendarRepository
+    private val academicCalendarRepository: cn.limpu.hita.data.repository.AcademicCalendarRepository,
+    writeUseCaseFactory: TimetableWriteUseCaseFactory,
 ) : ViewModel() {
+    private val timetableWrites = writeUseCaseFactory.create(timetableRepository)
 
     private val timetableController = MutableLiveData<Trigger>()
     val timetableLiveData: LiveData<List<Timetable>> = timetableController.switchMap{
@@ -182,11 +185,11 @@ class TimetableViewModel @Inject constructor(
     }
 
     fun updateEvents(events: Collection<EventItem>) {
-        timetableRepository.actionUpdateEvents(events)
+        timetableWrites.update(events)
     }
 
     fun deleteEvents(events: Collection<EventItem>) {
-        timetableRepository.actionDeleteEvents(events)
+        timetableWrites.delete(events)
     }
 
     fun classesOfSubjectSync(subjectId: String): List<EventItem> =

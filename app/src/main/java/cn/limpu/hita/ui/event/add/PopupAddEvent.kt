@@ -57,7 +57,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.platform.ComposeView
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -84,7 +83,6 @@ import cn.limpu.hita.ui.design.HitaTheme
 import cn.limpu.hita.ui.widgets.PopUpCalendarPicker
 import cn.limpu.hita.ui.widgets.PopUpPickCourseTime
 import cn.limpu.hita.ui.widgets.PopUpTimePeriodPicker
-import cn.limpu.hita.ui.widgets.WidgetUtils
 
 import com.limpu.style.widgets.DialogSelectableLiveList
 import dagger.hilt.android.AndroidEntryPoint
@@ -322,7 +320,6 @@ private fun PopupAddEventScreen(
     }
 
     val scrollState = rememberScrollState()
-    val context = LocalContext.current
     Scaffold(
         containerColor = ComposeColor.Transparent,
         floatingActionButton = {
@@ -334,7 +331,6 @@ private fun PopupAddEventScreen(
                 FloatingActionButton(
                     onClick = {
                         viewModel.createEvent()
-                        WidgetUtils.sendRefreshToAll(context)
                         onDismiss()
                     },
                     shape = CircleShape,
