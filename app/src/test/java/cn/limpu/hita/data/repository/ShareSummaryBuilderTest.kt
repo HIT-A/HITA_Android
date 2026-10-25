@@ -50,4 +50,20 @@ class ShareSummaryBuilderTest {
             assertEquals(mode, summary.mode)
         }
     }
+
+    @Test fun countsOnlyCoursesWithinTheSelectedTimetableDates() {
+        val table = timetable()
+        val springExam = event(table, "春季考试", "08:30:00", "10:15:00").apply {
+            from = Timestamp(time("2026-06-27T08:30:00"))
+            to = Timestamp(time("2026-06-27T10:15:00"))
+        }
+        val autumnClass = event(table, "秋季课程", "08:30:00", "10:15:00")
+        for (mode in ShareMode.entries) {
+            val summary = ShareSummaryBuilder().build(table, listOf(springExam, autumnClass), mode)
+            assertEquals(1, summary.occurrenceCount)
+            assertEquals(if (mode == ShareMode.FULL) 1 else 0, summary.courseCount)
+            val empty = ShareSummaryBuilder().build(table, listOf(springExam), mode)
+            assertEquals(0, empty.occurrenceCount)
+        }
+    }
 }

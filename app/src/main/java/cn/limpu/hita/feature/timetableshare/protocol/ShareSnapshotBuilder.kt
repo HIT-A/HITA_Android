@@ -3,11 +3,12 @@ package cn.limpu.hita.feature.timetableshare.protocol
 import cn.limpu.hita.data.model.timetable.EventItem
 import cn.limpu.hita.data.model.timetable.TimeInDay
 import cn.limpu.hita.data.model.timetable.Timetable
+import java.time.Instant
 
 /** Reads only the selected personal timetable. Call within the repository's read transaction. */
 class ShareSnapshotBuilder {
     fun build(timetable: Timetable, events: List<EventItem>, shareId: String, nickname: String, mode: ShareMode): SharedTimetable {
-        val selected = events.filter { it.timetableId == timetable.id && it.type == EventItem.TYPE.CLASS }
+        val selected = selectEvents(timetable, events)
         if (selected.isEmpty()) throw ShareFormatException(ShareError.EMPTY_SCHEDULE)
         if (selected.size > ShareLimits.OCCURRENCES) invalidFields()
         val term = ShareTermResolver.resolve(timetable.code, timetable.startTime.time)
@@ -30,6 +31,18 @@ class ShareSnapshotBuilder {
         // validation/normalization boundary so builder and decoder accept the same fields.
         val codec = TimetableShareCodec()
         return codec.decodeJson(codec.canonicalJson(snapshot))
+    }
+
+    /** Classes wholly outside the timetable's displayed dates must not invalidate its share. */
+    internal fun selectEvents(timetable: Timetable, events: List<EventItem>): List<EventItem> {
+        val firstDay = Instant.ofEpochMilli(timetable.startTime.time).atZone(ShareLimits.ZONE).toLocalDate()
+        val lastDay = Instant.ofEpochMilli(timetable.endTime.time).atZone(ShareLimits.ZONE).toLocalDate()
+        val lower = firstDay.atStartOfDay(ShareLimits.ZONE).toInstant().toEpochMilli()
+        val upper = lastDay.plusDays(1).atStartOfDay(ShareLimits.ZONE).toInstant().toEpochMilli()
+        return events.filter {
+            it.timetableId == timetable.id && it.type == EventItem.TYPE.CLASS &&
+                it.to.time > lower && it.from.time < upper
+        }
     }
 
     private fun minutes(value: TimeInDay): Int {
