@@ -49,6 +49,8 @@ dependencies {
     // Kotlin
     implementation(libs.activityKtxLegacy)
     implementation(libs.wheelView)
-    testImplementation(libs.junitLegacy)
-    testImplementation(libs.junitJupiter)//滚轮选择器
+    testImplementation(libs.junit)
+    androidTestImplementation(libs.androidTestJunit)
+    androidTestImplementation(libs.androidTestCore)
+    androidTestImplementation(libs.androidTestRunner)
 }

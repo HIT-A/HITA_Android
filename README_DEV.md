@@ -19,6 +19,8 @@ HITA Agent 是一款面向哈工大三校区的 Android 校园助手 App，集�
 - JDK 21
 - Android SDK Platform 35 和 36（应用最低支持 API 26）
 
+最低 API：app 为 26，hitauser 为 23（匹配 Room 2.8.4），component/style 为 21。
+
 ## 项目结构
 
 ```
@@ -95,7 +97,7 @@ HITA_Agent/
 
 APK 和构建元信息从 CI / Release 获取；源码树不保存旧 `app/debug/` 安装包。`app/schemas/` 和 `hitauser/schemas/` 是 Room 数据库历史结构，供迁移验证使用，不能作为旧生成数据删除。
 
-运行 `./project_health_check.sh` 检查必要项目文件和仓库卫生，`./code_consistency_check.sh` 为兼容入口。检查器验证本地 Markdown 文件链接，并阻止运行数据库、APK 和旧可执行文件重新进入 Git；它不检查外部链接和标题锚点，不使用命名数量作为质量评分。JVM 测试、Debug 编译和全部设备测试（API 35 模拟器，含中文 PDF 回归）由 CI 执行。CI 还显式执行 `:style:verifyReleaseResources :style:assembleRelease`，使用 `--rerun-tasks --no-build-cache` 确保 Release 资源校验实际运行；该库构建不需要应用 Release 签名。
+运行 `./project_health_check.sh` 检查必要项目文件和仓库卫生，`./code_consistency_check.sh` 为兼容入口。检查器验证本地 Markdown 文件链接，并阻止运行数据库、APK 和旧可执行文件重新进入 Git；它不检查外部链接和标题锚点，不使用命名数量作为质量评分。CI 编排四个模块的 JVM 测试、app Debug 编译和全部设备测试（API 35 模拟器串行执行，含中文 PDF 回归），按模块上传原始 JVM/设备 XML。style 当前的实际测试位于 androidTest，其 JVM 任务为 NO-SOURCE，不计作测试通过。CI 还显式执行 `:style:verifyReleaseResources :style:assembleRelease`，使用 `--rerun-tasks --no-build-cache` 确保 Release 资源校验实际运行；该库构建不需要应用 Release 签名。
 
 PDF 依赖自带资源的约定、去重依据和回归命令见 [PDF 资源](docs/pdf-resources.md)。
 

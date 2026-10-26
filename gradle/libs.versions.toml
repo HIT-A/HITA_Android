@@ -23,9 +23,13 @@ securityCrypto = "1.0.0"
 webkit = "1.13.0"
 junit = "4.13.2"
 androidTestJunit = "1.2.1"
+androidTestCore = "1.6.1"
+androidTestRunner = "1.6.1"
 room = "2.8.4"
 espresso = "3.6.1"
 okhttp = "4.12.0"
+# Library HTTP tests must exercise the same client selected by Retrofit 2.4.0.
+okhttpLegacy = "3.10.0"
 glide = "4.16.0"
 retrofitApp = "2.9.0"
 jsoup = "1.18.2"
@@ -53,8 +57,6 @@ retrofitLegacy = "2.4.0"
 converterGsonLegacy = "2.3.0"
 coreAnimation = "1.0.0"
 activityKtxLegacy = "1.9.1"
-junitLegacy = "4.12"
-junitJupiter = "5.8.1"
 
 [libraries]
 kotlinStdlib = { module = "org.jetbrains.kotlin:kotlin-stdlib", version.ref = "kotlin" }
@@ -87,9 +89,12 @@ securityCrypto = { module = "androidx.security:security-crypto", version.ref = "
 webkit = { module = "androidx.webkit:webkit", version.ref = "webkit" }
 junit = { module = "junit:junit", version.ref = "junit" }
 androidTestJunit = { module = "androidx.test.ext:junit", version.ref = "androidTestJunit" }
+androidTestCore = { module = "androidx.test:core", version.ref = "androidTestCore" }
+androidTestRunner = { module = "androidx.test:runner", version.ref = "androidTestRunner" }
 roomTesting = { module = "androidx.room:room-testing", version.ref = "room" }
 espressoCore = { module = "androidx.test.espresso:espresso-core", version.ref = "espresso" }
 mockWebServer = { module = "com.squareup.okhttp3:mockwebserver", version.ref = "okhttp" }
+mockWebServerLegacy = { module = "com.squareup.okhttp3:mockwebserver", version.ref = "okhttpLegacy" }
 roomRuntime = { module = "androidx.room:room-runtime", version.ref = "room" }
 roomCompiler = { module = "androidx.room:room-compiler", version.ref = "room" }
 lifecycleViewmodelKtx = { module = "androidx.lifecycle:lifecycle-viewmodel-ktx", version.ref = "lifecycle" }
@@ -132,8 +137,6 @@ retrofitLegacy = { module = "com.squareup.retrofit2:retrofit", version.ref = "re
 converterGsonLegacy = { module = "com.squareup.retrofit2:converter-gson", version.ref = "converterGsonLegacy" }
 coreAnimation = { module = "androidx.core:core-animation", version.ref = "coreAnimation" }
 activityKtxLegacy = { module = "androidx.activity:activity-ktx", version.ref = "activityKtxLegacy" }
-junitLegacy = { module = "junit:junit", version.ref = "junitLegacy" }
-junitJupiter = { module = "org.junit.jupiter:junit-jupiter", version.ref = "junitJupiter" }
 
 [plugins]
 androidApplication = { id = "com.android.application", version.ref = "agp" }

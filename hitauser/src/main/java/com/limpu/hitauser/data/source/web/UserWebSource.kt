@@ -25,6 +25,10 @@ import com.limpu.hitauser.data.source.web.service.codes.WRONG_USERNAME
 class UserWebSource(context: Context) : BaseWebSource<UserService>(
     context
 ) {
+    internal constructor(context: Context, serviceOverride: UserService) : this(context) {
+        service = serviceOverride
+    }
+
     override fun getServiceClass(): Class<UserService> {
         return UserService::class.java
     }
