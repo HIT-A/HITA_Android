@@ -46,6 +46,9 @@ abstract class AbstractEASWebSource(
 
     protected abstract val hostName: String
 
+    /** 仅教学楼查询可替换地址，供本地 HTTP 契约测试使用。 */
+    protected open val teachingBuildingsHostName: String get() = hostName
+
     /** 校区中文名，用于用户可见文案（如"本部"/"威海"）。 */
 
     protected abstract val campusDisplayName: String
@@ -119,7 +122,7 @@ abstract class AbstractEASWebSource(
      */
 
     protected fun queryBuildingsByCampusId(token: EASToken, campusId: String): List<BuildingItem> {
-        val response = Jsoup.connect("$hostName/kjscx/queryJxlListBySjid?sf_request_type=ajax")
+        val response = Jsoup.connect("$teachingBuildingsHostName/kjscx/queryJxlListBySjid?sf_request_type=ajax")
             .cookies(token.cookies)
             .header("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15")
             .header("Accept", "application/json, text/javascript, */*; q=0.01")

@@ -38,9 +38,8 @@ class EmptyClassroomViewModel @Inject constructor(
             DataState(finalList, state.state)
         }
     }
-    val buildingsLiveData: LiveData<DataState<List<BuildingItem>>> = pageController.switchMap {
-            return@switchMap easRepo.getTeachingBuildings()
-        }
+    val buildingsLiveData: LiveData<DataState<List<BuildingItem>>> =
+        pageController.loadTeachingBuildings(viewModelScope, easRepo::createTeachingBuildingsRequest)
     val selectedTermLiveData = MutableLiveData<TermItem>()
     val selectedBuildingLiveData = MutableLiveData<BuildingItem>()
     val selectedWeekLiveData: MediatorLiveData<Int> =

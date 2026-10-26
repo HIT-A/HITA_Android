@@ -81,6 +81,10 @@ interface EASService {
      */
     fun getTeachingBuildings(token: EASToken):LiveData<DataState<List<BuildingItem>>>
 
+    /** 单次教学楼查询；阻塞网络在 IO 调度器执行，取消作为异常向上传播。 */
+    suspend fun getTeachingBuildingsOnce(token: EASToken): DataState<List<BuildingItem>>
+
+
     /**
      * 查询空教室。
      *

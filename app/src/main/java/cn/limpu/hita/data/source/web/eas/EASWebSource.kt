@@ -4,6 +4,11 @@ import android.util.Base64
 import androidx.annotation.WorkerThread
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.withContext
 import cn.limpu.hita.utils.LogUtils
 import com.limpu.component.data.DataState
 import cn.limpu.hita.data.model.eas.CourseSelectionCourseResult
@@ -814,59 +819,88 @@ class EASWebSource internal constructor(
 
     // ================================================================ 教学楼列表
     override fun getTeachingBuildings(token: EASToken): LiveData<DataState<List<BuildingItem>>> {
-        if (token.accessToken.isNullOrBlank() && token.hasShenzhenWebSession()) {
-            return getShenzhenWebTeachingBuildings(token)
+        val useWebSession = token.accessToken.isNullOrBlank() && token.hasShenzhenWebSession()
+        val result = MutableLiveData<DataState<List<BuildingItem>>>()
+        Thread {
+            val state = try {
+                requestTeachingBuildings(token, useWebSession)
+            } catch (cancelled: CancellationException) {
+                // The legacy callback API still reports every Exception as a terminal failure.
+                DataState(DataState.STATE.FETCH_FAILED, if (useWebSession) cancelled.message else null)
+            }
+            result.postValue(state)
+        }.start()
+        return result
+    }
+
+    override suspend fun getTeachingBuildingsOnce(token: EASToken): DataState<List<BuildingItem>> {
+        val useWebSession = token.accessToken.isNullOrBlank() && token.hasShenzhenWebSession()
+        return withContext(Dispatchers.IO) {
+            val context = currentCoroutineContext()
+            requestTeachingBuildings(token, useWebSession) { context.ensureActive() }
         }
-        val result = MutableLiveData<DataState<List<BuildingItem>>>()
-        Thread {
-            val res = mutableListOf<BuildingItem>()
-            try {
-                val resp = authedFormPost(token, "/app/commapp/queryjxllist")
-                val jo = JsonUtils.getJsonObject(resp.body())
-                val content = jo?.optJSONArray("content")
-                for (i in 0 until (content?.length() ?: 0)) {
-                    val item = content?.optJSONObject(i) ?: continue
-                    val b = BuildingItem()
-                    b.name = item.optString("MC")
-                    b.id = item.optString("DM")
-                    res.add(b)
-                }
-                result.postValue(DataState(res))
-            } catch (e: Exception) {
-                result.postValue(DataState(DataState.STATE.FETCH_FAILED))
-            }
-        }.start()
-        return result
     }
 
-    private fun getShenzhenWebTeachingBuildings(
-        token: EASToken
-    ): LiveData<DataState<List<BuildingItem>>> {
-        val result = MutableLiveData<DataState<List<BuildingItem>>>()
-        Thread {
-            try {
-                initializeShenzhenWebClassroomContext(token)
-                val response = jwFormPost(token, "/pksd/queryjxlList", refererPath = "/cdkb/querycdzy")
-                if (isJwAuthenticationExpired(response)) {
-                    result.postValue(DataState(DataState.STATE.NOT_LOGGED_IN, "深圳 Web 会话已失效"))
-                    return@Thread
-                }
-                val buildings = ShenzhenWebAcademicParser.parseBuildings(response.body())
-                if (response.statusCode() != 200 || buildings == null) {
-                    result.postValue(DataState(DataState.STATE.FETCH_FAILED, "教学楼列表解析失败"))
-                } else {
-                    result.postValue(DataState(buildings, DataState.STATE.SUCCESS))
-                }
-            } catch (error: Exception) {
-                result.postValue(DataState(DataState.STATE.FETCH_FAILED, error.message))
+    private fun requestTeachingBuildings(
+        token: EASToken,
+        useWebSession: Boolean,
+        checkCancelled: () -> Unit = {},
+    ): DataState<List<BuildingItem>> {
+        if (useWebSession) return requestShenzhenWebTeachingBuildings(token, checkCancelled)
+        return try {
+            checkCancelled()
+            val resp = authedFormPost(token, "/app/commapp/queryjxllist")
+            checkCancelled()
+            val jo = JsonUtils.getJsonObject(resp.body())
+            val content = jo?.optJSONArray("content")
+            val buildings = mutableListOf<BuildingItem>()
+            for (i in 0 until (content?.length() ?: 0)) {
+                val item = content?.optJSONObject(i) ?: continue
+                val building = BuildingItem()
+                building.name = item.optString("MC")
+                building.id = item.optString("DM")
+                buildings.add(building)
             }
-        }.start()
-        return result
+            DataState(buildings)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            DataState(DataState.STATE.FETCH_FAILED)
+        }
     }
 
-    private fun initializeShenzhenWebClassroomContext(token: EASToken) {
+    private fun requestShenzhenWebTeachingBuildings(
+        token: EASToken,
+        checkCancelled: () -> Unit,
+    ): DataState<List<BuildingItem>> = try {
+        initializeShenzhenWebClassroomContext(token, checkCancelled)
+        checkCancelled()
+        val response = jwFormPost(token, "/pksd/queryjxlList", refererPath = "/cdkb/querycdzy")
+        checkCancelled()
+        if (isJwAuthenticationExpired(response)) {
+            DataState(DataState.STATE.NOT_LOGGED_IN, "深圳 Web 会话已失效")
+        } else {
+            val buildings = ShenzhenWebAcademicParser.parseBuildings(response.body())
+            if (response.statusCode() != 200 || buildings == null) {
+                DataState(DataState.STATE.FETCH_FAILED, "教学楼列表解析失败")
+            } else {
+                DataState(buildings, DataState.STATE.SUCCESS)
+            }
+        }
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (error: Exception) {
+        DataState(DataState.STATE.FETCH_FAILED, error.message)
+    }
+
+    private fun initializeShenzhenWebClassroomContext(
+        token: EASToken,
+        checkCancelled: () -> Unit = {},
+    ) {
         listOf("/pksd/queryxiaoquList", "/pksd/querycdlbList", "/kbfbsz/querydqxnxq").forEach { path ->
+            checkCancelled()
             val response = jwFormPost(token, path, refererPath = "/cdkb/querycdzy")
+            checkCancelled()
             if (isJwAuthenticationExpired(response)) return
         }
     }
