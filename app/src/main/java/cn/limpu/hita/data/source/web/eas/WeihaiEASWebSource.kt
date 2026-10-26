@@ -30,6 +30,7 @@ class WeihaiEASWebSource internal constructor(
     private val teachingBuildingsHostOverride: String?,
     onCookiesUpdated: ((EASToken) -> Unit)?,
     private val examHostOverride: String? = null,
+    private val classroomHostOverride: String? = null,
 ) : AbstractEASWebSource(onCookiesUpdated) {
     constructor(onCookiesUpdated: ((EASToken) -> Unit)? = null) : this(null, onCookiesUpdated)
 
@@ -404,171 +405,211 @@ class WeihaiEASWebSource internal constructor(
     ): LiveData<DataState<List<ClassroomItem>>> {
         val result = MutableLiveData<DataState<List<ClassroomItem>>>()
         result.value = DataState(DataState.STATE.NOTHING)
-
         executor.execute {
-            try {
-                val weekStart = weeks.firstOrNull() ?: "1"
-                val weekEnd = weeks.lastOrNull() ?: weekStart
-                val xiaoquCandidates = linkedSetOf("01", "1", "2", "")
-                val roomCandidates = linkedSetOf("，", "")
+            result.postValue(requestEmptyClassroom(token, term, building, weeks))
+        }
+        return result
+    }
 
-                fun normalizeCode(raw: String): String {
-                    val trimmed = raw.trim()
-                    return trimmed.trimStart('0').ifEmpty { "0" }
+    override suspend fun queryEmptyClassroomOnce(
+        token: EASToken,
+        term: TermItem,
+        building: BuildingItem,
+        weeks: List<String>,
+    ): DataState<List<ClassroomItem>> {
+        val snapshot = EmptyClassroomQuerySnapshot(term, building, weeks)
+        return withContext(Dispatchers.IO) {
+            val context = currentCoroutineContext()
+            requestEmptyClassroom(token, snapshot.term, snapshot.building, snapshot.weeks) {
+                context.ensureActive()
+            }
+        }
+    }
+
+    private fun requestEmptyClassroom(
+        token: EASToken,
+        term: TermItem,
+        building: BuildingItem,
+        weeks: List<String>,
+        checkCancelled: (() -> Unit)? = null,
+    ): DataState<List<ClassroomItem>> {
+        try {
+            checkCancelled?.invoke()
+            val weekStart = weeks.firstOrNull() ?: "1"
+            val weekEnd = weeks.lastOrNull() ?: weekStart
+            val classroomHostName = classroomHostOverride?.trimEnd('/') ?: hostName
+            val xiaoquCandidates = linkedSetOf("01", "1", "2", "")
+            val roomCandidates = linkedSetOf("，", "")
+
+            fun normalizeCode(raw: String): String {
+                val trimmed = raw.trim()
+                return trimmed.trimStart('0').ifEmpty { "0" }
+            }
+
+            fun fetchBuildingsForCampus(xiaoqu: String): List<BuildingItem> {
+                checkCancelled?.invoke()
+                if (xiaoqu.isBlank()) return emptyList()
+                val buildings = try {
+                    val response = Jsoup.connect("$classroomHostName/kjscx/queryJxlListBySjid?sf_request_type=ajax")
+                        .cookies(token.cookies)
+                        .header("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15")
+                        .header("Accept", "application/json, text/javascript, */*; q=0.01")
+                        .header("X-Requested-With", "XMLHttpRequest")
+                        .header("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
+                        .data("id", xiaoqu)
+                        .timeout(timeout)
+                        .ignoreContentType(true)
+                        .ignoreHttpErrors(true)
+                        .method(Connection.Method.POST)
+                        .execute()
+                    checkCancelled?.invoke()
+                    if (response.statusCode() == 200) parseBuildingJson(response.body()) else emptyList()
+                } catch (error: Exception) {
+                    // The legacy probe treats all exceptions as an empty building list.
+                    checkCancelled?.invoke()
+                    if (checkCancelled != null && error is CancellationException) throw error
+                    emptyList()
                 }
+                checkCancelled?.invoke()
+                return buildings
+            }
 
-                fun fetchBuildingsForCampus(xiaoqu: String): List<BuildingItem> {
-                    if (xiaoqu.isBlank()) return emptyList()
-                    return try {
-                        val response = Jsoup.connect("$hostName/kjscx/queryJxlListBySjid?sf_request_type=ajax")
+            var lastResponse: Connection.Response? = null
+            var lastBody = ""
+            var lastClassrooms: List<ClassroomItem> = emptyList()
+            var lastXiaoqu = ""
+            var lastLhdm = ""
+            var lastCddm = ""
+
+            val targetBuildingCode = normalizeCode(building.id)
+
+            for (xiaoqu in xiaoquCandidates) {
+                checkCancelled?.invoke()
+                val remoteBuildings = fetchBuildingsForCampus(xiaoqu)
+                checkCancelled?.invoke()
+                val selectedBuildingName = building.name?.trim().orEmpty()
+                val matchedRemoteCodes = remoteBuildings
+                    .filter { remote ->
+                        normalizeCode(remote.id) == targetBuildingCode ||
+                            (selectedBuildingName.isNotBlank() && remote.name?.trim() == selectedBuildingName)
+                    }
+                    .map { it.id.trim() }
+
+                val buildingCandidates = linkedSetOf<String>()
+                matchedRemoteCodes.forEach { buildingCandidates.add(it) }
+                buildingCandidates.add(building.id.trim())
+                buildingCandidates.add(building.id.trimStart('0'))
+                buildingCandidates.add(building.id.trimStart('0').padStart(2, '0'))
+                buildingCandidates.add("")
+
+                LogUtils.d(
+                    "queryEmptyClassroom: xiaoqu=$xiaoqu remoteBuildings=${remoteBuildings.size} matchedRemote=$matchedRemoteCodes buildingCandidates=$buildingCandidates"
+                )
+
+                for (lhdm in buildingCandidates) {
+                    for (cddm in roomCandidates) {
+                        checkCancelled?.invoke()
+                        val params = linkedMapOf(
+                            "pageXnxq" to term.getCode(),
+                            "pageZc1" to weekStart,
+                            "pageZc2" to weekEnd,
+                            "pageXiaoqu" to xiaoqu,
+                            "pageLhdm" to lhdm,
+                            "pageCddm" to cddm
+                        )
+                        LogUtils.d(
+                            "queryEmptyClassroom: term=${term.getCode()}, building=${building.id} weeks=$weekStart-$weekEnd path=/kjscx/queryKjs pageXiaoqu=${params["pageXiaoqu"]} pageLhdm=${params["pageLhdm"]} pageCddm=${params["pageCddm"]}"
+                        )
+
+                        val response = Jsoup.connect("$classroomHostName/kjscx/queryKjs?$WEBVPN_JWTS_QUERY_HINT")
                             .cookies(token.cookies)
                             .header("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15")
                             .header("Accept", "application/json, text/javascript, */*; q=0.01")
+                            .header("Accept-Language", "zh-CN,zh-Hans;q=0.9")
+                            .header("Origin", "https://webvpn.hitwh.edu.cn")
+                            .header("Referer", "$classroomHostName/kjscx/queryKjs")
                             .header("X-Requested-With", "XMLHttpRequest")
                             .header("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
-                            .data("id", xiaoqu)
+                            .header("sec-fetch-site", "same-origin")
+                            .header("sec-fetch-mode", "cors")
+                            .header("sec-fetch-dest", "empty")
+                            .data(params)
                             .timeout(timeout)
                             .ignoreContentType(true)
                             .ignoreHttpErrors(true)
                             .method(Connection.Method.POST)
                             .execute()
-                        if (response.statusCode() == 200) parseBuildingJson(response.body()) else emptyList()
-                    } catch (_: Exception) {
-                        emptyList()
-                    }
-                }
 
-                var lastResponse: Connection.Response? = null
-                var lastBody = ""
-                var lastClassrooms: List<ClassroomItem> = emptyList()
-                var lastXiaoqu = ""
-                var lastLhdm = ""
-                var lastCddm = ""
-
-                val targetBuildingCode = normalizeCode(building.id)
-
-                for (xiaoqu in xiaoquCandidates) {
-                    val remoteBuildings = fetchBuildingsForCampus(xiaoqu)
-                    val selectedBuildingName = building.name?.trim().orEmpty()
-                    val matchedRemoteCodes = remoteBuildings
-                        .filter { remote ->
-                            normalizeCode(remote.id) == targetBuildingCode ||
-                                (selectedBuildingName.isNotBlank() && remote.name?.trim() == selectedBuildingName)
+                        checkCancelled?.invoke()
+                        val body = response.body()
+                        if (isAuthExpiredResponse(response, body)) {
+                            LogUtils.w(
+                                "queryEmptyClassroom: auth expired, term=${term.getCode()} building=${building.id} weeks=$weekStart-$weekEnd status=${response.statusCode()}"
+                            )
+                            checkCancelled?.invoke()
+                            return DataState(DataState.STATE.NOT_LOGGED_IN)
                         }
-                        .map { it.id.trim() }
+                        if (response.statusCode() != 200) {
+                            continue
+                        }
 
-                    val buildingCandidates = linkedSetOf<String>()
-                    matchedRemoteCodes.forEach { buildingCandidates.add(it) }
-                    buildingCandidates.add(building.id.trim())
-                    buildingCandidates.add(building.id.trimStart('0'))
-                    buildingCandidates.add(building.id.trimStart('0').padStart(2, '0'))
-                    buildingCandidates.add("")
+                        val classrooms = BenbuClassroomParser.parseEmptyClassroomHtml(body)
+                        checkCancelled?.invoke()
+                        val doc = Jsoup.parse(body)
+                        val title = doc.title().trim()
+                        val tableCount = doc.select("table").size
+                        val firstNames = classrooms.take(6).map { it.name }
+                        LogUtils.d(
+                            "queryEmptyClassroom: parsed=${classrooms.size} title=$title tables=$tableCount first=$firstNames pageXiaoqu=$xiaoqu pageLhdm=$lhdm pageCddm=$cddm"
+                        )
 
-                    LogUtils.d(
-                        "queryEmptyClassroom: xiaoqu=$xiaoqu remoteBuildings=${remoteBuildings.size} matchedRemote=$matchedRemoteCodes buildingCandidates=$buildingCandidates"
-                    )
+                        lastResponse = response
+                        lastBody = body
+                        lastClassrooms = classrooms
+                        lastXiaoqu = xiaoqu
+                        lastLhdm = lhdm
+                        lastCddm = cddm
 
-                    for (lhdm in buildingCandidates) {
-                        for (cddm in roomCandidates) {
-                            val params = linkedMapOf(
-                                "pageXnxq" to term.getCode(),
-                                "pageZc1" to weekStart,
-                                "pageZc2" to weekEnd,
-                                "pageXiaoqu" to xiaoqu,
-                                "pageLhdm" to lhdm,
-                                "pageCddm" to cddm
-                            )
-                            LogUtils.d(
-                                "queryEmptyClassroom: term=${term.getCode()}, building=${building.id} weeks=$weekStart-$weekEnd path=/kjscx/queryKjs pageXiaoqu=${params["pageXiaoqu"]} pageLhdm=${params["pageLhdm"]} pageCddm=${params["pageCddm"]}"
-                            )
-
-                            val response = Jsoup.connect("$hostName/kjscx/queryKjs?$WEBVPN_JWTS_QUERY_HINT")
-                                .cookies(token.cookies)
-                                .header("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15")
-                                .header("Accept", "application/json, text/javascript, */*; q=0.01")
-                                .header("Accept-Language", "zh-CN,zh-Hans;q=0.9")
-                                .header("Origin", "https://webvpn.hitwh.edu.cn")
-                                .header("Referer", "$hostName/kjscx/queryKjs")
-                                .header("X-Requested-With", "XMLHttpRequest")
-                                .header("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
-                                .header("sec-fetch-site", "same-origin")
-                                .header("sec-fetch-mode", "cors")
-                                .header("sec-fetch-dest", "empty")
-                                .data(params)
-                                .timeout(timeout)
-                                .ignoreContentType(true)
-                                .ignoreHttpErrors(true)
-                                .method(Connection.Method.POST)
-                                .execute()
-
-                            val body = response.body()
-                            if (isAuthExpiredResponse(response, body)) {
-                                LogUtils.w(
-                                    "queryEmptyClassroom: auth expired, term=${term.getCode()} building=${building.id} weeks=$weekStart-$weekEnd status=${response.statusCode()}"
-                                )
-                                result.postValue(DataState(DataState.STATE.NOT_LOGGED_IN))
-                                return@execute
-                            }
-                            if (response.statusCode() != 200) {
-                                continue
-                            }
-
-                            val classrooms = BenbuClassroomParser.parseEmptyClassroomHtml(body)
-                            val doc = Jsoup.parse(body)
-                            val title = doc.title().trim()
-                            val tableCount = doc.select("table").size
-                            val firstNames = classrooms.take(6).map { it.name }
-                            LogUtils.d(
-                                "queryEmptyClassroom: parsed=${classrooms.size} title=$title tables=$tableCount first=$firstNames pageXiaoqu=$xiaoqu pageLhdm=$lhdm pageCddm=$cddm"
-                            )
-
-                            lastResponse = response
-                            lastBody = body
-                            lastClassrooms = classrooms
-                            lastXiaoqu = xiaoqu
-                            lastLhdm = lhdm
-                            lastCddm = cddm
-
-                            if (classrooms.isNotEmpty()) {
-                                result.postValue(DataState(classrooms))
-                                return@execute
-                            }
+                        if (classrooms.isNotEmpty()) {
+                            checkCancelled?.invoke()
+                            return DataState(classrooms)
                         }
                     }
                 }
-
-                val response = lastResponse
-                if (response == null) {
-                    result.postValue(DataState(DataState.STATE.FETCH_FAILED, "HTTP request failed"))
-                    return@execute
-                }
-
-                val doc = Jsoup.parse(lastBody)
-                if (lastClassrooms.isEmpty()) {
-                    val rowSummaries = doc.select("table.dataTable tr")
-                        .take(8)
-                        .mapIndexed { idx, row ->
-                            val tdCount = row.select("td").size
-                            val thCount = row.select("th").size
-                            val text = row.text().replace(Regex("\\s+"), " ").take(80)
-                            "r$idx td=$tdCount th=$thCount text=$text"
-                        }
-                    val headerInputs = doc.select("form input[name], form select[name]")
-                        .take(16)
-                        .joinToString { element ->
-                            "${element.tagName()}[name=${element.attr("name")},value=${element.`val`().take(20)}]"
-                        }
-                    LogUtils.w(
-                        "queryEmptyClassroom: empty details pageXiaoqu=$lastXiaoqu pageLhdm=$lastLhdm pageCddm=$lastCddm rows=$rowSummaries formFields=$headerInputs"
-                    )
-                }
-                result.postValue(DataState(lastClassrooms))
-            } catch (e: Exception) {
-                result.postValue(DataState(DataState.STATE.FETCH_FAILED, e.message))
             }
-        }
 
-        return result
+            checkCancelled?.invoke()
+            val response = lastResponse
+            if (response == null) {
+                return DataState(DataState.STATE.FETCH_FAILED, "HTTP request failed")
+            }
+
+            val doc = Jsoup.parse(lastBody)
+            if (lastClassrooms.isEmpty()) {
+                val rowSummaries = doc.select("table.dataTable tr")
+                    .take(8)
+                    .mapIndexed { idx, row ->
+                        val tdCount = row.select("td").size
+                        val thCount = row.select("th").size
+                        val text = row.text().replace(Regex("\\s+"), " ").take(80)
+                        "r$idx td=$tdCount th=$thCount text=$text"
+                    }
+                val headerInputs = doc.select("form input[name], form select[name]")
+                    .take(16)
+                    .joinToString { element ->
+                        "${element.tagName()}[name=${element.attr("name")},value=${element.`val`().take(20)}]"
+                    }
+                LogUtils.w(
+                    "queryEmptyClassroom: empty details pageXiaoqu=$lastXiaoqu pageLhdm=$lastLhdm pageCddm=$lastCddm rows=$rowSummaries formFields=$headerInputs"
+                )
+            }
+            checkCancelled?.invoke()
+            return DataState(lastClassrooms)
+        } catch (error: Exception) {
+            checkCancelled?.invoke()
+            if (checkCancelled != null && error is CancellationException) throw error
+            return DataState(DataState.STATE.FETCH_FAILED, error.message)
+        }
     }
 
 

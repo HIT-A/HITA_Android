@@ -29,6 +29,7 @@ class BenbuEASWebSource internal constructor(
     private val teachingBuildingsHostOverride: String?,
     onCookiesUpdated: ((EASToken) -> Unit)?,
     private val examHostOverride: String? = null,
+    private val classroomHostOverride: String? = null,
 ) : AbstractEASWebSource(onCookiesUpdated) {
     constructor(onCookiesUpdated: ((EASToken) -> Unit)? = null) : this(null, onCookiesUpdated)
 
@@ -700,41 +701,69 @@ class BenbuEASWebSource internal constructor(
     ): LiveData<DataState<List<ClassroomItem>>> {
         val result = MutableLiveData<DataState<List<ClassroomItem>>>()
         result.value = DataState(DataState.STATE.NOTHING)
-
         executor.execute {
-            try {
-                val weekStart = weeks.firstOrNull() ?: "1"
-                val weekEnd = weeks.lastOrNull() ?: weekStart
+            result.postValue(requestEmptyClassroom(token, term, building, weeks))
+        }
+        return result
+    }
 
-                val response = Jsoup.connect("$hostName/kjscx/queryKjs")
-                    .cookies(token.cookies)
-                    .header("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15")
-                    .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
-                    .header("Accept-Language", "zh-CN,zh-Hans;q=0.9")
-                    .data("pageXnxq", term.getCode())
-                    .data("pageZc1", weekStart)
-                    .data("pageZc2", weekEnd)
-                    .data("pageXiaoqu", "")
-                    .data("pageLhdm", building.id)
-                    .data("pageCddm", "")
-                    .timeout(timeout)
-                    .ignoreContentType(true)
-                    .ignoreHttpErrors(true)
-                    .method(Connection.Method.POST)
-                    .execute()
-
-                if (response.statusCode() == 200) {
-                    val classrooms = BenbuClassroomParser.parseEmptyClassroomHtml(response.body())
-                    result.postValue(DataState(classrooms))
-                } else {
-                    result.postValue(DataState(DataState.STATE.FETCH_FAILED, "HTTP ${response.statusCode()}"))
-                }
-            } catch (e: Exception) {
-                result.postValue(DataState(DataState.STATE.FETCH_FAILED, e.message))
+    override suspend fun queryEmptyClassroomOnce(
+        token: EASToken,
+        term: TermItem,
+        building: BuildingItem,
+        weeks: List<String>,
+    ): DataState<List<ClassroomItem>> {
+        val snapshot = EmptyClassroomQuerySnapshot(term, building, weeks)
+        return withContext(Dispatchers.IO) {
+            val context = currentCoroutineContext()
+            requestEmptyClassroom(token, snapshot.term, snapshot.building, snapshot.weeks) {
+                context.ensureActive()
             }
         }
+    }
 
-        return result
+    private fun requestEmptyClassroom(
+        token: EASToken,
+        term: TermItem,
+        building: BuildingItem,
+        weeks: List<String>,
+        checkCancelled: (() -> Unit)? = null,
+    ): DataState<List<ClassroomItem>> = try {
+        checkCancelled?.invoke()
+        val weekStart = weeks.firstOrNull() ?: "1"
+        val weekEnd = weeks.lastOrNull() ?: weekStart
+
+        val classroomHostName = classroomHostOverride?.trimEnd('/') ?: hostName
+        val response = Jsoup.connect("$classroomHostName/kjscx/queryKjs")
+            .cookies(token.cookies)
+            .header("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15")
+            .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+            .header("Accept-Language", "zh-CN,zh-Hans;q=0.9")
+            .data("pageXnxq", term.getCode())
+            .data("pageZc1", weekStart)
+            .data("pageZc2", weekEnd)
+            .data("pageXiaoqu", "")
+            .data("pageLhdm", building.id)
+            .data("pageCddm", "")
+            .timeout(timeout)
+            .ignoreContentType(true)
+            .ignoreHttpErrors(true)
+            .method(Connection.Method.POST)
+            .execute()
+
+        checkCancelled?.invoke()
+        val state: DataState<List<ClassroomItem>> = if (response.statusCode() == 200) {
+            val classrooms = BenbuClassroomParser.parseEmptyClassroomHtml(response.body())
+            DataState(classrooms)
+        } else {
+            DataState(DataState.STATE.FETCH_FAILED, "HTTP ${response.statusCode()}")
+        }
+        checkCancelled?.invoke()
+        state
+    } catch (error: Exception) {
+        checkCancelled?.invoke()
+        if (checkCancelled != null && error is CancellationException) throw error
+        DataState(DataState.STATE.FETCH_FAILED, error.message)
     }
 
 
