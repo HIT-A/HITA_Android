@@ -169,18 +169,15 @@ class ExamActivity : EASActivity<ExamViewModel, ComposeViewBinding>() {
 
     private fun openMemoEditor(item: ExamItem? = null) {
         val allTerms = viewModel.termsLiveData.value?.data.orEmpty()
-        val memoTerms = TermUtils.filterTermsForStudent(
-            allTerms,
-            easRepository.getEasToken().grade
-        ).toMutableList()
-        listOfNotNull(item?.termId, viewModel.selectedTermLiveData.value?.id).forEach { termId ->
+        val memoTerms = viewModel.filterTermOptions(allTerms).toMutableList()
+        listOfNotNull(item?.termId, viewModel.selectedTermDisplay.current()?.id).forEach { termId ->
             allTerms.firstOrNull { it.id == termId }
                 ?.takeIf { candidate -> memoTerms.none { it.id == candidate.id } }
                 ?.let(memoTerms::add)
         }
         ExamMemoEditorFragment(
             editingItem = item,
-            defaultTerm = viewModel.selectedTermLiveData.value,
+            defaultTerm = viewModel.selectedTermDisplay.current(),
             availableTerms = memoTerms,
             defaultCampusName = viewModel.defaultMemoCampusName(),
             onSave = { memo ->
@@ -211,10 +208,7 @@ class ExamActivity : EASActivity<ExamViewModel, ComposeViewBinding>() {
 
     private fun pickTerm() {
         viewModel.termsLiveData.value?.data?.let { terms ->
-            val filteredTerms = TermUtils.filterTermsForStudent(
-                terms,
-                easRepository.getEasToken().grade
-            )
+            val filteredTerms = viewModel.filterTermOptions(terms)
             val names = filteredTerms.map { getDisplayTermName(it) }
             if (names.isEmpty()) return
             PopUpCheckableList<TermItem>()
@@ -222,7 +216,7 @@ class ExamActivity : EASActivity<ExamViewModel, ComposeViewBinding>() {
                 .setTitle(getString(R.string.pick_exam_term))
                 .setOnConfirmListener(object : PopUpCheckableList.OnConfirmListener<TermItem> {
                     override fun OnConfirm(title: String?, key: TermItem) {
-                        if (key != viewModel.selectedTermLiveData.value) {
+                        if (!cn.limpu.hita.ui.eas.sameTermKey(key, viewModel.selectedTermLiveData.value)) {
                             viewModel.selectedTermLiveData.value = key
                             refresh()
                         }
@@ -334,7 +328,8 @@ private fun ExamScreen(
     onOpenExam: (ExamItem) -> Unit
 ) {
     val tokens = HitaTheme.tokens
-    val selectedTerm by viewModel.selectedTermLiveData.observeAsState()
+    val selectedTermDisplay by viewModel.selectedTermDisplay.observeAsState()
+    val selectedTerm = selectedTermDisplay?.toTermItem()
     val selectedExamType by viewModel.selectedExamTypeLiveData.observeAsState()
     val examState by viewModel.examInfoLiveData.observeAsState()
     val exams = examState?.data.orEmpty()

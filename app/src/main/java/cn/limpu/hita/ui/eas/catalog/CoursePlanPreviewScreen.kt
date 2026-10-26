@@ -78,7 +78,8 @@ internal fun CoursePlanPreviewScreen(
     onClearDraft: () -> Unit
 ) {
     BackHandler(onBack = onBack)
-    val term by viewModel.selectedTermLiveData.observeAsState()
+    val termDisplay by viewModel.selectedTermDisplay.observeAsState()
+    val term = termDisplay?.toTermItem()
     val context = LocalContext.current
     val selectedState by viewModel.selectedCoursesLiveData.observeAsState()
     val startDateState by viewModel.startDateLiveData.observeAsState()

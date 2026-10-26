@@ -35,6 +35,18 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.concurrent.thread
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 /** 自动刷新课表的结果：会话失效单独上报，供上层引导重登而不是静默吞掉。 */
 enum class AutoImportResult {
@@ -59,6 +71,9 @@ internal class EASTimetableImportRepository(
     private val authEpoch: AtomicLong,
     private val tokenStateLock: Any,
     private val autoImportInProgress: AtomicBoolean,
+    private val captureSession: () -> EasQuerySession,
+    private val queryTerms: suspend (EasQuerySession) -> DataState<List<TermItem>>,
+    private val applicationScope: CoroutineScope,
 ) {
     private val database by lazy { cn.limpu.hita.data.AppDatabase.getDatabase(appContext) }
     private val examImportRepository by lazy { ExamImportRepository(database) }
@@ -825,152 +840,118 @@ internal class EASTimetableImportRepository(
 
     fun startAutoImportCurrentTimetable(
         isUndergraduate: Boolean,
-        onResult: ((AutoImportResult) -> Unit)? = null
-    ) {
-        val (token, expectedEpoch, operation) = synchronized(tokenStateLock) {
-            val current = easPreferenceSource.getEasToken()
-            val generation = authEpoch.get()
-            Triple(current, generation, EasTimetableImportGuard(
-                current, generation, SystemClock.elapsedRealtime() + 90_000L
-            ))
-        }
-        if (!token.isLogin()) {
+        onResult: ((AutoImportResult) -> Unit)? = null,
+    ): Job? {
+        val session = captureSession()
+        val token = session.token
+        val expectedEpoch = synchronized(tokenStateLock) { authEpoch.get() }
+        val operation = EasTimetableImportGuard(token, expectedEpoch, SystemClock.elapsedRealtime() + 90_000L)
+        if (!session.loggedIn) {
             onResult?.invoke(AutoImportResult.NOT_LOGGED_IN)
-            return
+            return null
         }
         if (!autoImportInProgress.compareAndSet(false, true)) {
-            LogUtils.d("autoImport: ignored duplicate request while another import is running")
             onResult?.invoke(AutoImportResult.SKIPPED_IN_PROGRESS)
-            return
+            return null
         }
-        Thread {
-            // 会话失效优先上报：上层据此引导重登，而不是当作普通失败静默吞掉。
-            var result = AutoImportResult.FAILED
+        var result = AutoImportResult.FAILED
+        val job = applicationScope.launch {
             try {
-                if (!isCurrentAuthOperation(expectedEpoch)) return@Thread
-                val service = getService(token.campus)
-                val termsState = awaitLiveData(service.getAllTerms(token), 6)
-                LogUtils.d("autoImport: terms state=${termsState.state} count=${termsState.data?.size ?: -1}")
-                if (!isCurrentAuthOperation(expectedEpoch)) return@Thread
-                if (termsState.state == DataState.STATE.NOT_LOGGED_IN) {
-                    result = AutoImportResult.NOT_LOGGED_IN
-                    return@Thread
-                }
-                val term = termsState.data?.firstOrNull { it.isCurrent }
-                    ?: termsState.data?.firstOrNull()
-                    ?: return@Thread
-
-                val startState = awaitLiveData(service.getStartDate(token, term), 6)
-                val startDate = startState.data
-                LogUtils.d("autoImport: startDate state=${startState.state}")
-                if (!isCurrentAuthOperation(expectedEpoch)) return@Thread
-                if (startState.state == DataState.STATE.NOT_LOGGED_IN) {
-                    result = AutoImportResult.NOT_LOGGED_IN
-                    return@Thread
-                }
-                val scheduleState = awaitLiveData(
-                    service.getScheduleStructure(term, isUndergraduate, token),
-                    6
-                )
-                if (!isCurrentAuthOperation(expectedEpoch)) return@Thread
-                if (scheduleState.state == DataState.STATE.NOT_LOGGED_IN) {
-                    result = AutoImportResult.NOT_LOGGED_IN
-                    return@Thread
-                }
-                val schedule = scheduleState.data
-                    ?: timetablePreferenceSource.getSchedule(isUndergraduate)
-                LogUtils.d("autoImport: schedule state=${scheduleState.state} size=${schedule.size}")
-                if (startDate == null || !isCurrentAuthOperation(expectedEpoch)) return@Thread
-
-                val importLive = MediatorLiveData<DataState<Boolean>>()
-                val latch = CountDownLatch(1)
-                val importState = java.util.concurrent.atomic.AtomicReference<DataState.STATE?>()
-                val observer = Observer<DataState<Boolean>> { state ->
-                    if (state.state == DataState.STATE.SUCCESS ||
-                        state.state == DataState.STATE.FETCH_FAILED ||
-                        state.state == DataState.STATE.NOT_LOGGED_IN
-                    ) {
-                        importState.set(state.state)
-                        latch.countDown()
+                session.whileCurrent {
+                    val termsState = withTimeoutOrNull(6_000L) { queryTerms(session) }
+                        ?: return@whileCurrent
+                    if (termsState.state == DataState.STATE.NOT_LOGGED_IN) {
+                        result = AutoImportResult.NOT_LOGGED_IN
+                        return@whileCurrent
                     }
-                }
-                val mainHandler = Handler(Looper.getMainLooper())
-                mainHandler.post {
-                    if (!isCurrentAuthOperation(expectedEpoch)) {
-                        latch.countDown()
-                        return@post
+                    val term = termsState.data?.firstOrNull { it.isCurrent }
+                        ?: termsState.data?.firstOrNull() ?: return@whileCurrent
+                    val startState = withTimeoutOrNull(6_000L) {
+                        awaitEasDataState { session.service.getStartDate(token, term) }
+                    } ?: DataState(DataState.STATE.FETCH_FAILED)
+                    session.ensureCurrent()
+                    if (startState.state == DataState.STATE.NOT_LOGGED_IN) {
+                        result = AutoImportResult.NOT_LOGGED_IN
+                        return@whileCurrent
                     }
-                    importLive.observeForever(observer)
-                    startImportTimetableOfTerm(
-                        term,
-                        startDate,
-                        schedule,
-                        importLive,
-                        TimetableImportMode.MERGE,
-                        importOperation = operation,
-                    )
-                }
-                if (!latch.await(25, TimeUnit.SECONDS)) {
-                    val cancelled = operation.finishWaiting()
-                    // Only an active local commit may receive a short grace period. FINISHED
-                    // without an observer callback must not leave this worker waiting forever.
-                    if (cancelled || !operation.isCommitting() || !latch.await(5, TimeUnit.SECONDS)) {
-                        mainHandler.post { importLive.removeObserver(observer) }
-                        return@Thread
+                    val startDate = startState.data ?: return@whileCurrent
+                    val scheduleState = withTimeoutOrNull(6_000L) {
+                        awaitEasDataState { session.service.getScheduleStructure(term, isUndergraduate, token) }
+                    } ?: DataState(DataState.STATE.FETCH_FAILED)
+                    session.ensureCurrent()
+                    if (scheduleState.state == DataState.STATE.NOT_LOGGED_IN) {
+                        result = AutoImportResult.NOT_LOGGED_IN
+                        return@whileCurrent
                     }
-                }
-                mainHandler.post { importLive.removeObserver(observer) }
-                if (!isCurrentAuthOperation(expectedEpoch)) return@Thread
-                if (importState.get() == DataState.STATE.NOT_LOGGED_IN) {
-                    result = AutoImportResult.NOT_LOGGED_IN
-                    return@Thread
-                }
-
-                val examState = awaitLiveData(service.getExamItems(token, term), 8)
-                if (!isCurrentAuthOperation(expectedEpoch)) return@Thread
-                if (examState.state == DataState.STATE.NOT_LOGGED_IN) {
-                    result = AutoImportResult.NOT_LOGGED_IN
-                    return@Thread
-                }
-                val timetableCode = EASTimetableCode.of(token.campus, term)
-                val importedExamCount = synchronized(tokenStateLock) {
-                    timetableMutationLock.exclusive {
-                        if (!operation.isCurrentSession(authEpoch.get(), easPreferenceSource.getEasToken())) {
-                            return@exclusive 0
-                        }
-                        val timetable = timetableDao.getTimetableByEASCodeCandidatesSync(
-                            EASTimetableCode.candidates(term, token.campus),
-                            timetableCode,
-                            term.getCode()
-                        )
-                        if (timetable == null) {
-                            LogUtils.w("autoImport: skip exams, timetable not found code=$timetableCode")
-                            0
-                        } else {
+                    val schedule = scheduleState.data ?: timetablePreferenceSource.getSchedule(isUndergraduate)
+                    val importState = awaitAutomaticImport(term, startDate, schedule, operation, session)
+                        ?: return@whileCurrent
+                    session.ensureCurrent()
+                    if (importState.state == DataState.STATE.NOT_LOGGED_IN) {
+                        result = AutoImportResult.NOT_LOGGED_IN
+                        return@whileCurrent
+                    }
+                    val examState = withTimeoutOrNull(8_000L) { session.service.getExamItemsOnce(token, term) }
+                        ?: DataState(DataState.STATE.FETCH_FAILED)
+                    session.ensureCurrent()
+                    if (examState.state == DataState.STATE.NOT_LOGGED_IN) {
+                        result = AutoImportResult.NOT_LOGGED_IN
+                        return@whileCurrent
+                    }
+                    val coroutine = currentCoroutineContext()
+                    val timetableCode = EASTimetableCode.of(session.campus, term)
+                    val importedExamCount = synchronized(tokenStateLock) {
+                        timetableMutationLock.exclusive {
+                            coroutine.ensureActive()
+                            session.ensureCurrent()
+                            if (!operation.isCurrentSession(authEpoch.get(), easPreferenceSource.getEasToken())) {
+                                return@exclusive 0
+                            }
+                            val timetable = timetableDao.getTimetableByEASCodeCandidatesSync(
+                                EASTimetableCode.candidates(term, session.campus), timetableCode, term.getCode()
+                            ) ?: return@exclusive 0
                             examImportRepository.importAutomatically(examState.data.orEmpty(), timetable).importedCount
                         }
                     }
+                    if (importState.state == DataState.STATE.SUCCESS || importedExamCount > 0) result = AutoImportResult.SUCCESS
                 }
-                LogUtils.d(
-                    "autoImport: exam state=${examState.state} " +
-                        "total=${examState.data?.size ?: -1} imported=$importedExamCount"
-                )
-                if (importState.get() == DataState.STATE.SUCCESS || importedExamCount > 0) {
-                    result = AutoImportResult.SUCCESS
-                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (error: Exception) {
-                LogUtils.e("autoImport: failed, error=${error.message}", error)
-            } finally {
-                operation.finishWaiting()
-                autoImportInProgress.set(false)
-                val reportedResult = if (authEpoch.get() == expectedEpoch) result else AutoImportResult.FAILED
-                onResult?.invoke(reportedResult)
+                LogUtils.e("autoImport: failed", error)
             }
-        }.start()
+        }
+        // Completion also runs if the application scope was cancelled before launch entered.
+        job.invokeOnCompletion { failure ->
+            operation.finishWaiting()
+            autoImportInProgress.set(false)
+            onResult?.invoke(if (failure == null && session.isCurrent()) result else AutoImportResult.FAILED)
+        }
+        return job
     }
 
-    private fun isCurrentAuthOperation(expectedEpoch: Long): Boolean {
-        return authEpoch.get() == expectedEpoch && easPreferenceSource.getEasToken().isLogin()
+    /** Keep the original 25s wait and 5s grace only for a commit that already owns its boundary. */
+    private suspend fun awaitAutomaticImport(
+        term: TermItem,
+        startDate: Calendar,
+        schedule: List<TimePeriodInDay>,
+        operation: EasTimetableImportGuard,
+        session: EasQuerySession,
+    ): DataState<Boolean>? = coroutineScope {
+        val live = MediatorLiveData<DataState<Boolean>>()
+        val completion = async {
+            awaitEasDataState(source = { live }, afterObserve = {
+                session.ensureCurrent()
+                startImportTimetableOfTerm(term, startDate, schedule, live,
+                    TimetableImportMode.MERGE, importOperation = operation)
+            })
+        }
+        try {
+            withTimeoutOrNull(25_000L) { completion.await() } ?: run {
+                if (operation.finishWaiting() || !operation.isCommitting()) null
+                else withTimeoutOrNull(5_000L) { completion.await() }
+            }
+        } finally { completion.cancel() }
     }
 
     /** 重新登录后调用：清空「记住忽略」指纹，让上游现状重新提示一次。 */
@@ -978,25 +959,6 @@ internal class EASTimetableImportRepository(
         timetableChangeStore.clearIgnoredFingerprints()
     }
 
-    private fun <T> awaitLiveData(
-        live: LiveData<DataState<T>>,
-        timeoutSeconds: Long
-    ): DataState<T> {
-        val latch = CountDownLatch(1)
-        var result = DataState<T>(DataState.STATE.FETCH_FAILED)
-        val observer = Observer<DataState<T>> { state ->
-            if (state.state == DataState.STATE.NOTHING || state.state == DataState.STATE.LOADING) {
-                return@Observer
-            }
-            result = state
-            latch.countDown()
-        }
-        val mainHandler = Handler(Looper.getMainLooper())
-        mainHandler.post { live.observeForever(observer) }
-        latch.await(timeoutSeconds, TimeUnit.SECONDS)
-        mainHandler.post { live.removeObserver(observer) }
-        return result
-    }
     fun getTimetableSnapshots(term: TermItem): LiveData<DataState<List<TimetableVersionSnapshot>>> {
         val result = MutableLiveData<DataState<List<TimetableVersionSnapshot>>>(
             DataState(DataState.STATE.NOTHING)

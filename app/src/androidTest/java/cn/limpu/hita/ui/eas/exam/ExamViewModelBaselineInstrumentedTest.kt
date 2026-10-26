@@ -50,7 +50,8 @@ class ExamViewModelBaselineInstrumentedTest {
             h.terms.first().value = DataState(listOf(term("1"), current)).setFromCache(true)
             assertEquals(current, h.model.selectedTermLiveData.value)
             assertEquals(listOf(current), h.requestedTerms)
-            assertEquals(2, h.terms.size)
+            // The separately verified regression now keeps the original term request alive.
+            assertEquals(1, h.terms.size)
             h.terms.last().value = DataState(listOf(term("3", current = true)))
             assertEquals(current, h.model.selectedTermLiveData.value)
             assertEquals(1, h.exams.size)
@@ -66,7 +67,7 @@ class ExamViewModelBaselineInstrumentedTest {
             h.model.startRefresh()
             assertEquals(current, h.model.selectedTermLiveData.value)
             assertEquals(listOf(current), h.requestedTerms)
-            assertEquals(2, h.terms.size)
+            assertEquals(1, h.terms.size)
             assertEquals(DataState.STATE.LOADING, h.model.examInfoLiveData.value?.state)
         }
     }

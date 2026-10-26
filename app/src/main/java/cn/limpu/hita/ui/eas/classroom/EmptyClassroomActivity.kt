@@ -87,10 +87,7 @@ class EmptyClassroomActivity :
         viewModel.termsLiveData.observe(this) { data ->
             when (data.state) {
                 DataState.STATE.SUCCESS -> {
-                    val terms = data.data.orEmpty()
-                    if (terms.isNotEmpty()) {
-                        viewModel.selectTerm(terms.firstOrNull { it.isCurrent } ?: terms.first())
-                    }
+                    Unit
                 }
 
                 DataState.STATE.NOT_LOGGED_IN -> {
@@ -110,9 +107,7 @@ class EmptyClassroomActivity :
         viewModel.buildingsLiveData.observe(this) { data ->
             when (data.state) {
                 DataState.STATE.SUCCESS -> {
-                    if (!data.data.isNullOrEmpty()) {
-                        viewModel.selectBuilding(data.data?.get(0))
-                    }
+                    Unit
                 }
 
                 DataState.STATE.NOT_LOGGED_IN -> {
@@ -183,7 +178,7 @@ class EmptyClassroomActivity :
                     onPickBuilding = { pickBuilding() },
                     onPickWeek = { pickWeek() },
                     onOpenDetail = { classroom ->
-                        val term = viewModel.selectedTermLiveData.value ?: return@EmptyClassroomScreen
+                        val term = viewModel.selectedTermDisplay.current() ?: return@EmptyClassroomScreen
                         val week = viewModel.selectedWeekLiveData.value ?: return@EmptyClassroomScreen
                         val structure = viewModel.timetableStructureLiveData.value?.data
                             ?: return@EmptyClassroomScreen
@@ -278,7 +273,8 @@ private fun EmptyClassroomScreen(
     onOpenDetail: (ClassroomItem) -> Unit
 ) {
     val tokens = HitaTheme.tokens
-    val selectedTerm by viewModel.selectedTermLiveData.observeAsState()
+    val selectedTermDisplay by viewModel.selectedTermDisplay.observeAsState()
+    val selectedTerm = selectedTermDisplay?.toTermItem()
     val selectedBuilding by viewModel.selectedBuildingLiveData.observeAsState()
     val selectedWeek by viewModel.selectedWeekLiveData.observeAsState()
     val classroomState by viewModel.classroomLiveData.observeAsState()

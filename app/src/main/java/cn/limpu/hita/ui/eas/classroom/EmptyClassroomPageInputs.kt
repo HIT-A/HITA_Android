@@ -8,11 +8,12 @@ import cn.limpu.hita.data.model.eas.TermItem
 import cn.limpu.hita.data.model.timetable.TimePeriodInDay
 import cn.limpu.hita.data.repository.TeachingBuildingsRequest
 import cn.limpu.hita.data.repository.EmptyClassroomQueryRequest
+import cn.limpu.hita.data.repository.TermQueryRequest
 import com.limpu.component.data.DataState
 
 /** Narrow dependencies for exercising the real page's selection and query behavior. */
 internal class EmptyClassroomPageInputs(
-    val getTerms: () -> LiveData<DataState<List<TermItem>>>,
+    val getTerms: () -> TermQueryRequest,
     val createTeachingBuildingsRequest: () -> TeachingBuildingsRequest,
     val getCurrentWeek: (TermItem?) -> LiveData<Int>,
     val getScheduleStructure: (TermItem) -> LiveData<DataState<MutableList<TimePeriodInDay>>>,

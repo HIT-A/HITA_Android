@@ -4,6 +4,7 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Transaction
 import cn.limpu.hita.data.model.eas.ScoreCacheEntity
 import cn.limpu.hita.data.model.eas.ScoreDetailCacheEntity
 import cn.limpu.hita.data.model.eas.ScoreTermCacheEntity
@@ -55,4 +56,42 @@ interface ScoreCacheDao {
 
     @Query("DELETE FROM score_detail_cache WHERE cachedAt < :beforeTimestamp")
     fun deleteOldDetailsSync(beforeTimestamp: Long)
+
+    @Transaction
+    fun replaceTermsByOwnerSync(
+        ownerKey: String,
+        rows: List<ScoreTermCacheEntity>,
+        beforeTimestamp: Long,
+        canReplace: () -> Boolean,
+    ): Boolean {
+        // Room has acquired the SQLite transaction lock before this ownership check.
+        if (!canReplace()) return false
+        deleteTermsByOwnerSync(ownerKey)
+        if (rows.isNotEmpty()) saveTermsSync(rows)
+        deleteOldTermsSync(beforeTimestamp)
+        return true
+    }
+
+    @Transaction
+    fun clearOwnerSync(ownerKey: String, canClear: () -> Boolean): Boolean {
+        if (!canClear()) return false
+        deleteScoresByOwnerSync(ownerKey)
+        deleteTermsByOwnerSync(ownerKey)
+        deleteDetailsByOwnerSync(ownerKey)
+        return true
+    }
+
+    @Transaction
+    fun saveScoreIfCurrentSync(entity: ScoreCacheEntity, beforeTimestamp: Long, canSave: () -> Boolean) {
+        if (!canSave()) return
+        saveScoreSync(entity)
+        deleteOldScoresSync(beforeTimestamp)
+    }
+
+    @Transaction
+    fun saveDetailIfCurrentSync(entity: ScoreDetailCacheEntity, beforeTimestamp: Long, canSave: () -> Boolean) {
+        if (!canSave()) return
+        saveDetailSync(entity)
+        deleteOldDetailsSync(beforeTimestamp)
+    }
 }

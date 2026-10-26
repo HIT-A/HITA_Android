@@ -41,6 +41,8 @@ internal class EASShenzhenRepository(
     private val nextCredentialScopeGeneration: () -> Long,
     private val scoreCacheOwnerKey: (EASToken) -> String?,
 ) : ShenzhenCourseSelectionGateway {
+    private val querySessionState = easPreferenceSource.querySessionState
+    private val queryCoordinator = EasQueryCoordinator.forSession(querySessionState)
     private val shenzhenGradeCourseListType = object : TypeToken<List<ShenzhenGradeCourse>>() {}.type
 
     companion object {
@@ -255,6 +257,7 @@ internal class EASShenzhenRepository(
         val ownerKey = scoreCacheOwnerKey(token)
             ?: return shenzhenService.getShenzhenGradeCourses(token, term)
         return getCachedScoreDetail(
+            scope = EasQueryScope.from(token),
             ownerKey = ownerKey,
             cacheKey = "grade-courses:${term.id}",
             payloadType = shenzhenGradeCourseListType,
@@ -270,6 +273,7 @@ internal class EASShenzhenRepository(
         val ownerKey = scoreCacheOwnerKey(token)
             ?: return shenzhenService.getShenzhenGradeAnalysis(token, course)
         return getCachedScoreDetail(
+            scope = EasQueryScope.from(token),
             ownerKey = ownerKey,
             cacheKey = gradeAnalysisCacheKey(course),
             payloadType = ShenzhenGradeAnalysis::class.java,
@@ -288,6 +292,7 @@ internal class EASShenzhenRepository(
     }
 
     private fun <T : Any> getCachedScoreDetail(
+        scope: EasQueryScope,
         ownerKey: String,
         cacheKey: String,
         payloadType: Type,
@@ -297,7 +302,8 @@ internal class EASShenzhenRepository(
         val result = MediatorLiveData<DataState<T>>()
         val hasCachedResult = AtomicBoolean(false)
         thread(name = "score-detail-cache-load") {
-            scoreCacheDao.getDetailSync(ownerKey, cacheKey)
+            val canRead = queryCoordinator.cleanOwnerSync(ownerKey, scoreCacheDao) && scope == querySessionState.current()
+            (if (canRead) scoreCacheDao.getDetailSync(ownerKey, cacheKey) else null)
                 ?.payloadJson
                 ?.let { payload -> runCatching { gson.fromJson<T>(payload, payloadType) }.getOrNull() }
                 ?.let { cached ->
@@ -313,12 +319,18 @@ internal class EASShenzhenRepository(
             }
 
             Handler(Looper.getMainLooper()).post {
+                if (scope != querySessionState.current()) return@post
                 val remoteSource = remote()
                 result.addSource(remoteSource) { state ->
+                    if (scope != querySessionState.current()) return@addSource
                     if (state.state == DataState.STATE.SUCCESS && state.data != null) {
                         result.value = state
                         thread(name = "score-detail-cache-save") {
-                            saveScoreDetailCache(ownerKey, cacheKey, state.data!!)
+                            if (queryCoordinator.cleanOwnerSync(ownerKey, scoreCacheDao)) {
+                                saveScoreDetailCache(ownerKey, cacheKey, state.data!!) {
+                                    scope == querySessionState.current() && !queryCoordinator.hasPendingCleanup(ownerKey)
+                                }
+                            }
                         }
                     } else if (!hasCachedResult.get()) {
                         result.value = state
@@ -329,17 +341,16 @@ internal class EASShenzhenRepository(
         return result
     }
 
-    private fun saveScoreDetailCache(ownerKey: String, cacheKey: String, payload: Any) {
+    private fun saveScoreDetailCache(ownerKey: String, cacheKey: String, payload: Any, canSave: () -> Boolean) {
         val cachedAt = System.currentTimeMillis()
-        scoreCacheDao.saveDetailSync(
+        scoreCacheDao.saveDetailIfCurrentSync(
             ScoreDetailCacheEntity(
                 ownerKey = ownerKey,
                 cacheKey = cacheKey,
                 payloadJson = gson.toJson(payload),
                 cachedAt = cachedAt,
-            )
+            ), cachedAt - SCORE_CACHE_RETENTION_MS, canSave,
         )
-        scoreCacheDao.deleteOldDetailsSync(cachedAt - SCORE_CACHE_RETENTION_MS)
     }
 
     fun getShenzhenHistoricalTeacherFailureRates(

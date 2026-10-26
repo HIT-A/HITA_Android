@@ -6,6 +6,7 @@ import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.map
 import androidx.lifecycle.switchMap
+import androidx.lifecycle.viewModelScope
 import cn.limpu.hita.data.model.eas.EASToken
 import cn.limpu.hita.data.model.eas.ShenzhenCreditProgress
 import cn.limpu.hita.data.model.eas.TermItem
@@ -14,6 +15,12 @@ import cn.limpu.hita.data.repository.EASRepository
 import cn.limpu.hita.data.repository.SubjectRepository
 import cn.limpu.hita.data.source.preference.CreditGoalStore
 import cn.limpu.hita.ui.eas.EASViewModel
+import cn.limpu.hita.ui.eas.TermQueryLiveData
+import cn.limpu.hita.ui.eas.mapTerms
+import cn.limpu.hita.ui.eas.sessionBoundData
+import cn.limpu.hita.ui.eas.TermSelectionDisplaySource
+import cn.limpu.hita.ui.eas.reconcileSelectedTerm
+import cn.limpu.hita.ui.eas.sameTermKey
 import cn.limpu.hita.utils.TermUtils
 import com.limpu.component.data.DataState
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -32,29 +39,33 @@ class CreditStatsViewModel @Inject constructor(
     val officialSupported: Boolean
         get() = easRepo.getEasToken().campus == EASToken.Campus.SHENZHEN
 
-    val termsLiveData: LiveData<DataState<List<TermItem>>> = if (officialSupported) {
-        easRepo.getAllTerms().map { state ->
-            if (state.state == DataState.STATE.SUCCESS && state.data != null) {
-                DataState(
-                    TermUtils.filterTermsForStudent(
-                        state.data.orEmpty(),
-                        easRepo.getEasToken().grade
-                    ),
-                    state.state
-                ).apply { message = state.message }
-            } else {
-                state
-            }
-        }
-    } else {
-        MutableLiveData(DataState<List<TermItem>>(DataState.STATE.NOTHING))
-    }
+    private val termQueries = TermQueryLiveData(viewModelScope, easRepo.querySessions,
+        createRequest = {
+            val session = easRepo.captureQuerySession()
+            if (session.campus == EASToken.Campus.SHENZHEN) easRepo.createTermQueryRequest(session) else null
+        },
+        initiallyRequested = true,
+        transform = { session, state -> state.mapTerms {
+            TermUtils.filterTermsForStudent(it, session.grade, session.calendarYear, session.calendarMonth)
+        } },
+        onSessionChanged = {
+            selectedTermLiveData.value = null
+            selectedTermDisplay.updateOptions(emptyList())
+            officialRefreshTrigger.value = true
+        },
+        onResult = { _, state -> if (state.state == DataState.STATE.SUCCESS) reconcileTerms(state.data.orEmpty()) },
+    )
+    val termsLiveData: LiveData<DataState<List<TermItem>>> = termQueries
     val selectedTermLiveData = MutableLiveData<TermItem>()
+    internal val selectedTermDisplay = TermSelectionDisplaySource(selectedTermLiveData)
 
     val shenzhenProgress: LiveData<DataState<ShenzhenCreditProgress>> =
         officialRefreshTrigger.switchMap {
+            if (!officialSupported || selectedTermLiveData.value == null) {
+                return@switchMap MutableLiveData(DataState(DataState.STATE.NOTHING))
+            }
             val operation = UsageAnalyticsClient.begin(UsageAnalyticsEvent.CREDIT_SUMMARY_LOAD_STARTED)
-            easRepo.getShenzhenCreditProgress(selectedTermLiveData.value).map { result ->
+            easRepo.sessionBoundData { easRepo.getShenzhenCreditProgress(selectedTermDisplay.current()) }.map { result ->
                 when (result.state) {
                     DataState.STATE.SUCCESS -> UsageAnalyticsClient.finish(operation, UsageAnalyticsEvent.CREDIT_SUMMARY_LOAD_SUCCEEDED)
                     DataState.STATE.NOTHING, DataState.STATE.LOADING -> Unit
@@ -85,19 +96,18 @@ class CreditStatsViewModel @Inject constructor(
     }
 
     fun reconcileTerms(terms: List<TermItem>) {
-        val selected = selectedTermLiveData.value
-            ?.let { current -> terms.firstOrNull { it.id == current.id } }
-            ?: terms.firstOrNull { it.isCurrent }
-            ?: terms.firstOrNull()
-            ?: return
-        if (selectedTermLiveData.value?.id != selected.id) {
-            selectedTermLiveData.value = selected
+        selectedTermDisplay.updateOptions(terms)
+        if (terms.isEmpty()) {
+            selectedTermLiveData.value = null
             officialRefreshTrigger.value = true
+            return
         }
+        selectTerm(reconcileSelectedTerm(terms, selectedTermLiveData.value) ?: return)
     }
 
     fun selectTerm(term: TermItem) {
-        if (selectedTermLiveData.value?.id != term.id) {
+        selectedTermDisplay.updateTerm(term)
+        if (!sameTermKey(selectedTermLiveData.value, term)) {
             selectedTermLiveData.value = term
             officialRefreshTrigger.value = true
         }

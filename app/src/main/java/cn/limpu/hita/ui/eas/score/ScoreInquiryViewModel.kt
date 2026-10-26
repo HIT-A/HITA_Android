@@ -7,6 +7,7 @@ import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.map
 import androidx.lifecycle.switchMap
+import androidx.lifecycle.viewModelScope
 import com.limpu.component.data.DataState
 import com.limpu.component.data.MTransformations
 import com.limpu.component.data.Trigger
@@ -16,6 +17,11 @@ import cn.limpu.hita.data.model.eas.TermItem
 import cn.limpu.hita.data.repository.EASRepository
 import cn.limpu.hita.data.source.web.service.EASService
 import cn.limpu.hita.ui.eas.EASViewModel
+import cn.limpu.hita.ui.eas.TermQueryLiveData
+import cn.limpu.hita.ui.eas.mapTerms
+import cn.limpu.hita.ui.eas.sessionBoundData
+import cn.limpu.hita.ui.eas.TermSelectionDisplaySource
+import cn.limpu.hita.ui.eas.sameTermKey
 import cn.limpu.hita.utils.WeightedScoreCalculator
 import cn.limpu.hita.utils.TermUtils
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -29,29 +35,32 @@ class ScoreInquiryViewModel @Inject constructor(
 
     companion object {
         private const val STATE_SELECTED_TERM_ID = "score_selected_term_id"
+        private const val STATE_SELECTED_TERM_YEAR = "score_selected_term_year"
+        private const val STATE_SELECTED_TERM_CODE = "score_selected_term_code"
         private const val STATE_SELECTED_TEST_TYPE = "score_selected_test_type"
     }
 
     /**
      * LiveData区
      */
-    private val pageController = MutableLiveData<Trigger>()
-
-    val termsLiveData : LiveData<DataState<List<TermItem>>> = pageController.switchMap {
-        return@switchMap easRepo.getAllTerms().map { state ->
-            val data = state.data
-            if (state.state != DataState.STATE.SUCCESS || data.isNullOrEmpty()) {
-                return@map state
-            }
-            val finalList = TermUtils.filterTermsForStudent(
-                data,
-                easRepo.getEasToken().grade
-            )
-            DataState(finalList, state.state)
-        }
-    }
+    private val termQueries = TermQueryLiveData(viewModelScope, easRepo.querySessions,
+        createRequest = { easRepo.createTermQueryRequest() },
+        transform = { session, state -> state.mapTerms {
+            TermUtils.filterTermsForStudent(it, session.grade, session.calendarYear, session.calendarMonth)
+        } },
+        onSessionChanged = {
+            savedStateHandle.remove<String>(STATE_SELECTED_TERM_ID)
+            savedStateHandle.remove<String>(STATE_SELECTED_TERM_YEAR)
+            savedStateHandle.remove<String>(STATE_SELECTED_TERM_CODE)
+            selectedTermLiveData.value = null
+            selectedTermDisplay.updateOptions(emptyList())
+        },
+        onResult = { _, state -> if (state.state == DataState.STATE.SUCCESS) reconcileTerms(state.data.orEmpty()) },
+    )
+    val termsLiveData: LiveData<DataState<List<TermItem>>> = termQueries
 
     val selectedTermLiveData: MutableLiveData<TermItem> = MutableLiveData()
+    internal val selectedTermDisplay = TermSelectionDisplaySource(selectedTermLiveData)
     val selectedTestTypeLiveData: MutableLiveData<EASService.TestType> = MutableLiveData()
 
     init {
@@ -61,9 +70,12 @@ class ScoreInquiryViewModel @Inject constructor(
     }
 
     private val scoresWithSummaryLiveData =
-        MTransformations.switchMap(selectedTermLiveData, selectedTestTypeLiveData) {
+        selectedTermLiveData.switchMap { term -> selectedTestTypeLiveData.switchMap testType@{ testType ->
+            if (term == null || testType == null) {
+                return@testType MutableLiveData(DataState<cn.limpu.hita.data.model.eas.ScoreQueryResult>(DataState.STATE.NOTHING))
+            }
             val operation = UsageAnalyticsClient.begin(UsageAnalyticsEvent.SCORES_REFRESH_STARTED)
-            return@switchMap easRepo.getPersonalScoresWithSummary(it.first, it.second).map { result ->
+            easRepo.sessionBoundData { easRepo.getPersonalScoresWithSummary(selectedTermDisplay.current() ?: term, testType) }.map { result ->
                 when (result.state) {
                     DataState.STATE.SUCCESS -> UsageAnalyticsClient.finish(operation, UsageAnalyticsEvent.SCORES_REFRESH_SUCCEEDED)
                     DataState.STATE.NOTHING, DataState.STATE.LOADING -> Unit
@@ -71,7 +83,7 @@ class ScoreInquiryViewModel @Inject constructor(
                 }
                 result
             }
-        }
+        } }
 
     val scoresLiveData: LiveData<DataState<List<CourseScoreItem>>> =
         scoresWithSummaryLiveData.map { state ->
@@ -91,22 +103,32 @@ class ScoreInquiryViewModel @Inject constructor(
      * 方法区
      */
     fun startRefresh() {
-        pageController.value = Trigger.actioning
+        termQueries.refresh()
     }
 
     fun reconcileTerms(terms: List<TermItem>) {
-        val selectedId = selectedTermLiveData.value?.id
-            ?: savedStateHandle[STATE_SELECTED_TERM_ID]
-        val selected = chooseScoreTerm(terms, selectedId) ?: return
-        if (selectedTermLiveData.value?.id != selected.id) {
-            selectedTermLiveData.value = selected
+        selectedTermDisplay.updateOptions(terms)
+        val current = selectedTermLiveData.value
+        val year = current?.yearCode ?: savedStateHandle.get<String>(STATE_SELECTED_TERM_YEAR)
+        val code = current?.termCode ?: savedStateHandle.get<String>(STATE_SELECTED_TERM_CODE)
+        val selected = terms.firstOrNull { it.yearCode == year && it.termCode == code }
+            ?: chooseScoreTerm(terms, if (year == null || code == null) savedStateHandle[STATE_SELECTED_TERM_ID] else null)
+        if (selected == null) {
+            selectedTermLiveData.value = null
+            savedStateHandle.remove<String>(STATE_SELECTED_TERM_ID)
+            savedStateHandle.remove<String>(STATE_SELECTED_TERM_YEAR)
+            savedStateHandle.remove<String>(STATE_SELECTED_TERM_CODE)
+            return
         }
-        savedStateHandle[STATE_SELECTED_TERM_ID] = selected.id
+        selectTerm(selected)
     }
 
     fun selectTerm(term: TermItem) {
+        selectedTermDisplay.updateTerm(term)
         savedStateHandle[STATE_SELECTED_TERM_ID] = term.id
-        if (selectedTermLiveData.value?.id != term.id) {
+        savedStateHandle[STATE_SELECTED_TERM_YEAR] = term.yearCode
+        savedStateHandle[STATE_SELECTED_TERM_CODE] = term.termCode
+        if (!sameTermKey(selectedTermLiveData.value, term)) {
             selectedTermLiveData.value = term
         }
     }
@@ -125,7 +147,7 @@ class ScoreInquiryViewModel @Inject constructor(
     }
 
     fun retryCurrentQuery(): Boolean {
-        val term = selectedTermLiveData.value ?: return false
+        val term = selectedTermDisplay.current() ?: return false
         val testType = selectedTestTypeLiveData.value ?: return false
         selectedTermLiveData.value = term
         selectedTestTypeLiveData.value = testType

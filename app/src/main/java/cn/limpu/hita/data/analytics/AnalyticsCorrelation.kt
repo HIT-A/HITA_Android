@@ -1,15 +1,17 @@
 package cn.limpu.hita.data.analytics
 
+import kotlinx.coroutines.asContextElement
 import okhttp3.HttpUrl
 import okhttp3.Interceptor
 import okhttp3.Request
 import java.util.UUID
 
-/** Scoped to synchronous ReAct tool execution; never carries an installation ID. */
+/** Scoped to one ReAct operation, including coroutine dispatch; never carries an installation ID. */
 internal object AnalyticsOperationContext {
     data class Value(val id: String, val generation: Long)
     private val current = ThreadLocal<Value?>()
     fun get(): Value? = current.get()
+    fun coroutineContext(value: Value) = current.asContextElement(value)
     fun <T> withOperation(value: Value, block: () -> T): T {
         val previous = current.get()
         current.set(value)

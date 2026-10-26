@@ -13,6 +13,7 @@ import cn.limpu.hita.data.analytics.UsageAnalyticsEvent
 import cn.limpu.hita.data.model.resource.AgentResourceCard
 import cn.limpu.hita.data.repository.EASRepository
 import cn.limpu.hita.utils.LogUtils
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -67,6 +68,8 @@ object LlmChatService {
                 val (answer, thinking) = reactResult
 
                 emitResultToMain(onResult, LlmChatResult.Success(text = answer, thinking = thinking, resourceCards = resourceCards))
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (e: Exception) {
                 LogUtils.e( "Chat failed", e)
                 emitResultToMain(onResult, LlmChatResult.Error(error = e.message ?: "调用失败"))
@@ -106,6 +109,8 @@ object LlmChatService {
             while (retryCount < maxRetries) {
                 val currentResponse = try {
                     LlmClient.chatCompletion(application, request)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
                 } catch (e: Exception) {
                     retryCount++
                     if (retryCount >= maxRetries) {
@@ -378,6 +383,8 @@ private suspend fun localLlmGenerate(application: Application, prompt: String): 
             return null
         }
         response.body()?.choices?.firstOrNull()?.message?.content?.trim()
+    } catch (cancelled: CancellationException) {
+        throw cancelled
     } catch (e: Exception) {
         LogUtils.e("localLlmGenerate error: ${e.message}", e)
         null
@@ -536,8 +543,10 @@ suspend fun LlmChatService.chatWithAttachment(
                 }
 
                 body.choices.firstOrNull()?.message?.content ?: "无法理解附件内容"
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (e: Exception) {
-            LogUtils.e("chatWithAttachment error: ${e.message}", e)
+                LogUtils.e("chatWithAttachment error: ${e.message}", e)
                 return@withContext emitResultToMain(onResult, LlmChatResult.Error("附件理解失败：${e.message}"))
             }
 
@@ -561,6 +570,8 @@ suspend fun LlmChatService.chatWithAttachment(
                 onResult = onResult
             )
 
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (e: Exception) {
             LogUtils.e("chatWithAttachment error: ${e.message}", e)
             emitResultToMain(onResult, LlmChatResult.Error("处理失败：${e.message}"))

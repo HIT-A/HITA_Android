@@ -181,7 +181,7 @@ private fun CreditStatsScreen(
             state = officialState,
             onBack = onBack,
             onRetry = onRetryOfficial,
-            selectedTerm = viewModel.selectedTermLiveData.observeAsState().value,
+            selectedTerm = viewModel.selectedTermDisplay.observeAsState().value?.toTermItem(),
             onPickTerm = onPickTerm
         )
         return

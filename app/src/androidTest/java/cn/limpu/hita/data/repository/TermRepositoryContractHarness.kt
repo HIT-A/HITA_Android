@@ -9,12 +9,15 @@ import android.util.Log
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.Observer
+import androidx.lifecycle.SavedStateHandle
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import cn.limpu.hita.data.AppDatabase
 import cn.limpu.hita.data.model.eas.EASToken
 import cn.limpu.hita.data.model.eas.ScoreTermCacheEntity
 import cn.limpu.hita.data.model.eas.TermItem
+import cn.limpu.hita.data.model.timetable.TimePeriodInDay
+import cn.limpu.hita.data.source.preference.BenbuStartDatePreferenceSource
 import cn.limpu.hita.data.source.preference.EasCredentialStore
 import cn.limpu.hita.data.source.preference.EasPreferenceSource
 import cn.limpu.hita.data.source.preference.TimetablePreferenceSource
@@ -23,11 +26,15 @@ import cn.limpu.hita.data.source.web.eas.EASWebSource
 import cn.limpu.hita.data.source.web.eas.TermQueryContractHarness
 import cn.limpu.hita.data.source.web.eas.WeihaiEASWebSource
 import cn.limpu.hita.data.source.web.service.EASService
+import cn.limpu.hita.ui.eas.imp.ImportTimetableViewModel
+import cn.limpu.hita.ui.eas.catalog.ShenzhenCourseCatalogViewModel
+import cn.limpu.hita.data.work.CourseSelectionAlarmScheduler
 import com.limpu.component.data.DataState
 import java.io.Closeable
 import java.io.File
 import java.lang.reflect.Proxy
 import java.util.UUID
+import java.util.Calendar
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
@@ -37,6 +44,19 @@ import java.util.concurrent.TimeUnit
 import org.junit.After
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
+import kotlin.coroutines.Continuation
+import kotlin.coroutines.intrinsics.startCoroutineUninterceptedOrReturn
 
 /** Executes the real legacy repository, Room cache and Main/worker scheduling. */
 abstract class TermRepositoryContractHarness : TermQueryContractHarness() {
@@ -93,6 +113,7 @@ abstract class TermRepositoryContractHarness : TermQueryContractHarness() {
         private val threadsAtCreation = Thread.getAllStackTraces().keys.toSet()
         private val application = IsolatedApplication(ApplicationProvider.getApplicationContext())
         private val observations = CopyOnWriteArrayList<TermObservation>()
+        private val flowObservations = CopyOnWriteArrayList<TermFlowObservation>()
         private val realTermSources = CopyOnWriteArrayList<LiveData<DataState<List<TermItem>>>>()
         private val workers = ConcurrentHashMap.newKeySet<Thread>()
         private val loadStarts = LinkedBlockingQueue<Thread>()
@@ -111,9 +132,10 @@ abstract class TermRepositoryContractHarness : TermQueryContractHarness() {
             .build()
         val scripted = ScriptedTermService()
         val repository: EASRepository
+        private val serviceFactories: EasRepositoryServiceFactories
 
         init {
-            val factories = EasRepositoryServiceFactories(
+            serviceFactories = EasRepositoryServiceFactories(
                 shenzhen = { callback, credentials ->
                     EASWebSource(
                         onTokenRefreshed = callback,
@@ -141,7 +163,7 @@ abstract class TermRepositoryContractHarness : TermQueryContractHarness() {
             repository = EASRepository(
                 application, preferences, EasCredentialStore(application),
                 TimetablePreferenceSource(application, preferences), TimetableChangeStore(application),
-                TimetableMutationLock(), database, factories,
+                TimetableMutationLock(), database, serviceFactories,
             )
         }
 
@@ -156,6 +178,27 @@ abstract class TermRepositoryContractHarness : TermQueryContractHarness() {
         }
 
         fun rows(owner: String = "BENBU:student") = database.scoreCacheDao().getTermsSync(owner)
+
+        fun importPage() = ImportTimetableViewModel(
+            repository, BenbuStartDatePreferenceSource(application),
+            TimetablePreferenceSource(application, preferences),
+        )
+
+        fun catalogPage() = ShenzhenCourseCatalogViewModel(
+            repository,
+            TimetableRepository(application, database, DisplayScopeSelector { error("Unexpected display selection") }),
+            SavedStateHandle(),
+            CourseSelectionJobCoordinator(application, repository, CourseSelectionAlarmScheduler(application)),
+        )
+
+        fun newFacade(): EASRepository {
+            val preferences = EasPreferenceSource(application)
+            return EASRepository(
+                application, preferences, EasCredentialStore(application),
+                TimetablePreferenceSource(application, preferences), TimetableChangeStore(application),
+                TimetableMutationLock(), database, serviceFactories,
+            )
+        }
 
         fun clearSql() {
             awaitRoomIdle()
@@ -176,6 +219,14 @@ abstract class TermRepositoryContractHarness : TermQueryContractHarness() {
 
         fun queryWeb(observe: Boolean = true): TermObservation =
             createObservation(observe) { repository.getShenzhenWebTerms() }
+
+        internal fun queryFlow(
+            useCache: Boolean = true,
+            request: TermQueryRequest = repository.createTermQueryRequest(useCache = useCache),
+        ): TermFlowObservation = TermFlowObservation(request).also(flowObservations::add)
+
+        fun observeSource(source: LiveData<DataState<List<TermItem>>>): TermObservation =
+            createObservation(true) { source }
 
         private fun createObservation(
             observe: Boolean,
@@ -295,6 +346,7 @@ abstract class TermRepositoryContractHarness : TermQueryContractHarness() {
         override fun close() {
             onSql = {}
             try {
+                flowObservations.forEach { it.close() }
                 observations.forEach { it.close() }
                 flushMain()
                 joinStartedWorkers()
@@ -314,6 +366,38 @@ abstract class TermRepositoryContractHarness : TermQueryContractHarness() {
                     assertTrue("Room executor did not stop", roomQueryExecutor.awaitTermination(20, TimeUnit.SECONDS))
                 }
             }
+        }
+    }
+
+    protected class TermFlowObservation internal constructor(request: TermQueryRequest) : Closeable {
+        val states = CopyOnWriteArrayList<DataState<List<TermItem>>>()
+        private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        private val finished = CountDownLatch(1)
+        @Volatile var failure: Throwable? = null
+            private set
+        @Volatile var cancelled = false
+            private set
+        private val job: Job = scope.launch {
+            try {
+                request.states().collect { states += it }
+            } catch (cancelled: CancellationException) {
+                this@TermFlowObservation.cancelled = true
+            } catch (error: Throwable) {
+                failure = error
+            } finally {
+                finished.countDown()
+            }
+        }
+
+        fun awaitCompletion() {
+            assertTrue("Term Flow did not finish", finished.await(20, TimeUnit.SECONDS))
+            failure?.let { throw AssertionError("Term Flow failed", it) }
+        }
+
+        override fun close() {
+            scope.cancel()
+            runBlocking { withTimeout(20_000) { job.join() } }
+            failure?.let { throw AssertionError("Term Flow failed", it) }
         }
     }
 
@@ -356,6 +440,7 @@ abstract class TermRepositoryContractHarness : TermQueryContractHarness() {
 
     protected inner class ScriptedTermService {
         val calls = CopyOnWriteArrayList<RemoteCall>()
+        val metadataCalls = CopyOnWriteArrayList<String>()
         private val arrivals = LinkedBlockingQueue<RemoteCall>()
         var initialState: DataState<List<TermItem>>? = null
         val service: EASService = Proxy.newProxyInstance(
@@ -371,6 +456,22 @@ abstract class TermRepositoryContractHarness : TermQueryContractHarness() {
                     arrivals.offer(call)
                     source
                 }
+                "getAllTermsOnce" -> {
+                    val call = RemoteCall(arguments!![0] as EASToken, MutableLiveData(), Thread.currentThread())
+                    calls += call
+                    arrivals.offer(call)
+                    @Suppress("UNCHECKED_CAST")
+                    val continuation = arguments[1] as Continuation<DataState<List<TermItem>>>
+                    (suspend { call.once.await() }).startCoroutineUninterceptedOrReturn(continuation)
+                }
+                "getStartDate" -> {
+                    metadataCalls += method.name
+                    MutableLiveData(DataState(Calendar.getInstance(), DataState.STATE.SUCCESS))
+                }
+                "getScheduleStructure" -> {
+                    metadataCalls += method.name
+                    MutableLiveData(DataState(mutableListOf<TimePeriodInDay>(), DataState.STATE.SUCCESS))
+                }
                 "toString" -> "ScriptedTermService"
                 "hashCode" -> System.identityHashCode(proxy)
                 "equals" -> proxy === arguments?.single()
@@ -382,13 +483,17 @@ abstract class TermRepositoryContractHarness : TermQueryContractHarness() {
             "The actual repository did not call its term service"
         }
 
-        fun complete(call: RemoteCall, state: DataState<List<TermItem>>) = main { call.source.value = state }
+        fun complete(call: RemoteCall, state: DataState<List<TermItem>>) = main {
+            call.source.value = state
+            call.once.complete(state)
+        }
     }
 
     protected data class RemoteCall(
         val token: EASToken,
         val source: MutableLiveData<DataState<List<TermItem>>>,
         val thread: Thread,
+        val once: CompletableDeferred<DataState<List<TermItem>>> = CompletableDeferred(),
     )
 
     protected data class SqlCall(val sql: String, val arguments: List<Any?>, val thread: Thread)

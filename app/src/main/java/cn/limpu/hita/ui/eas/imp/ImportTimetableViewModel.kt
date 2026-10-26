@@ -6,6 +6,7 @@ import androidx.lifecycle.LiveData
 import androidx.lifecycle.MediatorLiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.switchMap
+import androidx.lifecycle.viewModelScope
 import com.limpu.component.data.DataState
 import com.limpu.component.data.Trigger
 import cn.limpu.hita.data.model.eas.EASToken
@@ -16,6 +17,10 @@ import cn.limpu.hita.data.repository.TimetableVersionSnapshot
 import cn.limpu.hita.data.source.preference.BenbuStartDatePreferenceSource
 import cn.limpu.hita.data.source.preference.TimetablePreferenceSource
 import cn.limpu.hita.ui.eas.EASViewModel
+import cn.limpu.hita.ui.eas.TermQueryLiveData
+import cn.limpu.hita.ui.eas.reconcileSelectedTerm
+import cn.limpu.hita.ui.eas.sessionBoundData
+import cn.limpu.hita.ui.eas.TermSelectionDisplaySource
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.util.Calendar
 import javax.inject.Inject
@@ -27,14 +32,27 @@ class ImportTimetableViewModel @Inject constructor(
     private val timetablePreferenceSource: TimetablePreferenceSource
 ) : EASViewModel(easRepo) {
 
-    private val termsController = MutableLiveData<Trigger>()
     private var startDateSource: LiveData<DataState<Calendar>>? = null
-
-    val termsLiveData: LiveData<DataState<List<TermItem>>> = termsController.switchMap {
-        easRepo.getAllTerms()
-    }
+    private var termSession = easRepo.captureQuerySession()
+    private val termQueries = TermQueryLiveData(viewModelScope, easRepo.querySessions,
+        createRequest = {
+            termSession = easRepo.captureQuerySession()
+            easRepo.createTermQueryRequest(termSession)
+        },
+        onSessionChanged = { selectedTermLiveData.value = null; selectedTermDisplay.updateOptions(emptyList()) },
+        onResult = { session, state ->
+            termSession = session
+            if (state.state == DataState.STATE.SUCCESS) {
+                selectedTermDisplay.updateOptions(state.data.orEmpty())
+                val selected = reconcileSelectedTerm(state.data.orEmpty(), selectedTermLiveData.value)
+                if (selected == null) selectedTermLiveData.value = null else changeSelectedTerm(selected)
+            }
+        },
+    )
+    val termsLiveData: LiveData<DataState<List<TermItem>>> = termQueries
 
     val selectedTermLiveData: MutableLiveData<TermItem?> = MutableLiveData()
+    internal val selectedTermDisplay = TermSelectionDisplaySource(selectedTermLiveData)
     val startDateLiveData = MediatorLiveData<DataState<Calendar>>()
     val benbuCalibrationConfirmedLiveData = MediatorLiveData<Boolean>()
     private var importOperation: UsageAnalyticsClient.Operation? = null
@@ -77,7 +95,9 @@ class ImportTimetableViewModel @Inject constructor(
                 benbuCalibrationConfirmedLiveData.value = true
                 return@addSource
             }
-            val source = easRepo.getStartDateOfTerm(term)
+            val source = easRepo.sessionBoundData(termSession) { session ->
+                easRepo.getStartDateOfTerm(session, term)
+            }
             startDateSource = source
             startDateLiveData.addSource(source) { state ->
                 startDateLiveData.value = resolveStartDateState(term, state)
@@ -91,7 +111,10 @@ class ImportTimetableViewModel @Inject constructor(
 
         scheduleStructureLiveData.addSource(selectedTermLiveData) { term ->
             scheduleInnerSource1?.let { scheduleStructureLiveData.removeSource(it) }
-            if (term == null) return@addSource
+            if (term == null) {
+                scheduleStructureLiveData.value = DataState(DataState.STATE.NOTHING)
+                return@addSource
+            }
             val isUndergraduate = isUndergraduateStudent()
             // 用户已编辑过课表结构（SP 有值）时以用户偏好为准，否则用教务接口/默认值。
             if (timetablePreferenceSource.hasSavedSchedule()) {
@@ -99,7 +122,9 @@ class ImportTimetableViewModel @Inject constructor(
                     timetablePreferenceSource.getSchedule(isUndergraduate), DataState.STATE.SUCCESS
                 )
             } else {
-                val src = easRepo.getScheduleStructure(term, isUndergraduate)
+                val src = easRepo.sessionBoundData(termSession) { session ->
+                    easRepo.getScheduleStructure(session, term, isUndergraduate)
+                }
                 scheduleInnerSource1 = src
                 scheduleStructureLiveData.addSource(src) { itt ->
                     scheduleStructureLiveData.value = itt
@@ -116,22 +141,29 @@ class ImportTimetableViewModel @Inject constructor(
      * 无论传什么都返回本科作息表，因此这里统一按身份传入即可。
      */
     private fun isUndergraduateStudent(): Boolean =
-        easRepo.getEasToken().stutype == EASToken.TYPE.UNDERGRAD
+        termSession.studentType == EASToken.TYPE.UNDERGRAD
 
     fun startRefreshTerms() {
-        termsController.value = Trigger.actioning
+        termQueries.refresh()
     }
 
     fun changeSelectedTerm(termItem: TermItem) {
+        selectedTermDisplay.updateTerm(termItem)
+        val current = selectedTermLiveData.value
+        if (current?.yearCode == termItem.yearCode && current?.termCode == termItem.termCode) return
         selectedTermLiveData.value = termItem
     }
+
+    fun filterTermOptions(terms: List<TermItem>): List<TermItem> =
+        cn.limpu.hita.utils.TermUtils.filterTermsForTimetableImport(terms, termSession.grade)
 
     fun startGetAllTerms(): List<TermItem> {
         return termsLiveData.value?.data ?: listOf()
     }
 
     fun startImportTimetable(): Boolean {
-        selectedTermLiveData.value?.let { term ->
+        if (!termSession.isCurrent()) return false
+        selectedTermDisplay.current()?.let { term ->
             startDateLiveData.value?.let { date ->
                 scheduleStructureLiveData.value?.let { schedule ->
                     if (schedule.data != null && date.state == DataState.STATE.SUCCESS && date.data != null) {
@@ -164,14 +196,14 @@ class ImportTimetableViewModel @Inject constructor(
                 restoreSnapshotLiveData.removeSource(source)
                 restoreSnapshotSource = null
                 if (state.state == DataState.STATE.SUCCESS) {
-                    selectedTermLiveData.value = selectedTermLiveData.value
+                    selectedTermLiveData.value = selectedTermDisplay.current()
                 }
             }
         }
     }
 
     fun refreshSnapshots() {
-        selectedTermLiveData.value = selectedTermLiveData.value
+        selectedTermLiveData.value = selectedTermDisplay.current()
     }
 
 

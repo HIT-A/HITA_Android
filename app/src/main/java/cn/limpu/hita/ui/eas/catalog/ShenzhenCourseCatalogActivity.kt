@@ -176,7 +176,8 @@ class ShenzhenCourseCatalogActivity :
                     val source by viewModel.sourceLiveData.observeAsState(
                         ShenzhenCourseCatalogSource.AVAILABLE
                     )
-                    val term by viewModel.selectedTermLiveData.observeAsState()
+                    val termDisplay by viewModel.selectedTermDisplay.observeAsState()
+                    val term = termDisplay?.toTermItem()
                     val pool by viewModel.selectedPoolLiveData.observeAsState()
                     val studentType by viewModel.studentTypeLiveData.observeAsState("1")
                     val query by viewModel.queryLiveData.observeAsState()
@@ -284,11 +285,9 @@ class ShenzhenCourseCatalogActivity :
         viewModel.termsLiveData.observe(this) { state ->
             when (state.state) {
                 DataState.STATE.SUCCESS -> {
-                    terms = TermUtils.filterTermsForStudent(
-                        state.data.orEmpty(),
-                        easRepository.getEasToken().grade
-                    )
-                    uiState = CatalogUiState.Ready(refreshing = true)
+                    terms = state.data.orEmpty()
+                    uiState = CatalogUiState.Ready(refreshing = viewModel.coursesLiveData.value?.state in
+                        listOf(null, DataState.STATE.NOTHING, DataState.STATE.LOADING))
                     viewModel.reconcileTerms(terms)
                 }
                 DataState.STATE.NOT_LOGGED_IN -> {
@@ -579,7 +578,7 @@ class ShenzhenCourseCatalogActivity :
     }
 
     private fun openCourseRecommendation() {
-        val term = viewModel.selectedTermLiveData.value ?: return
+        val term = viewModel.selectedTermDisplay.current() ?: return
         startActivity(ShenzhenCourseRecommendationActivity.intent(this, term))
     }
 

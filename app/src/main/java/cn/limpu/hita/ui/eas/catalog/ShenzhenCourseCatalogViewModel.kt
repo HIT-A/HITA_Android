@@ -27,6 +27,13 @@ import cn.limpu.hita.data.repository.CourseSelectionDraft
 import cn.limpu.hita.data.repository.CoursePlanConflictEngine
 import cn.limpu.hita.data.model.timetable.TimePeriodInDay
 import cn.limpu.hita.ui.eas.EASViewModel
+import cn.limpu.hita.ui.eas.TermQueryLiveData
+import cn.limpu.hita.ui.eas.mapTerms
+import cn.limpu.hita.ui.eas.sessionBoundData
+import cn.limpu.hita.ui.eas.TermSelectionDisplaySource
+import cn.limpu.hita.ui.eas.sameTermKey
+import cn.limpu.hita.data.repository.TermQueryKind
+import cn.limpu.hita.utils.TermUtils
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
@@ -153,6 +160,8 @@ class ShenzhenCourseCatalogViewModel @Inject constructor(
 ) : EASViewModel(easRepo) {
     companion object {
         private const val STATE_TERM_ID = "shenzhen_catalog_term_id"
+        private const val STATE_TERM_YEAR = "shenzhen_catalog_term_year"
+        private const val STATE_TERM_CODE = "shenzhen_catalog_term_code"
         private const val STATE_SOURCE = "shenzhen_catalog_source"
         private const val STATE_POOL = "shenzhen_catalog_pool"
         private const val STATE_STUDENT_TYPE = "shenzhen_catalog_student_type"
@@ -160,12 +169,31 @@ class ShenzhenCourseCatalogViewModel @Inject constructor(
 
     val pools = ShenzhenSelectionPools.all
 
-    private val refreshController = MutableLiveData<Trigger>()
-    val termsLiveData: LiveData<DataState<List<TermItem>>> = refreshController.switchMap {
-        easRepo.getShenzhenWebTerms()
-    }
+    private val termQueries = TermQueryLiveData(viewModelScope, easRepo.querySessions,
+        createRequest = { easRepo.createTermQueryRequest(kind = TermQueryKind.SHENZHEN_SELECTION_WEB) },
+        transform = { session, state -> state.mapTerms {
+            TermUtils.filterTermsForStudent(it, session.grade, session.calendarYear, session.calendarMonth)
+        } },
+        onSessionChanged = {
+            pendingCoursePlanProjection = false
+            clearSubmissionDraft()
+            savedStateHandle.remove<String>(STATE_TERM_ID)
+            savedStateHandle.remove<String>(STATE_TERM_YEAR)
+            savedStateHandle.remove<String>(STATE_TERM_CODE)
+            selectedTermLiveData.value = null
+            selectedTermDisplay.updateOptions(emptyList())
+            queryLiveData.value = null
+            courseSelectionDraftLiveData.value = null
+            followedSectionIdsLiveData.value = emptySet()
+            attachmentCourseLiveData.value = null
+            historicalFailureRequestLiveData.value = null
+        },
+        onResult = { _, state -> if (state.state == DataState.STATE.SUCCESS) reconcileTerms(state.data.orEmpty()) },
+    )
+    val termsLiveData: LiveData<DataState<List<TermItem>>> = termQueries
 
     val selectedTermLiveData = MutableLiveData<TermItem>()
+    internal val selectedTermDisplay = TermSelectionDisplaySource(selectedTermLiveData)
     val sourceLiveData = MutableLiveData(
         savedStateHandle.get<String>(STATE_SOURCE)
             ?.let { runCatching { ShenzhenCourseCatalogSource.valueOf(it) }.getOrNull() }
@@ -181,14 +209,17 @@ class ShenzhenCourseCatalogViewModel @Inject constructor(
     )
     val queryLiveData = MutableLiveData<ShenzhenCourseCatalogQuery>()
     val followedSectionIdsLiveData = MutableLiveData<Set<String>>(emptySet())
-    val startDateLiveData = selectedTermLiveData.switchMap { term ->
-        easRepo.getShenzhenCoursePlanningStartDate(term)
+    val startDateLiveData: LiveData<DataState<java.util.Calendar>> = selectedTermLiveData.switchMap { term ->
+        if (term == null) MutableLiveData(DataState(DataState.STATE.NOTHING))
+        else easRepo.sessionBoundData { easRepo.getShenzhenCoursePlanningStartDate(term) }
     }
-    val scheduleStructureLiveData = selectedTermLiveData.switchMap { term ->
-        easRepo.getShenzhenCoursePlanningScheduleStructure(term)
+    val scheduleStructureLiveData: LiveData<DataState<MutableList<TimePeriodInDay>>> = selectedTermLiveData.switchMap { term ->
+        if (term == null) MutableLiveData(DataState(DataState.STATE.NOTHING))
+        else easRepo.sessionBoundData { easRepo.getShenzhenCoursePlanningScheduleStructure(term) }
     }
-    val selectedCoursesLiveData = selectedTermLiveData.switchMap { term ->
-        easRepo.getShenzhenSelectedCourses(term)
+    val selectedCoursesLiveData: LiveData<DataState<List<ShenzhenCourseCatalogItem>>> = selectedTermLiveData.switchMap { term ->
+        if (term == null) MutableLiveData(DataState(DataState.STATE.NOTHING))
+        else easRepo.sessionBoundData { easRepo.getShenzhenSelectedCourses(term) }
     }
     val courseSelectionDraftLiveData = MutableLiveData<CourseSelectionDraft>()
     val coursePlanActionLiveData = MediatorLiveData<DataState<CourseSelectionDraft>>()
@@ -214,7 +245,8 @@ class ShenzhenCourseCatalogViewModel @Inject constructor(
     }
 
     val coursesLiveData: LiveData<DataState<ShenzhenCourseCatalogPage>> = queryLiveData.switchMap { query ->
-        when (query.source) {
+        if (query == null) return@switchMap MutableLiveData(DataState(DataState.STATE.NOTHING))
+        easRepo.sessionBoundData { when (query.source) {
             ShenzhenCourseCatalogSource.AVAILABLE -> easRepo.queryShenzhenAvailableCourses(
                 query.term,
                 query.pool,
@@ -227,7 +259,7 @@ class ShenzhenCourseCatalogViewModel @Inject constructor(
                 query.keyword,
                 query.page
             )
-        }
+        } }
     }
     private val submissionDraftState = ShenzhenCourseSelectionDraftState()
     val selectedForSubmissionLiveData = MutableLiveData<Set<String>>(emptySet())
@@ -243,26 +275,39 @@ class ShenzhenCourseCatalogViewModel @Inject constructor(
     private val attachmentCourseLiveData = MutableLiveData<ShenzhenCourseCatalogItem>()
     val attachmentsLiveData: LiveData<DataState<List<ShenzhenCourseAttachment>>> =
         attachmentCourseLiveData.switchMap { course ->
-            easRepo.getShenzhenCourseAttachments(course)
+            if (course == null) MutableLiveData(DataState(DataState.STATE.NOTHING))
+            else easRepo.sessionBoundData { easRepo.getShenzhenCourseAttachments(course) }
         }
     private val historicalFailureRequestLiveData =
         MutableLiveData<ShenzhenHistoricalFailureRequest>()
     val historicalFailureLiveData: LiveData<DataState<ShenzhenHistoricalFailureReport>> =
         historicalFailureRequestLiveData.switchMap { request ->
-            easRepo.getShenzhenHistoricalTeacherFailureRates(
+            if (request == null) return@switchMap MutableLiveData(DataState(DataState.STATE.NOTHING))
+            easRepo.sessionBoundData { easRepo.getShenzhenHistoricalTeacherFailureRates(
                 request.term,
                 request.studentType,
                 request.course
-            )
+            ) }
         }
 
     fun startRefresh() {
-        refreshController.value = Trigger.actioning
+        termQueries.refresh()
     }
 
     fun reconcileTerms(terms: List<TermItem>) {
-        val selectedId = selectedTermLiveData.value?.id ?: savedStateHandle[STATE_TERM_ID]
-        val selected = terms.firstOrNull { it.id == selectedId }
+        selectedTermDisplay.updateOptions(terms)
+        if (terms.isEmpty()) {
+            selectedTermLiveData.value = null
+            queryLiveData.value = null
+            clearSubmissionDraft()
+            return
+        }
+        val current = selectedTermLiveData.value
+        val year = current?.yearCode ?: savedStateHandle.get<String>(STATE_TERM_YEAR)
+        val code = current?.termCode ?: savedStateHandle.get<String>(STATE_TERM_CODE)
+        val legacyId = if (year == null || code == null) savedStateHandle.get<String>(STATE_TERM_ID) else null
+        val selected = terms.firstOrNull { it.yearCode == year && it.termCode == code }
+            ?: terms.firstOrNull { it.id == legacyId }
             ?: terms.firstOrNull { it.isCurrent }
             ?: terms.firstOrNull()
             ?: return
@@ -270,9 +315,13 @@ class ShenzhenCourseCatalogViewModel @Inject constructor(
     }
 
     fun selectTerm(term: TermItem, resetPage: Boolean = true) {
-        if (selectedTermLiveData.value?.id != term.id) clearSubmissionDraft()
-        selectedTermLiveData.value = term
+        selectedTermDisplay.updateTerm(term)
         savedStateHandle[STATE_TERM_ID] = term.id
+        savedStateHandle[STATE_TERM_YEAR] = term.yearCode
+        savedStateHandle[STATE_TERM_CODE] = term.termCode
+        if (sameTermKey(selectedTermLiveData.value, term)) return
+        clearSubmissionDraft()
+        selectedTermLiveData.value = term
         followedSectionIdsLiveData.value = timetableRepository.followedSchoolSectionIds(term)
         courseSelectionDraftLiveData.value = timetableRepository.courseSelectionDraft(term)
         submitQuery(page = if (resetPage) 1 else queryLiveData.value?.page ?: 1)
@@ -315,7 +364,8 @@ class ShenzhenCourseCatalogViewModel @Inject constructor(
 
     fun retry(): Boolean {
         val query = queryLiveData.value ?: return false
-        queryLiveData.value = query.copy()
+        val term = selectedTermDisplay.current()?.takeIf { sameTermKey(it, query.term) } ?: return false
+        queryLiveData.value = query.copy(term = term)
         return true
     }
 
@@ -398,7 +448,7 @@ class ShenzhenCourseCatalogViewModel @Inject constructor(
     }
 
     fun retryCoursePlanPreviewDependencies(): Boolean {
-        val term = selectedTermLiveData.value ?: return false
+        val term = selectedTermDisplay.current() ?: return false
         selectedTermLiveData.value = term
         return true
     }
@@ -414,7 +464,7 @@ class ShenzhenCourseCatalogViewModel @Inject constructor(
     }
 
     fun loadHistoricalFailureRates(course: ShenzhenCourseCatalogItem): Boolean {
-        val term = selectedTermLiveData.value ?: return false
+        val term = selectedTermDisplay.current() ?: return false
         historicalFailureRequestLiveData.value = ShenzhenHistoricalFailureRequest(
             course = course,
             term = term,
@@ -425,12 +475,13 @@ class ShenzhenCourseCatalogViewModel @Inject constructor(
 
     fun retryHistoricalFailureRates(): Boolean {
         val request = historicalFailureRequestLiveData.value ?: return false
-        historicalFailureRequestLiveData.value = request.copy()
+        val term = selectedTermDisplay.current()?.takeIf { sameTermKey(it, request.term) } ?: return false
+        historicalFailureRequestLiveData.value = request.copy(term = term)
         return true
     }
 
     fun toggleFollow(course: ShenzhenCourseCatalogItem): Boolean {
-        val term = selectedTermLiveData.value ?: return false
+        val term = selectedTermDisplay.current() ?: return false
         val startDate = startDateLiveData.value?.data ?: return false
         val schedule = scheduleStructureLiveData.value?.data ?: return false
         val id = course.taskId.ifBlank { course.id }
@@ -456,7 +507,7 @@ class ShenzhenCourseCatalogViewModel @Inject constructor(
     }
 
     fun toggleCoursePlanCourse(course: ShenzhenCourseCatalogItem): Boolean {
-        val term = selectedTermLiveData.value ?: return false
+        val term = selectedTermDisplay.current() ?: return false
         val selected = selectedCoursesLiveData.value?.data.orEmpty()
         val draft = courseSelectionDraftLiveData.value ?: timetableRepository.courseSelectionDraft(term)
         val id = course.taskId.ifBlank { course.id }
@@ -474,7 +525,7 @@ class ShenzhenCourseCatalogViewModel @Inject constructor(
     }
 
     fun setCoursePlanProjectionEnabled(enabled: Boolean): Boolean {
-        val term = selectedTermLiveData.value ?: return false
+        val term = selectedTermDisplay.current() ?: return false
         coursePlanProjectionActionSource?.let(coursePlanProjectionActionLiveData::removeSource)
         coursePlanProjectionActionSource = null
         if (enabled) {
@@ -512,7 +563,7 @@ class ShenzhenCourseCatalogViewModel @Inject constructor(
             return
         }
         if (!planningDependenciesReady()) return
-        val term = selectedTermLiveData.value ?: return
+        val term = selectedTermDisplay.current() ?: return
         pendingCoursePlanProjection = false
         startCoursePlanProjectionAction(term, enabled = true)
     }
@@ -571,7 +622,7 @@ class ShenzhenCourseCatalogViewModel @Inject constructor(
     }
 
     fun clearCoursePlan(): Boolean {
-        val term = selectedTermLiveData.value ?: return false
+        val term = selectedTermDisplay.current() ?: return false
         runCoursePlanAction(
             timetableRepository.clearCourseSelectionDraft(
                 term,
@@ -608,7 +659,7 @@ class ShenzhenCourseCatalogViewModel @Inject constructor(
         keyword: String = queryLiveData.value?.keyword.orEmpty(),
         page: Int
     ) {
-        val term = selectedTermLiveData.value ?: return
+        val term = selectedTermDisplay.current() ?: return
         queryLiveData.value = ShenzhenCourseCatalogQuery(
             source = sourceLiveData.value ?: ShenzhenCourseCatalogSource.AVAILABLE,
             term = term,
@@ -622,7 +673,7 @@ class ShenzhenCourseCatalogViewModel @Inject constructor(
     private fun createSelectionJob(
         create: (TermItem, ShenzhenSelectionPool, List<ShenzhenCourseCatalogItem>) -> CourseSelectionJob
     ): CourseSelectionCommandResult {
-        val term = selectedTermLiveData.value ?: return publishSelectionCommand(
+        val term = selectedTermDisplay.current() ?: return publishSelectionCommand(
             CourseSelectionCommandResult.Rejected(CourseSelectionCommandFailure.NO_TERM)
         )
         val cards = coursesLiveData.value?.data?.items.orEmpty()

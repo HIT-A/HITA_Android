@@ -36,6 +36,7 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.Continuation
 import kotlin.coroutines.resume
 import kotlin.coroutines.suspendCoroutine
+import cn.limpu.hita.ui.eas.termPageTestRequest
 
 /** Real ViewModel and memo persistence; controlled source results, time, and analytics. */
 internal class ExamViewModelContractHarness(initialMemos: List<ExamItem> = emptyList()) {
@@ -68,10 +69,11 @@ internal class ExamViewModelContractHarness(initialMemos: List<ExamItem> = empty
         )
         val inputs = ExamPageInputs(
             getTerms = {
-                MutableLiveData<DataState<List<TermItem>>>().apply {
+                val source = MutableLiveData<DataState<List<TermItem>>>().apply {
                     termsInitialState?.let { value = it }
                     terms += this
                 }
+                termPageTestRequest(repository.captureQuerySession(), source)
             },
             createExamQueryRequest = { term ->
                 requestedTerms += requireNotNull(term)
