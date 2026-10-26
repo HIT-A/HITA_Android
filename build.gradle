@@ -1,33 +1,17 @@
-// Top-level build file where you can add configuration options common to all sub-projects/modules.
-buildscript {
-    ext {
-        compose_version = '1.9.4'
-        kotlin_version = '2.2.21'
-    }
-    repositories {
-        mavenLocal()
-        maven { url = uri("https://maven.aliyun.com/repository/google") }
-        maven { url = uri("https://maven.aliyun.com/repository/central") }
-        maven { url = uri("https://maven.aliyun.com/repository/public") }
-        maven { url = uri("https://mirrors.tencent.com/nexus/repository/maven-public/") }
-        maven { url = uri("https://www.jitpack.io") }
-        maven { url = uri("https://repo.grails.org/grails/core") }
-    }
-    dependencies {
-        classpath 'com.android.tools.build:gradle:8.10.1'
-        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
-        classpath "org.jetbrains.kotlin.plugin.compose:org.jetbrains.kotlin.plugin.compose.gradle.plugin:$kotlin_version"
-        classpath 'com.google.dagger:hilt-android-gradle-plugin:2.57.2'
-        // NOTE: Do not place your application dependencies here; they belong
-        // in the individual module build.gradle files
-    }
+plugins {
+    alias(libs.plugins.androidApplication) apply false
+    alias(libs.plugins.androidLibrary) apply false
+    alias(libs.plugins.kotlinAndroid) apply false
+    alias(libs.plugins.kotlinKapt) apply false
+    alias(libs.plugins.kotlinCompose) apply false
+    alias(libs.plugins.hiltAndroid) apply false
 }
 
 tasks.register('clean', Delete) {
     delete rootProject.buildDir
 }
 
-// Configure Java toolchain to use JDK 17 for compatibility
+// Preserve Java 8 bytecode compatibility while Gradle runs on JDK 21.
 allprojects {
     tasks.withType(JavaCompile).configureEach {
         sourceCompatibility = "1.8"
@@ -47,7 +31,7 @@ allprojects {
     }
     
     // Configure KAPT JVM arguments for JDK 16+
-    plugins.withId('kotlin-kapt') {
+    plugins.withId('org.jetbrains.kotlin.kapt') {
         kapt {
             javacOptions {
                 option("--add-exports", "jdk.compiler/com.sun.tools.javac.api=ALL-UNNAMED")

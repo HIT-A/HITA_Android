@@ -1,6 +1,6 @@
 plugins {
-    id 'com.android.library'
-    id 'kotlin-android'
+    alias(libs.plugins.androidLibrary)
+    alias(libs.plugins.kotlinAndroid)
 }
 
 android {
@@ -23,12 +23,6 @@ android {
         }
     }
 
-    // 跨模块引用资源导致 release 校验失败，跳过
-    afterEvaluate {
-        tasks.named('verifyReleaseResources').configure {
-            enabled = false
-        }
-    }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_1_8
         targetCompatibility JavaVersion.VERSION_1_8
@@ -46,17 +40,15 @@ android {
 
 dependencies {
 
-    implementation "org.jetbrains.kotlin:kotlin-stdlib:$kotlin_version"
-    implementation 'androidx.core:core-ktx:1.13.1'
-    implementation 'androidx.appcompat:appcompat:1.7.0'
-    implementation 'com.google.android.material:material:1.12.0'
-    implementation 'androidx.appcompat:appcompat:1.7.0'
-    implementation 'com.google.android.material:material:1.12.0'
-    implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
-    implementation 'androidx.lifecycle:lifecycle-extensions:2.2.0'
+    implementation(libs.kotlinStdlib)
+    implementation(libs.coreKtxLibrary)
+    implementation(libs.appcompat)
+    implementation(libs.material)
+    implementation(libs.constraintLayout)
+    implementation(libs.lifecycleExtensions)
     // Kotlin
-    implementation "androidx.activity:activity-ktx:1.9.1"
-    implementation 'com.cncoderx.wheelview:library:1.2.2'
-    testImplementation 'junit:junit:4.12'
-    testImplementation 'org.junit.jupiter:junit-jupiter:5.8.1'//滚轮选择器
+    implementation(libs.activityKtxLegacy)
+    implementation(libs.wheelView)
+    testImplementation(libs.junitLegacy)
+    testImplementation(libs.junitJupiter)//滚轮选择器
 }
