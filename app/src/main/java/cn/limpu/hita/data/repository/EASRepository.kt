@@ -59,37 +59,62 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 
+/** Source construction stays at the repository boundary, including its session-refresh callbacks. */
+internal class EasRepositoryServiceFactories(
+    val shenzhen: ((EASToken) -> Unit, (EASToken.Campus, String?) -> EasCredential?) -> EASWebSource =
+        { onTokenRefreshed, credentialProvider ->
+            EASWebSource(onTokenRefreshed = onTokenRefreshed, credentialProvider = credentialProvider)
+        },
+    val benbu: ((EASToken) -> Unit) -> EASService = { BenbuEASWebSource(it) },
+    val weihai: ((EASToken) -> Unit) -> EASService = { WeihaiEASWebSource(it) },
+)
+
 @Singleton
-class EASRepository @Inject constructor(
+class EASRepository internal constructor(
     application: Application,
     private val easPreferenceSource: EasPreferenceSource,
     private val easCredentialStore: EasCredentialStore,
     private val timetablePreferenceSource: TimetablePreferenceSource,
     private val timetableChangeStore: TimetableChangeStore,
-    private val timetableMutationLock: TimetableMutationLock
+    private val timetableMutationLock: TimetableMutationLock,
+    database: AppDatabase,
+    serviceFactories: EasRepositoryServiceFactories,
 ) : ShenzhenCourseSelectionGateway {
+    @Inject constructor(
+        application: Application,
+        easPreferenceSource: EasPreferenceSource,
+        easCredentialStore: EasCredentialStore,
+        timetablePreferenceSource: TimetablePreferenceSource,
+        timetableChangeStore: TimetableChangeStore,
+        timetableMutationLock: TimetableMutationLock,
+    ) : this(
+        application, easPreferenceSource, easCredentialStore, timetablePreferenceSource,
+        timetableChangeStore, timetableMutationLock, AppDatabase.getDatabase(application),
+        EasRepositoryServiceFactories(),
+    )
+
     private val appContext = application.applicationContext
     private val tokenStateLock = Any()
     private val authEpoch = AtomicLong(easPreferenceSource.getEasToken().sessionGeneration)
     private val credentialScopeRandom = SecureRandom()
     private val autoImportInProgress = AtomicBoolean(false)
     @Volatile private var acceptServiceTokenRefresh = easPreferenceSource.getEasToken().isLogin()
-    private val shenzhenService: EASWebSource = EASWebSource(
-        onTokenRefreshed = { token -> saveRefreshedEasToken(token) },
-        credentialProvider = { campus, username -> easCredentialStore.get(campus, username) }
+    private val shenzhenService: EASWebSource = serviceFactories.shenzhen(
+        { token -> saveRefreshedEasToken(token) },
+        { campus, username -> easCredentialStore.get(campus, username) },
     )
-    private val benbuService: EASService = BenbuEASWebSource { token ->
+    private val benbuService: EASService = serviceFactories.benbu { token ->
         saveRefreshedEasToken(token)
     }
-    private val weihaiService: EASService = WeihaiEASWebSource { token ->
+    private val weihaiService: EASService = serviceFactories.weihai { token ->
         saveRefreshedEasToken(token)
     }
-    private var eventItemDao = AppDatabase.getDatabase(application).eventItemDao()
-    private var timetableDao = AppDatabase.getDatabase(application).timetableDao()
-    private var subjectDao = AppDatabase.getDatabase(application).subjectDao()
-    private var classroomCacheDao = AppDatabase.getDatabase(application).classroomCacheDao()
-    private var scoreCacheDao = AppDatabase.getDatabase(application).scoreCacheDao()
-    private val timetableSnapshotStore = TimetableSnapshotStore(appContext)
+    private var eventItemDao = database.eventItemDao()
+    private var timetableDao = database.timetableDao()
+    private var subjectDao = database.subjectDao()
+    private var classroomCacheDao = database.classroomCacheDao()
+    private var scoreCacheDao = database.scoreCacheDao()
+    private val timetableSnapshotStore = TimetableSnapshotStore(appContext, database)
     private val easTokenLiveData = MutableLiveData(easPreferenceSource.getEasToken())
     private val gson = Gson()
     private val scoreListType = object : TypeToken<List<CourseScoreItem>>() {}.type
