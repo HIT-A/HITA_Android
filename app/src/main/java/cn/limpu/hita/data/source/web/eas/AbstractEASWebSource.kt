@@ -19,6 +19,11 @@ import org.jsoup.nodes.Document
 import java.text.SimpleDateFormat
 import java.util.*
 import java.util.concurrent.Executors
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.withContext
 
 /**
  * 三校区教务 Web 数据源的公共基类（本部 / 威海）。
@@ -103,7 +108,11 @@ abstract class AbstractEASWebSource(
 
     /** 研究生学期列表，仅本部实现；默认返回 null 表示跳过该分支。 */
 
-    protected open fun getGraduateTermsOrNull(token: EASToken): List<TermItem>? = null
+    protected open fun getGraduateTermsOrNull(
+        token: EASToken,
+        isGraduate: Boolean,
+        checkCancelled: (() -> Unit)? = null,
+    ): List<TermItem>? = null
 
     /** 学期列表后处理，威海过滤不可见学期；默认原样返回。 */
 
@@ -142,7 +151,12 @@ abstract class AbstractEASWebSource(
     }
 
 
-    protected fun fetchTermDoc(token: EASToken, url: String, selectName: String): TermDocFetchResult {
+    protected fun fetchTermDoc(
+        token: EASToken,
+        url: String,
+        selectName: String,
+        checkCancelled: (() -> Unit)? = null,
+    ): TermDocFetchResult {
         fun executeOnce(): Connection.Response {
             val response = Jsoup.connect(url)
                 .cookies(token.cookies)
@@ -173,9 +187,12 @@ abstract class AbstractEASWebSource(
         }
 
         return try {
+            checkCancelled?.invoke()
             var response = executeOnce()
+            checkCancelled?.invoke()
             var doc = parseValidTermDoc(response)
             var authExpired = isAuthExpiredResponse(response, response.body())
+            checkCancelled?.invoke()
 
             if (doc == null) {
                 LogUtils.d("fetchTermDoc: retry by missing selector select=$selectName url=$url status=${response.statusCode()}")
@@ -191,6 +208,8 @@ abstract class AbstractEASWebSource(
                 TermDocFetchResult(doc, false)
             }
         } catch (e: Exception) {
+            checkCancelled?.invoke()
+            if (checkCancelled != null && e is CancellationException) throw e
             LogUtils.w("fetchTermDoc: failed url=$url select=$selectName err=${e.message}")
             TermDocFetchResult(null, false)
         }
@@ -200,57 +219,80 @@ abstract class AbstractEASWebSource(
     override fun getAllTerms(token: EASToken): LiveData<DataState<List<TermItem>>> {
         val result = MutableLiveData<DataState<List<TermItem>>>()
         result.postValue(DataState(DataState.STATE.NOTHING))
-
         executor.execute {
-            try {
-                val graduateTerms = getGraduateTermsOrNull(token)
-                if (graduateTerms != null) {
-                    if (graduateTerms.isEmpty()) {
-                        result.postValue(DataState(DataState.STATE.FETCH_FAILED, "未获取到研究生学期列表"))
-                    } else {
-                        result.postValue(DataState(graduateTerms, DataState.STATE.SUCCESS))
-                    }
-                    return@execute
-                }
-                val scoreFetch = fetchTermDoc(token, "$termsHostName/cjcx/queryQmcj", "pageXnxq")
-                val timetableFetch = fetchTermDoc(token, "$termsHostName/kbcx/queryGrkb", "xnxq")
-
-                if (scoreFetch.authExpired && timetableFetch.authExpired) {
-                    LogUtils.w("getAllTerms: auth expired on both term pages")
-                    result.postValue(DataState(DataState.STATE.NOT_LOGGED_IN))
-                    return@execute
-                }
-
-                val scoreDoc = scoreFetch.doc
-                val timetableDoc = timetableFetch.doc
-
-                val scoreTerms = scoreDoc?.let { parseTermsFromDoc(it, "pageXnxq") }.orEmpty()
-                val timetableTerms = timetableDoc?.let { parseTermsFromDoc(it, "xnxq") }.orEmpty()
-                val terms = mergeTerms(scoreTerms, timetableTerms)
-
-                terms.sortWith(compareBy<TermItem> { termTimelineKey(it).first }.thenBy { termTimelineKey(it).second })
-                if (terms.none { it.isCurrent }) {
-                    val currentCode = scoreDoc?.let { currentTermValueFromDoc(it, "pageXnxq") }
-                        ?: timetableDoc?.let { currentTermValueFromDoc(it, "xnxq") }
-                    if (!currentCode.isNullOrBlank()) {
-                        terms.firstOrNull { it.getCode() == currentCode }?.isCurrent = true
-                    }
-                }
-
-                LogUtils.d("getAllTerms: score=${scoreTerms.map { it.getCode() }} timetable=${timetableTerms.map { it.getCode() }}")
-                LogUtils.d("getAllTerms: parsed=${terms.map { "${it.getCode()}:${it.name}:current=${it.isCurrent}" }}")
-                if (terms.isEmpty()) {
-                    result.postValue(DataState(DataState.STATE.FETCH_FAILED, "未获取到学期列表"))
-                } else {
-                    // 服务端下拉框代表当前允许查询的学期；即使“当前学期”标记仍停留在春季，
-                    // 也必须保留已经开放的夏季学期。
-                    result.postValue(DataState(postProcessTerms(terms), DataState.STATE.SUCCESS))
-                }
-            } catch (e: Exception) {
-                result.postValue(DataState(DataState.STATE.FETCH_FAILED, e.message ?: "获取学期失败"))
-            }
+            result.postValue(requestAllTerms(token, token.stutype == EASToken.TYPE.GRAD))
         }
         return result
+    }
+
+    override suspend fun getAllTermsOnce(token: EASToken): DataState<List<TermItem>> {
+        val isGraduate = token.stutype == EASToken.TYPE.GRAD
+        return withContext(Dispatchers.IO) {
+            val context = currentCoroutineContext()
+            val result = requestAllTerms(token, isGraduate) { context.ensureActive() }
+            context.ensureActive()
+            result
+        }
+    }
+
+    private fun requestAllTerms(
+        token: EASToken,
+        isGraduate: Boolean,
+        checkCancelled: (() -> Unit)? = null,
+    ): DataState<List<TermItem>> {
+        return try {
+            checkCancelled?.invoke()
+            val graduateTerms = getGraduateTermsOrNull(token, isGraduate, checkCancelled)
+            checkCancelled?.invoke()
+            if (graduateTerms != null) {
+                return if (graduateTerms.isEmpty()) {
+                    DataState(DataState.STATE.FETCH_FAILED, "未获取到研究生学期列表")
+                } else {
+                    DataState(graduateTerms, DataState.STATE.SUCCESS)
+                }
+            }
+            val scoreFetch = fetchTermDoc(token, "$termsHostName/cjcx/queryQmcj", "pageXnxq", checkCancelled)
+            checkCancelled?.invoke()
+            val timetableFetch = fetchTermDoc(token, "$termsHostName/kbcx/queryGrkb", "xnxq", checkCancelled)
+            checkCancelled?.invoke()
+
+            if (scoreFetch.authExpired && timetableFetch.authExpired) {
+                LogUtils.w("getAllTerms: auth expired on both term pages")
+                return DataState(DataState.STATE.NOT_LOGGED_IN)
+            }
+
+            val scoreDoc = scoreFetch.doc
+            val timetableDoc = timetableFetch.doc
+
+            val scoreTerms = scoreDoc?.let { parseTermsFromDoc(it, "pageXnxq") }.orEmpty()
+            val timetableTerms = timetableDoc?.let { parseTermsFromDoc(it, "xnxq") }.orEmpty()
+            val terms = mergeTerms(scoreTerms, timetableTerms)
+
+            terms.sortWith(compareBy<TermItem> { termTimelineKey(it).first }.thenBy { termTimelineKey(it).second })
+            if (terms.none { it.isCurrent }) {
+                val currentCode = scoreDoc?.let { currentTermValueFromDoc(it, "pageXnxq") }
+                    ?: timetableDoc?.let { currentTermValueFromDoc(it, "xnxq") }
+                if (!currentCode.isNullOrBlank()) {
+                    terms.firstOrNull { it.getCode() == currentCode }?.isCurrent = true
+                }
+            }
+
+            LogUtils.d("getAllTerms: score=${scoreTerms.map { it.getCode() }} timetable=${timetableTerms.map { it.getCode() }}")
+            LogUtils.d("getAllTerms: parsed=${terms.map { "${it.getCode()}:${it.name}:current=${it.isCurrent}" }}")
+            val result: DataState<List<TermItem>> = if (terms.isEmpty()) {
+                DataState(DataState.STATE.FETCH_FAILED, "未获取到学期列表")
+            } else {
+                // 服务端下拉框代表当前允许查询的学期；即使“当前学期”标记仍停留在春季，
+                // 也必须保留已经开放的夏季学期。
+                DataState(postProcessTerms(terms), DataState.STATE.SUCCESS)
+            }
+            checkCancelled?.invoke()
+            result
+        } catch (e: Exception) {
+            checkCancelled?.invoke()
+            if (checkCancelled != null && e is CancellationException) throw e
+            DataState(DataState.STATE.FETCH_FAILED, e.message ?: "获取学期失败")
+        }
     }
 
 
