@@ -46,20 +46,20 @@
 | ID | 交付范围 | 必须成立的验收条件 | 状态 / PR / 证据 |
 |---|---|---|---|
 | 3.Q1 | 三校区学期远端能力 | 普通与深圳 Web 学期入口共享原请求/解析核心；覆盖本部本科/研究生及威海合并/过滤；请求与取消契约实测 | 已合并且验证：[#70](https://github.com/HIT-A/HITA_Android/pull/70)，merge `b8a4cea`；head `7275174` 的 CI 40299381154 设备 607 项全通过，独立签核完成 |
-| 3.Q2 | 学期缓存与全部生产消费端 | cache→remote Flow、原子替换与 owner/session 捕获；导入/成绩/学分/年级/考试/空教室页面与后台调用接入；保留中间状态与错误策略；同 key 跨调用者请求代次由 Repository 协调，覆盖手工/后台/AI 并发，旧响应不覆盖较新结果 | 本地通过：缓存 Flow/Once、共享会话/持久化代次与十个实际消费端完整接线；独立增量审查通过；所有 79 项新增设备用例已在对应检查点实际通过，最新 16 项边界/集成与 1 项重试全绿；app JVM 759 通过 + 1 旧跳过，Debug/测试 APK 通过；最终完整 CI 待验 |
-| 3.Q3 | 开学日、作息、课程元信息、课表远端 | 三校区 suspend 与真实解析 fixture；同步子请求受父 Job 管理；保留用户校准、作息、实验课、合并与回退；页面选择/手改优先级正确；学期/教学楼/默认周/作息按同一 owner 与选择关联，切换中不混用旧元数据 | 待做 |
+| 3.Q2 | 学期缓存与全部生产消费端 | cache→remote Flow、原子替换与 owner/session 捕获；导入/成绩/学分/年级/考试/空教室页面与后台调用接入；保留中间状态与错误策略；同 key 跨调用者请求代次由 Repository 协调，覆盖手工/后台/AI 并发，旧响应不覆盖较新结果 | 已合并且验证：[#75](https://github.com/HIT-A/HITA_Android/pull/75)，merge `463a598`；head `d7aef7c` 的 CI 40320879654 JVM 827 通过 + 1 旧跳过、设备 726 全通过；原始报告摘要与全部身份、60 文件 hash 在合并前核验，合并树一致 |
+| 3.Q3 | 开学日、作息、课程元信息、课表远端 | 三校区 suspend 与真实解析 fixture；同步子请求受父 Job 管理；保留用户校准、作息、实验课、合并与回退；页面选择/手改优先级正确；学期/教学楼/默认周/作息按同一 owner 与选择关联，切换中不混用旧元数据 | 实施中：与 3.I1 合批，三校区四项 Once 远端及所有导入消费端已接通并独审，生产/测试编译通过；本部跨账户缓存缺陷已在原实现实测，部分旧兼容夹具修正后待补验；当前运行验证待完成 |
 | 3.Q4 | 成绩单次与成绩汇总渐进结果 | 单次与 Flow 分开；items 先到、summary 后补、部分鉴权失败和缓存语义保留；所有成绩页面/通知消费接通 | 待做 |
 | 3.Q5 | 深圳目录、选课池、已选课程、规划与推荐 | 单次/串行分页支持取消；保留参数、路由、Cookie、排序、推荐策略；页面可替换/取消请求，写入选课不增加自动重试 | 待做 |
 | 3.Q6 | 深圳附件列表、年级分析、历史教师统计、培养方案与学分 | 全部公开查询及调用者迁移；学分 summary→分类→组→课程保持渐进 Flow；含 includeDetails/includeCourseRecords 契约 | 待做 |
 | 3.Q7 | 登录、校验、资料补全 | 有限操作用协程；保留三校区认证、凭据保存、补全回退、authEpoch；新登录/注销后旧响应不写 token，取消不变业务失败 | 待做 |
-| 3.I1 | 手工/自动教务导入与快照操作 | Repository 不接 UI MediatorLiveData；没有共享请求归属或 latch/observeForever 等待；owner、锁、提交边界、去重、快照采纳/恢复与刷新实测 | 待做 |
+| 3.I1 | 手工/自动教务导入与快照操作 | Repository 不接 UI MediatorLiveData；没有共享请求归属或 latch/observeForever 等待；owner、锁、提交边界、去重、快照采纳/恢复与刷新实测 | 实施中：与 3.Q3 完整导入链合批，生产与测试编译通过；原实现导入 8 项为 4 个准确缺陷失败、4 个兼容通过，考试尾批 2 个准确缺陷失败；新 44 项设备用例待执行，R2 恢复协议独立推进 |
 | 3.I2 | 成绩通知后台任务 | 可取消执行、共享注入 Repository；首次基线/跨学期去重/部分失败/取消不污染基线，旧 Worker 恢复可用 | 待做 |
 | 3.D1 | EASRepository 内部依赖注入 | 服务选择器、DAO/事务、缓存/快照等明确注入；主类不 new WebSource 或直接取全局 DB；测试可用替身而不建真实网络源 | 待做 |
 | 3.D2 | 会话与注入调用者收尾 | token callback 循环由明确 session coordinator/factory 处理；EventItemFragment/Worker 不手工创建 Repository/锁；通用能力无具体源类型判断 | 待做 |
-| 3.A1 | Typed AgentToolExecutor 结果与取消 | success/failure/timeout/cancelled 可区分；同步异常、双/迟到回调、重试、clear/dispose 只一次终态；幂等约束和添加活动零重试保护实测 | 待做 |
+| 3.A1 | Typed AgentToolExecutor 结果与取消 | success/failure/timeout/cancelled 可区分；同步异常、双/迟到回调、重试、clear/dispose 只一次终态；幂等约束和添加活动零重试保护实测 | 实施中：typed 结果/取消到 executor、engine、session、Subject 与实际写入守卫已实现并通过静态独审；旧实现 6 项设备为 3 兼容通过 / 3 预期缺陷失败；当前定向 74 JVM、32 设备全部通过（含新增 29 JVM、12 设备）；整合 Main 后完整交付待验 |
 | 3.A2 | ReAct 工具与 AI 空教室完整链 | suspend 分发直接连接新能力；学期→本地周→教学楼→逐楼查询及 typed 工具桥无 latch；取消/超时传播，analytics 上下文与原输出保留 | 待做 |
-| 3.C1 | ChatSessionRepository 与页面协调 | DB 与会话写入移出 VM；创建/消息/删除事务及顺序、切会话归属/恢复/迟到结果实测；无未管理 Executor，持久化与 UI Job 责任明确 | 待做 |
-| 3.C2 | 独立附件处理器与资源边界 | Android URI 适配、缓存/元信息、各格式解析分离；实际字节/展开资源上限、异常/取消关闭清理、截断与图片视频路由保留；PDF CMap 回归通过 | 待做 |
+| 3.C1 | ChatSessionRepository 与页面协调 | DB 与会话写入移出 VM；创建/消息/删除事务及顺序、切会话归属/恢复/迟到结果实测；无未管理 Executor，持久化与 UI Job 责任明确 | 实施中：与 C2 按聊天完整链并行实现，旧源码已冻结；尚无验证结果 |
+| 3.C2 | 独立附件处理器与资源边界 | Android URI 适配、缓存/元信息、各格式解析分离；实际字节/展开资源上限、异常/取消关闭清理、截断与图片视频路由保留；PDF CMap 回归通过 | 实施中：与 C1 合批，URI/缓存/解析分离及展开上限实现中；尚无验证结果 |
 | 3.F | 阶段 3 完成审计 | 按 EASService + 深圳全部公开能力及实际调用者逐项核实；残留 LiveData/thread/latch 有正当用途和证据；全链迁移而非仅新增 API | 待做 |
 
 ## 4. 阶段 4：页面职责与平台边界
@@ -68,10 +68,10 @@
 
 | ID | 交付范围 | 必须成立的验收条件 | 状态 / PR / 证据 |
 |---|---|---|---|
-| 4.M1 | Main 状态、启动、公告与会话转变 | 登录/换账号/节流/首次博客同步、公告排序与已读时机可测；effect 只交付当前宿主，scope 副作用仍统一 | 实施中：VM/启动与 effect 链已写，独立审查发现的旋转公告/更新/导入提示归属正在修复；尚无本批通过的构建或设备结果 |
-| 4.M2 | Main 平台资源、Fragment 托管与 Compose | Fragment 恢复/切 tab/动态标签不重复或丢失；Compose 不强转 Activity；壁纸 IO/加载归属与释放实测；原 glass 反射契约保留 | 实施中：宿主、Compose、壁纸文件与加载能力已拆分；真实组件/生命周期验证待做，与 4.M1 合批 |
-| 4.T1 | Timetable 状态、编辑用例与 view 生命周期 | 批次选择受 Job/代次管理；目标课表、只读、THIS/SLOT/ALL 规则实测；旧 view 不交付；写入继续统一入口；VM 不反向引用 Fragment 常量 | 待做 |
-| 4.T2 | 复用周组件与布局策略 | 朋友课表/规划预览真实接入；几何/命中、重叠、时区、晚课、手势/动画有覆盖；组件 state/actions 与领域算法分离 | 待做 |
+| 4.M1 | Main 状态、启动、公告与会话转变 | 登录/换账号/节流/首次博客同步、公告排序与已读时机可测；effect 只交付当前宿主，scope 副作用仍统一 | 本地定向通过：状态/启动/effect/公告/更新/导入归属完整接线，独审发现已修；初轮 28 设备 24 通过、4 个测试夹具失败，保留断言修正后共享夹具 7 项全通过；整合 #75 的 Debug/测试 APK 与 app JVM 810 通过 + 1 旧跳过；最终 CI 待验 |
+| 4.M2 | Main 平台资源、Fragment 托管与 Compose | Fragment 恢复/切 tab/动态标签不重复或丢失；Compose 不强转 Activity；壁纸 IO/加载归属与释放实测；原 glass 反射契约保留 | 本地定向通过：壁纸旧文件链 3 兼容通过 / 7 缺陷失败；真实平台旧 seam 3 兼容通过 / 6 缺陷失败，当前对应测试通过；154 JVM 初轮 153 通过、1 个异常副本断言修正后单项通过，整合 #75 后完整 app JVM 811（810 通过 + 1 旧跳过），51 项新增全部保留通过；与 4.M1 合批 |
+| 4.T1 | Timetable 状态、编辑用例与 view 生命周期 | 批次选择受 Job/代次管理；目标课表、只读、THIS/SLOT/ALL 规则实测；旧 view 不交付；写入继续统一入口；VM 不反向引用 Fragment 常量 | 实施中：批次协调与生命周期/写入整链已实现，首轮 15 JVM 通过；旧 Fragment 的 2 项运行被测试 UI 查找夹具阻断，修正后待验，不能计为缺陷复现；独审补齐旧表单回调与失败写入重试保护 |
+| 4.T2 | 复用周组件与布局策略 | 朋友课表/规划预览真实接入；几何/命中、重叠、时区、晚课、手势/动画有覆盖；组件 state/actions 与领域算法分离 | 实施中：Route/Screen/周组件/几何拆分，朋友详情与规划预览继续实际消费；真实宿主和组件设备测试待执行，与 4.T1 合批 |
 | 4.W1 | Web 登录校区会话与 HTTP | 显式事件/状态/一次结果；Cookie 捕获和网络适配分开；三校区/研究生/电子实验/静默/超时回退实测；敏感 Cookie 不写日志 | 待做 |
 | 4.W2 | WebView 浏览器、脚本、MFA、凭据桥与展示 | 生命周期拥有浏览器与回调；origin/main-frame 安全约束、成功才保存凭据、取消清理；实际本地 WebView fixture 验证桥接/导航/销毁，不启用原禁用功能 | 待做 |
 | 4.S1 | Subject 资源请求与课程归属 | 课程不可变 key、agent→fallback、每卡目录栈/请求代次；迟到结果不能回填其他课程；clear 取消；保存/删除仍统一 | 已合并且验证：[#73](https://github.com/HIT-A/HITA_Android/pull/73)，merge `d4806f7`；5 项归属先红后绿；head `127e945` 的 CI 40314264518 JVM 827 通过 + 1 既有跳过、设备 647 全通过 |
@@ -97,7 +97,7 @@
 | ID | 问题 | 必须成立的验收条件 | 状态 / PR / 证据 |
 |---|---|---|---|
 | R1 | 空教室缓存缺少账户/校区维度与跨调用者顺序 | 明确 owner/campus/key 与历史匿名缓存处置；迁移保留其他数据，跨账号读取/迟到写入/注销有覆盖；同 key 的手工/页面/AI 并发采用共享请求代次，旧响应不覆盖较新缓存；Room schema 链完整 | 待做 |
-| R2 | 课表事务内清文件的恢复风险 | 提交失败不会丢待处理变更；DB 与文件成功/失败/进程恢复路径有可恢复协议及真实故障注入 | 待做 |
+| R2 | 课表事务内清文件的恢复风险 | 提交失败不会丢待处理变更；DB 与文件成功/失败/进程恢复路径有可恢复协议及真实故障注入 | 实施中：DB outbox 与文件幂等发布协议，独立 worktree 实现；尚无验证结果 |
 | R3 | 学分 summary 404 后详情丢失 | 原实现失败基线；后续渐进解析保留允许缺失 summary 的规则及有效详情，认证/其他错误不误放行 | 待做 |
 | R4 | 三条 Worker→UI 平台依赖 | 通知/widget 窄接口 + 应用层装配，保留任务类名/Intent/channel/通知去重；真实 Worker/平台用例通过后精确 allowlist 清零，不能搬目录躲检查 | 待做 |
 
@@ -133,3 +133,7 @@
 | 3.Q2 检查点 | 原 28 兼容与 4 安全红绿、46 核心、92 消费端检查点已验证；其后 6 项真实边界先红后绿，另 10 项显示/会话/注销/真实多 facade/自动导入集成通过 | `term-cache/q2-core-first-device-*`、`q2-chain-first-device-audit.json`、`q2-boundary-red-audit.json`、`q2-boundary-green-audit.json`；各检查点独立，不相加冒充最终完整结果。logout marker 测试为重新构造协调器，不是真实进程杀死；当前最终 CI 待验 |
 | 3.Q2 最终本地整链 | 学期 cache→remote Flow/Once、事务替换、持久化注销清理标记，七页面 + AI + Worker + 自动导入全部接线；旧四项缓存安全、三项页面缺陷与后续六项边界均有准确红绿；同 key metadata 更新不重发，显式 retry 使用最新快照 | `term-cache/q2-final-incremental-review.md`、`q2-final-incremental-review-hashes.json`；56 个源码/测试 hash 在重基到 #73/纯核心后保持；`q2-final-app-jvm-audit.json` 为 760（759 通过 + 1 旧跳过），Debug/测试 APK 与最新 retry 实测通过；79 项新增设备测试逐项曾实际执行通过，最终聚合预期 JVM 828 / 设备 726 待 CI 核验 |
 | 5.K/S 最终交付 | #74 已合并且验证，merge `51819ca061063e0e7e6a0ff37cd348a913faf935`，树与 head `7e33899` 相同 | [CI 40317563827](https://github.com/HIT-A/HITA_Android/actions/runs/40317563827) 两 job 成功；原始 JVM 828（827 通过 + 1 旧跳过）、设备 647 全通过；artifact 摘要及全部 testcase 身份在合并前核实，style 资源校验实际执行；`core/final-signoff.json`、`core/delivery-state.json`、`core/ci-40317563827/`。阶段 5 六项主体已交付；最终审计与全目标 R4 平台边界仍保留 |
+| 3.Q2 最终交付 | #75 已合并且验证，merge `463a5982c937c29b078974f7e5b0ac6540625cad`；树与 head `d7aef7c` 相同 | `term-cache/final-signoff.json`、`term-cache/ci-40320879654/`；JVM 828（827 通过 + 1 旧跳过）、设备 726 全通过；两个 ZIP 摘要和全部原始 testcase 在合并前核验 |
+| 4.M1/M2 本地检查点 | 51 项新增 JVM 与 28 项新增设备均在相应检查点通过；初次失败、修正及重跑分别保留，未冒充一次全量执行 | `main/targeted-jvm-first-audit.json`（153/154）与 `callback-correction-jvm-audit.json`（1/1）；`platform-current-first-audit.json`（24/28）与 `platform-correction-second-audit.json`（7/7）；测试夹具修正经独立审查，无生产行为断言降级；`q2-integrated-app-jvm-audit.json` 为整合 #75 后完整 app JVM 811（810 通过 + 1 旧跳过），Debug/测试 APK 通过；最终 CI 待验 |
+
+Main 最终主题 smoke：`main/theme-cache-run.log` 的一次实际 instrumentation 方法覆盖全部七种主题并通过，`main/screenshots-final/main-theme-smoke/` 的七张截图已逐张审阅；这是实际渲染 smoke，不是像素等价或真实账号验证。最后夹具改动只涉及 accessibility 虚节点遍历与缓存刷新，生产/JVM 输入未变，复用上述 app JVM 与构建结果；最终完整 CI 仍待验。
