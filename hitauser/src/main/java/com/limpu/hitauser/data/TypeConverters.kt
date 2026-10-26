@@ -22,14 +22,14 @@ object TypeConverters {
 
     @JvmStatic
     @TypeConverter
-    fun genderToString(date: UserLocal.GENDER): String {
-        return date.name
+    fun genderToString(date: UserLocal.GENDER?): String? {
+        return date?.name
     }
 
     @JvmStatic
     @TypeConverter
-    fun stringToGender(str: String): UserLocal.GENDER {
-        return UserLocal.GENDER.valueOf(str)
+    fun stringToGender(str: String?): UserLocal.GENDER? {
+        return str?.let { UserLocal.GENDER.valueOf(it) }
     }
 
 

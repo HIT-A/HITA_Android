@@ -49,4 +49,10 @@ dependencies {
     //retrofit2的gson转换器
     implementation(libs.converterGsonLegacy)
 
+    testImplementation(libs.junit)
+    androidTestImplementation(libs.androidTestJunit)
+    androidTestImplementation(libs.androidTestCore)
+    androidTestImplementation(libs.androidTestRunner)
+    androidTestImplementation(libs.mockWebServerLegacy)
+
 }

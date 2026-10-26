@@ -43,7 +43,18 @@ jobs:
 
       # 单元测试（纯 JVM，无模拟器）
       - name: Unit tests
-        run: ./gradlew :app:testDebugUnitTest --console=plain --no-daemon
+        run: ./gradlew :app:testDebugUnitTest :component:testDebugUnitTest :hitauser:testDebugUnitTest :style:testDebugUnitTest --console=plain --no-daemon
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: unit-test-results
+          path: |
+            app/build/test-results/testDebugUnitTest/
+            component/build/test-results/testDebugUnitTest/
+            hitauser/build/test-results/testDebugUnitTest/
+            style/build/test-results/testDebugUnitTest/
+          if-no-files-found: error
 
       # Debug 编译（含 kapt/Hilt/Room 全链路）
       - name: Assemble debug
@@ -80,7 +91,7 @@ jobs:
           arch: x86_64
           target: default
           disable-animations: true
-          script: ./gradlew :app:connectedDebugAndroidTest --console=plain --no-daemon
+          script: ./gradlew :app:connectedDebugAndroidTest :component:connectedDebugAndroidTest :hitauser:connectedDebugAndroidTest :style:connectedDebugAndroidTest --console=plain --no-daemon --no-parallel
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -88,3 +99,10 @@ jobs:
           path: |
             app/build/outputs/androidTest-results/connected/
             app/build/reports/androidTests/connected/
+            component/build/outputs/androidTest-results/connected/
+            component/build/reports/androidTests/connected/
+            hitauser/build/outputs/androidTest-results/connected/
+            hitauser/build/reports/androidTests/connected/
+            style/build/outputs/androidTest-results/connected/
+            style/build/reports/androidTests/connected/
+          if-no-files-found: error

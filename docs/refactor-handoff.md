@@ -1,8 +1,8 @@
-# 全仓优化交接（2026-10-26，#70 合并后）
+# 全仓优化交接（2026-10-26，#71 合并后）
 
 本文记录分阶段优化的已交付结果、证据和剩余范围。项目约定见 [AGENTS.md](../AGENTS.md)，阶段 3–5 的完整验收台账见 [refactor-stage345-plan.md](refactor-stage345-plan.md)。历史测试数对应各 PR head，不代表合并后的 main 已另行验证。
 
-**阶段 0、1、2 已完成。阶段 3.1 已合并教学楼查询 #65、考试查询 #66、空教室远端查询 #67、空教室 Repository 与页面迁移 #68，以及学期远端协程能力 #70。阶段 5.V/M 已完成最新 main 的本地回归，5.R 已并入同一构建批次且资源校验通过，尚待最终 PR CI 与合并；阶段 3 其余范围、阶段 4 与阶段 5 尚未完成。**
+**阶段 0、1、2 已完成。阶段 3.1 已合并教学楼查询 #65、考试查询 #66、空教室远端查询 #67、空教室 Repository 与页面迁移 #68，以及学期远端协程能力 #70。阶段 5.V/M/R 构建改造已通过最终 CI 并合并 #71，子模块测试和其余功能链继续实施；阶段 3 其余范围、阶段 4 与阶段 5 尚未完成。**
 
 ## 1. 当前状态
 
@@ -25,8 +25,8 @@
 | 1 | 依赖方向检查、共享模型归位、深圳教务拆分类接入 | **1.1–1.4 全部合并**（#56–#61） |
 | 2 | 显示目标副作用、普通课表写入用例、考试导入入口 | **2.1–2.3 全部合并**（#62–#64），本地及 PR CI 验证完成 |
 | 3 | 教务一次性请求改 suspend、EASRepository 注入、聊天会话/附件拆分、AgentToolExecutor 结果语义 | **进行中**：#65–#68、#70 已合并；完整剩余范围见验收台账 |
-| 4 | 拆 MainActivity → TimetableFragment → WebViewLoginActivity → SubjectActivity | 未开始 |
-| 5 | 版本目录统一、mavenLocal 开关、恢复 style 的 verifyReleaseResources、子模块测试、纯 Kotlin 模块提取、sync 模块清理 | **进行中**：5.V/M/R 合为构建改造批次，本地验证已有结果，待 PR CI/合并；其余项待做 |
+| 4 | 拆 MainActivity → TimetableFragment → WebViewLoginActivity → SubjectActivity | Subject 整链代码与静态独审完成，运行验证待做；其余入口待做 |
+| 5 | 版本目录统一、mavenLocal 开关、恢复 style 的 verifyReleaseResources、子模块测试、纯 Kotlin 模块提取、sync 模块清理 | **进行中**：5.V/M/R 已合并 #71；5.T 子模块与 app 本地集成通过，CI 待验；其余进度见台账 |
 
 阶段 0 落地记录：
 
@@ -66,7 +66,7 @@
 - 中文沟通。一般任务先给方案再实施、提交推送合并另行确认；**当前阶段 3–5 目标已有用户完整授权，执行时不再重复询问**。每批仍须先记录范围、兼容契约、验收方法及边界，然后实现、独立审查、验证、提交、PR 和合并。
 - 从最新 `origin/main` 开独立分支，一批一个明确职责。允许为并行工作建立隔离 worktree，根 Agent 统一协调构建、提交和依赖顺序，避免多个任务修改同一工作树。
 - commit message 使用 conventional commits；提交与 PR 描述不加 `Co-Authored-By` 或 AI 署名。只推 origin；不发 release、不推 fork。
-- 缺陷修复先红后绿：测试基线应在旧实现准确复现，CI 失败恰为预期项后再修复；纯重构的兼容基线正常通过，不制造假失败。
+- 缺陷修复先红后绿：测试基线应在旧实现准确复现，本地定向确认失败原因后保留业务断言修复；最终 PR CI 全量验证，涉及 CI 环境差异时才额外复现失败；纯重构的兼容基线正常通过，不制造假失败。
 - 保留原测试身份和断言。harness 适配单独审查；所有新测试必须实际执行。CI 有失败就下载 artifact 排查，不跳过或删除用例，不以静态测试数代替实际 XML。
 - 每个 PR 创建后附加到当前聊天；审核和 CI 通过后由 Agent 合并。每批更新台账中实际 SHA、PR、验证及边界；最终逐项核验阶段 3、4、5 全部验收项，不能用少量测试或目录拆分代替目标完成。
 - 修改 AGENTS.md 或 CLAUDE.md 时同步另一份；修改项目结构、CI、构建时同步 README_DEV 等说明。保留历史 Room schemas，不做破坏性迁移。
@@ -245,11 +245,11 @@ CI [40198232504](https://github.com/HIT-A/HITA_Android/actions/runs/40198232504)
 - head `72751747ba5acccfb8abf4240d3b6f1700445e66` 的 [CI 40299381154](https://github.com/HIT-A/HITA_Android/actions/runs/40299381154) 两个 job 成功。下载 artifact `12640231824`，ZIP SHA256 `e8c2539d0c125eca439c428e84d8881177a03d3e6d76f50c68842107a57cfe43` 与 GitHub digest 一致；独立解析原始 XML，607 项全部通过，精确对应旧 548 + 新 59，无失败、错误、跳过、重复或缺漏。CI 未上传 JVM XML，795 的精确计数仍是本地证据。
 - #70 已合并为 `b8a4cea55faab714baccceb1586ecc652cb3f46f`；证据目录 `/tmp/hita-stage345-skdpckp3/terms/` 保留原基线、独立审查、首次失败报告、签名修正、本地和 CI 结果，以及 `q1-pr70-independent-signoff.md/json`。上述 CI 对应 PR head，不表示合并后 main 另跑了一次测试。
 
-### 5.V/M/R 构建依赖与资源校验（本地验证已有结果，待 PR CI/合并）
+### 5.V/M/R 构建依赖与资源校验（#71 已合并且验证）
 
 插件、库与测试依赖统一引用 `gradle/libs.versions.toml`，保留原作用域、BOM、版本及仓库顺序；`-Phita.useMavenLocal=true` 显式开启两个仓库域的 Maven Local，默认关闭。恢复 style Release 资源校验，并由 CI 强制执行资源校验与 AAR 构建。
 
-111 配置严格对照、三种 Maven Local 模式及冷缓存构建通过；整合 #70 后 Debug/测试 APK 构建、JVM 794 通过 + 1 既有跳过、设备 607 项全通过。随后合入的资源校验实际执行成功，30 项 Release 任务全执行，新 style AAR 与原字节一致；没有发现需要修改资源的 AAPT 错误。整合前后测试边界、旧基线制品比较和原始证据路径集中记录在 [验收台账](refactor-stage345-plan.md)，最终批次仍待 PR CI 与合并。
+111 配置严格对照、三种 Maven Local 模式及冷缓存构建通过；整合 #70 后 Debug/测试 APK 构建、JVM 794 通过 + 1 既有跳过、设备 607 项全通过。随后合入的资源校验实际执行成功，30 项 Release 任务全执行，新 style AAR 与原字节一致；没有发现需要修改资源的 AAPT 错误。整合前后测试边界、旧基线制品比较和原始证据路径集中记录在 [验收台账](refactor-stage345-plan.md)，最终 [PR #71](https://github.com/HIT-A/HITA_Android/pull/71) 的 CI 40305741411 两 job 成功，设备 607 项全通过，资源任务实际执行；合并 `f4e809d` 已 fetch 核实与已审提交树相同。
 
 ## 9. 遗留事项与阶段 3–5 路线
 
@@ -267,7 +267,7 @@ CI [40198232504](https://github.com/HIT-A/HITA_Android/actions/runs/40198232504)
 继续 /home/rinat/projects/HITA 阶段 3、4、5 的自主重构目标。
 先读 AGENTS.md、本交接及 docs/refactor-stage345-plan.md；以当前 Git、PR、CI、源码为准，不把历史说明当最新状态。
 阶段0/1/2已完成；3.1已合并#65教学楼、#66考试、#67空教室远端、#68空教室Repository/页面、#70学期远端能力。#70合并为b8a4cea，head7275174的CI40299381154实际设备607全通过，本地JVM794通过+1既有可选跳过；学期缓存和全部消费端留3.Q2。
-5.V/M/R合为构建改造批次：三模式/冷缓存111配置对照通过；V/M整合b8a4cea后607设备全通过，R实际资源校验/AAR通过；最终PR CI/合并仍待完成。精确状态和证据统一读验收台账。阶段3其余、阶段4与阶段5都未完成。
+5.V/M/R合为构建改造批次：三模式/冷缓存111配置对照通过；V/M整合b8a4cea后607设备全通过，R实际资源校验/AAR通过；最终#71 CI40305741411两job通过、607设备全绿，已合并f4e809d；5.T子模块11 JVM/26设备绿，app本地JVM 794通过+1既有跳过、607设备全绿，PR CI待完成。精确状态和证据统一读验收台账。阶段3其余、阶段4与阶段5都未完成。
 用户已明确授权阶段3/4/5内自主方案、实现、commit、origin push、PR、审核及合并，不再逐项询问；不发release、不推fork。
 维护完整验收台账，不把已完成局部替代完整目标。独立审查、合适构建/真实测试报告、原用例完整保留、缺陷先红后绿仍须执行。
 从最新origin/main新建每批分支，完成真实调用者迁移与证据后提交PR/合并，再更新台账继续；最终逐项核实全部范围后才结束目标。
