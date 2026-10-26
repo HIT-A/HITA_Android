@@ -1,9 +1,9 @@
 plugins {
-    id 'com.android.application'
-    id 'kotlin-android'
-    id 'kotlin-kapt'
-    id 'org.jetbrains.kotlin.plugin.compose'
-    id 'dagger.hilt.android.plugin'
+    alias(libs.plugins.androidApplication)
+    alias(libs.plugins.kotlinAndroid)
+    alias(libs.plugins.kotlinKapt)
+    alias(libs.plugins.kotlinCompose)
+    alias(libs.plugins.hiltAndroid)
 }
 
 // versionCode：优先使用 CI/发布脚本注入的 VERSION_CODE 环境变量（单调递增由发布方保证），
@@ -125,110 +125,117 @@ android {
 
 dependencies {
 
-    implementation "org.jetbrains.kotlin:kotlin-stdlib:$kotlin_version"
+    implementation(libs.kotlinStdlib)
     // 1.17 adds the promoted-ongoing notification compatibility API used by Live Course.
-    implementation 'androidx.core:core-ktx:1.17.0'
-    implementation 'androidx.core:core-splashscreen:1.0.1'
+    implementation(libs.coreKtxApp)
+    implementation(libs.coreSplashscreen)
     // Baseline Profile：release 构建自动应用启动路径 AOT 编译（规则见 src/main/baseline-prof.txt）
-    implementation 'androidx.profileinstaller:profileinstaller:1.3.0'
-    implementation 'androidx.appcompat:appcompat:1.7.0'
-    implementation 'com.google.android.material:material:1.12.0'
-    implementation platform('androidx.compose:compose-bom:2025.09.01')
-    implementation 'androidx.activity:activity-compose:1.9.2'
-    implementation 'androidx.compose.foundation:foundation'
-    implementation 'androidx.compose.material3:material3'
-    implementation 'androidx.compose.runtime:runtime'
-    implementation 'androidx.compose.runtime:runtime-livedata'
-    implementation 'androidx.compose.ui:ui'
-    implementation 'androidx.compose.ui:ui-tooling-preview'
-    implementation 'dev.chrisbanes.haze:haze:0.7.3'
-    implementation 'io.github.kyant0:backdrop:1.0.0'
+    implementation(libs.profileInstaller)
+    implementation(libs.appcompat)
+    implementation(libs.material)
+    implementation(platform(libs.composeBom))
+    implementation(libs.activityCompose)
+    implementation(libs.composeFoundation)
+    implementation(libs.composeMaterial3)
+    implementation(libs.composeRuntime)
+    implementation(libs.composeRuntimeLivedata)
+    implementation(libs.composeUi)
+    implementation(libs.composeUiToolingPreview)
+    implementation(libs.haze)
+    implementation(libs.backdrop)
     // 不在 Compose BOM 管理范围内，版本号须显式写；阿里云 google 镜像可解析。issue #19
-    implementation 'androidx.graphics:graphics-shapes:1.0.1'
-    debugImplementation 'androidx.compose.ui:ui-tooling'
-    implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
-    implementation 'androidx.viewpager:viewpager:1.0.0'
-    implementation 'androidx.swiperefreshlayout:swiperefreshlayout:1.1.0'
-    implementation 'androidx.recyclerview:recyclerview:1.3.2'
-    implementation 'androidx.legacy:legacy-support-v4:1.0.0'
-    implementation 'androidx.lifecycle:lifecycle-runtime-ktx:2.8.4'
-    implementation 'androidx.lifecycle:lifecycle-process:2.8.4'
-    implementation 'androidx.security:security-crypto:1.0.0'
-    implementation 'androidx.webkit:webkit:1.13.0'
+    implementation(libs.graphicsShapes)
+    debugImplementation(libs.composeUiTooling)
+    implementation(libs.constraintLayout)
+    implementation(libs.viewPager)
+    implementation(libs.swipeRefresh)
+    implementation(libs.recyclerView)
+    implementation(libs.legacySupport)
+    implementation(libs.lifecycleRuntimeKtx)
+    implementation(libs.lifecycleProcess)
+    implementation(libs.securityCrypto)
+    implementation(libs.webkit)
     implementation project(path: ':component')
     implementation project(path: ':hitauser')
     implementation project(path: ':style')
 
-    testImplementation 'junit:junit:4.13.2'
-    androidTestImplementation 'androidx.test.ext:junit:1.2.1'
-    androidTestImplementation 'androidx.room:room-testing:2.8.4'
-    androidTestImplementation 'androidx.test.espresso:espresso-core:3.6.1'
-    androidTestImplementation 'com.squareup.okhttp3:mockwebserver:4.12.0'
+    testImplementation(libs.junit)
+    androidTestImplementation(libs.androidTestJunit)
+    androidTestImplementation(libs.roomTesting)
+    androidTestImplementation(libs.espressoCore)
+    androidTestImplementation(libs.mockWebServer)
 
-    implementation "androidx.room:room-runtime:2.8.4"
-    kapt "androidx.room:room-compiler:2.8.4"
+    implementation(libs.roomRuntime)
+    kapt(libs.roomCompiler)
 
     //kotlin的viewModel
-    implementation "androidx.lifecycle:lifecycle-viewmodel-ktx:2.8.4"
+    implementation(libs.lifecycleViewmodelKtx)
     //Glide图片加载
-    implementation 'com.github.bumptech.glide:glide:4.16.0'
+    implementation(libs.glide)
     // Retrofit2 + OkHttp
-    implementation 'com.squareup.retrofit2:retrofit:2.9.0'
-    implementation 'com.squareup.retrofit2:converter-gson:2.9.0'
-    implementation 'com.squareup.okhttp3:okhttp:4.12.0'
+    implementation(libs.retrofitApp)
+    implementation(libs.converterGsonApp)
+    implementation(libs.okhttp)
     //jsoup爬虫
-    implementation 'org.jsoup:jsoup:1.18.2'
+    implementation(libs.jsoup)
 
     //buttonLoading
-    implementation 'br.com.simplepass:loading-button-android:2.2.0'
+    implementation(libs.loadingButton)
     //折叠布局
-    implementation 'net.cachapa.expandablelayout:expandablelayout:2.9.2'
+    implementation(libs.expandableLayout)
 
     //时间轴
-    implementation 'com.github.alorma:timelineview:2.3.0'
+    implementation(libs.timelineView)
     //圆形进度
-    implementation 'com.github.lzyzsd:circleprogress:1.2.1'
+    implementation(libs.circleProgress)
 
     //多行collapsingToolbar
-    implementation 'net.opacapp:multiline-collapsingtoolbar:27.1.1'
+    implementation(libs.multilineToolbar)
 
-    implementation 'com.beloo.widget:ChipsLayoutManager:0.3.7@aar'//流式布局
+    implementation(libs.chipsLayoutManager) {
+        // Preserve the former @aar artifact-only dependency.
+        transitive = false
+        artifact {
+            type = 'aar'
+            extension = 'aar'
+        }
+    }
 
-    implementation 'com.cncoderx.wheelview:library:1.2.2'//滚轮选择器
+    implementation(libs.wheelView)//滚轮选择器
 
-    implementation 'org.mnode.ical4j:ical4j:1.0.2'
+    implementation(libs.ical4j)
 
     //文档解析库 - PDF本地解析，Office使用4.x版本兼容Android
-    implementation 'com.tom-roush:pdfbox-android:2.0.27.0' //PDF解析（已添加资源文件）
-    implementation 'org.apache.poi:poi-ooxml:4.1.2' //Word/Excel/PowerPoint解析
-    implementation 'org.apache.poi:poi:4.1.2'
+    implementation(libs.pdfboxAndroid) //PDF解析（已添加资源文件）
+    implementation(libs.poiOoxml) //Word/Excel/PowerPoint解析
+    implementation(libs.poi)
 
     // StAX API for Android 8.0+ (Apache POI dependency)
-    implementation 'javax.xml.stream:stax-api:1.0-2'
-    implementation 'com.fasterxml:aalto-xml:1.2.2'
+    implementation(libs.staxApi)
+    implementation(libs.aaltoXml)
 
     //爆炸效果
-    implementation 'tyrantgit:explosionfield:1.0.1'
+    implementation(libs.explosionField)
 
     // WorkManager for periodic course-snatching
-    implementation 'androidx.work:work-runtime-ktx:2.9.1'
-    implementation 'io.noties.markwon:core:4.6.2'
-    implementation 'io.noties.markwon:linkify:4.6.2'
-    implementation 'io.noties.markwon:ext-tables:4.6.2'
-    implementation 'io.noties.markwon:ext-tasklist:4.6.2'
-    implementation 'io.noties.markwon:ext-strikethrough:4.6.2'
-    implementation 'io.noties.markwon:ext-latex:4.6.2'
-    implementation 'io.noties.markwon:image-glide:4.6.2'
-    implementation 'io.noties.markwon:html:4.6.2'
+    implementation(libs.workRuntimeKtx)
+    implementation(libs.markwonCore)
+    implementation(libs.markwonLinkify)
+    implementation(libs.markwonTables)
+    implementation(libs.markwonTasklist)
+    implementation(libs.markwonStrikethrough)
+    implementation(libs.markwonLatex)
+    implementation(libs.markwonImageGlide)
+    implementation(libs.markwonHtml)
     // syntax highlight removed (prism4j artifacts not available in current mirrors)
-    implementation 'ru.noties:jlatexmath-android:0.2.0'
+    implementation(libs.jlatexmathAndroid)
 
     // Hilt DI
-    implementation 'com.google.dagger:hilt-android:2.57.2'
-    kapt 'com.google.dagger:hilt-android-compiler:2.57.2'
+    implementation(libs.hiltAndroid)
+    kapt(libs.hiltCompiler)
 
     // Fragment KTX for by viewModels()
-    implementation 'androidx.fragment:fragment-ktx:1.8.2'
+    implementation(libs.fragmentKtx)
 }
 
 // Compatibility alias for tooling/scripts that still invoke :app:testClasses (Java plugin task).

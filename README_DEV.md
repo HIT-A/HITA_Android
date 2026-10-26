@@ -45,10 +45,13 @@ HITA_Agent/
 ./gradlew assembleRelease        # Release APK
 ./gradlew testDebugUnitTest      # 单元测试
 ./gradlew connectedAndroidTest   # 仪器测试（需连接设备/模拟器）
+./gradlew :style:verifyReleaseResources :style:assembleRelease # style Release 资源校验与 AAR
 ./project_health_check.sh        # 项目文件与仓库卫生检查
 ```
 
-- 所有 Maven 仓库走国内镜像（阿里云 / 腾讯 / JitPack），见 `build.gradle`
+- 插件和库的版本统一维护在 [gradle/libs.versions.toml](gradle/libs.versions.toml)；模块保留各自的依赖作用域、Compose BOM 及已有版本差异，调整版本时应分别验证受影响模块。
+- 插件和库默认仅使用 [settings.gradle](settings.gradle) 中的远端仓库（阿里云 / 腾讯 / JitPack 等），不读取 Maven 本地仓库；CI 使用这一默认配置。
+- 需要使用本机发布的插件或库时，运行 `./gradlew assembleDebug -Phita.useMavenLocal=true`。同一开关会在插件和库的两个仓库域中将 `mavenLocal()` 放在首位；未设置或设为 `false` 时均关闭。个人默认偏好可写入 `~/.gradle/gradle.properties`，不要在仓库中启用。
 - Debug 包使用独立 applicationId `cn.limpu.hita.diag`（应用名"HITA 诊断版"），可与正式版共存安装
 - Release 签名需要本地配置 `keystore.properties`（`storeFile` / `storePassword` / `keyAlias` / `keyPassword`）及对应的 `.jks` 文件，二者均被 gitignore，不要提交
 
@@ -92,7 +95,7 @@ HITA_Agent/
 
 APK 和构建元信息从 CI / Release 获取；源码树不保存旧 `app/debug/` 安装包。`app/schemas/` 和 `hitauser/schemas/` 是 Room 数据库历史结构，供迁移验证使用，不能作为旧生成数据删除。
 
-运行 `./project_health_check.sh` 检查必要项目文件和仓库卫生，`./code_consistency_check.sh` 为兼容入口。检查器验证本地 Markdown 文件链接，并阻止运行数据库、APK 和旧可执行文件重新进入 Git；它不检查外部链接和标题锚点，不使用命名数量作为质量评分。JVM 测试、Debug 编译和全部设备测试（API 35 模拟器，含中文 PDF 回归）由 CI 执行。
+运行 `./project_health_check.sh` 检查必要项目文件和仓库卫生，`./code_consistency_check.sh` 为兼容入口。检查器验证本地 Markdown 文件链接，并阻止运行数据库、APK 和旧可执行文件重新进入 Git；它不检查外部链接和标题锚点，不使用命名数量作为质量评分。JVM 测试、Debug 编译和全部设备测试（API 35 模拟器，含中文 PDF 回归）由 CI 执行。CI 还显式执行 `:style:verifyReleaseResources :style:assembleRelease`，使用 `--rerun-tasks --no-build-cache` 确保 Release 资源校验实际运行；该库构建不需要应用 Release 签名。
 
 PDF 依赖自带资源的约定、去重依据和回归命令见 [PDF 资源](docs/pdf-resources.md)。
 

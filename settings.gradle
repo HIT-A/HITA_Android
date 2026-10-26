@@ -1,9 +1,49 @@
+pluginManagement {
+    repositories {
+        if (providers.gradleProperty('hita.useMavenLocal')
+                .map { it.equalsIgnoreCase('true') }.getOrElse(false)) {
+            mavenLocal()
+        }
+        maven { url = uri("https://maven.aliyun.com/repository/google") }
+        maven { url = uri("https://maven.aliyun.com/repository/central") }
+        maven { url = uri("https://maven.aliyun.com/repository/public") }
+        maven { url = uri("https://mirrors.tencent.com/nexus/repository/maven-public/") }
+        maven { url = uri("https://www.jitpack.io") }
+        maven { url = uri("https://repo.grails.org/grails/core") }
+    }
+    resolutionStrategy {
+        eachPlugin {
+            if (requested.version == null) return
+            // Reuse the existing implementation artifacts without requiring plugin markers.
+            switch (requested.id.id) {
+                case 'com.android.application':
+                case 'com.android.library':
+                    useModule("com.android.tools.build:gradle:${requested.version}")
+                    break
+                case 'org.jetbrains.kotlin.android':
+                case 'org.jetbrains.kotlin.kapt':
+                    useModule("org.jetbrains.kotlin:kotlin-gradle-plugin:${requested.version}")
+                    break
+                case 'org.jetbrains.kotlin.plugin.compose':
+                    useModule("org.jetbrains.kotlin:compose-compiler-gradle-plugin:${requested.version}")
+                    break
+                case 'com.google.dagger.hilt.android':
+                    useModule("com.google.dagger:hilt-android-gradle-plugin:${requested.version}")
+                    break
+            }
+        }
+    }
+}
+
 include ':app',':hitauser','component','style'
 rootProject.name = "HITA"
 dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.PREFER_SETTINGS)
     repositories {
-        mavenLocal()
+        if (providers.gradleProperty('hita.useMavenLocal')
+                .map { it.equalsIgnoreCase('true') }.getOrElse(false)) {
+            mavenLocal()
+        }
         maven { url = uri("https://maven.aliyun.com/repository/google") }
         maven { url = uri("https://maven.aliyun.com/repository/central") }
         maven { url = uri("https://maven.aliyun.com/repository/public") }
