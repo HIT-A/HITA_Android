@@ -19,8 +19,17 @@ internal class ClassroomQueryCache(private val dao: ClassroomCacheDao) {
         week: Int,
         classrooms: List<ClassroomItem>,
     ) {
-        dao.deleteByQuerySync(buildingItem.id, term.yearCode, term.termCode, week)
-        if (classrooms.isEmpty()) return
+        save(term, buildingItem, week, classrooms, beforeTransaction = {})
+    }
+
+    /** Conversion may be expensive; cancellation is checked again before entering Room. */
+    fun save(
+        term: TermItem,
+        buildingItem: BuildingItem,
+        week: Int,
+        classrooms: List<ClassroomItem>,
+        beforeTransaction: () -> Unit,
+    ) {
         val cachedAt = System.currentTimeMillis()
         val entities = classrooms.map { classroom ->
             ClassroomCacheEntity(
@@ -36,8 +45,12 @@ internal class ClassroomQueryCache(private val dao: ClassroomCacheDao) {
                 cachedAt = cachedAt,
             )
         }
-        dao.saveAllSync(entities)
-        dao.deleteOldCachesSync(cachedAt - 180L * 24L * 60L * 60L * 1000L)
+        beforeTransaction()
+        dao.replaceByQuerySync(
+            buildingItem.id, term.yearCode, term.termCode, week, entities,
+            cachedAt - 180L * 24L * 60L * 60L * 1000L,
+            beforeReplace = beforeTransaction,
+        )
     }
 
     companion object {

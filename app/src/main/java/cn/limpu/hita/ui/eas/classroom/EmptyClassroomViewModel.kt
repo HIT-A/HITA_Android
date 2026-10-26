@@ -11,7 +11,6 @@ import cn.limpu.hita.data.repository.TimetableRepository
 import com.limpu.component.data.DataState
 import com.limpu.component.data.Trigger
 import cn.limpu.hita.ui.eas.EASViewModel
-import com.limpu.component.data.MTransformations
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 
@@ -30,11 +29,25 @@ class EmptyClassroomViewModel internal constructor(
             createTeachingBuildingsRequest = easRepo::createTeachingBuildingsRequest,
             getCurrentWeek = timetableRepository::getCurrentWeekOfTimetable,
             getScheduleStructure = { easRepo.getScheduleStructure(it) },
-            queryClassrooms = { term, building, week -> easRepo.queryEmptyClassroom(term, building, week) },
+            createClassroomQueryRequest = { term, building, week ->
+                easRepo.createEmptyClassroomQueryRequest(term, building, week)
+            },
         ),
     )
 
     private val pageController = MutableLiveData<Trigger>()
+    private val queries = EmptyClassroomQueryCoordinator(viewModelScope)
+    private var termGeneration = 0L
+    private var termIdentity: TermIdentity? = null
+    private var currentTerm: TermItem? = null
+    private var currentBuilding: BuildingItem? = null
+    private var buildingKey: String? = null
+    private var currentWeek: Int? = null
+    private var manualWeek = false
+    private var defaultWeekSource: LiveData<Int>? = null
+    private var lastQueryKey: ClassroomQueryKey? = null
+    private var pendingForce = false
+    private var cleared = false
     val termsLiveData: LiveData<DataState<List<TermItem>>> = pageController.switchMap {
         return@switchMap inputs.getTerms().map { state ->
             val data = state.data
@@ -51,83 +64,154 @@ class EmptyClassroomViewModel internal constructor(
     }
     val buildingsLiveData: LiveData<DataState<List<BuildingItem>>> =
         pageController.loadTeachingBuildings(viewModelScope, inputs.createTeachingBuildingsRequest)
-    val selectedTermLiveData = MutableLiveData<TermItem>()
-    val selectedBuildingLiveData = MutableLiveData<BuildingItem>()
-    val selectedWeekLiveData: MediatorLiveData<Int> =
-        MTransformations.switchMap(selectedTermLiveData) { term ->
-            return@switchMap inputs.getCurrentWeek(term)
+    private val selectedTerm = MutableLiveData<TermItem>()
+    private val selectedBuilding = MutableLiveData<BuildingItem>()
+    private val selectedWeek = object : MediatorLiveData<Int>() {
+        override fun onActive() {
+            super.onActive()
+            ensureDefaultWeekSource()
         }
+    }
+    val selectedTermLiveData: LiveData<TermItem> = selectedTerm
+    val selectedBuildingLiveData: LiveData<BuildingItem> = selectedBuilding
+    val selectedWeekLiveData: LiveData<Int> = selectedWeek
     val timetableStructureLiveData: LiveData<DataState<MutableList<TimePeriodInDay>>> = selectedTermLiveData.switchMap {
         return@switchMap inputs.getScheduleStructure(it)
     }
-    val classroomLiveData: MediatorLiveData<DataState<List<ClassroomItem>>> =
-        MediatorLiveData<DataState<List<ClassroomItem>>>().apply {
-            var currentQuerySource: LiveData<DataState<List<ClassroomItem>>>? = null
-            var lastQueryKey: ClassroomQueryKey? = null
+    private val classroomResults = object : MediatorLiveData<DataState<List<ClassroomItem>>>() {
+        override fun onActive() {
+            super.onActive()
+            launchCurrentQuery()
+        }
+    }
+    val classroomLiveData: LiveData<DataState<List<ClassroomItem>>> = classroomResults
 
-            fun launchClassroomQuery() {
-                val term = selectedTermLiveData.value ?: return
-                val building = selectedBuildingLiveData.value ?: return
-                val week = selectedWeekLiveData.value ?: return
-                val queryKey = ClassroomQueryKey(term.getCode(), building.id.ifBlank { building.name.orEmpty() }, week)
-                if (queryKey == lastQueryKey) return
-                lastQueryKey = queryKey
+    init {
+        // Activate default-week loading even when only the results are observed.
+        classroomResults.addSource(selectedWeek) { launchCurrentQuery() }
+    }
 
-                currentQuerySource?.let { removeSource(it) }
-                val operation = inputs.beginOperation(UsageAnalyticsEvent.EMPTY_ROOM_SEARCH_STARTED)
-                val source = inputs.queryClassrooms(term, building, week)
-                currentQuerySource = source
-                addSource(source) { state ->
-                    when (state.state) {
-                        DataState.STATE.SUCCESS -> inputs.finishOperation(operation, UsageAnalyticsEvent.EMPTY_ROOM_SEARCH_SUCCEEDED, emptyMap())
-                        DataState.STATE.NOTHING, DataState.STATE.LOADING -> Unit
-                        else -> inputs.finishOperation(operation, UsageAnalyticsEvent.EMPTY_ROOM_SEARCH_FAILED,
-                            mapOf("error_category" to if (state.state in setOf(DataState.STATE.NOT_LOGGED_IN, DataState.STATE.TOKEN_INVALID)) "authentication" else "unknown"))
-                    }
-                    value = state
-                }
-            }
-
-            addSource(selectedTermLiveData) {
-                lastQueryKey = null
-                launchClassroomQuery()
-            }
-            addSource(selectedBuildingLiveData) {
-                launchClassroomQuery()
-            }
-            addSource(selectedWeekLiveData) {
-                launchClassroomQuery()
+    private fun ensureDefaultWeekSource() {
+        if (cleared || !selectedWeek.hasActiveObservers() || defaultWeekSource != null) return
+        val term = currentTerm ?: return
+        val generation = termGeneration
+        val source = inputs.getCurrentWeek(term)
+        if (cleared || generation != termGeneration) return
+        defaultWeekSource = source
+        selectedWeek.addSource(source) { week ->
+            if (!cleared && generation == termGeneration && !manualWeek) {
+                updateWeek(week)
             }
         }
+    }
+
+    private fun selectionChanged() {
+        queries.cancel()
+        lastQueryKey = null
+    }
 
     fun selectTerm(term: TermItem?) {
-        selectedTermLiveData.value = term
+        if (cleared) return
+        val identity = term?.let { TermIdentity(it.yearCode, it.termCode) }
+        if (identity == termIdentity) return
+        selectionChanged()
+        val generation = ++termGeneration
+        termIdentity = identity
+        currentTerm = term
+        currentWeek = null
+        manualWeek = false
+        defaultWeekSource?.let(selectedWeek::removeSource)
+        defaultWeekSource = null
+        selectedWeek.value = null
+        if (cleared || generation != termGeneration) return
+        selectedTerm.value = term
+        if (cleared || generation != termGeneration) return
+        ensureDefaultWeekSource()
+        launchCurrentQuery()
     }
 
     fun selectBuilding(building: BuildingItem?) {
-        selectedBuildingLiveData.value = building
+        if (cleared) return
+        val key = building?.let { it.id.ifBlank { it.name.orEmpty() } }
+        if (key == buildingKey) return
+        selectionChanged()
+        buildingKey = key
+        currentBuilding = building
+        selectedBuilding.value = building
+        launchCurrentQuery()
     }
 
     fun selectWeek(week: Int?) {
-        selectedWeekLiveData.value = week
+        if (cleared) return
+        manualWeek = true
+        updateWeek(week)
+    }
+
+    private fun updateWeek(week: Int?) {
+        if (currentWeek == week) return
+        selectionChanged()
+        currentWeek = week
+        selectedWeek.value = week
+        launchCurrentQuery()
     }
 
     fun startRefresh() {
+        if (cleared) return
+        forceCurrentQuery()
         pageController.value = Trigger.actioning
     }
 
     fun retryCurrentQuery(): Boolean {
-        val term = selectedTermLiveData.value ?: return false
-        val building = selectedBuildingLiveData.value ?: return false
-        val week = selectedWeekLiveData.value ?: return false
-        selectedTermLiveData.value = term
-        selectedBuildingLiveData.value = building
-        selectedWeekLiveData.value = week
+        if (cleared || currentTerm == null || currentBuilding == null || currentWeek == null) return false
+        forceCurrentQuery()
         return true
     }
 
+    private fun forceCurrentQuery() {
+        queries.cancel()
+        pendingForce = true
+        launchCurrentQuery()
+    }
+
+    private fun launchCurrentQuery() {
+        if (cleared || !classroomResults.hasActiveObservers()) return
+        val term = currentTerm ?: return
+        val identity = termIdentity ?: return
+        val building = currentBuilding ?: return
+        val week = currentWeek ?: return
+        val key = ClassroomQueryKey(identity, buildingKey.orEmpty(), week)
+        if (!pendingForce && key == lastQueryKey) return
+        pendingForce = false
+        lastQueryKey = key
+        val generation = queries.cancel()
+        val operation = inputs.beginOperation(UsageAnalyticsEvent.EMPTY_ROOM_SEARCH_STARTED)
+        if (!queries.isCurrent(generation)) return
+        val request = inputs.createClassroomQueryRequest(term, building, week)
+        if (!queries.isCurrent(generation)) return
+        queries.start(generation, request) { state ->
+            when (state.state) {
+                DataState.STATE.SUCCESS -> inputs.finishOperation(operation, UsageAnalyticsEvent.EMPTY_ROOM_SEARCH_SUCCEEDED, emptyMap())
+                DataState.STATE.NOTHING, DataState.STATE.LOADING -> Unit
+                else -> inputs.finishOperation(operation, UsageAnalyticsEvent.EMPTY_ROOM_SEARCH_FAILED,
+                    mapOf("error_category" to if (state.state in setOf(DataState.STATE.NOT_LOGGED_IN, DataState.STATE.TOKEN_INVALID)) "authentication" else "unknown"))
+            }
+            if (queries.isCurrent(generation)) classroomResults.value = state
+        }
+    }
+
+    override fun onCleared() {
+        cleared = true
+        queries.cancel()
+        termGeneration++
+        defaultWeekSource?.let(selectedWeek::removeSource)
+        defaultWeekSource = null
+        super.onCleared()
+    }
+
+    private data class TermIdentity(val yearCode: String, val termCode: String)
+
     private data class ClassroomQueryKey(
-        val termCode: String,
+        val term: TermIdentity,
         val buildingId: String,
         val week: Int
     )

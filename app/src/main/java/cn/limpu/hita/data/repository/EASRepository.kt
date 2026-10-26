@@ -55,6 +55,8 @@ import java.security.SecureRandom
 import cn.limpu.hita.utils.LogUtils
 import kotlin.concurrent.thread
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 
 @Singleton
@@ -464,9 +466,28 @@ class EASRepository @Inject constructor(
 
     }
 
-    /**
-     * 查询空教室
-     */
+    /** Capture one campus/session and selection before the page starts asynchronous work. */
+    internal fun createEmptyClassroomQueryRequest(
+        term: TermItem,
+        buildingItem: BuildingItem,
+        week: Int,
+        useCache: Boolean = true,
+    ): EmptyClassroomQueryRequest {
+        val token = easPreferenceSource.getEasToken()
+        val service = getService(token.campus)
+        val cache = ClassroomQueryCache(classroomCacheDao)
+        return EmptyClassroomQueryRequest.forToken(
+            token, term, buildingItem, week, useCache,
+            readCache = cache::readRows,
+            saveCache = { queryTerm, building, queryWeek, classrooms ->
+                val context = currentCoroutineContext()
+                cache.save(queryTerm, building, queryWeek, classrooms) { context.ensureActive() }
+            },
+            queryRemote = service::queryEmptyClassroomOnce,
+        )
+    }
+
+    /** AI synchronous tools retain the eager, observer-driven LiveData entry point. */
     fun queryEmptyClassroom(
         term: TermItem,
         buildingItem: BuildingItem,

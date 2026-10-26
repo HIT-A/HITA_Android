@@ -9,6 +9,7 @@ import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
+import androidx.lifecycle.Observer
 import androidx.lifecycle.ViewModelStore
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.platform.app.InstrumentationRegistry
@@ -21,7 +22,7 @@ import cn.limpu.hita.data.model.eas.EASToken
 import cn.limpu.hita.data.model.eas.TermItem
 import cn.limpu.hita.data.model.timetable.TimePeriodInDay
 import cn.limpu.hita.data.repository.EASRepository
-import cn.limpu.hita.data.repository.LegacyEmptyClassroomQuery
+import cn.limpu.hita.data.repository.EmptyClassroomQueryRequest
 import cn.limpu.hita.data.repository.TeachingBuildingsRequest
 import cn.limpu.hita.data.repository.TimetableChangeStore
 import cn.limpu.hita.data.repository.TimetableMutationLock
@@ -30,14 +31,25 @@ import cn.limpu.hita.data.source.preference.EasPreferenceSource
 import cn.limpu.hita.data.source.preference.TimetablePreferenceSource
 import com.limpu.component.data.DataState
 import java.util.UUID
-import java.util.concurrent.CopyOnWriteArrayList
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.job
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
+import kotlin.coroutines.Continuation
+import kotlin.coroutines.resume
+import kotlin.coroutines.suspendCoroutine
 
 /** The production ViewModel with controlled data sources and isolated inherited login inputs. */
 internal class EmptyClassroomViewModelContractHarness {
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
     private val app = ApplicationProvider.getApplicationContext<Application>()
     private val context = IsolatedPreferencesContext(app)
-    private val repositoryWorkers = CopyOnWriteArrayList<Thread>()
     val owner = Owner()
     val store = ViewModelStore()
     val terms = mutableListOf<MutableLiveData<DataState<List<TermItem>>>>()
@@ -48,11 +60,17 @@ internal class EmptyClassroomViewModelContractHarness {
     val classroomSources = mutableListOf<MutableLiveData<DataState<List<ClassroomItem>>>>()
     val states = mutableListOf<DataState<List<ClassroomItem>>>()
     val analytics = mutableListOf<AnalyticsEvent>()
+    val jobs = mutableMapOf<Int, Job>()
+    private val pendingContinuations = mutableMapOf<Int, Continuation<DataState<List<ClassroomItem>>>>()
     var buildingRequests = 0
+    var buildingResult: DataState<List<BuildingItem>> = DataState(emptyList())
     var initialWeek: Int? = null
     var initialClassroomState: DataState<List<ClassroomItem>>? = null
     var onState: (DataState<List<ClassroomItem>>) -> Unit = {}
-    var queryOverride: ((TermItem, BuildingItem, Int) -> LiveData<DataState<List<ClassroomItem>>>)? = null
+    var onBegin: () -> Unit = {}
+    var onCreateRequest: () -> Unit = {}
+    var nonCancellableQueries = false
+    var queryOverride: ((TermItem, BuildingItem, Int) -> EmptyClassroomQueryRequest)? = null
     lateinit var model: EmptyClassroomViewModel
         private set
 
@@ -68,7 +86,7 @@ internal class EmptyClassroomViewModelContractHarness {
             },
             createTeachingBuildingsRequest = {
                 buildingRequests++
-                TeachingBuildingsRequest(null) { DataState(emptyList()) }
+                TeachingBuildingsRequest(null) { buildingResult }
             },
             getCurrentWeek = { term ->
                 weekTerms += term
@@ -80,17 +98,20 @@ internal class EmptyClassroomViewModelContractHarness {
             getScheduleStructure = { term ->
                 MutableLiveData<DataState<MutableList<TimePeriodInDay>>>().also { structures += term to it }
             },
-            queryClassrooms = { term, building, week ->
+            createClassroomQueryRequest = { term, building, week ->
+                val index = requestedQueries.size
                 requestedQueries += Query(term, building, week)
-                queryOverride?.invoke(term, building, week)
-                    ?: MutableLiveData<DataState<List<ClassroomItem>>>().apply {
-                        initialClassroomState?.let { value = it }
-                        classroomSources += this
-                    }
+                val request = queryOverride?.invoke(term, building, week) ?: sourceRequest(index)
+                onCreateRequest()
+                EmptyClassroomQueryRequest(flow {
+                    jobs[index] = currentCoroutineContext().job
+                    emitAll(request.states())
+                })
             },
             beginOperation = { event ->
                 UsageAnalyticsClient.Operation(generation = 0, session = null).also {
                     analytics += AnalyticsEvent(it.id, event, emptyMap())
+                    onBegin()
                 }
             },
             finishOperation = { operation, event, dimensions ->
@@ -134,26 +155,49 @@ internal class EmptyClassroomViewModelContractHarness {
         flush()
     }
 
-    /** Only this adapter changes when the page adopts the production Flow entry point. */
+    private fun sourceRequest(index: Int): EmptyClassroomQueryRequest {
+        val source = MutableLiveData<DataState<List<ClassroomItem>>>().apply {
+            initialClassroomState?.let { value = it }
+            classroomSources += this
+        }
+        return EmptyClassroomQueryRequest(flow {
+            if (nonCancellableQueries) {
+                emit(suspendCoroutine { pendingContinuations[index] = it })
+            } else {
+                val values = Channel<DataState<List<ClassroomItem>>>(Channel.UNLIMITED)
+                val observer = Observer<DataState<List<ClassroomItem>>> { values.trySend(it) }
+                source.observeForever(observer)
+                try {
+                    for (state in values) emit(state)
+                } finally {
+                    source.removeObserver(observer)
+                    values.close()
+                }
+            }
+        })
+    }
+
+    fun completeNonCancellable(index: Int, state: DataState<List<ClassroomItem>>) {
+        main { requireNotNull(pendingContinuations.remove(index)).resume(state) }
+        flush()
+    }
+
+    /** Same controlled boundaries as the legacy test, through the production request factory. */
     fun useRepositoryQuery(
         token: EASToken,
         readCache: (TermItem, BuildingItem, Int) -> List<ClassroomCacheEntity>,
         saveCache: (TermItem, BuildingItem, Int, List<ClassroomItem>) -> Unit,
         remote: LiveData<DataState<List<ClassroomItem>>>,
     ) {
-        val query = LegacyEmptyClassroomQuery(
-            readCache = { term, building, week ->
-                repositoryWorkers.addIfAbsent(Thread.currentThread())
-                readCache(term, building, week)
-            },
-            saveCache = { term, building, week, classrooms ->
-                repositoryWorkers.addIfAbsent(Thread.currentThread())
-                saveCache(term, building, week, classrooms)
-            },
-            queryRemote = { _, _, _, _ -> remote },
-        )
         queryOverride = { selectedTerm, selectedBuilding, selectedWeek ->
-            query.query(token, selectedTerm, selectedBuilding, selectedWeek)
+            EmptyClassroomQueryRequest.forToken(
+                token, selectedTerm, selectedBuilding, selectedWeek,
+                readCache = readCache,
+                saveCache = { term, building, week, rooms -> saveCache(term, building, week, rooms) },
+                queryRemote = { _, _, _, _ ->
+                    withContext(Dispatchers.Main.immediate) { requireNotNull(remote.value) }
+                },
+            )
         }
     }
 
@@ -161,11 +205,12 @@ internal class EmptyClassroomViewModelContractHarness {
         main {
             owner.registry.currentState = Lifecycle.State.DESTROYED
             store.clear()
+            pendingContinuations.values.toList().forEach { it.resume(DataState(emptyList())) }
+            pendingContinuations.clear()
         }
         flush()
-        repositoryWorkers.forEach { worker ->
-            worker.join(5_000)
-            check(!worker.isAlive) { "Repository test worker did not finish: ${worker.name}" }
+        runBlocking {
+            withTimeout(5_000) { jobs.values.toList().forEach { it.join() } }
         }
         context.clear()
     }

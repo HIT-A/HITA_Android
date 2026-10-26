@@ -4,10 +4,10 @@ import androidx.lifecycle.LiveData
 import cn.limpu.hita.data.analytics.UsageAnalyticsClient
 import cn.limpu.hita.data.analytics.UsageAnalyticsEvent
 import cn.limpu.hita.data.model.classroom.BuildingItem
-import cn.limpu.hita.data.model.classroom.ClassroomItem
 import cn.limpu.hita.data.model.eas.TermItem
 import cn.limpu.hita.data.model.timetable.TimePeriodInDay
 import cn.limpu.hita.data.repository.TeachingBuildingsRequest
+import cn.limpu.hita.data.repository.EmptyClassroomQueryRequest
 import com.limpu.component.data.DataState
 
 /** Narrow dependencies for exercising the real page's selection and query behavior. */
@@ -16,7 +16,7 @@ internal class EmptyClassroomPageInputs(
     val createTeachingBuildingsRequest: () -> TeachingBuildingsRequest,
     val getCurrentWeek: (TermItem?) -> LiveData<Int>,
     val getScheduleStructure: (TermItem) -> LiveData<DataState<MutableList<TimePeriodInDay>>>,
-    val queryClassrooms: (TermItem, BuildingItem, Int) -> LiveData<DataState<List<ClassroomItem>>>,
+    val createClassroomQueryRequest: (TermItem, BuildingItem, Int) -> EmptyClassroomQueryRequest,
     val beginOperation: (UsageAnalyticsEvent) -> UsageAnalyticsClient.Operation? = {
         UsageAnalyticsClient.begin(it)
     },
