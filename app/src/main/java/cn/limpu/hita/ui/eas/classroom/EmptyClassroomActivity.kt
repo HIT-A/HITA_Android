@@ -89,8 +89,7 @@ class EmptyClassroomActivity :
                 DataState.STATE.SUCCESS -> {
                     val terms = data.data.orEmpty()
                     if (terms.isNotEmpty()) {
-                        viewModel.selectedTermLiveData.value =
-                            terms.firstOrNull { it.isCurrent } ?: terms.first()
+                        viewModel.selectTerm(terms.firstOrNull { it.isCurrent } ?: terms.first())
                     }
                 }
 
@@ -112,7 +111,7 @@ class EmptyClassroomActivity :
             when (data.state) {
                 DataState.STATE.SUCCESS -> {
                     if (!data.data.isNullOrEmpty()) {
-                        viewModel.selectedBuildingLiveData.value = data.data?.get(0)
+                        viewModel.selectBuilding(data.data?.get(0))
                     }
                 }
 
@@ -214,7 +213,7 @@ class EmptyClassroomActivity :
                 .setOnConfirmListener(object : PopUpCheckableList.OnConfirmListener<TermItem> {
                     override fun OnConfirm(title: String?, key: TermItem) {
                         classroomQueryInFlight = true
-                        viewModel.selectedTermLiveData.value = key
+                        viewModel.selectTerm(key)
                     }
                 }).show(supportFragmentManager, "terms")
         }
@@ -230,7 +229,7 @@ class EmptyClassroomActivity :
                 .setOnConfirmListener(object : PopUpCheckableList.OnConfirmListener<BuildingItem> {
                     override fun OnConfirm(title: String?, key: BuildingItem) {
                         classroomQueryInFlight = true
-                        viewModel.selectedBuildingLiveData.value = key
+                        viewModel.selectBuilding(key)
                     }
                 }).show(supportFragmentManager, "building")
         }
@@ -244,7 +243,7 @@ class EmptyClassroomActivity :
             .setOnConfirmListener(object : PopUpCheckableList.OnConfirmListener<Int> {
                 override fun OnConfirm(title: String?, key: Int) {
                     classroomQueryInFlight = true
-                    viewModel.selectedWeekLiveData.value = key
+                    viewModel.selectWeek(key)
                 }
             }).show(supportFragmentManager, "weeks")
     }

@@ -4,10 +4,28 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Transaction
 import cn.limpu.hita.data.model.classroom.ClassroomCacheEntity
 
 @Dao
 interface ClassroomCacheDao {
+
+    @Transaction
+    fun replaceByQuerySync(
+        buildingId: String,
+        termYearCode: String,
+        termTermCode: String,
+        week: Int,
+        entities: List<ClassroomCacheEntity>,
+        beforeTimestamp: Long,
+        beforeReplace: () -> Unit = {},
+    ) {
+        beforeReplace()
+        deleteByQuerySync(buildingId, termYearCode, termTermCode, week)
+        if (entities.isEmpty()) return
+        saveAllSync(entities)
+        deleteOldCachesSync(beforeTimestamp)
+    }
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     fun saveAllSync(entities: List<ClassroomCacheEntity>)

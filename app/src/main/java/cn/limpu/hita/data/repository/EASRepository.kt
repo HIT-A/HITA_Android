@@ -22,7 +22,6 @@ import com.google.gson.reflect.TypeToken
 import com.limpu.component.data.DataState
 import cn.limpu.hita.R
 import cn.limpu.hita.data.AppDatabase
-import cn.limpu.hita.data.model.classroom.ClassroomCacheEntity
 import cn.limpu.hita.data.model.eas.*
 import cn.limpu.hita.data.model.timetable.EventItem
 import cn.limpu.hita.data.model.timetable.TermSubject
@@ -54,10 +53,10 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import java.security.SecureRandom
 import cn.limpu.hita.utils.LogUtils
-import org.json.JSONArray
-import org.json.JSONObject
 import kotlin.concurrent.thread
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 
 @Singleton
@@ -467,9 +466,28 @@ class EASRepository @Inject constructor(
 
     }
 
-    /**
-     * 查询空教室
-     */
+    /** Capture one campus/session and selection before the page starts asynchronous work. */
+    internal fun createEmptyClassroomQueryRequest(
+        term: TermItem,
+        buildingItem: BuildingItem,
+        week: Int,
+        useCache: Boolean = true,
+    ): EmptyClassroomQueryRequest {
+        val token = easPreferenceSource.getEasToken()
+        val service = getService(token.campus)
+        val cache = ClassroomQueryCache(classroomCacheDao)
+        return EmptyClassroomQueryRequest.forToken(
+            token, term, buildingItem, week, useCache,
+            readCache = cache::readRows,
+            saveCache = { queryTerm, building, queryWeek, classrooms ->
+                val context = currentCoroutineContext()
+                cache.save(queryTerm, building, queryWeek, classrooms) { context.ensureActive() }
+            },
+            queryRemote = service::queryEmptyClassroomOnce,
+        )
+    }
+
+    /** AI synchronous tools retain the eager, observer-driven LiveData entry point. */
     fun queryEmptyClassroom(
         term: TermItem,
         buildingItem: BuildingItem,
@@ -477,89 +495,14 @@ class EASRepository @Inject constructor(
         useCache: Boolean = true,
     ): LiveData<DataState<List<ClassroomItem>>> {
         val easToken = easPreferenceSource.getEasToken()
-        LogUtils.d("queryEmptyClassroom: isLogin=${easToken.isLogin()}, term=${term.getCode()}, building=${buildingItem.name}")
-        if (easToken.isLogin()) {
-            val result = MediatorLiveData<DataState<List<ClassroomItem>>>()
-            val hasCachedResult = AtomicBoolean(false)
-            if (useCache) {
-                thread(name = "classroom-cache-load") {
-                    val cached = classroomCacheDao.getByQuerySync(
-                        buildingItem.id,
-                        term.yearCode,
-                        term.termCode,
-                        week
-                    )
-                    if (cached.isNotEmpty()) {
-                        hasCachedResult.set(true)
-                        result.postValue(
-                            DataState(cached.map { it.toClassroomItem() }).setFromCache(true)
-                        )
-                    }
-                }
-            }
-            val remote = getService(easToken.campus).queryEmptyClassroom(
-                easToken,
-                term,
-                buildingItem,
-                listOf(week.toString())
-            )
-            result.addSource(remote) { state ->
-                if (useCache && hasCachedResult.get() && state.state != DataState.STATE.SUCCESS) {
-                    return@addSource
-                }
-                result.value = state
-                if (state.state == DataState.STATE.SUCCESS) {
-                    val classrooms = state.data.orEmpty()
-                    thread(name = "classroom-cache-save") {
-                        saveClassroomCache(term, buildingItem, week, classrooms)
-                    }
-                }
-            }
-            return result
-        }
-        LogUtils.w("queryEmptyClassroom: not logged in")
-        return LiveDataUtils.getMutableLiveData(DataState(DataState.STATE.NOT_LOGGED_IN))
-    }
-
-    private fun saveClassroomCache(
-        term: TermItem,
-        buildingItem: BuildingItem,
-        week: Int,
-        classrooms: List<ClassroomItem>
-    ) {
-        classroomCacheDao.deleteByQuerySync(buildingItem.id, term.yearCode, term.termCode, week)
-        if (classrooms.isEmpty()) return
-        val cachedAt = System.currentTimeMillis()
-        val entities = classrooms.map { classroom ->
-            ClassroomCacheEntity(
-                buildingId = buildingItem.id,
-                buildingName = buildingItem.name.orEmpty(),
-                termYearCode = term.yearCode,
-                termTermCode = term.termCode,
-                week = week,
-                name = classroom.name,
-                capacity = classroom.capacity,
-                specialClassroom = classroom.specialClassroom,
-                scheduleJson = JSONArray(classroom.scheduleList).toString(),
-                cachedAt = cachedAt
-            )
-        }
-        classroomCacheDao.saveAllSync(entities)
-        classroomCacheDao.deleteOldCachesSync(cachedAt - 180L * 24L * 60L * 60L * 1000L)
-    }
-
-    private fun ClassroomCacheEntity.toClassroomItem(): ClassroomItem {
-        return ClassroomItem().also { classroom ->
-            classroom.id = name
-            classroom.name = name
-            classroom.capacity = capacity
-            classroom.specialClassroom = specialClassroom
-            val arr = JSONArray(scheduleJson)
-            for (i in 0 until arr.length()) {
-                val obj = arr.optJSONObject(i) ?: JSONObject()
-                classroom.scheduleList.add(obj)
-            }
-        }
+        val cache = ClassroomQueryCache(classroomCacheDao)
+        return LegacyEmptyClassroomQuery(
+            readCache = cache::readRows,
+            saveCache = cache::save,
+            queryRemote = { token, queryTerm, building, weeks ->
+                getService(token.campus).queryEmptyClassroom(token, queryTerm, building, weeks)
+            },
+        ).query(easToken, term, buildingItem, week, useCache)
     }
 
     /**
