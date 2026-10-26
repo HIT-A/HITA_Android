@@ -10,12 +10,23 @@ import cn.limpu.hita.data.model.timetable.TermSubject
 import cn.limpu.hita.data.model.timetable.TeacherInfo
 import cn.limpu.hita.utils.ColorTools
 import java.util.concurrent.Executors
+import java.util.concurrent.Executor
 
-class SubjectRepository @Inject constructor(application: Application) {
-    private val executor = Executors.newSingleThreadScheduledExecutor()
-    private val eventItemDao = AppDatabase.getDatabase(application).eventItemDao()
-    private val subjectDao = AppDatabase.getDatabase(application).subjectDao()
-    private val timetableDao = AppDatabase.getDatabase(application).timetableDao()
+sealed interface SubjectInfoUpdate {
+    data class Credit(val value: Float) : SubjectInfoUpdate
+    data class FillCourseCode(val expectedName: String, val value: String) : SubjectInfoUpdate
+}
+
+class SubjectRepository internal constructor(
+    private val database: AppDatabase,
+    private val executor: Executor,
+) {
+    @Inject constructor(application: Application) : this(
+        AppDatabase.getDatabase(application), Executors.newSingleThreadScheduledExecutor(),
+    )
+    private val eventItemDao = database.eventItemDao()
+    private val subjectDao = database.subjectDao()
+    private val timetableDao = database.timetableDao()
 
     /**
      * 获取所有科目及其进度
@@ -113,6 +124,26 @@ class SubjectRepository @Inject constructor(application: Application) {
     fun actionSaveSubjectInfo(subject: TermSubject) {
         executor.execute {
             subjectDao.saveSubjectSync(subject)
+        }
+    }
+
+    /** Apply a screen edit to the latest row; a delayed resource result must not replace other edits. */
+    fun actionSaveSubjectInfo(subjectId: String, update: SubjectInfoUpdate) {
+        executor.execute {
+            database.runInTransaction {
+                val current = subjectDao.getSubjectsInIdsSync(listOf(subjectId)).singleOrNull()
+                    ?: return@runInTransaction
+                when (update) {
+                    is SubjectInfoUpdate.Credit -> current.credit = update.value
+                    is SubjectInfoUpdate.FillCourseCode -> {
+                        if (current.name != update.expectedName || !current.code.isNullOrBlank() || update.value.isBlank()) {
+                            return@runInTransaction
+                        }
+                        current.code = update.value
+                    }
+                }
+                subjectDao.saveSubjectSync(current)
+            }
         }
     }
 
