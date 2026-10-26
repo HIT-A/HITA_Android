@@ -21,6 +21,7 @@ LAYER_ROOTS = (
     "app/src/main/java/cn/limpu/hita/data/",
     "app/src/main/java/cn/limpu/hita/feature/timetableshare/protocol/",
     "app/src/main/java/cn/limpu/hita/feature/timetablecompare/",
+    "timetable-core/src/main/",
 )
 LAYER_ALLOWLIST = "scripts/layer_allowlist.txt"
 # Deliberately textual: also checks aliases, static imports, comments and strings.

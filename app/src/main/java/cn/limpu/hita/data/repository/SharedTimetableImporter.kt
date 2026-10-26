@@ -11,7 +11,7 @@ import cn.limpu.hita.feature.timetableshare.protocol.SharedTerm
 import cn.limpu.hita.feature.timetableshare.protocol.SharedTimetable
 import cn.limpu.hita.feature.timetableshare.protocol.ShareMode
 import cn.limpu.hita.utils.ColorTools
-import cn.limpu.hita.feature.timetableshare.protocol.StrictShareJson
+import cn.limpu.hita.feature.timetableshare.protocol.TimetableShareCodec
 import java.sql.Timestamp
 import java.util.UUID
 import java.io.FilterInputStream
@@ -58,7 +58,7 @@ object SharedTimetableImporter {
     /** 口令快照(FULL) → Timetable + TermSubject + EventItem。课程色走既有 colorForName。 */
     fun buildBundleFromShare(snapshot: SharedTimetable): IcsImportBundle {
         require(snapshot.mode == ShareMode.FULL) { "busy snapshot has no course detail" }
-        StrictShareJson.validate(snapshot)
+        TimetableShareCodec().validate(snapshot)
         val timetable = Timetable().apply {
             name = snapshot.term.timetableName.ifBlank { snapshot.term.termName }
             startTime = Timestamp(snapshot.term.startMillis)

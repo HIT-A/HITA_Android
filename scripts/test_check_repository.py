@@ -87,12 +87,26 @@ class RepositoryCheckTest(unittest.TestCase):
                      "app/src/main/java/cn/limpu/hita/feature/timetablecompare_extra/Example.kt",
                      "app/src/main/java/cn/limpu/hita/feature/timetableshare/Example.kt",
                      "app/src/main/java/cn/limpu/hita/data/Example.txt",
-                     "component/src/main/java/cn/limpu/hita/data/Example.kt"):
+                     "component/src/main/java/cn/limpu/hita/data/Example.kt",
+                     "timetable-core/src/test/kotlin/Example.kt",
+                     "timetable-core/src/testFixtures/kotlin/Example.kt",
+                     "timetable-core/src/main_extra/kotlin/Example.kt"):
             self.write(name, f"import {UI_MODEL}")
         self.write(DATA_SOURCE, "import cn.limpu.hita.ui_extra.Example\n"
                                "import other.cn.limpu.hita.ui.Example\n"
                                "import mycn.limpu.hita.ui.Example\n")
         self.assertEqual([], checker.check(self.root))
+
+    def test_moved_core_sources_keep_ui_boundary_in_both_jvm_source_layouts(self):
+        paths = ("timetable-core/src/main/kotlin/cn/limpu/hita/feature/timetableshare/protocol/Example.kt",
+                 "timetable-core/src/main/java/cn/limpu/hita/feature/timetablecompare/Example.java")
+        for path in paths:
+            self.write(path, f"import {UI_MODEL}\n{UI_MODEL}.create()\n")
+        errors = checker.check(self.root)
+        self.assertEqual(4, len(errors), errors)
+        for path in paths:
+            for line in (1, 2):
+                self.assertTrue(any(f"{path}:{line}: forbidden UI dependency:" in e for e in errors), errors)
 
     def test_textual_check_includes_comments_and_strings(self):
         self.write(DATA_SOURCE, f'// {UI_MODEL}\nval name = "{UI_MODEL}"\n')

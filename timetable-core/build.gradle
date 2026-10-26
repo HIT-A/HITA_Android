@@ -1,0 +1,49 @@
+import org.gradle.api.artifacts.component.ModuleComponentIdentifier
+import org.gradle.api.artifacts.component.ProjectComponentIdentifier
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+
+plugins {
+    alias(libs.plugins.kotlinJvm)
+    id 'java-library'
+    id 'java-test-fixtures'
+}
+
+java {
+    toolchain.languageVersion = JavaLanguageVersion.of(21)
+    sourceCompatibility = JavaVersion.VERSION_1_8
+    targetCompatibility = JavaVersion.VERSION_1_8
+}
+kotlin {
+    jvmToolchain(21)
+    compilerOptions.jvmTarget = JvmTarget.JVM_1_8
+}
+
+dependencies {
+    implementation(libs.gson)
+    testImplementation(libs.junit)
+}
+
+// Keep this artifact usable on a plain JVM. Validate the resolved graph, including
+// transitive dependencies, instead of relying only on source import conventions.
+def verifyJvmDependencies = tasks.register('verifyJvmDependencies') {
+    group = 'verification'
+    description = 'Rejects Android artifacts and project back-references in core production classpaths.'
+    doLast {
+        [configurations.compileClasspath, configurations.runtimeClasspath].each { classpath ->
+            def forbidden = classpath.incoming.resolutionResult.allComponents.findAll { component ->
+                def id = component.id
+                if (id instanceof ProjectComponentIdentifier) return id.projectPath != project.path
+                if (!(id instanceof ModuleComponentIdentifier)) return false
+                id.group == 'android' || id.group.startsWith('android.') ||
+                    id.group == 'androidx' || id.group.startsWith('androidx.') ||
+                    id.group == 'com.android' || id.group.startsWith('com.android.')
+            }
+            def androidArtifacts = classpath.files.findAll { it.name.endsWith('.aar') || it.name == 'android.jar' }
+            if (!forbidden.empty || !androidArtifacts.empty) {
+                throw new GradleException("timetable-core must remain JVM-only (${classpath.name}): ${forbidden*.id + androidArtifacts}")
+            }
+        }
+    }
+}
+tasks.named('compileKotlin') { dependsOn verifyJvmDependencies }
+tasks.named('check') { dependsOn verifyJvmDependencies }

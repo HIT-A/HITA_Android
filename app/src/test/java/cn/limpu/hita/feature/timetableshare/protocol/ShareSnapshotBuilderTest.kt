@@ -1,6 +1,7 @@
 package cn.limpu.hita.feature.timetableshare.protocol
 
 import cn.limpu.hita.data.model.timetable.*
+import cn.limpu.hita.data.repository.ShareSnapshotBuilder
 import java.sql.Timestamp
 import java.time.LocalDateTime
 import java.util.Base64

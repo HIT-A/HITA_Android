@@ -46,7 +46,7 @@
 | ID | 交付范围 | 必须成立的验收条件 | 状态 / PR / 证据 |
 |---|---|---|---|
 | 3.Q1 | 三校区学期远端能力 | 普通与深圳 Web 学期入口共享原请求/解析核心；覆盖本部本科/研究生及威海合并/过滤；请求与取消契约实测 | 已合并且验证：[#70](https://github.com/HIT-A/HITA_Android/pull/70)，merge `b8a4cea`；head `7275174` 的 CI 40299381154 设备 607 项全通过，独立签核完成 |
-| 3.Q2 | 学期缓存与全部生产消费端 | cache→remote Flow、原子替换与 owner/session 捕获；导入/成绩/学分/年级/考试/空教室页面与后台调用接入；保留中间状态与错误策略；同 key 跨调用者请求代次由 Repository 协调，覆盖手工/后台/AI 并发，旧响应不覆盖较新结果 | 实施中：28 项旧行为兼容定向全绿；基线提交 `564d276` 的四项安全回归已准确本地跑红，正在实现共享会话/事务/全部消费端；未完成全链验收 |
+| 3.Q2 | 学期缓存与全部生产消费端 | cache→remote Flow、原子替换与 owner/session 捕获；导入/成绩/学分/年级/考试/空教室页面与后台调用接入；保留中间状态与错误策略；同 key 跨调用者请求代次由 Repository 协调，覆盖手工/后台/AI 并发，旧响应不覆盖较新结果 | 实施中：共享会话/事务与全部十个消费端已接入；46 项缓存核心、92 项消费端检查点通过，新增 6 项边界先红后绿及 10 项集成测试全部通过；正在补同 key 新元数据重试，独立增量审查及最终全量 CI 待验 |
 | 3.Q3 | 开学日、作息、课程元信息、课表远端 | 三校区 suspend 与真实解析 fixture；同步子请求受父 Job 管理；保留用户校准、作息、实验课、合并与回退；页面选择/手改优先级正确；学期/教学楼/默认周/作息按同一 owner 与选择关联，切换中不混用旧元数据 | 待做 |
 | 3.Q4 | 成绩单次与成绩汇总渐进结果 | 单次与 Flow 分开；items 先到、summary 后补、部分鉴权失败和缓存语义保留；所有成绩页面/通知消费接通 | 待做 |
 | 3.Q5 | 深圳目录、选课池、已选课程、规划与推荐 | 单次/串行分页支持取消；保留参数、路由、Cookie、排序、推荐策略；页面可替换/取消请求，写入选课不增加自动重试 | 待做 |
@@ -68,14 +68,14 @@
 
 | ID | 交付范围 | 必须成立的验收条件 | 状态 / PR / 证据 |
 |---|---|---|---|
-| 4.M1 | Main 状态、启动、公告与会话转变 | 登录/换账号/节流/首次博客同步、公告排序与已读时机可测；effect 只交付当前宿主，scope 副作用仍统一 | 待做 |
-| 4.M2 | Main 平台资源、Fragment 托管与 Compose | Fragment 恢复/切 tab/动态标签不重复或丢失；Compose 不强转 Activity；壁纸 IO/加载归属与释放实测；原 glass 反射契约保留 | 待做 |
+| 4.M1 | Main 状态、启动、公告与会话转变 | 登录/换账号/节流/首次博客同步、公告排序与已读时机可测；effect 只交付当前宿主，scope 副作用仍统一 | 实施中：VM/启动与 effect 链已写，独立审查发现的旋转公告/更新/导入提示归属正在修复；尚无本批通过的构建或设备结果 |
+| 4.M2 | Main 平台资源、Fragment 托管与 Compose | Fragment 恢复/切 tab/动态标签不重复或丢失；Compose 不强转 Activity；壁纸 IO/加载归属与释放实测；原 glass 反射契约保留 | 实施中：宿主、Compose、壁纸文件与加载能力已拆分；真实组件/生命周期验证待做，与 4.M1 合批 |
 | 4.T1 | Timetable 状态、编辑用例与 view 生命周期 | 批次选择受 Job/代次管理；目标课表、只读、THIS/SLOT/ALL 规则实测；旧 view 不交付；写入继续统一入口；VM 不反向引用 Fragment 常量 | 待做 |
 | 4.T2 | 复用周组件与布局策略 | 朋友课表/规划预览真实接入；几何/命中、重叠、时区、晚课、手势/动画有覆盖；组件 state/actions 与领域算法分离 | 待做 |
 | 4.W1 | Web 登录校区会话与 HTTP | 显式事件/状态/一次结果；Cookie 捕获和网络适配分开；三校区/研究生/电子实验/静默/超时回退实测；敏感 Cookie 不写日志 | 待做 |
 | 4.W2 | WebView 浏览器、脚本、MFA、凭据桥与展示 | 生命周期拥有浏览器与回调；origin/main-frame 安全约束、成功才保存凭据、取消清理；实际本地 WebView fixture 验证桥接/导航/销毁，不启用原禁用功能 | 待做 |
-| 4.S1 | Subject 资源请求与课程归属 | 课程不可变 key、agent→fallback、每卡目录栈/请求代次；迟到结果不能回填其他课程；clear 取消；保存/删除仍统一 | 本地实现与独审通过：原归属 5 项准确红后转绿，29 项 Subject JVM / 14 项设备全绿；Activity/VM/Room 真接线；最终 PR CI 待验 |
-| 4.S2 | Subject Markdown、打开策略与展示 | formatter 输入显式、纯策略可测；Markwon/下载/浏览器为平台适配；相对链接/来源/编码/截段与实际卡片操作契约保持 | 本地实现与独审通过：8 项兼容基线保持，真实 Markwon/启动器/Activity 测试通过；最终 PR CI 待验 |
+| 4.S1 | Subject 资源请求与课程归属 | 课程不可变 key、agent→fallback、每卡目录栈/请求代次；迟到结果不能回填其他课程；clear 取消；保存/删除仍统一 | 已合并且验证：[#73](https://github.com/HIT-A/HITA_Android/pull/73)，merge `d4806f7`；5 项归属先红后绿；head `127e945` 的 CI 40314264518 JVM 827 通过 + 1 既有跳过、设备 647 全通过 |
+| 4.S2 | Subject Markdown、打开策略与展示 | formatter 输入显式、纯策略可测；Markwon/下载/浏览器为平台适配；相对链接/来源/编码/截段与实际卡片操作契约保持 | 已合并且验证：#73；8 项兼容基线保持，真实 Markwon/启动器/Activity 测试通过；完整 CI 与合并树核验通过 |
 | 4.F | 阶段 4 完成审计 | 四个实际宿主与抽取类逐项审核；无直接 HTTP/文件 IO/散乱请求 map；运行真实 host/组件/WebView 生命周期用例和完整 app 回归 | 待做 |
 
 ## 5. 阶段 5：构建、测试与模块
@@ -86,8 +86,8 @@
 | 5.M | Maven Local 显式开关 | 默认所有解析域不使用 mavenLocal；显式属性启用；两种模式实际配置验证，干净 CI 可构建 | 已合并且验证：#71；三模式及冷缓存 111 配置对照通过，476 外部制品冷下载；最终 CI 默认构建通过 |
 | 5.R | style Release 资源校验恢复 | verifyReleaseResources enabled 且实际执行成功；修真实 AAPT 归属错误；CI 持久执行，无 skip/ignore 替代 | 已合并且验证：#71；本地资源任务实际执行且新 AAR 等价，最终 CI 日志确认 verifyReleaseResources/assembleRelease 成功，无 skip |
 | 5.T | component/hitauser/style 真实测试与 CI | 覆盖公共数据/网络/偏好/Room/主题关键行为；每模块实际 XML、CI 全模块覆盖；解决真实最低 API 依赖冲突而非 overrideLibrary | 已合并且验证：[#72](https://github.com/HIT-A/HITA_Android/pull/72)，merge `d2742e3`；head `5ae5bd7` 的 CI 40311018658 JVM 805 通过 + 1 既有跳过、设备 633 全通过；实际 runtime 保持 |
-| 5.K | 纯 Kotlin 领域模块 | 协议/比较真实移入 JVM-only 模块并产 jar，app 消费该 artifact；没有 Android/Room/app 回边；实体 adapter 留 app；原测试移动保持身份，独立模块测试和 app集成都通过 | 实施中：真实 JVM 模块与 app 接线已写，独审通过，原 57 项迁移测试独立全绿并产 JAR；app/R8 与最终 CI 待验，与 5.S 合批 |
-| 5.S | legacy sync 清理 | 删除未使用目录、悬空 keep/说明，确认无有效生产引用丢失；不删除用户设备旧数据库；Debug/R8 与仓库检查通过 | 代码完成：删除 15 个未编译旧文件与 7 条过期 keep，独立只读审查通过；Debug/R8 与交付验证待做 |
+| 5.K | 纯 Kotlin 领域模块 | 协议/比较真实移入 JVM-only 模块并产 jar，app 消费该 artifact；没有 Android/Room/app 回边；实体 adapter 留 app；原测试移动保持身份，独立模块测试和 app集成都通过 | 本地通过：原 57 项迁移测试全绿，36 类 JVM JAR/真实依赖图核实；app JVM 759 通过 + 1 旧跳过、Debug/测试 APK、26 项分享/迁移/比较设备集成与 Release R8 通过；最终 CI 待验，与 5.S 合批 |
+| 5.S | legacy sync 清理 | 删除未使用目录、悬空 keep/说明，确认无有效生产引用丢失；不删除用户设备旧数据库；Debug/R8 与仓库检查通过 | 本地通过：删除 15 个未编译旧文件与 7 条过期 keep，独审、Debug 与实际 Release R8 通过；无设备清库行为；与 5.K 同批最终 CI 待验 |
 | 5.F | 阶段 5 完成审计 | 真实 resolved 依赖、任务输出、各模块 XML、jar 内容与消费关系；不能用新增扫描器或空模块替代交付 | 待做 |
 
 ## 6. 与上述阶段相关的遗留项
@@ -127,3 +127,7 @@
 | 5.T 子模块定向验证 | component JVM 7/设备 7、hitauser JVM 4/设备 11、style 设备 8 全通过；app 原 JVM 795 身份保留（794 通过 + 1 既有跳过）、设备 607 全通过；最终 #72 CI 聚合 JVM 806/设备 633 身份全部核验 | `style/modules-validated-results/`；Room null 写入首次 NPE 与原断言修复后通过，三份历史 schema/生成 identity 不变，无需升数据库版本；`style/modules-final-independent-review.md` 已独审；app 原始 XML/审计见 `modules-app-{jvm,device}-results/` 与 `*-audit.json`，实际生产/测试网络 runtime 见 `modules-runtime-resolution.json` |
 | 5.T 最终交付 | #72 已合并，merge `d2742e337f23dd3ea7b1a3121ecd21406e9d49e8`，树与 head `5ae5bd7` 相同 | CI 40311018658 两 job 成功；JVM 806（805 通过 + 1 旧跳过）、设备 633 全通过，两个 artifact 摘要匹配；`style/modules-final-signoff.json`。设备报告下载超时期间误发合并命令，设备 XML 在合并后补齐核验，流程偏差保留记录 |
 | 4.S1/S2 本地整链 | 原实现 8 兼容通过 / 5 归属准确失败；修复后 29 Subject JVM 与 14 设备全部通过，独审冻结的 21 文件 hash 保持 | `subject/legacy-baseline-jvm-audit.json`、`implementation-first-jvm-audit.json`、`implementation-first-ui-device-results-audit.json`、`implementation-room-device-audit.json`；包含真实 Activity 重建、VM 生命周期、Markwon 和 Room 字段事务。合入 #72 后的完整组合由最终 PR CI 验证 |
+| 4.S1/S2 最终交付 | #73 已合并且验证，merge `d4806f7c39c61961436c279ad6ad85a947f36736`，树与 head `127e945` 相同 | [CI 40314264518](https://github.com/HIT-A/HITA_Android/actions/runs/40314264518) 两 job 成功；JVM 828（827 通过 + 1 旧跳过）、设备 647 全通过，两个 artifact 摘要与全部 testcase 身份在合并前核验；`subject/final-signoff.json`、`subject/ci-40314264518/` |
+| 5.K/S 本地整链 | 9 个纯生产文件移入独立 JVM 模块、6 个旧测试类共 57 项原样迁移；app 保留 Room adapter；旧 sync 与 keep 清理 | `core/independent-review.md`、`independent-source-integrity.json`、`standalone-jvm-results-audit.json`、`jar-audit.json`、`resolved-boundary.json`；JAR 36 类为 Java 8 字节码，无 fixture/Room adapter，app 真实消费 JAR |
+| 5.K/S app 与缩减验证 | app JVM 760（759 通过 + 1 旧跳过）、Debug/测试 APK、26 项分享/迁移/比较集成全通过；Release R8 实际执行成功，无签名 Release APK 结论；最终 PR CI 待验 | `core/app-integration-and-r8-second.log`、`app-jvm-audit.json`、`integration-device-audit.json`、`r8-audit.json`；跨模块 place 属性局部捕获编译修正经独审，57 项迁移不是新增覆盖；最终完整集合为 JVM 828 / 设备 647 |
+| 3.Q2 检查点 | 原 28 兼容与 4 安全红绿、46 核心、92 消费端检查点已验证；其后 6 项真实边界先红后绿，另 10 项显示/会话/注销/真实多 facade/自动导入集成通过 | `term-cache/q2-core-first-device-*`、`q2-chain-first-device-audit.json`、`q2-boundary-red-audit.json`、`q2-boundary-green-audit.json`；各检查点独立，不相加冒充最终完整结果。logout marker 测试为重新构造协调器，不是真实进程杀死；当前最终 CI 待验 |

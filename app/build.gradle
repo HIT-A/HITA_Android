@@ -158,8 +158,10 @@ dependencies {
     implementation project(path: ':component')
     implementation project(path: ':hitauser')
     implementation project(path: ':style')
+    implementation project(path: ':timetable-core')
 
     testImplementation(libs.junit)
+    testImplementation(testFixtures(project(':timetable-core')))
     androidTestImplementation(libs.androidTestJunit)
     androidTestImplementation(libs.roomTesting)
     androidTestImplementation(libs.espressoCore)
