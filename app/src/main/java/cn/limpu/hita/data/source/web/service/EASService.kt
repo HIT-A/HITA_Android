@@ -46,6 +46,13 @@ interface EASService {
     fun getAllTerms(token: EASToken):LiveData<DataState<List<TermItem>>>;
 
     /**
+     * 单次远端学期查询；入口固定查询通道与培养类型，阻塞请求在 IO 执行。
+     * 取消向上传播，在当前同步业务请求返回后停止后续步骤；不会立即中断 socket。
+     * token 保留原引用以维持 Cookie 更新和既有会话代次守卫；缓存由调用方负责。
+     */
+    suspend fun getAllTermsOnce(token: EASToken): DataState<List<TermItem>>
+
+    /**
      * 获取学期起始日期。
      *
      * 契约：返回值应尽量是教学第一周所在周的日期；Repository 会再归一化到周一零点。

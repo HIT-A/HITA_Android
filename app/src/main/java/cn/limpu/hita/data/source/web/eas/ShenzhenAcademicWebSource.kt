@@ -43,6 +43,11 @@ import java.io.IOException
 import java.util.Locale
 import org.json.JSONObject
 import org.jsoup.Connection
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.withContext
 
 internal object ShenzhenSelectedCourseIdentityParser {
     private val rawIdentityKeys = setOf("id", "rwid", "rwh", "selectionrequestid", "taskid")
@@ -127,88 +132,139 @@ internal class ShenzhenAcademicWebSource(
         if (token.accessToken.isNullOrBlank() && token.hasShenzhenWebSession()) {
             return getShenzhenWebTerms(token)
         }
-        val res = MutableLiveData<DataState<List<TermItem>>>()
-        Thread {
-            val terms = arrayListOf<TermItem>()
-            try {
-                val resp = authedFormPost(token, "/app/commapp/queryxnxqlist", emptyMap())
-                val jo = JsonUtils.getJsonObject(resp.body())
-                val content = jo?.optJSONArray("content")
-                if (content == null) {
-                    res.postValue(DataState(DataState.STATE.NOT_LOGGED_IN))
-                    return@Thread
-                }
-                for (i in 0 until content.length()) {
-                    val item = content.optJSONObject(i) ?: continue
-                    val term = TermItem(
-                        yearCode = item.optString("XN"),
-                        yearName = item.optString("XN"),
-                        termCode = item.optString("XQ"),
-                        termName = item.optString("XNXQMC")
-                    )
-                    term.name = buildTermDisplayName(term.yearName, term.termName)
-                    term.isCurrent = item.optString("SFDQXQ") == "1"
-                    terms.add(term)
-                }
-                res.postValue(DataState(terms, DataState.STATE.SUCCESS))
-            } catch (e: Exception) {
-                LogUtils.e("getAllTerms: failed, error=${e.message}", e)
-                res.postValue(DataState(DataState.STATE.FETCH_FAILED, e.message))
+        val result = MutableLiveData<DataState<List<TermItem>>>()
+        Thread { result.postValue(requestApiTerms(token)) }.start()
+        return result
+    }
+
+    suspend fun getAllTermsOnce(token: EASToken): DataState<List<TermItem>> {
+        val hasWebSession = token.hasShenzhenWebSession()
+        val useWebSession = token.accessToken.isNullOrBlank() && hasWebSession
+        val studentType = token.getStudentType()
+        return withContext(Dispatchers.IO) {
+            val context = currentCoroutineContext()
+            val checkCancelled = { context.ensureActive() }
+            val result = if (useWebSession) {
+                requestShenzhenWebTerms(token, hasWebSession, studentType, checkCancelled)
+            } else {
+                requestApiTerms(token, checkCancelled)
             }
-        }.start()
-        return res
+            context.ensureActive()
+            result
+        }
+    }
+
+    private fun requestApiTerms(
+        token: EASToken,
+        checkCancelled: (() -> Unit)? = null,
+    ): DataState<List<TermItem>> {
+        val terms = arrayListOf<TermItem>()
+        return try {
+            checkCancelled?.invoke()
+            val resp = authedFormPost(token, "/app/commapp/queryxnxqlist", emptyMap())
+            checkCancelled?.invoke()
+            val jo = JsonUtils.getJsonObject(resp.body())
+            val content = jo?.optJSONArray("content")
+            if (content == null) {
+                return DataState(DataState.STATE.NOT_LOGGED_IN)
+            }
+            for (i in 0 until content.length()) {
+                val item = content.optJSONObject(i) ?: continue
+                val term = TermItem(
+                    yearCode = item.optString("XN"),
+                    yearName = item.optString("XN"),
+                    termCode = item.optString("XQ"),
+                    termName = item.optString("XNXQMC")
+                )
+                term.name = buildTermDisplayName(term.yearName, term.termName)
+                term.isCurrent = item.optString("SFDQXQ") == "1"
+                terms.add(term)
+            }
+            checkCancelled?.invoke()
+            DataState(terms, DataState.STATE.SUCCESS)
+        } catch (e: Exception) {
+            checkCancelled?.invoke()
+            if (checkCancelled != null && e is CancellationException) throw e
+            LogUtils.e("getAllTerms: failed, error=${e.message}", e)
+            DataState(DataState.STATE.FETCH_FAILED, e.message)
+        }
     }
 
     fun getShenzhenWebTerms(token: EASToken): LiveData<DataState<List<TermItem>>> {
         val result = MutableLiveData<DataState<List<TermItem>>>()
-        Thread {
-            if (!token.hasShenzhenWebSession()) {
-                result.postValue(DataState(DataState.STATE.NOT_LOGGED_IN, "请先连接深圳 Web 教务"))
-                return@Thread
-            }
-            try {
-                // The course-selection module has its own complete term dropdown. Unlike the
-                // generic historical-term endpoint, it includes a newly opened next term while
-                // the academic calendar is still in the preceding summer term.
-                var response = jwFormPost(token, "/component/queryXnxq", emptyMap(), "/Xsxk/query/1")
-                if (isJwAuthenticationExpired(response)) {
-                    result.postValue(DataState(DataState.STATE.NOT_LOGGED_IN, "深圳 Web 会话已失效"))
-                    return@Thread
-                }
-                var terms = ShenzhenCourseCatalogParser.parseTerms(response.body())
-                if (response.statusCode() != 200 || terms == null) {
-                    // Keep compatibility with the previous portal while deployments are rolling
-                    // between versions.
-                    response = jwFormPost(token, "/component/queryxnxqdata", emptyMap(), "/authentication/main")
-                    if (isJwAuthenticationExpired(response)) {
-                        result.postValue(DataState(DataState.STATE.NOT_LOGGED_IN, "深圳 Web 会话已失效"))
-                        return@Thread
-                    }
-                    terms = ShenzhenCourseCatalogParser.parseTerms(response.body())
-                }
-                if (response.statusCode() != 200 || terms == null) {
-                    result.postValue(DataState(DataState.STATE.FETCH_FAILED, "学期列表解析失败"))
-                } else {
-                    val selectionResponse = jwFormPost(token, "/Xsxk/queryXkdqXnxq", mapOf("p_pylx" to token.getStudentType()), "/Xsxk/query/1")
-                    val selectionTermId = if (isJwAuthenticationExpired(selectionResponse)) {
-                        null
-                    } else {
-                        ShenzhenCourseCatalogParser.parseSelectionTermId(selectionResponse.body())
-                    }
-                    if (selectionTermId != null && terms.any { it.id == selectionTermId }) {
-                        terms.forEach { it.isCurrent = it.id == selectionTermId }
-                    }
-                    LogUtils.d(
-                        "getShenzhenWebTerms: count=${terms.size}, selectionTerm=$selectionTermId, " +
-                            "selectedPresent=${terms.any { it.id == selectionTermId }}"
-                    )
-                    result.postValue(DataState(terms, DataState.STATE.SUCCESS))
-                }
-            } catch (error: Exception) {
-                result.postValue(DataState(DataState.STATE.FETCH_FAILED, error.message))
-            }
-        }.start()
+        Thread { result.postValue(requestShenzhenWebTerms(token)) }.start()
         return result
+    }
+
+    suspend fun getShenzhenWebTermsOnce(token: EASToken): DataState<List<TermItem>> {
+        val hasWebSession = token.hasShenzhenWebSession()
+        val studentType = token.getStudentType()
+        return withContext(Dispatchers.IO) {
+            val context = currentCoroutineContext()
+            val result = requestShenzhenWebTerms(token, hasWebSession, studentType) { context.ensureActive() }
+            context.ensureActive()
+            result
+        }
+    }
+
+    private fun requestShenzhenWebTerms(
+        token: EASToken,
+        capturedHasWebSession: Boolean? = null,
+        capturedStudentType: String? = null,
+        checkCancelled: (() -> Unit)? = null,
+    ): DataState<List<TermItem>> {
+        checkCancelled?.invoke()
+        if (!(capturedHasWebSession ?: token.hasShenzhenWebSession())) {
+            return DataState(DataState.STATE.NOT_LOGGED_IN, "请先连接深圳 Web 教务")
+        }
+        return try {
+            // The course-selection module has its own complete term dropdown. Unlike the
+            // generic historical-term endpoint, it includes a newly opened next term while
+            // the academic calendar is still in the preceding summer term.
+            var response = jwFormPost(token, "/component/queryXnxq", emptyMap(), "/Xsxk/query/1")
+            checkCancelled?.invoke()
+            if (isJwAuthenticationExpired(response)) {
+                return DataState(DataState.STATE.NOT_LOGGED_IN, "深圳 Web 会话已失效")
+            }
+            var terms = ShenzhenCourseCatalogParser.parseTerms(response.body())
+            if (response.statusCode() != 200 || terms == null) {
+                // Keep compatibility with the previous portal while deployments are rolling
+                // between versions.
+                checkCancelled?.invoke()
+                response = jwFormPost(token, "/component/queryxnxqdata", emptyMap(), "/authentication/main")
+                checkCancelled?.invoke()
+                if (isJwAuthenticationExpired(response)) {
+                    return DataState(DataState.STATE.NOT_LOGGED_IN, "深圳 Web 会话已失效")
+                }
+                terms = ShenzhenCourseCatalogParser.parseTerms(response.body())
+            }
+            if (response.statusCode() != 200 || terms == null) {
+                DataState(DataState.STATE.FETCH_FAILED, "学期列表解析失败")
+            } else {
+                checkCancelled?.invoke()
+                val selectionResponse = jwFormPost(token, "/Xsxk/queryXkdqXnxq",
+                    mapOf("p_pylx" to (capturedStudentType ?: token.getStudentType())), "/Xsxk/query/1")
+                checkCancelled?.invoke()
+                val selectionTermId = if (isJwAuthenticationExpired(selectionResponse)) {
+                    null
+                } else {
+                    ShenzhenCourseCatalogParser.parseSelectionTermId(selectionResponse.body())
+                }
+                if (selectionTermId != null && terms.any { it.id == selectionTermId }) {
+                    terms.forEach { it.isCurrent = it.id == selectionTermId }
+                }
+                LogUtils.d(
+                    "getShenzhenWebTerms: count=${terms.size}, selectionTerm=$selectionTermId, " +
+                        "selectedPresent=${terms.any { it.id == selectionTermId }}"
+                )
+                checkCancelled?.invoke()
+                DataState(terms, DataState.STATE.SUCCESS)
+            }
+        } catch (error: Exception) {
+            checkCancelled?.invoke()
+            if (checkCancelled != null && error is CancellationException) throw error
+            DataState(DataState.STATE.FETCH_FAILED, error.message)
+        }
     }
 
     fun queryShenzhenAvailableCourses(

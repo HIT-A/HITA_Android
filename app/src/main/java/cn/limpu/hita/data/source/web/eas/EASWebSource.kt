@@ -655,8 +655,15 @@ class EASWebSource internal constructor(
     override fun getAllTerms(token: EASToken): LiveData<DataState<List<TermItem>>> =
         academicSource.getAllTerms(token)
 
+    override suspend fun getAllTermsOnce(token: EASToken): DataState<List<TermItem>> =
+        academicSource.getAllTermsOnce(token)
+
     fun getShenzhenWebTerms(token: EASToken): LiveData<DataState<List<TermItem>>> =
         academicSource.getShenzhenWebTerms(token)
+
+    /** Single Web-only term query, retaining the independent Shenzhen Web session route. */
+    suspend fun getShenzhenWebTermsOnce(token: EASToken): DataState<List<TermItem>> =
+        academicSource.getShenzhenWebTermsOnce(token)
 
     fun queryShenzhenAvailableCourses(
         token: EASToken,

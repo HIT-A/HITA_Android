@@ -30,16 +30,23 @@ class BenbuEASWebSource internal constructor(
     onCookiesUpdated: ((EASToken) -> Unit)?,
     private val examHostOverride: String? = null,
     private val classroomHostOverride: String? = null,
+    private val termsHostOverride: String? = null,
+    private val graduateTermsHostOverride: String? = null,
 ) : AbstractEASWebSource(onCookiesUpdated) {
     constructor(onCookiesUpdated: ((EASToken) -> Unit)? = null) : this(null, onCookiesUpdated)
 
     override val hostName = "http://jwts-hit-edu-cn.ivpn.hit.edu.cn:1080"
     override val teachingBuildingsHostName: String
         get() = teachingBuildingsHostOverride?.trimEnd('/') ?: hostName
+    override val termsHostName: String
+        get() = termsHostOverride?.trimEnd('/') ?: hostName
     override val campusDisplayName: String = "本部"
 
-    override fun getGraduateTermsOrNull(token: EASToken): List<TermItem>? =
-        if (token.stutype == EASToken.TYPE.GRAD) getGraduateTerms(token) else null
+    override fun getGraduateTermsOrNull(
+        token: EASToken,
+        isGraduate: Boolean,
+        checkCancelled: (() -> Unit)?,
+    ): List<TermItem>? = if (isGraduate) getGraduateTerms(token, checkCancelled) else null
 
     override fun loadCoursesForSchedule(term: TermItem, token: EASToken): List<CourseItem> =
         getCachedOrFetchCourses(term, token)
@@ -298,20 +305,24 @@ class BenbuEASWebSource internal constructor(
         return mergedCourses
     }
 
-    private fun getGraduateTerms(token: EASToken): List<TermItem> {
-        val response = Jsoup.connect("$graduateHostName/yjsgl/common/getSemester")
+    private fun getGraduateTerms(token: EASToken, checkCancelled: (() -> Unit)? = null): List<TermItem> {
+        checkCancelled?.invoke()
+        val termsGraduateHost = graduateTermsHostOverride?.trimEnd('/') ?: graduateHostName
+        val response = Jsoup.connect("$termsGraduateHost/yjsgl/common/getSemester")
             .cookies(token.cookies)
             .header("Accept", "application/json, text/plain, */*")
             .header("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
             .header("X-Requested-With", "XMLHttpRequest")
             .timeout(timeout).ignoreContentType(true).ignoreHttpErrors(true)
             .method(Connection.Method.POST).execute()
+        checkCancelled?.invoke()
         if (response.statusCode() !in 200..299) throw IllegalStateException("HTTP ${response.statusCode()}")
         val terms = BenbuGraduateScheduleParser.parseTerms(response.body())
+        checkCancelled?.invoke()
         if (terms.isNotEmpty()) return terms
 
-        val page = establishGraduateCourseSession(token)
-        return parseTermsFromDoc(page, "xnxq")
+        val page = establishGraduateCourseSession(token, graduateTermsHostOverride, checkCancelled)
+        return parseTermsFromDoc(page, "xnxq").also { checkCancelled?.invoke() }
     }
 
     private fun getGraduateTimetable(term: TermItem, token: EASToken): List<CourseItem> {
@@ -343,8 +354,14 @@ class BenbuEASWebSource internal constructor(
         return courses
     }
 
-    private fun establishGraduateCourseSession(token: EASToken): Document {
-        val response = Jsoup.connect("$graduateHostName/yjsgl/outInterface/grkb")
+    private fun establishGraduateCourseSession(
+        token: EASToken,
+        hostOverride: String? = null,
+        checkCancelled: (() -> Unit)? = null,
+    ): Document {
+        checkCancelled?.invoke()
+        val bridgeHost = hostOverride?.trimEnd('/') ?: graduateHostName
+        val response = Jsoup.connect("$bridgeHost/yjsgl/outInterface/grkb")
             .cookies(token.cookies)
             .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
             .header("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15")
@@ -352,14 +369,19 @@ class BenbuEASWebSource internal constructor(
             .followRedirects(true)
             .method(Connection.Method.GET).execute()
         token.cookies.putAll(response.cookies())
+        checkCancelled?.invoke()
         if (response.statusCode() !in 200..299) {
             throw IllegalStateException("研究生课表桥接失败 HTTP ${response.statusCode()}")
         }
         val finalHost = response.url().host
-        if (!finalHost.contains("gcourse", ignoreCase = true)) {
+        // The internal term-test endpoint must return to its exact host; production retains
+        // the existing gcourse redirect requirement, including timetable callers.
+        val validHost = if (hostOverride == null) finalHost.contains("gcourse", ignoreCase = true)
+            else finalHost.equals(java.net.URI(hostOverride).host, ignoreCase = true)
+        if (!validHost) {
             throw IllegalStateException("研究生课表会话建立失败")
         }
-        return response.parse()
+        return response.parse().also { checkCancelled?.invoke() }
     }
 
     private fun getRegularCourses(term: TermItem, token: EASToken): List<CourseItem> {
