@@ -28,6 +28,7 @@ import java.util.concurrent.Executors
 class BenbuEASWebSource internal constructor(
     private val teachingBuildingsHostOverride: String?,
     onCookiesUpdated: ((EASToken) -> Unit)?,
+    private val examHostOverride: String? = null,
 ) : AbstractEASWebSource(onCookiesUpdated) {
     constructor(onCookiesUpdated: ((EASToken) -> Unit)? = null) : this(null, onCookiesUpdated)
 
@@ -904,7 +905,8 @@ class BenbuEASWebSource internal constructor(
                 val termCode = term.getCode()
 
                 val examState = BenbuExamQuery.load { kssjd, typeName ->
-                    val url = "$hostName/kscx/queryKcForXs1"
+                    val examHostName = examHostOverride?.trimEnd('/') ?: hostName
+                    val url = "$examHostName/kscx/queryKcForXs1"
                     val response = Jsoup.connect(url)
                         .cookies(token.cookies)
                         .header("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15")

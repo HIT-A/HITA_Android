@@ -29,6 +29,7 @@ import java.util.concurrent.Executors
 class WeihaiEASWebSource internal constructor(
     private val teachingBuildingsHostOverride: String?,
     onCookiesUpdated: ((EASToken) -> Unit)?,
+    private val examHostOverride: String? = null,
 ) : AbstractEASWebSource(onCookiesUpdated) {
     constructor(onCookiesUpdated: ((EASToken) -> Unit)? = null) : this(null, onCookiesUpdated)
 
@@ -583,7 +584,8 @@ class WeihaiEASWebSource internal constructor(
                 for (period in examPeriods) {
                     val termCode = if (term != null) term.getCode() else "2025-20262"
 
-                    val response = Jsoup.connect("$hostName/kscx/queryKcForXs")
+                    val examHostName = examHostOverride?.trimEnd('/') ?: hostName
+                    val response = Jsoup.connect("$examHostName/kscx/queryKcForXs")
                         .cookies(token.cookies)
                         .data("xnxq", termCode)
                         .data("kssjd", period)
@@ -591,7 +593,7 @@ class WeihaiEASWebSource internal constructor(
                         .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
                         .header("Content-Type", "application/x-www-form-urlencoded")
                         .header("Origin", "https://webvpn.hitwh.edu.cn")
-                        .header("Referer", "$hostName/kscx/queryKcForXs")
+                        .header("Referer", "$examHostName/kscx/queryKcForXs")
                         .timeout(timeout)
                         .ignoreContentType(true)
                         .ignoreHttpErrors(true)

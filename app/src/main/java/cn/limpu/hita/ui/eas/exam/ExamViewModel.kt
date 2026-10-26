@@ -1,6 +1,5 @@
 package cn.limpu.hita.ui.eas.exam
 
-import cn.limpu.hita.data.analytics.UsageAnalyticsClient
 import cn.limpu.hita.data.analytics.UsageAnalyticsEvent
 import android.content.Context
 import androidx.lifecycle.LiveData
@@ -24,11 +23,20 @@ import java.util.*
 import javax.inject.Inject
 
 @HiltViewModel
-class ExamViewModel @Inject constructor(
+class ExamViewModel internal constructor(
     easRepo: EASRepository,
-    @param:ApplicationContext private val context: Context,
+    private val context: Context,
     private val examImportRepository: ExamImportRepository,
+    private val inputs: ExamPageInputs,
 ) : EASViewModel(easRepo) {
+    @Inject constructor(
+        easRepo: EASRepository,
+        @ApplicationContext context: Context,
+        examImportRepository: ExamImportRepository,
+    ) : this(
+        easRepo, context, examImportRepository,
+        ExamPageInputs({ easRepo.getAllTerms() }, easRepo::getExamInfo),
+    )
     /**
      * LiveData区
      */
@@ -36,7 +44,7 @@ class ExamViewModel @Inject constructor(
     private val termLoadGate = ExamTermLoadGate()
 
     val termsLiveData: LiveData<DataState<List<TermItem>>> = pageController.switchMap {
-        return@switchMap easRepo.getAllTerms()
+        return@switchMap inputs.getTerms()
     }
 
     val selectedTermLiveData: MutableLiveData<TermItem> = MutableLiveData()
@@ -75,7 +83,7 @@ class ExamViewModel @Inject constructor(
     fun startRefresh() {
         LogUtils.d("=== 🔄 startRefresh called ===", "ExamViewModel")
 
-        val currentTime = System.currentTimeMillis()
+        val currentTime = inputs.nowMillis()
         val selectedTerm = selectedTermLiveData.value
         val termJustChanged = (selectedTerm != null && !selectedTerm.equals(previousTerm))
 
@@ -110,8 +118,8 @@ class ExamViewModel @Inject constructor(
         LogUtils.d("🌐 calling getExamInfo API with term: ${selectedTerm.name}", "ExamViewModel")
 
         // 获取新的 LiveData（每次调用 getExamInfo 返回新实例，只取一次避免双重网络请求）
-        val operation = UsageAnalyticsClient.begin(UsageAnalyticsEvent.EXAMS_REFRESH_STARTED)
-        val newLiveData = easRepo.getExamInfo(selectedTerm)
+        val operation = inputs.beginOperation(UsageAnalyticsEvent.EXAMS_REFRESH_STARTED)
+        val newLiveData = inputs.getExams(selectedTerm)
 
         // 从旧的 LiveData 上移除旧的观察者
         examInfoObserver?.let {
@@ -121,9 +129,9 @@ class ExamViewModel @Inject constructor(
         // 创建新的观察者并保存引用
         val newObserver = androidx.lifecycle.Observer<DataState<List<ExamItem>>> { result ->
             when (result.state) {
-                DataState.STATE.SUCCESS -> UsageAnalyticsClient.finish(operation, UsageAnalyticsEvent.EXAMS_REFRESH_SUCCEEDED)
+                DataState.STATE.SUCCESS -> inputs.finishOperation(operation, UsageAnalyticsEvent.EXAMS_REFRESH_SUCCEEDED, emptyMap())
                 DataState.STATE.NOTHING, DataState.STATE.LOADING -> Unit
-                else -> UsageAnalyticsClient.finish(operation, UsageAnalyticsEvent.EXAMS_REFRESH_FAILED, mapOf("error_category" to "unknown"))
+                else -> inputs.finishOperation(operation, UsageAnalyticsEvent.EXAMS_REFRESH_FAILED, mapOf("error_category" to "unknown"))
             }
             LogUtils.d("📥 API response received: state=${result.state}, data size=${result.data?.size}", "ExamViewModel")
             when (result.state) {

@@ -76,6 +76,7 @@ class EASWebSource internal constructor(
     private val credentialProvider: (EASToken.Campus, String?) -> EasCredential? = { _, _ -> null },
     private val apiHostOverride: String? = null,
     private val webHostOverride: String? = null,
+    private val examApiHostOverride: String? = null,
 ) : EASService {
 
     private val hostName = apiHostOverride?.trimEnd('/') ?: "https://mjw.hitsz.edu.cn/incoSpringBoot"
@@ -1135,7 +1136,7 @@ class EASWebSource internal constructor(
 
 
                 // 发送POST请求到深圳校区考试查询接口
-                val examHost = "https://mjw.hitsz.edu.cn"
+                val examHost = examApiHostOverride?.trimEnd('/') ?: "https://mjw.hitsz.edu.cn"
                 val url = "$examHost/incoSpringBoot/app/kscx/queryKsxxByXs"
 
 
