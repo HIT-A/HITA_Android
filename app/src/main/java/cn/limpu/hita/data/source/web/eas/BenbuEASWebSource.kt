@@ -30,12 +30,16 @@ class BenbuEASWebSource internal constructor(
     onCookiesUpdated: ((EASToken) -> Unit)?,
     private val examHostOverride: String? = null,
     private val classroomHostOverride: String? = null,
+    private val termsHostOverride: String? = null,
+    private val graduateTermsHostOverride: String? = null,
 ) : AbstractEASWebSource(onCookiesUpdated) {
     constructor(onCookiesUpdated: ((EASToken) -> Unit)? = null) : this(null, onCookiesUpdated)
 
     override val hostName = "http://jwts-hit-edu-cn.ivpn.hit.edu.cn:1080"
     override val teachingBuildingsHostName: String
         get() = teachingBuildingsHostOverride?.trimEnd('/') ?: hostName
+    override val termsHostName: String
+        get() = termsHostOverride?.trimEnd('/') ?: hostName
     override val campusDisplayName: String = "本部"
 
     override fun getGraduateTermsOrNull(token: EASToken): List<TermItem>? =
@@ -299,7 +303,8 @@ class BenbuEASWebSource internal constructor(
     }
 
     private fun getGraduateTerms(token: EASToken): List<TermItem> {
-        val response = Jsoup.connect("$graduateHostName/yjsgl/common/getSemester")
+        val termsGraduateHost = graduateTermsHostOverride?.trimEnd('/') ?: graduateHostName
+        val response = Jsoup.connect("$termsGraduateHost/yjsgl/common/getSemester")
             .cookies(token.cookies)
             .header("Accept", "application/json, text/plain, */*")
             .header("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
@@ -310,7 +315,7 @@ class BenbuEASWebSource internal constructor(
         val terms = BenbuGraduateScheduleParser.parseTerms(response.body())
         if (terms.isNotEmpty()) return terms
 
-        val page = establishGraduateCourseSession(token)
+        val page = establishGraduateCourseSession(token, graduateTermsHostOverride)
         return parseTermsFromDoc(page, "xnxq")
     }
 
@@ -343,8 +348,9 @@ class BenbuEASWebSource internal constructor(
         return courses
     }
 
-    private fun establishGraduateCourseSession(token: EASToken): Document {
-        val response = Jsoup.connect("$graduateHostName/yjsgl/outInterface/grkb")
+    private fun establishGraduateCourseSession(token: EASToken, hostOverride: String? = null): Document {
+        val bridgeHost = hostOverride?.trimEnd('/') ?: graduateHostName
+        val response = Jsoup.connect("$bridgeHost/yjsgl/outInterface/grkb")
             .cookies(token.cookies)
             .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
             .header("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15")
@@ -356,7 +362,11 @@ class BenbuEASWebSource internal constructor(
             throw IllegalStateException("研究生课表桥接失败 HTTP ${response.statusCode()}")
         }
         val finalHost = response.url().host
-        if (!finalHost.contains("gcourse", ignoreCase = true)) {
+        // The internal term-test endpoint must return to its exact host; production retains
+        // the existing gcourse redirect requirement, including timetable callers.
+        val validHost = if (hostOverride == null) finalHost.contains("gcourse", ignoreCase = true)
+            else finalHost.equals(java.net.URI(hostOverride).host, ignoreCase = true)
+        if (!validHost) {
             throw IllegalStateException("研究生课表会话建立失败")
         }
         return response.parse()

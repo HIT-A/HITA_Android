@@ -49,6 +49,9 @@ abstract class AbstractEASWebSource(
     /** 仅教学楼查询可替换地址，供本地 HTTP 契约测试使用。 */
     protected open val teachingBuildingsHostName: String get() = hostName
 
+    /** 仅学期列表查询可替换地址，默认仍使用校区教务入口。 */
+    protected open val termsHostName: String get() = hostName
+
     /** 校区中文名，用于用户可见文案（如"本部"/"威海"）。 */
 
     protected abstract val campusDisplayName: String
@@ -209,8 +212,8 @@ abstract class AbstractEASWebSource(
                     }
                     return@execute
                 }
-                val scoreFetch = fetchTermDoc(token, "$hostName/cjcx/queryQmcj", "pageXnxq")
-                val timetableFetch = fetchTermDoc(token, "$hostName/kbcx/queryGrkb", "xnxq")
+                val scoreFetch = fetchTermDoc(token, "$termsHostName/cjcx/queryQmcj", "pageXnxq")
+                val timetableFetch = fetchTermDoc(token, "$termsHostName/kbcx/queryGrkb", "xnxq")
 
                 if (scoreFetch.authExpired && timetableFetch.authExpired) {
                     LogUtils.w("getAllTerms: auth expired on both term pages")

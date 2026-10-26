@@ -31,12 +31,15 @@ class WeihaiEASWebSource internal constructor(
     onCookiesUpdated: ((EASToken) -> Unit)?,
     private val examHostOverride: String? = null,
     private val classroomHostOverride: String? = null,
+    private val termsHostOverride: String? = null,
 ) : AbstractEASWebSource(onCookiesUpdated) {
     constructor(onCookiesUpdated: ((EASToken) -> Unit)? = null) : this(null, onCookiesUpdated)
 
     override val hostName = "https://webvpn.hitwh.edu.cn/http/77726476706e69737468656265737421fae0558f693861446900c7a99c406d3667"
     override val teachingBuildingsHostName: String
         get() = teachingBuildingsHostOverride?.trimEnd('/') ?: hostName
+    override val termsHostName: String
+        get() = termsHostOverride?.trimEnd('/') ?: hostName
     override val campusDisplayName: String = "威海"
 
     override fun postProcessTerms(terms: MutableList<TermItem>): MutableList<TermItem> =
