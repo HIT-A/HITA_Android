@@ -11,6 +11,11 @@ import cn.limpu.hita.data.repository.TimetableRepository
 import com.limpu.component.data.DataState
 import com.limpu.component.data.Trigger
 import cn.limpu.hita.ui.eas.EASViewModel
+import cn.limpu.hita.ui.eas.TermQueryLiveData
+import cn.limpu.hita.ui.eas.mapTerms
+import cn.limpu.hita.ui.eas.reconcileSelectedTerm
+import cn.limpu.hita.ui.eas.sessionBoundData
+import cn.limpu.hita.ui.eas.TermSelectionDisplaySource
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 
@@ -25,10 +30,13 @@ class EmptyClassroomViewModel internal constructor(
     ) : this(
         easRepo,
         EmptyClassroomPageInputs(
-            getTerms = { easRepo.getAllTerms() },
+            getTerms = { easRepo.createTermQueryRequest() },
             createTeachingBuildingsRequest = easRepo::createTeachingBuildingsRequest,
             getCurrentWeek = timetableRepository::getCurrentWeekOfTimetable,
-            getScheduleStructure = { easRepo.getScheduleStructure(it) },
+            getScheduleStructure = { term -> easRepo.sessionBoundData { session ->
+                easRepo.getScheduleStructure(session, term,
+                    session.studentType == cn.limpu.hita.data.model.eas.EASToken.TYPE.UNDERGRAD)
+            } },
             createClassroomQueryRequest = { term, building, week ->
                 easRepo.createEmptyClassroomQueryRequest(term, building, week)
             },
@@ -48,22 +56,33 @@ class EmptyClassroomViewModel internal constructor(
     private var lastQueryKey: ClassroomQueryKey? = null
     private var pendingForce = false
     private var cleared = false
-    val termsLiveData: LiveData<DataState<List<TermItem>>> = pageController.switchMap {
-        return@switchMap inputs.getTerms().map { state ->
-            val data = state.data
-            if (state.state != DataState.STATE.SUCCESS || data.isNullOrEmpty()) {
-                return@map state
-            }
-            val currentYear = java.util.Calendar.getInstance().get(java.util.Calendar.YEAR).toString()
-            val filtered = data.filter { term ->
-                term.yearCode.contains(currentYear) || term.yearName.contains(currentYear) || term.name.contains(currentYear)
-            }
-            val finalList = if (filtered.isNotEmpty()) filtered else data
-            DataState(finalList, state.state)
-        }
-    }
+    private val termQueries = TermQueryLiveData(viewModelScope, easRepo.querySessions, inputs.getTerms,
+        transform = { session, state -> state.mapTerms { data ->
+            val year = session.calendarYear.toString()
+            data.filter { it.yearCode.contains(year) || it.yearName.contains(year) || it.name.contains(year) }
+                .ifEmpty { data }
+        } },
+        onSessionChanged = {
+            selectTerm(null)
+            selectedTermDisplay.updateOptions(emptyList())
+            selectBuilding(null)
+            classroomResults.value = DataState(DataState.STATE.NOTHING)
+            pageController.value = Trigger.actioning
+        },
+        onResult = { _, state -> if (state.state == DataState.STATE.SUCCESS) {
+            selectedTermDisplay.updateOptions(state.data.orEmpty())
+            selectTerm(reconcileSelectedTerm(state.data.orEmpty(), currentTerm))
+        } },
+    )
+    val termsLiveData: LiveData<DataState<List<TermItem>>> = termQueries
     val buildingsLiveData: LiveData<DataState<List<BuildingItem>>> =
-        pageController.loadTeachingBuildings(viewModelScope, inputs.createTeachingBuildingsRequest)
+        pageController.loadTeachingBuildings(viewModelScope, inputs.createTeachingBuildingsRequest).map { state ->
+            if (state.state == DataState.STATE.SUCCESS) {
+                val values = state.data.orEmpty()
+                selectBuilding(values.firstOrNull { it.id.ifBlank { it.name.orEmpty() } == buildingKey } ?: values.firstOrNull())
+            }
+            state
+        }
     private val selectedTerm = MutableLiveData<TermItem>()
     private val selectedBuilding = MutableLiveData<BuildingItem>()
     private val selectedWeek = object : MediatorLiveData<Int>() {
@@ -73,10 +92,11 @@ class EmptyClassroomViewModel internal constructor(
         }
     }
     val selectedTermLiveData: LiveData<TermItem> = selectedTerm
+    internal val selectedTermDisplay = TermSelectionDisplaySource(selectedTermLiveData)
     val selectedBuildingLiveData: LiveData<BuildingItem> = selectedBuilding
     val selectedWeekLiveData: LiveData<Int> = selectedWeek
     val timetableStructureLiveData: LiveData<DataState<MutableList<TimePeriodInDay>>> = selectedTermLiveData.switchMap {
-        return@switchMap inputs.getScheduleStructure(it)
+        if (it == null) MutableLiveData(DataState(DataState.STATE.NOTHING)) else inputs.getScheduleStructure(it)
     }
     private val classroomResults = object : MediatorLiveData<DataState<List<ClassroomItem>>>() {
         override fun onActive() {
@@ -112,8 +132,12 @@ class EmptyClassroomViewModel internal constructor(
 
     fun selectTerm(term: TermItem?) {
         if (cleared) return
+        term?.let(selectedTermDisplay::updateTerm)
         val identity = term?.let { TermIdentity(it.yearCode, it.termCode) }
-        if (identity == termIdentity) return
+        if (identity == termIdentity) {
+            currentTerm = term
+            return
+        }
         selectionChanged()
         val generation = ++termGeneration
         termIdentity = identity
@@ -133,7 +157,10 @@ class EmptyClassroomViewModel internal constructor(
     fun selectBuilding(building: BuildingItem?) {
         if (cleared) return
         val key = building?.let { it.id.ifBlank { it.name.orEmpty() } }
-        if (key == buildingKey) return
+        if (key == buildingKey) {
+            currentBuilding = building
+            return
+        }
         selectionChanged()
         buildingKey = key
         currentBuilding = building
@@ -158,6 +185,7 @@ class EmptyClassroomViewModel internal constructor(
     fun startRefresh() {
         if (cleared) return
         forceCurrentQuery()
+        termQueries.refresh()
         pageController.value = Trigger.actioning
     }
 

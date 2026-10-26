@@ -1,25 +1,36 @@
 package cn.limpu.hita.agent.tools
 
-import android.os.Handler
-import android.os.Looper
+import android.app.Application
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.Observer
 import cn.limpu.hita.data.model.eas.TermItem
+import cn.limpu.hita.data.repository.EasQuerySession
 import cn.limpu.hita.data.repository.TimetableRepository
-import cn.limpu.hita.data.model.classroom.BuildingItem
 import cn.limpu.hita.data.model.classroom.ClassroomItem
 import com.limpu.component.data.DataState
 import org.json.JSONObject
-import java.util.Calendar
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicReference
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.last
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlin.coroutines.resume
 
-class SearchEmptyClassroomTool : ReActTool {
+class SearchEmptyClassroomTool internal constructor(
+    private val weekSource: (Application, TermItem) -> LiveData<Int>,
+    private val queryTimeoutMs: Long = QUERY_TIMEOUT_MS,
+) : SuspendingReActTool {
+    constructor() : this({ app, term -> TimetableRepository(app).getCurrentWeekOfTimetable(term) })
 
-    override fun execute(input: ReActToolInput): String {
+    override suspend fun execute(input: ReActToolInput): String {
+        val session = input.easRepository.captureQuerySession()
+        return session.whileCurrent { execute(input, session) }
+    }
+
+    private suspend fun execute(input: ReActToolInput, session: EasQuerySession): String {
         val params = parseParams(input.actionInput)
-        val termState = awaitDataState(input.easRepository.getAllTerms(useCache = false))
+        val termState = queryState { input.easRepository.queryTermsRemoteOnce(session) }
         if (termState.state != DataState.STATE.SUCCESS) {
             return stateError("获取当前学期", termState)
         }
@@ -27,7 +38,7 @@ class SearchEmptyClassroomTool : ReActTool {
         val terms = termState.data.orEmpty()
         if (terms.isEmpty()) return "教务系统未返回可查询的学期。"
 
-        val currentYear = Calendar.getInstance().get(Calendar.YEAR).toString()
+        val currentYear = session.calendarYear.toString()
         val currentYearTerms = terms.filter { term ->
             term.yearCode.contains(currentYear) ||
                 term.yearName.contains(currentYear) ||
@@ -36,11 +47,11 @@ class SearchEmptyClassroomTool : ReActTool {
         val availableTerms = currentYearTerms.ifEmpty { terms }
         val term = availableTerms.firstOrNull { it.isCurrent } ?: availableTerms.first()
 
-        val targetWeek = params.week ?: awaitValue(
-            TimetableRepository(input.application).getCurrentWeekOfTimetable(term)
-        ) ?: return "无法确定当前教学周，请检查该学期课表后重试。"
+        val targetWeek = params.week ?: awaitWeek(input.application, term)
+            ?: return "无法确定当前教学周，请检查该学期课表后重试。"
 
-        val buildingsState = awaitDataState(input.easRepository.getTeachingBuildings())
+        session.ensureCurrent()
+        val buildingsState = queryState { input.easRepository.createTeachingBuildingsRequest(session).execute() }
         if (buildingsState.state != DataState.STATE.SUCCESS) {
             return stateError("获取教学楼列表", buildingsState)
         }
@@ -68,14 +79,18 @@ class SearchEmptyClassroomTool : ReActTool {
         val failures = mutableListOf<Pair<String, String>>()
         for (building in buildings) {
             val buildingName = building.name?.takeIf(String::isNotBlank) ?: building.id
-            val state = awaitDataState(
-                input.easRepository.queryEmptyClassroom(
+            session.ensureCurrent()
+            val state = queryState {
+                input.easRepository.createEmptyClassroomQueryRequest(
+                    session = session,
                     term = term,
                     buildingItem = building,
                     week = targetWeek,
                     useCache = false,
-                )
-            )
+                ).states().filter {
+                    it.state != DataState.STATE.NOTHING && it.state != DataState.STATE.LOADING
+                }.last()
+            }
             if (state.state == DataState.STATE.SUCCESS) {
                 queryResults += buildingName to state.data.orEmpty()
             } else {
@@ -231,54 +246,30 @@ class SearchEmptyClassroomTool : ReActTool {
             }
         }
 
-    private fun <T> awaitDataState(
-        liveData: LiveData<DataState<T>>,
-        timeoutMs: Long = QUERY_TIMEOUT_MS,
-    ): DataState<T> {
-        if (Looper.myLooper() == Looper.getMainLooper()) {
-            return DataState(DataState.STATE.FETCH_FAILED, "不能在主线程等待教务查询")
-        }
-        val latch = CountDownLatch(1)
-        val result = AtomicReference<DataState<T>?>(null)
-        val observer = Observer<DataState<T>> { state ->
-            if (state.state != DataState.STATE.NOTHING && state.state != DataState.STATE.LOADING) {
-                result.set(state)
-                latch.countDown()
+    private suspend fun <T> queryState(query: suspend () -> DataState<T>): DataState<T> =
+        withTimeoutOrNull(queryTimeoutMs) { query() }
+            ?: DataState(DataState.STATE.FETCH_FAILED, "等待教务系统响应超时")
+
+    // The local week remains observable for pages. This finite consumer always detaches,
+    // including when its parent tool is cancelled or the account changes.
+    private suspend fun awaitWeek(application: Application, term: TermItem): Int? =
+        withTimeoutOrNull(queryTimeoutMs) {
+            withContext(Dispatchers.Main.immediate) {
+                val live = weekSource(application, term)
+                var observer: Observer<Int>? = null
+                try {
+                    suspendCancellableCoroutine<Int?> { continuation ->
+                        val listener = Observer<Int> { value ->
+                            if (continuation.isActive) continuation.resume(value)
+                        }
+                        observer = listener
+                        live.observeForever(listener)
+                    }
+                } finally {
+                    observer?.let(live::removeObserver)
+                }
             }
         }
-        val mainHandler = Handler(Looper.getMainLooper())
-        mainHandler.post { liveData.observeForever(observer) }
-        val completed = try {
-            latch.await(timeoutMs, TimeUnit.MILLISECONDS)
-        } finally {
-            mainHandler.post { liveData.removeObserver(observer) }
-        }
-        return result.get() ?: DataState(
-            DataState.STATE.FETCH_FAILED,
-            if (completed) "教务系统未返回有效结果" else "等待教务系统响应超时",
-        )
-    }
-
-    private fun <T : Any> awaitValue(
-        liveData: LiveData<T>,
-        timeoutMs: Long = QUERY_TIMEOUT_MS,
-    ): T? {
-        if (Looper.myLooper() == Looper.getMainLooper()) return null
-        val latch = CountDownLatch(1)
-        val result = AtomicReference<T?>(null)
-        val observer = Observer<T> { value ->
-            result.set(value)
-            latch.countDown()
-        }
-        val mainHandler = Handler(Looper.getMainLooper())
-        mainHandler.post { liveData.observeForever(observer) }
-        try {
-            latch.await(timeoutMs, TimeUnit.MILLISECONDS)
-        } finally {
-            mainHandler.post { liveData.removeObserver(observer) }
-        }
-        return result.get()
-    }
 
     private companion object {
         const val QUERY_TIMEOUT_MS = 30_000L

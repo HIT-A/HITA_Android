@@ -44,6 +44,7 @@ import kotlinx.coroutines.withTimeout
 import kotlin.coroutines.Continuation
 import kotlin.coroutines.resume
 import kotlin.coroutines.suspendCoroutine
+import cn.limpu.hita.ui.eas.termPageTestRequest
 
 /** The production ViewModel with controlled data sources and isolated inherited login inputs. */
 internal class EmptyClassroomViewModelContractHarness {
@@ -82,7 +83,8 @@ internal class EmptyClassroomViewModelContractHarness {
         )
         val inputs = EmptyClassroomPageInputs(
             getTerms = {
-                MutableLiveData<DataState<List<TermItem>>>().also { terms += it }
+                val source = MutableLiveData<DataState<List<TermItem>>>().also { terms += it }
+                termPageTestRequest(repository.captureQuerySession(), source)
             },
             createTeachingBuildingsRequest = {
                 buildingRequests++

@@ -4,12 +4,13 @@ import androidx.lifecycle.LiveData
 import cn.limpu.hita.data.analytics.UsageAnalyticsClient
 import cn.limpu.hita.data.analytics.UsageAnalyticsEvent
 import cn.limpu.hita.data.repository.ExamQueryRequest
+import cn.limpu.hita.data.repository.TermQueryRequest
 import cn.limpu.hita.data.model.eas.TermItem
 import com.limpu.component.data.DataState
 
 /** Narrow inputs for exercising the real page's request and lifecycle behavior. */
 internal class ExamPageInputs(
-    val getTerms: () -> LiveData<DataState<List<TermItem>>>,
+    val getTerms: () -> TermQueryRequest,
     val createExamQueryRequest: (TermItem?) -> ExamQueryRequest,
     val nowMillis: () -> Long = System::currentTimeMillis,
     val beginOperation: (UsageAnalyticsEvent) -> UsageAnalyticsClient.Operation? = {

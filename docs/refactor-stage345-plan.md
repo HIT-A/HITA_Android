@@ -46,7 +46,7 @@
 | ID | 交付范围 | 必须成立的验收条件 | 状态 / PR / 证据 |
 |---|---|---|---|
 | 3.Q1 | 三校区学期远端能力 | 普通与深圳 Web 学期入口共享原请求/解析核心；覆盖本部本科/研究生及威海合并/过滤；请求与取消契约实测 | 已合并且验证：[#70](https://github.com/HIT-A/HITA_Android/pull/70)，merge `b8a4cea`；head `7275174` 的 CI 40299381154 设备 607 项全通过，独立签核完成 |
-| 3.Q2 | 学期缓存与全部生产消费端 | cache→remote Flow、原子替换与 owner/session 捕获；导入/成绩/学分/年级/考试/空教室页面与后台调用接入；保留中间状态与错误策略；同 key 跨调用者请求代次由 Repository 协调，覆盖手工/后台/AI 并发，旧响应不覆盖较新结果 | 实施中：共享会话/事务与全部十个消费端已接入；46 项缓存核心、92 项消费端检查点通过，新增 6 项边界先红后绿及 10 项集成测试全部通过；正在补同 key 新元数据重试，独立增量审查及最终全量 CI 待验 |
+| 3.Q2 | 学期缓存与全部生产消费端 | cache→remote Flow、原子替换与 owner/session 捕获；导入/成绩/学分/年级/考试/空教室页面与后台调用接入；保留中间状态与错误策略；同 key 跨调用者请求代次由 Repository 协调，覆盖手工/后台/AI 并发，旧响应不覆盖较新结果 | 本地通过：缓存 Flow/Once、共享会话/持久化代次与十个实际消费端完整接线；独立增量审查通过；所有 79 项新增设备用例已在对应检查点实际通过，最新 16 项边界/集成与 1 项重试全绿；app JVM 759 通过 + 1 旧跳过，Debug/测试 APK 通过；最终完整 CI 待验 |
 | 3.Q3 | 开学日、作息、课程元信息、课表远端 | 三校区 suspend 与真实解析 fixture；同步子请求受父 Job 管理；保留用户校准、作息、实验课、合并与回退；页面选择/手改优先级正确；学期/教学楼/默认周/作息按同一 owner 与选择关联，切换中不混用旧元数据 | 待做 |
 | 3.Q4 | 成绩单次与成绩汇总渐进结果 | 单次与 Flow 分开；items 先到、summary 后补、部分鉴权失败和缓存语义保留；所有成绩页面/通知消费接通 | 待做 |
 | 3.Q5 | 深圳目录、选课池、已选课程、规划与推荐 | 单次/串行分页支持取消；保留参数、路由、Cookie、排序、推荐策略；页面可替换/取消请求，写入选课不增加自动重试 | 待做 |
@@ -86,8 +86,8 @@
 | 5.M | Maven Local 显式开关 | 默认所有解析域不使用 mavenLocal；显式属性启用；两种模式实际配置验证，干净 CI 可构建 | 已合并且验证：#71；三模式及冷缓存 111 配置对照通过，476 外部制品冷下载；最终 CI 默认构建通过 |
 | 5.R | style Release 资源校验恢复 | verifyReleaseResources enabled 且实际执行成功；修真实 AAPT 归属错误；CI 持久执行，无 skip/ignore 替代 | 已合并且验证：#71；本地资源任务实际执行且新 AAR 等价，最终 CI 日志确认 verifyReleaseResources/assembleRelease 成功，无 skip |
 | 5.T | component/hitauser/style 真实测试与 CI | 覆盖公共数据/网络/偏好/Room/主题关键行为；每模块实际 XML、CI 全模块覆盖；解决真实最低 API 依赖冲突而非 overrideLibrary | 已合并且验证：[#72](https://github.com/HIT-A/HITA_Android/pull/72)，merge `d2742e3`；head `5ae5bd7` 的 CI 40311018658 JVM 805 通过 + 1 既有跳过、设备 633 全通过；实际 runtime 保持 |
-| 5.K | 纯 Kotlin 领域模块 | 协议/比较真实移入 JVM-only 模块并产 jar，app 消费该 artifact；没有 Android/Room/app 回边；实体 adapter 留 app；原测试移动保持身份，独立模块测试和 app集成都通过 | 本地通过：原 57 项迁移测试全绿，36 类 JVM JAR/真实依赖图核实；app JVM 759 通过 + 1 旧跳过、Debug/测试 APK、26 项分享/迁移/比较设备集成与 Release R8 通过；最终 CI 待验，与 5.S 合批 |
-| 5.S | legacy sync 清理 | 删除未使用目录、悬空 keep/说明，确认无有效生产引用丢失；不删除用户设备旧数据库；Debug/R8 与仓库检查通过 | 本地通过：删除 15 个未编译旧文件与 7 条过期 keep，独审、Debug 与实际 Release R8 通过；无设备清库行为；与 5.K 同批最终 CI 待验 |
+| 5.K | 纯 Kotlin 领域模块 | 协议/比较真实移入 JVM-only 模块并产 jar，app 消费该 artifact；没有 Android/Room/app 回边；实体 adapter 留 app；原测试移动保持身份，独立模块测试和 app集成都通过 | 已合并且验证：[#74](https://github.com/HIT-A/HITA_Android/pull/74)，merge `51819ca`；head `7e33899` 的 CI 40317563827 JVM 827 通过 + 1 旧跳过、设备 647 全通过；独立 JAR/依赖图与 Release R8 已核实 |
+| 5.S | legacy sync 清理 | 删除未使用目录、悬空 keep/说明，确认无有效生产引用丢失；不删除用户设备旧数据库；Debug/R8 与仓库检查通过 | 已合并且验证：#74；删除 15 个未编译旧文件与 7 条过期 keep，独审、Debug/R8 和完整 CI 通过；无设备清库行为 |
 | 5.F | 阶段 5 完成审计 | 真实 resolved 依赖、任务输出、各模块 XML、jar 内容与消费关系；不能用新增扫描器或空模块替代交付 | 待做 |
 
 ## 6. 与上述阶段相关的遗留项
@@ -131,3 +131,5 @@
 | 5.K/S 本地整链 | 9 个纯生产文件移入独立 JVM 模块、6 个旧测试类共 57 项原样迁移；app 保留 Room adapter；旧 sync 与 keep 清理 | `core/independent-review.md`、`independent-source-integrity.json`、`standalone-jvm-results-audit.json`、`jar-audit.json`、`resolved-boundary.json`；JAR 36 类为 Java 8 字节码，无 fixture/Room adapter，app 真实消费 JAR |
 | 5.K/S app 与缩减验证 | app JVM 760（759 通过 + 1 旧跳过）、Debug/测试 APK、26 项分享/迁移/比较集成全通过；Release R8 实际执行成功，无签名 Release APK 结论；最终 PR CI 待验 | `core/app-integration-and-r8-second.log`、`app-jvm-audit.json`、`integration-device-audit.json`、`r8-audit.json`；跨模块 place 属性局部捕获编译修正经独审，57 项迁移不是新增覆盖；最终完整集合为 JVM 828 / 设备 647 |
 | 3.Q2 检查点 | 原 28 兼容与 4 安全红绿、46 核心、92 消费端检查点已验证；其后 6 项真实边界先红后绿，另 10 项显示/会话/注销/真实多 facade/自动导入集成通过 | `term-cache/q2-core-first-device-*`、`q2-chain-first-device-audit.json`、`q2-boundary-red-audit.json`、`q2-boundary-green-audit.json`；各检查点独立，不相加冒充最终完整结果。logout marker 测试为重新构造协调器，不是真实进程杀死；当前最终 CI 待验 |
+| 3.Q2 最终本地整链 | 学期 cache→remote Flow/Once、事务替换、持久化注销清理标记，七页面 + AI + Worker + 自动导入全部接线；旧四项缓存安全、三项页面缺陷与后续六项边界均有准确红绿；同 key metadata 更新不重发，显式 retry 使用最新快照 | `term-cache/q2-final-incremental-review.md`、`q2-final-incremental-review-hashes.json`；56 个源码/测试 hash 在重基到 #73/纯核心后保持；`q2-final-app-jvm-audit.json` 为 760（759 通过 + 1 旧跳过），Debug/测试 APK 与最新 retry 实测通过；79 项新增设备测试逐项曾实际执行通过，最终聚合预期 JVM 828 / 设备 726 待 CI 核验 |
+| 5.K/S 最终交付 | #74 已合并且验证，merge `51819ca061063e0e7e6a0ff37cd348a913faf935`，树与 head `7e33899` 相同 | [CI 40317563827](https://github.com/HIT-A/HITA_Android/actions/runs/40317563827) 两 job 成功；原始 JVM 828（827 通过 + 1 旧跳过）、设备 647 全通过；artifact 摘要及全部 testcase 身份在合并前核实，style 资源校验实际执行；`core/final-signoff.json`、`core/delivery-state.json`、`core/ci-40317563827/`。阶段 5 六项主体已交付；最终审计与全目标 R4 平台边界仍保留 |

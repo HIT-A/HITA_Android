@@ -22,3 +22,8 @@ data class ReActToolInput(
 fun interface ReActTool {
     fun execute(input: ReActToolInput): String?
 }
+
+/** A finite tool operation that can suspend and follows the caller's cancellation. */
+fun interface SuspendingReActTool {
+    suspend fun execute(input: ReActToolInput): String?
+}

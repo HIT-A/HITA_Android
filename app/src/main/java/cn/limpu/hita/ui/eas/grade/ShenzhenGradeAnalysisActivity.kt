@@ -146,10 +146,7 @@ class ShenzhenGradeAnalysisActivity :
     private fun bindState() {
         viewModel.terms.observe(this) { state ->
             if (state.state == DataState.STATE.SUCCESS) {
-                allTerms = TermUtils.filterTermsForStudent(
-                    state.data.orEmpty(),
-                    easRepository.getEasToken().grade
-                )
+                allTerms = state.data.orEmpty()
                 viewModel.reconcileTerms(allTerms)
                 resetSessionRetryState()
             }
@@ -221,7 +218,7 @@ class ShenzhenGradeAnalysisActivity :
     private fun showTermPicker() {
         if (allTerms.isEmpty()) return
         val names = allTerms.map(TermNameFormatter::fullTermName).toTypedArray()
-        val selected = allTerms.indexOfFirst { it.id == viewModel.selectedTerm.value?.id }
+        val selected = allTerms.indexOfFirst { it.yearCode == viewModel.selectedTerm.value?.yearCode && it.termCode == viewModel.selectedTerm.value?.termCode }
             .coerceAtLeast(0)
         MaterialAlertDialogBuilder(this)
             .setTitle("选择学期")
@@ -295,7 +292,8 @@ private fun GradeScreen(
     onRetryComparison: () -> Unit
 ) {
     val selectedCourse by viewModel.selectedCourse.observeAsState()
-    val selectedTerm by viewModel.selectedTerm.observeAsState()
+    val selectedTermDisplay by viewModel.selectedTermDisplay.observeAsState()
+    val selectedTerm = selectedTermDisplay?.toTermItem()
     val termsState by viewModel.terms.observeAsState()
     val coursesState by viewModel.courses.observeAsState()
     val analysisState by viewModel.analysis.observeAsState()

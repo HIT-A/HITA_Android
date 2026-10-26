@@ -58,38 +58,71 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.last
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.emitAll
+
+/** Source construction stays at the repository boundary, including its session-refresh callbacks. */
+internal class EasRepositoryServiceFactories(
+    val shenzhen: ((EASToken) -> Unit, (EASToken.Campus, String?) -> EasCredential?) -> EASWebSource =
+        { onTokenRefreshed, credentialProvider ->
+            EASWebSource(onTokenRefreshed = onTokenRefreshed, credentialProvider = credentialProvider)
+        },
+    val benbu: ((EASToken) -> Unit) -> EASService = { BenbuEASWebSource(it) },
+    val weihai: ((EASToken) -> Unit) -> EASService = { WeihaiEASWebSource(it) },
+)
 
 @Singleton
-class EASRepository @Inject constructor(
+class EASRepository internal constructor(
     application: Application,
     private val easPreferenceSource: EasPreferenceSource,
     private val easCredentialStore: EasCredentialStore,
     private val timetablePreferenceSource: TimetablePreferenceSource,
     private val timetableChangeStore: TimetableChangeStore,
-    private val timetableMutationLock: TimetableMutationLock
+    private val timetableMutationLock: TimetableMutationLock,
+    database: AppDatabase,
+    serviceFactories: EasRepositoryServiceFactories,
 ) : ShenzhenCourseSelectionGateway {
+    @Inject constructor(
+        application: Application,
+        easPreferenceSource: EasPreferenceSource,
+        easCredentialStore: EasCredentialStore,
+        timetablePreferenceSource: TimetablePreferenceSource,
+        timetableChangeStore: TimetableChangeStore,
+        timetableMutationLock: TimetableMutationLock,
+    ) : this(
+        application, easPreferenceSource, easCredentialStore, timetablePreferenceSource,
+        timetableChangeStore, timetableMutationLock, AppDatabase.getDatabase(application),
+        EasRepositoryServiceFactories(),
+    )
+
     private val appContext = application.applicationContext
-    private val tokenStateLock = Any()
-    private val authEpoch = AtomicLong(easPreferenceSource.getEasToken().sessionGeneration)
+    private val querySessionState = easPreferenceSource.querySessionState
+    private val queryCoordinator = EasQueryCoordinator.forSession(querySessionState)
+    private val tokenStateLock = querySessionState.lock
+    private val authEpoch = querySessionState.authEpoch
     private val credentialScopeRandom = SecureRandom()
     private val autoImportInProgress = AtomicBoolean(false)
-    @Volatile private var acceptServiceTokenRefresh = easPreferenceSource.getEasToken().isLogin()
-    private val shenzhenService: EASWebSource = EASWebSource(
-        onTokenRefreshed = { token -> saveRefreshedEasToken(token) },
-        credentialProvider = { campus, username -> easCredentialStore.get(campus, username) }
+    private var acceptServiceTokenRefresh: Boolean
+        get() = querySessionState.acceptServiceRefresh
+        set(value) { querySessionState.acceptServiceRefresh = value }
+    private val shenzhenService: EASWebSource = serviceFactories.shenzhen(
+        { token -> saveRefreshedEasToken(token) },
+        { campus, username -> easCredentialStore.get(campus, username) },
     )
-    private val benbuService: EASService = BenbuEASWebSource { token ->
+    private val benbuService: EASService = serviceFactories.benbu { token ->
         saveRefreshedEasToken(token)
     }
-    private val weihaiService: EASService = WeihaiEASWebSource { token ->
+    private val weihaiService: EASService = serviceFactories.weihai { token ->
         saveRefreshedEasToken(token)
     }
-    private var eventItemDao = AppDatabase.getDatabase(application).eventItemDao()
-    private var timetableDao = AppDatabase.getDatabase(application).timetableDao()
-    private var subjectDao = AppDatabase.getDatabase(application).subjectDao()
-    private var classroomCacheDao = AppDatabase.getDatabase(application).classroomCacheDao()
-    private var scoreCacheDao = AppDatabase.getDatabase(application).scoreCacheDao()
-    private val timetableSnapshotStore = TimetableSnapshotStore(appContext)
+    private var eventItemDao = database.eventItemDao()
+    private var timetableDao = database.timetableDao()
+    private var subjectDao = database.subjectDao()
+    private var classroomCacheDao = database.classroomCacheDao()
+    private var scoreCacheDao = database.scoreCacheDao()
+    private val timetableSnapshotStore = TimetableSnapshotStore(appContext, database)
     private val easTokenLiveData = MutableLiveData(easPreferenceSource.getEasToken())
     private val gson = Gson()
     private val scoreListType = object : TypeToken<List<CourseScoreItem>>() {}.type
@@ -124,6 +157,9 @@ class EASRepository @Inject constructor(
         authEpoch = authEpoch,
         tokenStateLock = tokenStateLock,
         autoImportInProgress = autoImportInProgress,
+        captureSession = ::captureQuerySession,
+        queryTerms = { queryTermsRemoteOnce(it) },
+        applicationScope = queryCoordinator.applicationScope,
     )
 
     companion object {
@@ -136,6 +172,7 @@ class EASRepository @Inject constructor(
 
     init {
         runCatching { easCredentialStore.migrateLegacyIfNeeded(easPreferenceSource) }
+        queryCoordinator.replayPendingCleanup(scoreCacheDao)
     }
 
     /**
@@ -354,19 +391,56 @@ class EASRepository @Inject constructor(
      * 获取学期开始日期
      */
     fun getStartDateOfTerm(term: TermItem): LiveData<DataState<Calendar>> {
-        val easToken = easPreferenceSource.getEasToken()
-        LogUtils.d("getStartDateOfTerm: isLogin=${easToken.isLogin()}, term=${term.getCode()}")
-        if (easToken.isLogin()) {
-            return getService(easToken.campus).getStartDate(easToken, term)
+        return getStartDateOfTerm(captureQuerySession(), term)
+    }
+
+    internal fun getStartDateOfTerm(session: EasQuerySession, term: TermItem): LiveData<DataState<Calendar>> {
+        if (session.loggedIn && session.isCurrent()) {
+            return session.service.getStartDate(session.token, term)
         }
         LogUtils.w("getStartDateOfTerm: not logged in")
         return LiveDataUtils.getMutableLiveData<DataState<Calendar>>(DataState(DataState.STATE.NOT_LOGGED_IN))
     }
 
 
-    /**
-     * 进行获取学年学期
-     */
+    internal val querySessions get() = querySessionState.changes
+
+    internal fun captureQuerySession(): EasQuerySession = synchronized(tokenStateLock) {
+        val token = easPreferenceSource.getEasToken()
+        EasQuerySession(EasQueryScope.from(token), token, getService(token.campus), querySessionState::current,
+            scopes = querySessionState.changes)
+    }
+
+    internal fun createTermQueryRequest(
+        session: EasQuerySession = captureQuerySession(),
+        useCache: Boolean = true,
+        kind: TermQueryKind = TermQueryKind.ACADEMIC,
+    ): TermQueryRequest {
+        val cache = TermQueryCache(scoreCacheDao)
+        val owner = session.ownerKey
+        return TermQueryRequest.create(
+            session, kind, useCache,
+            begin = { queryCoordinator.begin(owner) },
+            prepareCache = { owner != null && queryCoordinator.cleanOwnerSync(owner, scoreCacheDao) },
+            cacheIsReady = { owner != null && !queryCoordinator.hasPendingCleanup(owner) },
+            readCache = { owner?.let(cache::read).orEmpty() },
+            saveCache = { terms, canReplace -> if (owner != null) cache.save(owner, terms, canReplace) },
+            queryRemote = {
+                when (kind) {
+                    TermQueryKind.ACADEMIC -> session.service.getAllTermsOnce(session.token)
+                    TermQueryKind.SHENZHEN_SELECTION_WEB -> shenzhenService.getShenzhenWebTermsOnce(session.token)
+                }
+            },
+        )
+    }
+
+    internal suspend fun queryTermsRemoteOnce(
+        session: EasQuerySession = captureQuerySession(),
+        kind: TermQueryKind = TermQueryKind.ACADEMIC,
+    ): DataState<List<TermItem>> = createTermQueryRequest(session, useCache = false, kind = kind)
+        .states().filter { it.state != DataState.STATE.NOTHING && it.state != DataState.STATE.LOADING }.last()
+
+    /** Legacy compatibility surface; production term consumers use a captured request. */
     fun getAllTerms(useCache: Boolean = true): LiveData<DataState<List<TermItem>>> {
         val easToken = easPreferenceSource.getEasToken()
         LogUtils.d("getAllTerms: isLogin=${easToken.isLogin()}, campus=${easToken.campus}")
@@ -427,10 +501,16 @@ class EASRepository @Inject constructor(
         term: TermItem,
         isUndergraduate: Boolean? = null
     ): LiveData<DataState<MutableList<TimePeriodInDay>>> {
-        val easToken = easPreferenceSource.getEasToken()
-        LogUtils.d("getScheduleStructure: isLogin=${easToken.isLogin()}, term=${term.getCode()}")
-        if (easToken.isLogin()) {
-            return getService(easToken.campus).getScheduleStructure(term, isUndergraduate, easToken)
+        return getScheduleStructure(captureQuerySession(), term, isUndergraduate)
+    }
+
+    internal fun getScheduleStructure(
+        session: EasQuerySession,
+        term: TermItem,
+        isUndergraduate: Boolean? = null,
+    ): LiveData<DataState<MutableList<TimePeriodInDay>>> {
+        if (session.loggedIn && session.isCurrent()) {
+            return session.service.getScheduleStructure(term, isUndergraduate, session.token)
         }
         LogUtils.w("getScheduleStructure: not logged in")
         return LiveDataUtils.getMutableLiveData<DataState<MutableList<TimePeriodInDay>>>(
@@ -449,10 +529,13 @@ class EASRepository @Inject constructor(
 
     /** 初始界面状态和查询共享同一次登录信息与校区选择。 */
     internal fun createTeachingBuildingsRequest(): TeachingBuildingsRequest {
-        val token = easPreferenceSource.getEasToken()
-        val service = getService(token.campus)
-        return TeachingBuildingsRequest.forToken(token, service::getTeachingBuildingsOnce)
+        return createTeachingBuildingsRequest(captureQuerySession())
     }
+
+    internal fun createTeachingBuildingsRequest(session: EasQuerySession): TeachingBuildingsRequest =
+        TeachingBuildingsRequest.forToken(session.token) { token ->
+            session.whileCurrent { session.service.getTeachingBuildingsOnce(token) }
+        }
 
     /** AI 同步工具的 LiveData 兼容入口，保留原有启动和等待方式。 */
     fun getTeachingBuildings(): LiveData<DataState<List<BuildingItem>>> {
@@ -473,18 +556,30 @@ class EASRepository @Inject constructor(
         week: Int,
         useCache: Boolean = true,
     ): EmptyClassroomQueryRequest {
-        val token = easPreferenceSource.getEasToken()
-        val service = getService(token.campus)
+        return createEmptyClassroomQueryRequest(captureQuerySession(), term, buildingItem, week, useCache)
+    }
+
+    internal fun createEmptyClassroomQueryRequest(
+        session: EasQuerySession,
+        term: TermItem,
+        buildingItem: BuildingItem,
+        week: Int,
+        useCache: Boolean = true,
+    ): EmptyClassroomQueryRequest {
         val cache = ClassroomQueryCache(classroomCacheDao)
-        return EmptyClassroomQueryRequest.forToken(
-            token, term, buildingItem, week, useCache,
+        val request = EmptyClassroomQueryRequest.forToken(
+            session.token, term, buildingItem, week, useCache,
             readCache = cache::readRows,
             saveCache = { queryTerm, building, queryWeek, classrooms ->
                 val context = currentCoroutineContext()
-                cache.save(queryTerm, building, queryWeek, classrooms) { context.ensureActive() }
+                cache.save(queryTerm, building, queryWeek, classrooms) {
+                    context.ensureActive()
+                    session.ensureCurrent()
+                }
             },
-            queryRemote = service::queryEmptyClassroomOnce,
+            queryRemote = session.service::queryEmptyClassroomOnce,
         )
+        return EmptyClassroomQueryRequest(flow { session.whileCurrent { emitAll(request.states()) } })
     }
 
     /** AI synchronous tools retain the eager, observer-driven LiveData entry point. */
@@ -525,7 +620,8 @@ class EASRepository @Inject constructor(
         testType: EASService.TestType,
         useCache: Boolean = true,
     ): LiveData<DataState<ScoreQueryResult>> {
-        val easToken = easPreferenceSource.getEasToken()
+        val session = captureQuerySession()
+        val easToken = session.token
         LogUtils.d("getPersonalScoresWithSummary: isLogin=${easToken.isLogin()}, term=${term.getCode()}")
         if (!useCache) {
             return getOnlinePersonalScoresWithSummary(term, testType, easToken)
@@ -538,12 +634,13 @@ class EASRepository @Inject constructor(
         val result = MediatorLiveData<DataState<ScoreQueryResult>>()
         val hasCachedResult = AtomicBoolean(false)
         thread(name = "score-cache-load") {
-            scoreCacheDao.getScoreSync(
+            val canReadCache = queryCoordinator.cleanOwnerSync(ownerKey, scoreCacheDao) && session.isCurrent()
+            (if (canReadCache) scoreCacheDao.getScoreSync(
                 ownerKey = ownerKey,
                 termYearCode = term.yearCode,
                 termTermCode = term.termCode,
                 testType = testType.name
-            )?.toScoreQueryResultOrNull()?.let { cached ->
+            ) else null)?.toScoreQueryResultOrNull()?.let { cached ->
                 hasCachedResult.set(true)
                 result.postValue(DataState(cached, DataState.STATE.SUCCESS).setFromCache(true))
             }
@@ -556,12 +653,18 @@ class EASRepository @Inject constructor(
             }
 
             Handler(Looper.getMainLooper()).post {
+                if (!session.isCurrent()) return@post
                 val remote = getOnlinePersonalScoresWithSummary(term, testType, easToken)
                 result.addSource(remote) { state ->
+                    if (!session.isCurrent()) return@addSource
                     if (state.state == DataState.STATE.SUCCESS && state.data != null) {
                         result.value = state
                         thread(name = "score-cache-save") {
-                            saveScoreCache(ownerKey, term, testType, state.data!!)
+                            if (queryCoordinator.cleanOwnerSync(ownerKey, scoreCacheDao)) {
+                                saveScoreCache(ownerKey, term, testType, state.data!!) {
+                                    session.isCurrent() && !queryCoordinator.hasPendingCleanup(ownerKey)
+                                }
+                            }
                         }
                     } else if (!hasCachedResult.get()) {
                         result.value = state
@@ -570,6 +673,15 @@ class EASRepository @Inject constructor(
             }
         }
         return result
+    }
+
+    internal fun getPersonalScoresWithSummary(
+        session: EasQuerySession,
+        term: TermItem,
+        testType: EASService.TestType,
+    ): LiveData<DataState<ScoreQueryResult>> {
+        session.ensureCurrent()
+        return getOnlinePersonalScoresWithSummary(term, testType, session.token)
     }
 
     private fun getOnlinePersonalScoresWithSummary(
@@ -631,9 +743,10 @@ class EASRepository @Inject constructor(
         term: TermItem,
         testType: EASService.TestType,
         result: ScoreQueryResult,
+        canSave: () -> Boolean,
     ) {
         val cachedAt = System.currentTimeMillis()
-        scoreCacheDao.saveScoreSync(
+        scoreCacheDao.saveScoreIfCurrentSync(
             ScoreCacheEntity(
                 ownerKey = ownerKey,
                 termYearCode = term.yearCode,
@@ -642,9 +755,8 @@ class EASRepository @Inject constructor(
                 scoresJson = gson.toJson(result.items),
                 summaryJson = result.summary?.let(gson::toJson),
                 cachedAt = cachedAt,
-            )
+            ), cachedAt - SCORE_CACHE_RETENTION_MS, canSave,
         )
-        scoreCacheDao.deleteOldScoresSync(cachedAt - SCORE_CACHE_RETENTION_MS)
     }
 
     private fun ScoreCacheEntity.toScoreQueryResultOrNull(): ScoreQueryResult? {
@@ -673,9 +785,10 @@ class EASRepository @Inject constructor(
 
     /** Query parameters and the campus initial state come from the same account selection. */
     internal fun createExamQueryRequest(term: TermItem?): ExamQueryRequest {
-        val token = easPreferenceSource.getEasToken()
-        val service = getService(token.campus)
-        return ExamQueryRequest.forToken(token, term, service::getExamItemsOnce)
+        val session = captureQuerySession()
+        return ExamQueryRequest.forToken(session.token, term) { token, selectedTerm ->
+            session.whileCurrent { session.service.getExamItemsOnce(token, selectedTerm) }
+        }
     }
 
     /** Compatibility entry for automatic timetable import and its existing timeout. */
@@ -920,17 +1033,14 @@ class EASRepository @Inject constructor(
         val previousToken: EASToken
         synchronized(tokenStateLock) {
             previousToken = easPreferenceSource.getEasToken()
+            scoreCacheOwnerKey(previousToken)?.let(queryCoordinator::invalidateOwner)
             authEpoch.set(nextCredentialScopeGeneration())
             acceptServiceTokenRefresh = false
             easPreferenceSource.clearEasToken()
             publishEasToken(easPreferenceSource.getEasToken())
         }
         scoreCacheOwnerKey(previousToken)?.let { ownerKey ->
-            thread(name = "score-cache-clear") {
-                scoreCacheDao.deleteScoresByOwnerSync(ownerKey)
-                scoreCacheDao.deleteTermsByOwnerSync(ownerKey)
-                scoreCacheDao.deleteDetailsByOwnerSync(ownerKey)
-            }
+            queryCoordinator.scheduleCleanup(ownerKey, scoreCacheDao)
         }
         clearShenzhenWebViewCookies(previousToken)
     }

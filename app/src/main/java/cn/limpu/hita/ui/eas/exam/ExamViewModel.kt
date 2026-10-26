@@ -19,6 +19,9 @@ import cn.limpu.hita.data.repository.EASRepository
 import cn.limpu.hita.data.source.preference.ExamMemoCodec
 import cn.limpu.hita.data.source.preference.ExamMemoStore
 import cn.limpu.hita.ui.eas.EASViewModel
+import cn.limpu.hita.ui.eas.TermQueryLiveData
+import cn.limpu.hita.ui.eas.TermSelectionDisplaySource
+import cn.limpu.hita.ui.eas.sameTermKey
 import cn.limpu.hita.utils.LogUtils
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -38,20 +41,35 @@ class ExamViewModel internal constructor(
         examImportRepository: ExamImportRepository,
     ) : this(
         easRepo, context, examImportRepository,
-        ExamPageInputs({ easRepo.getAllTerms() }, easRepo::createExamQueryRequest),
+        ExamPageInputs({ easRepo.createTermQueryRequest() }, easRepo::createExamQueryRequest),
     )
     /**
      * LiveData区
      */
-    private val pageController = MutableLiveData<Trigger>()
     private val termLoadGate = ExamTermLoadGate()
     private val examQueries = ExamQueryCoordinator(viewModelScope)
+    private var termSession = easRepo.captureQuerySession()
 
-    val termsLiveData: LiveData<DataState<List<TermItem>>> = pageController.switchMap {
-        return@switchMap inputs.getTerms()
-    }
+    private val termQueries = TermQueryLiveData(viewModelScope, easRepo.querySessions, inputs.getTerms,
+        onSessionChanged = {
+            examQueries.cancel()
+            termLoadGate.begin()
+            previousTerm = null
+            lastRefreshTime = 0L
+            lastRemoteExams = emptyList()
+            selectedTermLiveData.value = null
+            selectedTermDisplay.updateOptions(emptyList())
+            rawExamLiveData.value = mergeExamDataState(lastRemoteExams, examMemoStore.getAll(), null)
+        },
+        onResult = { session, state ->
+            termSession = session
+            if (state.state == DataState.STATE.SUCCESS) selectedTermDisplay.updateOptions(state.data.orEmpty())
+        },
+    )
+    val termsLiveData: LiveData<DataState<List<TermItem>>> = termQueries
 
     val selectedTermLiveData: MutableLiveData<TermItem> = MutableLiveData()
+    internal val selectedTermDisplay = TermSelectionDisplaySource(selectedTermLiveData)
     val selectedExamTypeLiveData: MutableLiveData<ExamType> = MutableLiveData()
     private val examMemoStore = ExamMemoStore(context)
     private val rawExamLiveData = MutableLiveData<DataState<List<ExamItem>>>()
@@ -86,12 +104,19 @@ class ExamViewModel internal constructor(
     fun shouldShowExamTypeFilter(): Boolean {
         return easRepo.getCurrentCampus() == EASToken.Campus.BENBU
     }
-    fun startRefresh() {
+    fun startRefresh() = refresh(refreshTerms = true)
+
+    fun filterTermOptions(terms: List<TermItem>): List<TermItem> =
+        cn.limpu.hita.utils.TermUtils.filterTermsForStudent(
+            terms, termSession.grade, termSession.calendarYear, termSession.calendarMonth,
+        )
+
+    private fun refresh(refreshTerms: Boolean) {
         LogUtils.d("=== 🔄 startRefresh called ===", "ExamViewModel")
 
         val currentTime = inputs.nowMillis()
-        val selectedTerm = selectedTermLiveData.value
-        val termJustChanged = (selectedTerm != null && !selectedTerm.equals(previousTerm))
+        val selectedTerm = selectedTermDisplay.current()
+        val termJustChanged = selectedTerm != null && !sameTermKey(selectedTerm, previousTerm)
 
         LogUtils.d("🌐 current selected term: ${selectedTerm?.name}, previous term: ${previousTerm?.name}, termJustChanged: $termJustChanged", "ExamViewModel")
 
@@ -111,7 +136,7 @@ class ExamViewModel internal constructor(
                 DataState.STATE.LOADING
             )
             if (!examQueries.isCurrent(refreshGeneration)) return
-            pageController.value = Trigger.actioning
+            termQueries.refresh()
             return
         }
         termLoadGate.cancel()
@@ -121,7 +146,7 @@ class ExamViewModel internal constructor(
         )
 
         if (!examQueries.isCurrent(refreshGeneration)) return
-        pageController.value = Trigger.actioning
+        if (refreshTerms) termQueries.refresh()
         if (!examQueries.isCurrent(refreshGeneration)) return
 
         // 调用API获取服务器考试数据，传递学期参数
@@ -153,7 +178,7 @@ class ExamViewModel internal constructor(
         when (val outcome = termLoadGate.consume(state)) {
             is ExamTermLoadOutcome.Selected -> {
                 selectedTermLiveData.value = outcome.term
-                startRefresh()
+                refresh(refreshTerms = false)
             }
             is ExamTermLoadOutcome.Failed -> {
                 rawExamLiveData.value = DataState(
@@ -210,7 +235,7 @@ class ExamViewModel internal constructor(
             examInfoLiveData.value = state
             return
         }
-        val term = selectedTermLiveData.value
+        val term = selectedTermDisplay.current()
         val type = selectedExamTypeLiveData.value
         val filtered = data.filter { item ->
             matchTerm(item, term) && matchType(item.examType, type)

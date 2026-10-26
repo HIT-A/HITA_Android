@@ -304,7 +304,8 @@ private fun ScoreInquiryScreen(
     onOpenScore: (CourseScoreItem) -> Unit
 ) {
     val tokens = HitaTheme.tokens
-    val selectedTerm by viewModel.selectedTermLiveData.observeAsState()
+    val selectedTermDisplay by viewModel.selectedTermDisplay.observeAsState()
+    val selectedTerm = selectedTermDisplay?.toTermItem()
     val selectedTestType by viewModel.selectedTestTypeLiveData.observeAsState()
     val scoresState by viewModel.scoresLiveData.observeAsState()
     val summary by viewModel.scoreSummaryLiveData.observeAsState()

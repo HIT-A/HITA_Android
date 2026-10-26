@@ -218,7 +218,6 @@ class ImportTimetableActivity :
                     resetSessionRetryState()
                     val terms = data.data.orEmpty()
                     if (terms.isNotEmpty()) {
-                        viewModel.changeSelectedTerm(terms.firstOrNull { it.isCurrent } ?: terms.first())
                         if (openTermPickerWhenLoaded) {
                             openTermPickerWhenLoaded = false
                             showTermPicker(terms)
@@ -436,10 +435,7 @@ class ImportTimetableActivity :
     }
 
     private fun showTermPicker(terms: List<TermItem>) {
-        val filteredTerms = cn.limpu.hita.utils.TermUtils.filterTermsForTimetableImport(
-            terms,
-            easRepository.getEasToken().grade
-        )
+        val filteredTerms = viewModel.filterTermOptions(terms)
         val names = filteredTerms.map { getDisplayTermName(it) }
         PopUpCheckableList<TermItem>()
             .setListData(names, filteredTerms)
@@ -527,7 +523,8 @@ private fun ImportTimetableScreen(
     onEditPeriod: (TimePeriodInDay, Int) -> Unit
 ) {
     val tokens = HitaTheme.tokens
-    val selectedTerm by viewModel.selectedTermLiveData.observeAsState()
+    val selectedTermDisplay by viewModel.selectedTermDisplay.observeAsState()
+    val selectedTerm = selectedTermDisplay?.toTermItem()
     val startDateState by viewModel.startDateLiveData.observeAsState()
     val scheduleState by viewModel.scheduleStructureLiveData.observeAsState()
     val isBenbu = viewModel.isBenbuTerm(selectedTerm)

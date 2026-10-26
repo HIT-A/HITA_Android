@@ -7,15 +7,15 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.os.Build
-import android.os.Handler
-import android.os.Looper
 import androidx.core.app.NotificationCompat
-import androidx.work.Worker
+import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.limpu.component.data.DataState
 import cn.limpu.hita.R
 import cn.limpu.hita.data.model.eas.CourseScoreItem
 import cn.limpu.hita.data.repository.EASRepository
+import cn.limpu.hita.data.repository.EasQuerySession
+import cn.limpu.hita.data.repository.awaitEasDataState
 import cn.limpu.hita.data.repository.TimetableChangeStore
 import cn.limpu.hita.data.repository.TimetableMutationLock
 import cn.limpu.hita.data.source.preference.EasPreferenceSource
@@ -24,45 +24,65 @@ import cn.limpu.hita.data.source.preference.ScoreReminderStore
 import cn.limpu.hita.data.source.preference.TimetablePreferenceSource
 import cn.limpu.hita.data.source.web.service.EASService
 import cn.limpu.hita.ui.eas.score.ScoreInquiryActivity
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicReference
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.withTimeoutOrNull
 
-class ScoreReminderWorker(appContext: Context, params: WorkerParameters) : Worker(appContext, params) {
+class ScoreReminderWorker private constructor(
+    appContext: Context,
+    params: WorkerParameters,
+    private val repositoryFactory: (Application) -> EASRepository,
+    private val notifyScores: ((List<CourseScoreItem>) -> Unit)?,
+) : CoroutineWorker(appContext, params) {
+    // Preserve this public signature and class name for already persisted WorkSpecs.
+    constructor(appContext: Context, params: WorkerParameters) : this(
+        appContext, params, ::createRepository, null,
+    )
 
-    override fun doWork(): Result {
+    internal constructor(
+        appContext: Context,
+        params: WorkerParameters,
+        repository: EASRepository,
+        notifyScores: (List<CourseScoreItem>) -> Unit,
+    ) : this(appContext, params, { repository }, notifyScores)
+
+    override suspend fun doWork(): Result {
         val store = ScoreReminderStore(applicationContext)
         if (!store.isEnabled()) return Result.success()
         val app = applicationContext as? Application ?: return Result.failure()
-        val easPreferenceSource = EasPreferenceSource(applicationContext)
-        val repository = EASRepository(
-            app,
-            easPreferenceSource,
-            EasCredentialStore(applicationContext),
-            TimetablePreferenceSource(applicationContext, easPreferenceSource),
-            TimetableChangeStore(app),
-            TimetableMutationLock()
-        )
-        val token = repository.getEasToken()
-        if (!token.isLogin()) return Result.success()
-        val ownerKey = ScoreReminderPolicy.ownerKey(token) ?: return Result.retry()
+        val repository = repositoryFactory(app)
+        val session = repository.captureQuerySession()
+        if (!session.loggedIn) return Result.success()
+        val ownerKey = session.ownerKey ?: return Result.retry()
+        return session.whileCurrent { checkScores(repository, session, ownerKey, store) }
+    }
 
-        val termsState = awaitLiveData(repository.getAllTerms(useCache = false), 6)
+    private suspend fun checkScores(
+        repository: EASRepository,
+        session: EasQuerySession,
+        ownerKey: String,
+        store: ScoreReminderStore,
+    ): Result {
+        val termsState = withTimeoutOrNull(6_000L) { repository.queryTermsRemoteOnce(session) }
+            ?: return Result.retry()
         if (termsState.state != DataState.STATE.SUCCESS || termsState.data.isNullOrEmpty()) {
             return Result.retry()
         }
         val changedItems = mutableListOf<CourseScoreItem>()
         val baselineUpdates = mutableMapOf<String, Set<String>>()
         var queryFailed = false
-        for (term in ScoreReminderPolicy.termsToCheck(termsState.data!!)) {
-            val scoresState = awaitLiveData(
-                repository.getPersonalScoresWithSummary(
-                    term,
-                    EASService.TestType.NORMAL,
-                    useCache = false
-                ),
-                12
-            )
+        for (term in ScoreReminderPolicy.termsToCheck(termsState.data.orEmpty())) {
+            currentCoroutineContext().ensureActive()
+            session.ensureCurrent()
+            val scoresState = withTimeoutOrNull(12_000L) {
+                awaitEasDataState {
+                    repository.getPersonalScoresWithSummary(session, term, EASService.TestType.NORMAL)
+                }
+            }
+            if (scoresState == null) {
+                queryFailed = true
+                continue
+            }
             if (scoresState.state != DataState.STATE.SUCCESS || scoresState.data == null) {
                 queryFailed = true
                 continue
@@ -81,8 +101,14 @@ class ScoreReminderWorker(appContext: Context, params: WorkerParameters) : Worke
                 baselineUpdates[scopeKey] = known + diff
             }
         }
-        if (changedItems.isNotEmpty()) sendNotification(changedItems)
-        baselineUpdates.forEach { (scopeKey, keys) -> store.setKnownScores(scopeKey, keys) }
+        currentCoroutineContext().ensureActive()
+        session.ensureCurrent()
+        if (changedItems.isNotEmpty()) (notifyScores ?: ::sendNotification)(changedItems)
+        baselineUpdates.forEach { (scopeKey, keys) ->
+            currentCoroutineContext().ensureActive()
+            session.ensureCurrent()
+            store.setKnownScores(scopeKey, keys)
+        }
         return if (queryFailed) Result.retry() else Result.success()
     }
 
@@ -132,27 +158,17 @@ class ScoreReminderWorker(appContext: Context, params: WorkerParameters) : Worke
         }
     }
 
-    private fun <T> awaitLiveData(
-        liveData: androidx.lifecycle.LiveData<DataState<T>>,
-        timeoutSeconds: Long
-    ): DataState<T> {
-        val latch = CountDownLatch(1)
-        val result = AtomicReference(DataState<T>(DataState.STATE.FETCH_FAILED))
-        val observer = androidx.lifecycle.Observer<DataState<T>> { state ->
-            if (ScoreReminderPolicy.isTerminal(state.state)) {
-                result.set(state)
-                latch.countDown()
-            }
-        }
-        val handler = Handler(Looper.getMainLooper())
-        handler.post { liveData.observeForever(observer) }
-        latch.await(timeoutSeconds, TimeUnit.SECONDS)
-        handler.post { liveData.removeObserver(observer) }
-        return result.get()
-    }
-
     companion object {
         private const val CHANNEL_ID = "score_reminder"
         private const val NOTIF_ID = 2101
+
+        private fun createRepository(app: Application): EASRepository {
+            val preferences = EasPreferenceSource(app)
+            return EASRepository(
+                app, preferences, EasCredentialStore(app),
+                TimetablePreferenceSource(app, preferences), TimetableChangeStore(app),
+                TimetableMutationLock(),
+            )
+        }
     }
 }

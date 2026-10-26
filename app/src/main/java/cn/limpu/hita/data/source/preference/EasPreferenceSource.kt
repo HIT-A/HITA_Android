@@ -121,7 +121,12 @@ class EasPreferenceSource(context: Context) {
         encryptedPrefs
     }
 
-    fun saveEasToken(token: EASToken) {
+    internal val querySessionState = EasQuerySessionState.forPreferences(
+        context.getSharedPreferences("eas_query_coordination", Context.MODE_PRIVATE),
+        ::getEasToken,
+    )
+
+    fun saveEasToken(token: EASToken) = synchronized(querySessionState.lock) {
         preference.edit()
             .putString("accessToken", token.accessToken)
             .putString("refreshToken", token.refreshToken)
@@ -145,6 +150,7 @@ class EasPreferenceSource(context: Context) {
             .putString("phone", token.phone)
             .putString("electronicExpToken", token.electronicExpToken)
             .apply()
+        querySessionState.publish(token)
     }
 
     fun getLegacyCredentialFields(): LegacyEasCredentialFields {
@@ -161,9 +167,10 @@ class EasPreferenceSource(context: Context) {
     fun clearLegacyPassword(): Boolean = preference.edit().remove("password").commit()
 
 
-    fun clearEasToken() {
+    fun clearEasToken() = synchronized(querySessionState.lock) {
         // Saved credentials live in EasCredentialStore; clear only session and cached identity.
         preference.edit().clear().putBoolean(KEY_MIGRATION_COMPLETE, true).commit()
+        querySessionState.publish(getEasToken())
     }
 
     fun getEasToken(): EASToken {
