@@ -29,6 +29,7 @@ import java.util.concurrent.Executors
 class WeihaiEASWebSource internal constructor(
     private val teachingBuildingsHostOverride: String?,
     onCookiesUpdated: ((EASToken) -> Unit)?,
+    private val examHostOverride: String? = null,
 ) : AbstractEASWebSource(onCookiesUpdated) {
     constructor(onCookiesUpdated: ((EASToken) -> Unit)? = null) : this(null, onCookiesUpdated)
 
@@ -575,83 +576,104 @@ class WeihaiEASWebSource internal constructor(
         val result = MutableLiveData<DataState<List<ExamItem>>>()
         result.postValue(DataState(DataState.STATE.LOADING))
         executor.execute {
-            try {
-                // 获取所有考试时间段：01=期末，02=期中，03=补考
-                val examPeriods = listOf("01", "02", "03")
-                val allExams = mutableListOf<ExamItem>()
-
-                for (period in examPeriods) {
-                    val termCode = if (term != null) term.getCode() else "2025-20262"
-
-                    val response = Jsoup.connect("$hostName/kscx/queryKcForXs")
-                        .cookies(token.cookies)
-                        .data("xnxq", termCode)
-                        .data("kssjd", period)
-                        .header("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15")
-                        .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
-                        .header("Content-Type", "application/x-www-form-urlencoded")
-                        .header("Origin", "https://webvpn.hitwh.edu.cn")
-                        .header("Referer", "$hostName/kscx/queryKcForXs")
-                        .timeout(timeout)
-                        .ignoreContentType(true)
-                        .ignoreHttpErrors(true)
-                        .method(Connection.Method.POST)
-                        .execute()
-
-                    if (response.statusCode() != 200) {
-                        continue
-                    }
-
-                    val doc = Jsoup.parse(response.body())
-                    val examRows = doc.select("table.bot_line tr")
-
-                    for (row in examRows) {
-                        val cells = row.select("td")
-                        if (cells.size < 6) continue
-
-                        // 第一列通常是序号
-                        val firstCellText = cells[0].text().trim()
-                        if (firstCellText.matches(Regex("\\d+"))) {
-                            val exam = ExamItem()
-                            exam.courseName = cells[1].text().trim()
-                            // exam.code = cells[2].text().trim()  // ExamItem没有code字段
-                            exam.examLocation = cells[3].text().trim()
-                            // 座位号：ExamItem没有此字段
-                            // val seatNumber = cells[4].text().trim()
-
-                            // 解析时间：2026年05月14日(第10周     星期四)14:00-16:00
-                            val timeText = cells[5].text().trim()
-                            parseExamTime(timeText, exam)
-
-                            // 设置考试类型
-                            exam.examType = when (period) {
-                                "01" -> "期末"
-                                "02" -> "期中"
-                                "03" -> "补考"
-                                else -> "考试"
-                            }
-
-                            // 设置学期信息
-                            exam.termName = term?.name
-                            exam.termId = term?.id
-                            exam.campusName = "威海校区"
-
-                            allExams.add(exam)
-                        }
-                    }
-                }
-
-                if (allExams.isEmpty()) {
-                    result.postValue(DataState(emptyList(), DataState.STATE.SUCCESS))
-                } else {
-                    result.postValue(DataState(allExams, DataState.STATE.SUCCESS))
-                }
-            } catch (e: Exception) {
-                e.printStackTrace()
-                result.postValue(DataState(DataState.STATE.FETCH_FAILED, e.message ?: "查询考试失败"))
+            val state = try {
+                requestExamItems(token, term)
+            } catch (cancelled: CancellationException) {
+                DataState(DataState.STATE.FETCH_FAILED, cancelled.message ?: "查询考试失败")
             }
+            result.postValue(state)
         }
         return result
+    }
+
+    override suspend fun getExamItemsOnce(token: EASToken, term: TermItem?): DataState<List<ExamItem>> =
+        withContext(Dispatchers.IO) {
+            val context = currentCoroutineContext()
+            requestExamItems(token, term) { context.ensureActive() }
+        }
+
+    private fun requestExamItems(
+        token: EASToken,
+        term: TermItem?,
+        checkCancelled: () -> Unit = {},
+    ): DataState<List<ExamItem>> = try {
+        // 获取所有考试时间段：01=期末，02=期中，03=补考
+        val examPeriods = listOf("01", "02", "03")
+        val allExams = mutableListOf<ExamItem>()
+
+        for (period in examPeriods) {
+            checkCancelled()
+            val termCode = if (term != null) term.getCode() else "2025-20262"
+
+            val examHostName = examHostOverride?.trimEnd('/') ?: hostName
+            val response = Jsoup.connect("$examHostName/kscx/queryKcForXs")
+                .cookies(token.cookies)
+                .data("xnxq", termCode)
+                .data("kssjd", period)
+                .header("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15")
+                .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                .header("Content-Type", "application/x-www-form-urlencoded")
+                .header("Origin", "https://webvpn.hitwh.edu.cn")
+                .header("Referer", "$examHostName/kscx/queryKcForXs")
+                .timeout(timeout)
+                .ignoreContentType(true)
+                .ignoreHttpErrors(true)
+                .method(Connection.Method.POST)
+                .execute()
+
+            checkCancelled()
+            if (response.statusCode() != 200) {
+                continue
+            }
+
+            val doc = Jsoup.parse(response.body())
+            val examRows = doc.select("table.bot_line tr")
+
+            for (row in examRows) {
+                val cells = row.select("td")
+                if (cells.size < 6) continue
+
+                // 第一列通常是序号
+                val firstCellText = cells[0].text().trim()
+                if (firstCellText.matches(Regex("\\d+"))) {
+                    val exam = ExamItem()
+                    exam.courseName = cells[1].text().trim()
+                    // exam.code = cells[2].text().trim()  // ExamItem没有code字段
+                    exam.examLocation = cells[3].text().trim()
+                    // 座位号：ExamItem没有此字段
+                    // val seatNumber = cells[4].text().trim()
+
+                    // 解析时间：2026年05月14日(第10周     星期四)14:00-16:00
+                    val timeText = cells[5].text().trim()
+                    parseExamTime(timeText, exam)
+
+                    // 设置考试类型
+                    exam.examType = when (period) {
+                        "01" -> "期末"
+                        "02" -> "期中"
+                        "03" -> "补考"
+                        else -> "考试"
+                    }
+
+                    // 设置学期信息
+                    exam.termName = term?.name
+                    exam.termId = term?.id
+                    exam.campusName = "威海校区"
+
+                    allExams.add(exam)
+                }
+            }
+        }
+        if (allExams.isEmpty()) {
+            DataState(emptyList(), DataState.STATE.SUCCESS)
+        } else {
+            DataState(allExams, DataState.STATE.SUCCESS)
+        }
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (e: Exception) {
+        e.printStackTrace()
+        DataState(DataState.STATE.FETCH_FAILED, e.message ?: "查询考试失败")
     }
 
     /**

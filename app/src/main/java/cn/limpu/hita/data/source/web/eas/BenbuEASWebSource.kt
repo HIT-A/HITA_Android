@@ -28,6 +28,7 @@ import java.util.concurrent.Executors
 class BenbuEASWebSource internal constructor(
     private val teachingBuildingsHostOverride: String?,
     onCookiesUpdated: ((EASToken) -> Unit)?,
+    private val examHostOverride: String? = null,
 ) : AbstractEASWebSource(onCookiesUpdated) {
     constructor(onCookiesUpdated: ((EASToken) -> Unit)? = null) : this(null, onCookiesUpdated)
 
@@ -892,51 +893,71 @@ class BenbuEASWebSource internal constructor(
         term: TermItem?
     ): LiveData<DataState<List<ExamItem>>> {
         val result = MutableLiveData<DataState<List<ExamItem>>>()
-
         executor.execute {
-            try {
-                if (term == null) {
-                    LogUtils.e("getExamItems: term is null")
-                    result.postValue(DataState(DataState.STATE.FETCH_FAILED, "学期参数为空"))
-                    return@execute
-                }
-
-                val termCode = term.getCode()
-
-                val examState = BenbuExamQuery.load { kssjd, typeName ->
-                    val url = "$hostName/kscx/queryKcForXs1"
-                    val response = Jsoup.connect(url)
-                        .cookies(token.cookies)
-                        .header("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15")
-                        .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
-                        .header("Content-Type", "application/x-www-form-urlencoded")
-                        .data("xnxq", termCode)
-                        .data("kssjd", kssjd)
-                        .timeout(timeout)
-                        .ignoreHttpErrors(true)
-                        .followRedirects(true)
-                        .method(Connection.Method.GET)
-                        .execute()
-
-                    val body = response.body()
-                    if (isAuthExpiredResponse(response, body)) {
-                        throw ExamSessionExpiredException()
-                    }
-                    if (response.statusCode() != 200) {
-                        throw IllegalStateException("${typeName}考试查询失败：HTTP ${response.statusCode()}")
-                    }
-                    BenbuExamParser.parse(body, typeName, term)
-                }
-
-                result.postValue(examState)
-
-            } catch (e: Exception) {
-                LogUtils.e("getExamItems: failed", e)
-                result.postValue(DataState(DataState.STATE.FETCH_FAILED, e.message ?: "查询失败"))
+            val state = try {
+                requestExamItems(token, term)
+            } catch (cancelled: CancellationException) {
+                DataState(DataState.STATE.FETCH_FAILED, cancelled.message ?: "查询失败")
             }
+            result.postValue(state)
+        }
+        return result
+    }
+
+    override suspend fun getExamItemsOnce(token: EASToken, term: TermItem?): DataState<List<ExamItem>> =
+        withContext(Dispatchers.IO) {
+            val context = currentCoroutineContext()
+            requestExamItems(token, term) { context.ensureActive() }
         }
 
-        return result
+    private fun requestExamItems(
+        token: EASToken,
+        term: TermItem?,
+        checkCancelled: (() -> Unit)? = null,
+    ): DataState<List<ExamItem>> = try {
+        checkCancelled?.invoke()
+        if (term == null) {
+            LogUtils.e("getExamItems: term is null")
+            DataState(DataState.STATE.FETCH_FAILED, "学期参数为空")
+        } else {
+            val termCode = term.getCode()
+            val fetch: (String, String) -> List<ExamItem> = { kssjd, typeName ->
+                val examHostName = examHostOverride?.trimEnd('/') ?: hostName
+                val url = "$examHostName/kscx/queryKcForXs1"
+                val response = Jsoup.connect(url)
+                    .cookies(token.cookies)
+                    .header("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15")
+                    .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                    .header("Content-Type", "application/x-www-form-urlencoded")
+                    .data("xnxq", termCode)
+                    .data("kssjd", kssjd)
+                    .timeout(timeout)
+                    .ignoreHttpErrors(true)
+                    .followRedirects(true)
+                    .method(Connection.Method.GET)
+                    .execute()
+
+                checkCancelled?.invoke()
+                val body = response.body()
+                if (isAuthExpiredResponse(response, body)) {
+                    throw ExamSessionExpiredException()
+                }
+                if (response.statusCode() != 200) {
+                    throw IllegalStateException("${typeName}考试查询失败：HTTP ${response.statusCode()}")
+                }
+                BenbuExamParser.parse(body, typeName, term)
+            }
+            if (checkCancelled == null) {
+                BenbuExamQuery.load(fetch)
+            } else {
+                BenbuExamQuery.loadCancellable(checkCancelled, fetch)
+            }
+        }
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (e: Exception) {
+        LogUtils.e("getExamItems: failed", e)
+        DataState(DataState.STATE.FETCH_FAILED, e.message ?: "查询失败")
     }
 
 
