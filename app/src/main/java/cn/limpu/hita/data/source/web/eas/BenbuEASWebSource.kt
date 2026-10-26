@@ -2,6 +2,11 @@ package cn.limpu.hita.data.source.web.eas
 
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.withContext
 import com.limpu.component.data.DataState
 import cn.limpu.hita.utils.LogUtils
 import cn.limpu.hita.utils.AppConstants
@@ -20,10 +25,15 @@ import java.time.LocalDate
 import java.util.*
 import java.util.concurrent.Executors
 
-class BenbuEASWebSource(
-    onCookiesUpdated: ((EASToken) -> Unit)? = null
+class BenbuEASWebSource internal constructor(
+    private val teachingBuildingsHostOverride: String?,
+    onCookiesUpdated: ((EASToken) -> Unit)?,
 ) : AbstractEASWebSource(onCookiesUpdated) {
+    constructor(onCookiesUpdated: ((EASToken) -> Unit)? = null) : this(null, onCookiesUpdated)
+
     override val hostName = "http://jwts-hit-edu-cn.ivpn.hit.edu.cn:1080"
+    override val teachingBuildingsHostName: String
+        get() = teachingBuildingsHostOverride?.trimEnd('/') ?: hostName
     override val campusDisplayName: String = "本部"
 
     override fun getGraduateTermsOrNull(token: EASToken): List<TermItem>? =
@@ -205,26 +215,39 @@ class BenbuEASWebSource(
     override fun getTeachingBuildings(token: EASToken): LiveData<DataState<List<BuildingItem>>> {
         val result = MutableLiveData<DataState<List<BuildingItem>>>()
         result.value = DataState(DataState.STATE.NOTHING)
-
         executor.execute {
-            try {
-                val buildings = mutableListOf<BuildingItem>()
-
-                // 查询一校区教学楼
-                buildings.addAll(queryBuildingsByCampusId(token, "1"))
-
-                // 查询二校区教学楼
-                buildings.addAll(queryBuildingsByCampusId(token, "2"))
-
-                result.postValue(DataState(buildings))
-            } catch (e: Exception) {
-                result.postValue(DataState(DataState.STATE.FETCH_FAILED, e.message))
+            val state = try {
+                requestTeachingBuildings(token)
+            } catch (cancelled: CancellationException) {
+                DataState(DataState.STATE.FETCH_FAILED, cancelled.message)
             }
+            result.postValue(state)
         }
-
         return result
     }
 
+    override suspend fun getTeachingBuildingsOnce(token: EASToken): DataState<List<BuildingItem>> =
+        withContext(Dispatchers.IO) {
+            val context = currentCoroutineContext()
+            requestTeachingBuildings(token) { context.ensureActive() }
+        }
+
+    private fun requestTeachingBuildings(
+        token: EASToken,
+        checkCancelled: () -> Unit = {},
+    ): DataState<List<BuildingItem>> = try {
+        val buildings = mutableListOf<BuildingItem>()
+        checkCancelled()
+        buildings.addAll(queryBuildingsByCampusId(token, "1"))
+        checkCancelled()
+        buildings.addAll(queryBuildingsByCampusId(token, "2"))
+        checkCancelled()
+        DataState(buildings)
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (error: Exception) {
+        DataState(DataState.STATE.FETCH_FAILED, error.message)
+    }
 
     protected override fun parseTermsFromDoc(doc: Document, selectName: String): List<TermItem> {
         return BenbuTermParser.parseTerms(doc, selectName)

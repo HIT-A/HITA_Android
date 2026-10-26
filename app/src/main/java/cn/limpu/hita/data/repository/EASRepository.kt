@@ -445,6 +445,17 @@ class EASRepository @Inject constructor(
     /**
      * 获取教学楼列表
      */
+    suspend fun getTeachingBuildingsOnce(): DataState<List<BuildingItem>> =
+        createTeachingBuildingsRequest().execute()
+
+    /** 初始界面状态和查询共享同一次登录信息与校区选择。 */
+    internal fun createTeachingBuildingsRequest(): TeachingBuildingsRequest {
+        val token = easPreferenceSource.getEasToken()
+        val service = getService(token.campus)
+        return TeachingBuildingsRequest.forToken(token, service::getTeachingBuildingsOnce)
+    }
+
+    /** AI 同步工具的 LiveData 兼容入口，保留原有启动和等待方式。 */
     fun getTeachingBuildings(): LiveData<DataState<List<BuildingItem>>> {
         val easToken = easPreferenceSource.getEasToken()
         LogUtils.d("getTeachingBuildings: isLogin=${easToken.isLogin()}")

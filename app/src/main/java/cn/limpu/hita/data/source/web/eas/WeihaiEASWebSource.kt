@@ -2,6 +2,11 @@ package cn.limpu.hita.data.source.web.eas
 
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.withContext
 import com.limpu.component.data.DataState
 import cn.limpu.hita.utils.LogUtils
 import cn.limpu.hita.utils.AppConstants
@@ -21,10 +26,15 @@ import java.text.SimpleDateFormat
 import java.util.*
 import java.util.concurrent.Executors
 
-class WeihaiEASWebSource(
-    onCookiesUpdated: ((EASToken) -> Unit)? = null
+class WeihaiEASWebSource internal constructor(
+    private val teachingBuildingsHostOverride: String?,
+    onCookiesUpdated: ((EASToken) -> Unit)?,
 ) : AbstractEASWebSource(onCookiesUpdated) {
+    constructor(onCookiesUpdated: ((EASToken) -> Unit)? = null) : this(null, onCookiesUpdated)
+
     override val hostName = "https://webvpn.hitwh.edu.cn/http/77726476706e69737468656265737421fae0558f693861446900c7a99c406d3667"
+    override val teachingBuildingsHostName: String
+        get() = teachingBuildingsHostOverride?.trimEnd('/') ?: hostName
     override val campusDisplayName: String = "威海"
 
     override fun postProcessTerms(terms: MutableList<TermItem>): MutableList<TermItem> =
@@ -205,34 +215,49 @@ class WeihaiEASWebSource(
     override fun getTeachingBuildings(token: EASToken): LiveData<DataState<List<BuildingItem>>> {
         val result = MutableLiveData<DataState<List<BuildingItem>>>()
         result.value = DataState(DataState.STATE.NOTHING)
-
         executor.execute {
-            try {
-                val buildings = mutableListOf<BuildingItem>()
-                val seen = hashSetOf<String>()
-
-                fun appendFromCampusId(campusId: String) {
-                    queryBuildingsByCampusId(token, campusId).forEach { item ->
-                        if (item.id.isBlank() || !seen.add(item.id)) return@forEach
-                        buildings.add(item)
-                    }
-                }
-
-                appendFromCampusId("01")
-                if (buildings.isEmpty()) {
-                    appendFromCampusId("1")
-                    appendFromCampusId("2")
-                }
-
-                result.postValue(DataState(buildings))
-            } catch (e: Exception) {
-                result.postValue(DataState(DataState.STATE.FETCH_FAILED, e.message))
+            val state = try {
+                requestTeachingBuildings(token)
+            } catch (cancelled: CancellationException) {
+                DataState(DataState.STATE.FETCH_FAILED, cancelled.message)
             }
+            result.postValue(state)
         }
-
         return result
     }
 
+    override suspend fun getTeachingBuildingsOnce(token: EASToken): DataState<List<BuildingItem>> =
+        withContext(Dispatchers.IO) {
+            val context = currentCoroutineContext()
+            requestTeachingBuildings(token) { context.ensureActive() }
+        }
+
+    private fun requestTeachingBuildings(
+        token: EASToken,
+        checkCancelled: () -> Unit = {},
+    ): DataState<List<BuildingItem>> = try {
+        val buildings = mutableListOf<BuildingItem>()
+        val seen = hashSetOf<String>()
+        fun appendFromCampusId(campusId: String) {
+            checkCancelled()
+            val items = queryBuildingsByCampusId(token, campusId)
+            checkCancelled()
+            items.forEach { item ->
+                if (item.id.isBlank() || !seen.add(item.id)) return@forEach
+                buildings.add(item)
+            }
+        }
+        appendFromCampusId("01")
+        if (buildings.isEmpty()) {
+            appendFromCampusId("1")
+            appendFromCampusId("2")
+        }
+        DataState(buildings)
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (error: Exception) {
+        DataState(DataState.STATE.FETCH_FAILED, error.message)
+    }
 
     protected override fun parseTermsFromDoc(doc: Document, selectName: String): List<TermItem> {
         val options = doc.select("select[name=$selectName] option")
