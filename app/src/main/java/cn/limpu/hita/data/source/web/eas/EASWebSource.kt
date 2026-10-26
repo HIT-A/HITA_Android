@@ -913,129 +913,179 @@ class EASWebSource internal constructor(
         building: BuildingItem,
         weeks: List<String>
     ): LiveData<DataState<List<ClassroomItem>>> {
-        if (token.accessToken.isNullOrBlank() && token.hasShenzhenWebSession()) {
-            return queryShenzhenWebEmptyClassroom(token, term, building, weeks)
-        }
+        val useWebSession = token.accessToken.isNullOrBlank() && token.hasShenzhenWebSession()
         val result = MutableLiveData<DataState<List<ClassroomItem>>>()
         Thread {
-            val resMap = linkedMapOf<String, ClassroomItem>()
-            try {
-                val week = (weeks.firstOrNull()?.trim() ?: "").ifBlank { "1" }
-                val dates = resolveWeekDates(token, term, week)
-                if (dates.isEmpty()) {
-                    throw IllegalStateException("未获取到 ${term.name} 第${week}周的日期")
-                }
-                val datePairs = dates.mapIndexed { index, date -> index + 1 to date }
-
-                for ((dow, date) in datePairs) {
-                    val resp = authedFormPost(
-                        token, "/app/kbrcbyapp/querycdzyxx",
-                        mapOf("nyr" to date, "jxl" to building.id)
-                    )
-                    val jo = JsonUtils.getJsonObject(resp.body())
-                    val content = jo?.optJSONArray("content")
-                    for (i in 0 until (content?.length() ?: 0)) {
-                        val item = content?.optJSONObject(i) ?: continue
-                        val name = item.optString("CDMC").trim()
-                        if (name.isBlank()) continue
-                        val classroom = resMap.getOrPut(name) {
-                            ClassroomItem().apply {
-                                this.name = name
-                                this.id = name
-                            }
-                        }
-                        for (dj in 1..6) {
-                            val v = item.optString("DJ$dj", "0").trim()
-                            if (v.isEmpty() || v == "0") continue
-                            val start = (dj - 1) * 2 + 1
-                            val end = start + 1
-                            for (period in start..end) {
-                                val scheduleJson = JSONObject()
-                                scheduleJson.put("XQJ", dow)
-                                scheduleJson.put("XJ", period)
-                                scheduleJson.put("PKBJ", "占用")
-                                classroom.scheduleList.add(scheduleJson)
-                            }
-                        }
-                    }
-                }
-                result.postValue(DataState(resMap.values.toList()))
-            } catch (e: Exception) {
-                LogUtils.e("queryEmptyClassroom: failed, error=${e.message}", e)
-                result.postValue(DataState(DataState.STATE.FETCH_FAILED))
-            }
+            result.postValue(requestEmptyClassroom(token, term, building, weeks, useWebSession))
         }.start()
         return result
     }
 
-    private fun queryShenzhenWebEmptyClassroom(
+    override suspend fun queryEmptyClassroomOnce(
         token: EASToken,
         term: TermItem,
         building: BuildingItem,
-        weeks: List<String>
-    ): LiveData<DataState<List<ClassroomItem>>> {
-        val result = MutableLiveData<DataState<List<ClassroomItem>>>()
-        Thread {
-            try {
-                val week = weeks.firstOrNull()?.toIntOrNull()?.coerceIn(1, 34) ?: 1
-                val weekMask = buildString(34) {
-                    repeat(34) { index -> append(if (index == week - 1) '1' else '0') }
-                }
-                val form = linkedMapOf(
-                    "pxn" to term.yearCode,
-                    "pxq" to term.termCode,
-                    "dmmc" to "",
-                    "xiaoqu" to "",
-                    "jxl" to building.id,
-                    "cdlb" to "",
-                    "zc" to weekMask,
-                    "wpksfxs" to "0",
-                    "qsjsz" to "16",
-                    "kjs" to "0",
-                    "xsbkycd" to "0",
-                    "zws" to "",
-                    "lc" to ""
+        weeks: List<String>,
+    ): DataState<List<ClassroomItem>> {
+        val useWebSession = token.accessToken.isNullOrBlank() && token.hasShenzhenWebSession()
+        val snapshot = EmptyClassroomQuerySnapshot(term, building, weeks)
+        return withContext(Dispatchers.IO) {
+            val context = currentCoroutineContext()
+            val result = requestEmptyClassroom(
+                token, snapshot.term, snapshot.building, snapshot.weeks, useWebSession,
+            ) { context.ensureActive() }
+            context.ensureActive()
+            result
+        }
+    }
+
+    private fun requestEmptyClassroom(
+        token: EASToken,
+        term: TermItem,
+        building: BuildingItem,
+        weeks: List<String>,
+        useWebSession: Boolean,
+        checkCancelled: (() -> Unit)? = null,
+    ): DataState<List<ClassroomItem>> {
+        if (useWebSession) return requestShenzhenWebEmptyClassroom(token, term, building, weeks, checkCancelled)
+        val resMap = linkedMapOf<String, ClassroomItem>()
+        return try {
+            checkCancelled?.invoke()
+            val week = (weeks.firstOrNull()?.trim() ?: "").ifBlank { "1" }
+            val dates = resolveWeekDates(token, term, week, checkCancelled)
+            checkCancelled?.invoke()
+            if (dates.isEmpty()) {
+                throw IllegalStateException("未获取到 ${term.name} 第${week}周的日期")
+            }
+            val datePairs = dates.mapIndexed { index, date -> index + 1 to date }
+
+            for ((dow, date) in datePairs) {
+                checkCancelled?.invoke()
+                val resp = authedFormPost(
+                    token, "/app/kbrcbyapp/querycdzyxx",
+                    mapOf("nyr" to date, "jxl" to building.id)
                 )
-                val leftResponse = jwFormPost(
-                    token,
-                    "/cdkb/querycdzyleftzhou?sf_request_type=ajax",
-                    form + mapOf("pageNum" to "1", "pageSize" to "500"),
-                    "/cdkb/querycdzy"
-                )
-                if (isJwAuthenticationExpired(leftResponse)) {
-                    result.postValue(DataState(DataState.STATE.NOT_LOGGED_IN, "深圳 Web 会话已失效"))
-                    return@Thread
+                checkCancelled?.invoke()
+                val jo = JsonUtils.getJsonObject(resp.body())
+                val content = jo?.optJSONArray("content")
+                for (i in 0 until (content?.length() ?: 0)) {
+                    val item = content?.optJSONObject(i) ?: continue
+                    val name = item.optString("CDMC").trim()
+                    if (name.isBlank()) continue
+                    val classroom = resMap.getOrPut(name) {
+                        ClassroomItem().apply {
+                            this.name = name
+                            this.id = name
+                        }
+                    }
+                    for (dj in 1..6) {
+                        val v = item.optString("DJ$dj", "0").trim()
+                        if (v.isEmpty() || v == "0") continue
+                        val start = (dj - 1) * 2 + 1
+                        val end = start + 1
+                        for (period in start..end) {
+                            val scheduleJson = JSONObject()
+                            scheduleJson.put("XQJ", dow)
+                            scheduleJson.put("XJ", period)
+                            scheduleJson.put("PKBJ", "占用")
+                            classroom.scheduleList.add(scheduleJson)
+                        }
+                    }
                 }
-                val rightResponse = jwFormPost(
-                    token,
-                    "/cdkb/querycdzyrightzhou?sf_request_type=ajax",
-                    form,
-                    "/cdkb/querycdzy"
-                )
-                if (isJwAuthenticationExpired(rightResponse)) {
-                    result.postValue(DataState(DataState.STATE.NOT_LOGGED_IN, "深圳 Web 会话已失效"))
-                    return@Thread
-                }
+                checkCancelled?.invoke()
+            }
+            checkCancelled?.invoke()
+            DataState(resMap.values.toList())
+        } catch (error: Exception) {
+            if (checkCancelled != null) {
+                checkCancelled()
+                if (error is CancellationException) throw error
+            }
+            LogUtils.e("queryEmptyClassroom: failed, error=${error.message}", error)
+            DataState(DataState.STATE.FETCH_FAILED)
+        }
+    }
+
+    private fun requestShenzhenWebEmptyClassroom(
+        token: EASToken,
+        term: TermItem,
+        building: BuildingItem,
+        weeks: List<String>,
+        checkCancelled: (() -> Unit)?,
+    ): DataState<List<ClassroomItem>> = try {
+        checkCancelled?.invoke()
+        val week = weeks.firstOrNull()?.toIntOrNull()?.coerceIn(1, 34) ?: 1
+        val weekMask = buildString(34) {
+            repeat(34) { index -> append(if (index == week - 1) '1' else '0') }
+        }
+        val form = linkedMapOf(
+            "pxn" to term.yearCode,
+            "pxq" to term.termCode,
+            "dmmc" to "",
+            "xiaoqu" to "",
+            "jxl" to building.id,
+            "cdlb" to "",
+            "zc" to weekMask,
+            "wpksfxs" to "0",
+            "qsjsz" to "16",
+            "kjs" to "0",
+            "xsbkycd" to "0",
+            "zws" to "",
+            "lc" to ""
+        )
+        checkCancelled?.invoke()
+        val leftResponse = jwFormPost(
+            token,
+            "/cdkb/querycdzyleftzhou?sf_request_type=ajax",
+            form + mapOf("pageNum" to "1", "pageSize" to "500"),
+            "/cdkb/querycdzy"
+        )
+        checkCancelled?.invoke()
+        if (isJwAuthenticationExpired(leftResponse)) {
+            DataState(DataState.STATE.NOT_LOGGED_IN, "深圳 Web 会话已失效")
+        } else {
+            checkCancelled?.invoke()
+            val rightResponse = jwFormPost(
+                token,
+                "/cdkb/querycdzyrightzhou?sf_request_type=ajax",
+                form,
+                "/cdkb/querycdzy"
+            )
+            checkCancelled?.invoke()
+            if (isJwAuthenticationExpired(rightResponse)) {
+                DataState(DataState.STATE.NOT_LOGGED_IN, "深圳 Web 会话已失效")
+            } else {
                 val classrooms = ShenzhenWebAcademicParser.parseClassrooms(
                     leftResponse.body(),
                     rightResponse.body()
                 )
+                checkCancelled?.invoke()
                 if (leftResponse.statusCode() != 200 || rightResponse.statusCode() != 200 || classrooms == null) {
-                    result.postValue(DataState(DataState.STATE.FETCH_FAILED, "空教室数据解析失败"))
+                    DataState(DataState.STATE.FETCH_FAILED, "空教室数据解析失败")
                 } else {
-                    result.postValue(DataState(classrooms, DataState.STATE.SUCCESS))
+                    DataState(classrooms, DataState.STATE.SUCCESS)
                 }
-            } catch (error: Exception) {
-                result.postValue(DataState(DataState.STATE.FETCH_FAILED, error.message))
             }
-        }.start()
-        return result
+        }
+    } catch (error: Exception) {
+        if (checkCancelled != null) {
+            checkCancelled()
+            if (error is CancellationException) throw error
+        }
+        DataState(DataState.STATE.FETCH_FAILED, error.message)
     }
 
-    private fun resolveWeekDates(token: EASToken, term: TermItem, week: String): List<String> {
+    private fun resolveWeekDates(
+        token: EASToken,
+        term: TermItem,
+        week: String,
+        checkCancelled: (() -> Unit)?,
+    ): List<String> {
         val matrixDates = try {
+            checkCancelled?.invoke()
             val kbBody = """{"xn":"${term.yearCode}","xq":"${term.termCode}","zc":"$week","type":"json"}"""
             val kbResp = jsonPost(token, "/app/Kbcx/query", kbBody)
+            checkCancelled?.invoke()
             val kbJo = JsonUtils.getJsonObject(kbResp.body())
             val contentArr = kbJo?.optJSONArray("content")
             val dates = mutableListOf<String>()
@@ -1048,10 +1098,17 @@ class EASWebSource internal constructor(
                 }
                 if (dates.isNotEmpty()) break
             }
+            checkCancelled?.invoke()
             dates
-        } catch (_: Exception) {
+        } catch (error: Exception) {
+            // Legacy callbacks may throw CE here and still fall back; only the suspend entry propagates it.
+            if (checkCancelled != null) {
+                checkCancelled()
+                if (error is CancellationException) throw error
+            }
             emptyList()
         }
+        checkCancelled?.invoke()
         if (matrixDates.isNotEmpty()) {
             // rqList 在部分周只返回一个或少数日期，不能把数组下标直接当星期。
             // 请求本身已经限定了目标周，因此从其中任一日期恢复该周完整 7 天即可。
@@ -1064,9 +1121,11 @@ class EASWebSource internal constructor(
 
         val targetWeek = week.toIntOrNull()?.coerceAtLeast(1) ?: 1
         val termDates = overviewTermDatesCache[term.id]
-            ?: fetchOverviewTermDates(token, term).also { dates ->
+            ?: fetchOverviewTermDates(token, term, checkCancelled).also { dates ->
+                checkCancelled?.invoke()
                 if (dates.isNotEmpty()) overviewTermDatesCache[term.id] = dates
             }
+        checkCancelled?.invoke()
         return ShenzhenAcademicWeekResolver.resolveQueryDates(
             matrixDates = emptyList(),
             overviewTermDates = termDates,
@@ -1078,17 +1137,23 @@ class EASWebSource internal constructor(
      * 周课表矩阵在尚无个人课程时可能不给 rqList。总览接口按日期查询且返回 XN/XQ，
      * 因而可用于定位该学期真正的第一周；这里只在矩阵日期缺失时调用。
      */
-    private fun fetchOverviewTermDates(token: EASToken, term: TermItem): List<String> {
+    private fun fetchOverviewTermDates(
+        token: EASToken,
+        term: TermItem,
+        checkCancelled: (() -> Unit)?,
+    ): List<String> {
         val dates = linkedSetOf<String>()
         var stagnantCount = 0
         val anchor = ShenzhenAcademicWeekResolver.approximateAnchor(term)
         for (weekOffset in 0 until 26) {
+            checkCancelled?.invoke()
             val queryDate = anchor.plusWeeks(weekOffset.toLong()).toString()
             val response = authedFormPost(
                 token,
                 "/app/kbrcbyapp/querykbrczong",
                 mapOf("nyr" to queryDate)
             )
+            checkCancelled?.invoke()
             val content = JsonUtils.getJsonObject(response.body())?.optJSONArray("content")
             val sizeBefore = dates.size
             for (index in 0 until (content?.length() ?: 0)) {
@@ -1098,9 +1163,11 @@ class EASWebSource internal constructor(
                 val date = row.optString("RQ").trim()
                 if (date.isNotEmpty()) dates.add(date)
             }
+            checkCancelled?.invoke()
             stagnantCount = if (dates.size == sizeBefore) stagnantCount + 1 else 0
             if (dates.isNotEmpty() && stagnantCount >= 4) break
         }
+        checkCancelled?.invoke()
         return dates.sorted()
     }
 

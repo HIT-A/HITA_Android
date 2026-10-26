@@ -99,6 +99,18 @@ interface EASService {
     ): LiveData<DataState<List<ClassroomItem>>>
 
     /**
+     * 单次远端空教室查询；在入口复制学期、教学楼和周次，阻塞网络在 IO 执行。
+     * 取消向上传播，并在当前同步请求返回后停止后续查询；不会立即中断 socket。
+     * token 保留原引用以维持会话更新；缓存和观察者协调仍由调用方负责。
+     */
+    suspend fun queryEmptyClassroomOnce(
+        token: EASToken,
+        term: TermItem,
+        building: BuildingItem,
+        weeks: List<String>
+    ): DataState<List<ClassroomItem>>
+
+    /**
      * 获取最终成绩
      */
     fun getPersonalScores(
