@@ -74,8 +74,8 @@
 | 4.T2 | 复用周组件与布局策略 | 朋友课表/规划预览真实接入；几何/命中、重叠、时区、晚课、手势/动画有覆盖；组件 state/actions 与领域算法分离 | 待做 |
 | 4.W1 | Web 登录校区会话与 HTTP | 显式事件/状态/一次结果；Cookie 捕获和网络适配分开；三校区/研究生/电子实验/静默/超时回退实测；敏感 Cookie 不写日志 | 待做 |
 | 4.W2 | WebView 浏览器、脚本、MFA、凭据桥与展示 | 生命周期拥有浏览器与回调；origin/main-frame 安全约束、成功才保存凭据、取消清理；实际本地 WebView fixture 验证桥接/导航/销毁，不启用原禁用功能 | 待做 |
-| 4.S1 | Subject 资源请求与课程归属 | 课程不可变 key、agent→fallback、每卡目录栈/请求代次；迟到结果不能回填其他课程；clear 取消；保存/删除仍统一 | 实施中：完整页面接线与字段事务更新已写，独立静态审查通过，编译/定向运行待完成；未 PR/合并 |
-| 4.S2 | Subject Markdown、打开策略与展示 | formatter 输入显式、纯策略可测；Markwon/下载/浏览器为平台适配；相对链接/来源/编码/截段与实际卡片操作契约保持 | 实施中：formatter、renderer、打开策略及展示已接回页面；旧行为和归属测试已写，尚待实际运行 |
+| 4.S1 | Subject 资源请求与课程归属 | 课程不可变 key、agent→fallback、每卡目录栈/请求代次；迟到结果不能回填其他课程；clear 取消；保存/删除仍统一 | 本地实现与独审通过：原归属 5 项准确红后转绿，29 项 Subject JVM / 14 项设备全绿；Activity/VM/Room 真接线；最终 PR CI 待验 |
+| 4.S2 | Subject Markdown、打开策略与展示 | formatter 输入显式、纯策略可测；Markwon/下载/浏览器为平台适配；相对链接/来源/编码/截段与实际卡片操作契约保持 | 本地实现与独审通过：8 项兼容基线保持，真实 Markwon/启动器/Activity 测试通过；最终 PR CI 待验 |
 | 4.F | 阶段 4 完成审计 | 四个实际宿主与抽取类逐项审核；无直接 HTTP/文件 IO/散乱请求 map；运行真实 host/组件/WebView 生命周期用例和完整 app 回归 | 待做 |
 
 ## 5. 阶段 5：构建、测试与模块
@@ -85,8 +85,8 @@
 | 5.V | 版本目录统一 | 插件、库及测试依赖真正引用 catalog；BOM/必要历史版本差异显式；前后 resolved classpath 对照，无夹带依赖升级 | 已合并且验证：[#71](https://github.com/HIT-A/HITA_Android/pull/71)，merge `f4e809d`；head `ae70440` 的 CI 40305741411 两 job 成功、设备 607 全通过 |
 | 5.M | Maven Local 显式开关 | 默认所有解析域不使用 mavenLocal；显式属性启用；两种模式实际配置验证，干净 CI 可构建 | 已合并且验证：#71；三模式及冷缓存 111 配置对照通过，476 外部制品冷下载；最终 CI 默认构建通过 |
 | 5.R | style Release 资源校验恢复 | verifyReleaseResources enabled 且实际执行成功；修真实 AAPT 归属错误；CI 持久执行，无 skip/ignore 替代 | 已合并且验证：#71；本地资源任务实际执行且新 AAR 等价，最终 CI 日志确认 verifyReleaseResources/assembleRelease 成功，无 skip |
-| 5.T | component/hitauser/style 真实测试与 CI | 覆盖公共数据/网络/偏好/Room/主题关键行为；每模块实际 XML、CI 全模块覆盖；解决真实最低 API 依赖冲突而非 overrideLibrary | 本地验证通过：子模块 JVM 11/设备 26 全绿，app JVM 794 通过 + 1 既有跳过、设备 607 全绿；minSdk/nullable gender 先红后绿；实际 runtime 未升级，PR CI 待完成 |
-| 5.K | 纯 Kotlin 领域模块 | 协议/比较真实移入 JVM-only 模块并产 jar，app 消费该 artifact；没有 Android/Room/app 回边；实体 adapter 留 app；原测试移动保持身份，独立模块测试和 app集成都通过 | 待做 |
+| 5.T | component/hitauser/style 真实测试与 CI | 覆盖公共数据/网络/偏好/Room/主题关键行为；每模块实际 XML、CI 全模块覆盖；解决真实最低 API 依赖冲突而非 overrideLibrary | 已合并且验证：[#72](https://github.com/HIT-A/HITA_Android/pull/72)，merge `d2742e3`；head `5ae5bd7` 的 CI 40311018658 JVM 805 通过 + 1 既有跳过、设备 633 全通过；实际 runtime 保持 |
+| 5.K | 纯 Kotlin 领域模块 | 协议/比较真实移入 JVM-only 模块并产 jar，app 消费该 artifact；没有 Android/Room/app 回边；实体 adapter 留 app；原测试移动保持身份，独立模块测试和 app集成都通过 | 实施中：真实 JVM 模块与 app 接线已写，独审通过，原 57 项迁移测试独立全绿并产 JAR；app/R8 与最终 CI 待验，与 5.S 合批 |
 | 5.S | legacy sync 清理 | 删除未使用目录、悬空 keep/说明，确认无有效生产引用丢失；不删除用户设备旧数据库；Debug/R8 与仓库检查通过 | 代码完成：删除 15 个未编译旧文件与 7 条过期 keep，独立只读审查通过；Debug/R8 与交付验证待做 |
 | 5.F | 阶段 5 完成审计 | 真实 resolved 依赖、任务输出、各模块 XML、jar 内容与消费关系；不能用新增扫描器或空模块替代交付 | 待做 |
 
@@ -124,4 +124,6 @@
 | 5.V/M 整合 #70 | Debug/测试 APK 与 JVM 构建通过；新原始 XML 为 JVM 795 身份保持、设备 607 身份全通过 | `catalog-q1-integrated-build.log`、`catalog-q1-integrated-{jvm,device}-results/` 与对应 `*-audit.json`；这是 R 合入前的 app 回归证据，最终合并批次由 PR CI 验证 |
 | 5.R 合入构建批次 | `verifyReleaseResources` 与 Release AAR 强制实际执行成功，未修改任何资源；CI 增加无条件校验步骤 | `combined-style-release-validation.log` 与 `combined-style-release-archive-audit.json`；新 AAR 与原字节一致，未以删除校验、跳过任务或调整主题规避问题 |
 | 5.V/M/R 最终交付 | #71 已合并且验证，merge `f4e809d1458c52cd5f8b43f317f8f643def9f306`，合并树与已审 head 相同 | [CI 40305741411](https://github.com/HIT-A/HITA_Android/actions/runs/40305741411) 两 job 成功；artifact `12643576074` 摘要匹配，原始设备 XML 607 全通过；资源任务日志实际执行。证据 `build/pr71-final-signoff.json`、`build/state.json` 与 `build/ci-40305741411/` |
-| 5.T 子模块定向验证 | component JVM 7/设备 7、hitauser JVM 4/设备 11、style 设备 8 全通过；app 原 JVM 795 身份保留（794 通过 + 1 既有跳过）、设备 607 全通过；最终 PR CI 待完成 | `style/modules-validated-results/`；Room null 写入首次 NPE 与原断言修复后通过，三份历史 schema/生成 identity 不变，无需升数据库版本；`style/modules-final-independent-review.md` 已独审；app 原始 XML/审计见 `modules-app-{jvm,device}-results/` 与 `*-audit.json`，实际生产/测试网络 runtime 见 `modules-runtime-resolution.json` |
+| 5.T 子模块定向验证 | component JVM 7/设备 7、hitauser JVM 4/设备 11、style 设备 8 全通过；app 原 JVM 795 身份保留（794 通过 + 1 既有跳过）、设备 607 全通过；最终 #72 CI 聚合 JVM 806/设备 633 身份全部核验 | `style/modules-validated-results/`；Room null 写入首次 NPE 与原断言修复后通过，三份历史 schema/生成 identity 不变，无需升数据库版本；`style/modules-final-independent-review.md` 已独审；app 原始 XML/审计见 `modules-app-{jvm,device}-results/` 与 `*-audit.json`，实际生产/测试网络 runtime 见 `modules-runtime-resolution.json` |
+| 5.T 最终交付 | #72 已合并，merge `d2742e337f23dd3ea7b1a3121ecd21406e9d49e8`，树与 head `5ae5bd7` 相同 | CI 40311018658 两 job 成功；JVM 806（805 通过 + 1 旧跳过）、设备 633 全通过，两个 artifact 摘要匹配；`style/modules-final-signoff.json`。设备报告下载超时期间误发合并命令，设备 XML 在合并后补齐核验，流程偏差保留记录 |
+| 4.S1/S2 本地整链 | 原实现 8 兼容通过 / 5 归属准确失败；修复后 29 Subject JVM 与 14 设备全部通过，独审冻结的 21 文件 hash 保持 | `subject/legacy-baseline-jvm-audit.json`、`implementation-first-jvm-audit.json`、`implementation-first-ui-device-results-audit.json`、`implementation-room-device-audit.json`；包含真实 Activity 重建、VM 生命周期、Markwon 和 Room 字段事务。合入 #72 后的完整组合由最终 PR CI 验证 |

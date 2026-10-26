@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="subject_resource_choose_card">点击上方卡片查看深圳资源</string>
+    <string name="subject_resource_empty_directory">空文件夹</string>
+    <string name="subject_resource_benbu_hint">深圳资源来自深圳校区（本部数据）</string>
+    <string name="subject_resource_weihai_hint">深圳资源来自深圳校区（威海数据）</string>
+    <string name="subject_resource_downloading">正在下载 %1$s</string>
+    <string name="subject_resource_download_started">开始下载: %1$s</string>
+    <string name="subject_resource_download_failed">下载失败: %1$s</string>
+    <string name="subject_batch_deleted">已删除 %d 次课时</string>
+</resources>
