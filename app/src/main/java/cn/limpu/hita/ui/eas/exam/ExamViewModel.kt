@@ -2,10 +2,13 @@ package cn.limpu.hita.ui.eas.exam
 
 import cn.limpu.hita.data.analytics.UsageAnalyticsEvent
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MediatorLiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.switchMap
+import androidx.lifecycle.viewModelScope
 import com.limpu.component.data.DataState
 import com.limpu.component.data.Trigger
 import cn.limpu.hita.data.model.eas.EASToken
@@ -35,13 +38,14 @@ class ExamViewModel internal constructor(
         examImportRepository: ExamImportRepository,
     ) : this(
         easRepo, context, examImportRepository,
-        ExamPageInputs({ easRepo.getAllTerms() }, easRepo::getExamInfo),
+        ExamPageInputs({ easRepo.getAllTerms() }, easRepo::createExamQueryRequest),
     )
     /**
      * LiveData区
      */
     private val pageController = MutableLiveData<Trigger>()
     private val termLoadGate = ExamTermLoadGate()
+    private val examQueries = ExamQueryCoordinator(viewModelScope)
 
     val termsLiveData: LiveData<DataState<List<TermItem>>> = pageController.switchMap {
         return@switchMap inputs.getTerms()
@@ -51,6 +55,8 @@ class ExamViewModel internal constructor(
     val selectedExamTypeLiveData: MutableLiveData<ExamType> = MutableLiveData()
     private val examMemoStore = ExamMemoStore(context)
     private val rawExamLiveData = MutableLiveData<DataState<List<ExamItem>>>()
+    private val main = Handler(Looper.getMainLooper())
+    private var memoUpdatePosted = false
     private var lastRemoteExams: List<ExamItem> = emptyList()
     val examInfoLiveData = MediatorLiveData<DataState<List<ExamItem>>>()
 
@@ -96,6 +102,7 @@ class ExamViewModel internal constructor(
         }
         lastRefreshTime = currentTime
         previousTerm = selectedTerm
+        val refreshGeneration = examQueries.cancel()
 
         if (selectedTerm == null) {
             termLoadGate.begin()
@@ -103,6 +110,7 @@ class ExamViewModel internal constructor(
                 ExamMemoCodec.merge(lastRemoteExams, examMemoStore.getAll()),
                 DataState.STATE.LOADING
             )
+            if (!examQueries.isCurrent(refreshGeneration)) return
             pageController.value = Trigger.actioning
             return
         }
@@ -112,50 +120,33 @@ class ExamViewModel internal constructor(
             DataState.STATE.LOADING
         )
 
+        if (!examQueries.isCurrent(refreshGeneration)) return
         pageController.value = Trigger.actioning
+        if (!examQueries.isCurrent(refreshGeneration)) return
 
         // 调用API获取服务器考试数据，传递学期参数
         LogUtils.d("🌐 calling getExamInfo API with term: ${selectedTerm.name}", "ExamViewModel")
 
-        // 获取新的 LiveData（每次调用 getExamInfo 返回新实例，只取一次避免双重网络请求）
         val operation = inputs.beginOperation(UsageAnalyticsEvent.EXAMS_REFRESH_STARTED)
-        val newLiveData = inputs.getExams(selectedTerm)
-
-        // 从旧的 LiveData 上移除旧的观察者
-        examInfoObserver?.let {
-            currentExamSource?.removeObserver(it)
-        }
-
-        // 创建新的观察者并保存引用
-        val newObserver = androidx.lifecycle.Observer<DataState<List<ExamItem>>> { result ->
+        val request = inputs.createExamQueryRequest(selectedTerm)
+        if (!examQueries.isCurrent(refreshGeneration)) return
+        examQueries.start(request) { result ->
             when (result.state) {
                 DataState.STATE.SUCCESS -> inputs.finishOperation(operation, UsageAnalyticsEvent.EXAMS_REFRESH_SUCCEEDED, emptyMap())
                 DataState.STATE.NOTHING, DataState.STATE.LOADING -> Unit
                 else -> inputs.finishOperation(operation, UsageAnalyticsEvent.EXAMS_REFRESH_FAILED, mapOf("error_category" to "unknown"))
             }
-            LogUtils.d("📥 API response received: state=${result.state}, data size=${result.data?.size}", "ExamViewModel")
             when (result.state) {
                 DataState.STATE.SUCCESS -> {
-                    val serverExams = result.data ?: emptyList()
-                    LogUtils.d("✅ got ${serverExams.size} exams from server", "ExamViewModel")
-                    lastRemoteExams = serverExams.filterNot(ExamItem::isMemo)
-                    publishMergedExamState(result)
+                    lastRemoteExams = result.data.orEmpty().filterNot(ExamItem::isMemo)
+                    rawExamLiveData.value = mergeExamDataState(lastRemoteExams, examMemoStore.getAll(), result)
                 }
                 DataState.STATE.FETCH_FAILED, DataState.STATE.NOT_LOGGED_IN -> {
-                    LogUtils.e("❌ API failed: ${result.message}", null, "ExamViewModel")
-                    publishMergedExamState(result)
+                    rawExamLiveData.value = mergeExamDataState(lastRemoteExams, examMemoStore.getAll(), result)
                 }
-                else -> {
-                    // 其他状态
-                    LogUtils.d("⚠️ other state: ${result.state}", "ExamViewModel")
-                    rawExamLiveData.postValue(result)
-                }
+                else -> rawExamLiveData.value = result
             }
         }
-
-        newLiveData.observeForever(newObserver)
-        currentExamSource = newLiveData
-        examInfoObserver = newObserver
     }
 
     private fun handleTermLoad(state: DataState<List<TermItem>>) {
@@ -201,10 +192,15 @@ class ExamViewModel internal constructor(
         EASToken.Campus.WEIHAI -> "威海校区"
     }
 
-    private fun publishMergedExamState(remoteState: DataState<List<ExamItem>>? = null) {
-        rawExamLiveData.postValue(
-            mergeExamDataState(lastRemoteExams, examMemoStore.getAll(), remoteState)
-        )
+    private fun publishMergedExamState() {
+        if (memoUpdatePosted) return
+        memoUpdatePosted = true
+        main.post {
+            memoUpdatePosted = false
+            // Memo edits remain independent of remote cancellation. Compute at delivery so an
+            // earlier queued query cannot be overwritten by an old remote-list snapshot.
+            rawExamLiveData.value = mergeExamDataState(lastRemoteExams, examMemoStore.getAll(), null)
+        }
     }
 
     private fun publishFilteredExamState() {
@@ -224,19 +220,13 @@ class ExamViewModel internal constructor(
         }
     }
 
-    private var currentExamSource: LiveData<DataState<List<ExamItem>>>? = null
-    private var examInfoObserver: androidx.lifecycle.Observer<DataState<List<ExamItem>>>? = null
     private var lastRefreshTime: Long = 0
     private var previousTerm: TermItem? = null
 
     override fun onCleared() {
         termLoadGate.cancel()
+        examQueries.cancel()
         super.onCleared()
-        examInfoObserver?.let { observer ->
-            currentExamSource?.removeObserver(observer)
-        }
-        currentExamSource = null
-        examInfoObserver = null
     }
 
     /**

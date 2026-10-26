@@ -725,6 +725,17 @@ class EASRepository @Inject constructor(
     /**
      * 获取考试信息
      */
+    suspend fun getExamInfoOnce(term: TermItem? = null): DataState<List<ExamItem>> =
+        createExamQueryRequest(term).execute()
+
+    /** Query parameters and the campus initial state come from the same account selection. */
+    internal fun createExamQueryRequest(term: TermItem?): ExamQueryRequest {
+        val token = easPreferenceSource.getEasToken()
+        val service = getService(token.campus)
+        return ExamQueryRequest.forToken(token, term, service::getExamItemsOnce)
+    }
+
+    /** Compatibility entry for automatic timetable import and its existing timeout. */
     fun getExamInfo(term: TermItem? = null): LiveData<DataState<List<ExamItem>>> {
         val easToken = easPreferenceSource.getEasToken()
         LogUtils.d("getExamInfo: term=${term?.name}, isLogin=${easToken.isLogin()}, campus=${easToken.campus}")

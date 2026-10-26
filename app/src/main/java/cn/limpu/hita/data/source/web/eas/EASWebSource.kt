@@ -1107,163 +1107,195 @@ class EASWebSource internal constructor(
 
     // ================================================================ 考试信息（深圳校区新接口）
     override fun getExamItems(token: EASToken, term: TermItem?): LiveData<DataState<List<ExamItem>>> {
-        if (token.accessToken.isNullOrBlank() && token.hasShenzhenWebSession()) {
-            return getShenzhenWebExamItems(token, term)
-        }
-        val res = MutableLiveData<DataState<List<ExamItem>>>()
-        Thread {
-            try {
-                LogUtils.d("getExamItems: term=${term?.name}, yearCode=${term?.yearCode}, termCode=${term?.termCode}, campus=${token.campus}")
-
-                // 使用传入的学期参数，如果没有则使用当前学期
-                val xn = term?.yearCode ?: run {
-                    val currentYear = Calendar.getInstance().get(Calendar.YEAR)
-                    val nextYear = currentYear + 1
-                    "$currentYear-$nextYear"
-                }
-                val xq = term?.termCode ?: "2" // 默认查询第2学期
-
-                // 构建请求体
-                val requestBody = org.json.JSONObject().apply {
-                    put("type", "json")
-                    put("xn", xn)
-                    put("xq", xq)
-                    put("kssjddm", "")
-                    put("kcdmorkcmc", "")
-                    put("pageNum", 1)
-                    put("pageSize", 20)
-                }.toString()
-
-
-                // 发送POST请求到深圳校区考试查询接口
-                val examHost = examApiHostOverride?.trimEnd('/') ?: "https://mjw.hitsz.edu.cn"
-                val url = "$examHost/incoSpringBoot/app/kscx/queryKsxxByXs"
-
-
-                val req = Jsoup.newSession()
-                    .url(url)
-                    .header("User-Agent", "Mozilla/5.0 (Linux; Android 15; V2183A Build/AP3A.240905.015.A2; wv) AppleWebKit/537.36")
-                    .header("Accept", "*/*")
-                    .header("Content-Type", "application/json")
-                    .header("_lang", "cn")
-                    .cookies(token.cookies)
-                    .requestBody(requestBody)
-                    .timeout(timeout)
-                    .ignoreContentType(true)
-                    .ignoreHttpErrors(true)
-                    .method(Connection.Method.POST)
-
-                // 添加Bearer Token认证
-                if (!token.accessToken.isNullOrEmpty()) {
-                    req.header("authorization", "bearer ${token.accessToken}")
-                    req.header("rolecode", "06")
-                } else {
-                }
-
-                val response = req.execute()
-
-                LogUtils.d("getExamItems: HTTP ${response.statusCode()}, body length=${response.body().length}")
-
-                if (isAuthExpiredResponse(response)) {
-                    res.postValue(DataState(DataState.STATE.NOT_LOGGED_IN, "深圳教务会话已失效"))
-                    return@Thread
-                }
-
-                if (response.statusCode() == 200) {
-                    val responseBody = response.body()
-                    val jsonResponse = org.json.JSONObject(responseBody)
-
-                    LogUtils.d("getExamItems: API code=${jsonResponse.optInt("code")}")
-
-                    if (jsonResponse.optInt("code") == 200) {
-                        val content = jsonResponse.optJSONObject("content")
-                        val examList = mutableListOf<ExamItem>()
-
-                        if (content != null) {
-                            LogUtils.d("getExamItems: total=${content.optInt("total")}, pageSize=${content.optInt("pageSize")}")
-                        }
-
-                        content?.optJSONArray("list")?.let { list ->
-                            for (i in 0 until list.length()) {
-                                try {
-                                    val examObj = list.getJSONObject(i)
-                                    val examItem = ExamItem().apply {
-                                        courseName = examObj.optString("KCMC")
-                                        examDate = examObj.optString("KSRQ")
-                                        examTime = examObj.optString("KSJTSJ")
-                                        examType = examObj.optString("KSSJDMC")
-                                        examLocation = "${examObj.optString("JXLMC")} ${examObj.optString("JXCDMC")}"
-                                        termName = examObj.optString("XNXQMC")
-                                        campusName = examObj.optString("XIAOQUBMC")
-                                        termId = if (term != null) {
-                                            "${term.yearCode}-${term.termCode}"
-                                        } else {
-                                            "$xn-$xq"
-                                        }
-                                    }
-                                    examList.add(examItem)
-                                } catch (e: Exception) {
-                                    LogUtils.e("getExamItems: parse failed at item $i", e)
-                                }
-                            }
-                        }
-
-                        LogUtils.d("getExamItems: count=${examList.size}")
-                        res.postValue(DataState(examList, DataState.STATE.SUCCESS))
-                    } else {
-                        val errorMsg = jsonResponse.optString("msg", "查询失败")
-                        LogUtils.e("getExamItems: API error, code=${jsonResponse.optInt("code")}, msg=$errorMsg")
-                        res.postValue(DataState(DataState.STATE.FETCH_FAILED, errorMsg))
-                    }
-                } else {
-                    LogUtils.e("getExamItems: HTTP ${response.statusCode()}")
-                    res.postValue(DataState(DataState.STATE.FETCH_FAILED, "网络请求失败 HTTP ${response.statusCode()}"))
-                }
-            } catch (e: Exception) {
-                LogUtils.e("getExamItems: ${e.javaClass.simpleName} ${e.message}", e)
-                res.postValue(DataState(DataState.STATE.FETCH_FAILED, e.message ?: "查询考试失败"))
-            }
-        }.start()
-        return res
-    }
-
-    private fun getShenzhenWebExamItems(
-        token: EASToken,
-        term: TermItem?
-    ): LiveData<DataState<List<ExamItem>>> {
+        val useWebSession = token.accessToken.isNullOrBlank() && token.hasShenzhenWebSession()
         val result = MutableLiveData<DataState<List<ExamItem>>>()
         Thread {
-            if (term == null) {
-                result.postValue(DataState(DataState.STATE.FETCH_FAILED, "请选择学期后再查询考试安排"))
-                return@Thread
+            val state = try {
+                requestExamItems(token, term, useWebSession)
+            } catch (cancelled: CancellationException) {
+                DataState(DataState.STATE.FETCH_FAILED, if (useWebSession) cancelled.message else cancelled.message ?: "查询考试失败")
             }
-            try {
-                val response = jwFormPost(
-                    token,
-                    "/kscxtj/queryXsksByxhList",
-                    mapOf(
-                        "pxn" to term.yearCode,
-                        "pxq" to term.termCode,
-                        "pageNum" to "1",
-                        "pageSize" to "500"
-                    ),
-                    "/kscxtj/queryXsksByxh"
-                )
-                if (isJwAuthenticationExpired(response)) {
-                    result.postValue(DataState(DataState.STATE.NOT_LOGGED_IN, "深圳 Web 会话已失效"))
-                    return@Thread
-                }
-                val exams = ShenzhenWebAcademicParser.parseExams(response.body(), term)
-                if (response.statusCode() != 200 || exams == null) {
-                    result.postValue(DataState(DataState.STATE.FETCH_FAILED, "考试数据解析失败"))
-                } else {
-                    result.postValue(DataState(exams, DataState.STATE.SUCCESS))
-                }
-            } catch (error: Exception) {
-                result.postValue(DataState(DataState.STATE.FETCH_FAILED, error.message))
-            }
+            result.postValue(state)
         }.start()
         return result
+    }
+
+    override suspend fun getExamItemsOnce(token: EASToken, term: TermItem?): DataState<List<ExamItem>> {
+        val useWebSession = token.accessToken.isNullOrBlank() && token.hasShenzhenWebSession()
+        return withContext(Dispatchers.IO) {
+            val context = currentCoroutineContext()
+            requestExamItems(token, term, useWebSession) { context.ensureActive() }
+        }
+    }
+
+    private fun requestExamItems(
+        token: EASToken,
+        term: TermItem?,
+        useWebSession: Boolean,
+        checkCancelled: () -> Unit = {},
+    ): DataState<List<ExamItem>> = if (useWebSession) {
+        requestShenzhenWebExamItems(token, term, checkCancelled)
+    } else {
+        requestShenzhenApiExamItems(token, term, checkCancelled)
+    }
+
+    private fun requestShenzhenApiExamItems(
+        token: EASToken,
+        term: TermItem?,
+        checkCancelled: () -> Unit,
+    ): DataState<List<ExamItem>> {
+        try {
+            checkCancelled()
+            LogUtils.d("getExamItems: term=${term?.name}, yearCode=${term?.yearCode}, termCode=${term?.termCode}, campus=${token.campus}")
+
+            // 使用传入的学期参数，如果没有则使用当前学期
+            val xn = term?.yearCode ?: run {
+                val currentYear = Calendar.getInstance().get(Calendar.YEAR)
+                val nextYear = currentYear + 1
+                "$currentYear-$nextYear"
+            }
+            val xq = term?.termCode ?: "2" // 默认查询第2学期
+
+            // 构建请求体
+            val requestBody = org.json.JSONObject().apply {
+                put("type", "json")
+                put("xn", xn)
+                put("xq", xq)
+                put("kssjddm", "")
+                put("kcdmorkcmc", "")
+                put("pageNum", 1)
+                put("pageSize", 20)
+            }.toString()
+
+
+            // 发送POST请求到深圳校区考试查询接口
+            val examHost = examApiHostOverride?.trimEnd('/') ?: "https://mjw.hitsz.edu.cn"
+            val url = "$examHost/incoSpringBoot/app/kscx/queryKsxxByXs"
+
+
+            val req = Jsoup.newSession()
+                .url(url)
+                .header("User-Agent", "Mozilla/5.0 (Linux; Android 15; V2183A Build/AP3A.240905.015.A2; wv) AppleWebKit/537.36")
+                .header("Accept", "*/*")
+                .header("Content-Type", "application/json")
+                .header("_lang", "cn")
+                .cookies(token.cookies)
+                .requestBody(requestBody)
+                .timeout(timeout)
+                .ignoreContentType(true)
+                .ignoreHttpErrors(true)
+                .method(Connection.Method.POST)
+
+            // 添加Bearer Token认证
+            if (!token.accessToken.isNullOrEmpty()) {
+                req.header("authorization", "bearer ${token.accessToken}")
+                req.header("rolecode", "06")
+            } else {
+            }
+
+            val response = req.execute()
+            checkCancelled()
+
+            LogUtils.d("getExamItems: HTTP ${response.statusCode()}, body length=${response.body().length}")
+
+            if (isAuthExpiredResponse(response)) {
+                return DataState(DataState.STATE.NOT_LOGGED_IN, "深圳教务会话已失效")
+            }
+
+            if (response.statusCode() == 200) {
+                val responseBody = response.body()
+                val jsonResponse = org.json.JSONObject(responseBody)
+
+                LogUtils.d("getExamItems: API code=${jsonResponse.optInt("code")}")
+
+                if (jsonResponse.optInt("code") == 200) {
+                    val content = jsonResponse.optJSONObject("content")
+                    val examList = mutableListOf<ExamItem>()
+
+                    if (content != null) {
+                        LogUtils.d("getExamItems: total=${content.optInt("total")}, pageSize=${content.optInt("pageSize")}")
+                    }
+
+                    content?.optJSONArray("list")?.let { list ->
+                        for (i in 0 until list.length()) {
+                            try {
+                                val examObj = list.getJSONObject(i)
+                                val examItem = ExamItem().apply {
+                                    courseName = examObj.optString("KCMC")
+                                    examDate = examObj.optString("KSRQ")
+                                    examTime = examObj.optString("KSJTSJ")
+                                    examType = examObj.optString("KSSJDMC")
+                                    examLocation = "${examObj.optString("JXLMC")} ${examObj.optString("JXCDMC")}"
+                                    termName = examObj.optString("XNXQMC")
+                                    campusName = examObj.optString("XIAOQUBMC")
+                                    termId = if (term != null) {
+                                        "${term.yearCode}-${term.termCode}"
+                                    } else {
+                                        "$xn-$xq"
+                                    }
+                                }
+                                examList.add(examItem)
+                            } catch (e: Exception) {
+                                LogUtils.e("getExamItems: parse failed at item $i", e)
+                            }
+                        }
+                    }
+
+                    LogUtils.d("getExamItems: count=${examList.size}")
+                    return DataState(examList, DataState.STATE.SUCCESS)
+                } else {
+                    val errorMsg = jsonResponse.optString("msg", "查询失败")
+                    LogUtils.e("getExamItems: API error, code=${jsonResponse.optInt("code")}, msg=$errorMsg")
+                    return DataState(DataState.STATE.FETCH_FAILED, errorMsg)
+                }
+            } else {
+                LogUtils.e("getExamItems: HTTP ${response.statusCode()}")
+                return DataState(DataState.STATE.FETCH_FAILED, "网络请求失败 HTTP ${response.statusCode()}")
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (e: Exception) {
+            LogUtils.e("getExamItems: ${e.javaClass.simpleName} ${e.message}", e)
+            return DataState(DataState.STATE.FETCH_FAILED, e.message ?: "查询考试失败")
+        }
+    }
+
+    private fun requestShenzhenWebExamItems(
+        token: EASToken,
+        term: TermItem?,
+        checkCancelled: () -> Unit,
+    ): DataState<List<ExamItem>> {
+        checkCancelled()
+        if (term == null) {
+            return DataState(DataState.STATE.FETCH_FAILED, "请选择学期后再查询考试安排")
+        }
+        try {
+            val response = jwFormPost(
+                token,
+                "/kscxtj/queryXsksByxhList",
+                mapOf(
+                    "pxn" to term.yearCode,
+                    "pxq" to term.termCode,
+                    "pageNum" to "1",
+                    "pageSize" to "500"
+                ),
+                "/kscxtj/queryXsksByxh"
+            )
+            checkCancelled()
+            if (isJwAuthenticationExpired(response)) {
+                return DataState(DataState.STATE.NOT_LOGGED_IN, "深圳 Web 会话已失效")
+            }
+            val exams = ShenzhenWebAcademicParser.parseExams(response.body(), term)
+            if (response.statusCode() != 200 || exams == null) {
+                return DataState(DataState.STATE.FETCH_FAILED, "考试数据解析失败")
+            } else {
+                return DataState(exams, DataState.STATE.SUCCESS)
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            return DataState(DataState.STATE.FETCH_FAILED, error.message)
+        }
     }
 
     override fun getSafePersonalInfo(token: EASToken): LiveData<DataState<EASToken>> {

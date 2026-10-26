@@ -124,6 +124,12 @@ interface EASService {
         term: TermItem? = null
     ):LiveData<DataState<List<ExamItem>>>
 
+    /** Single terminal exam result; blocking HTTP runs on IO and cancellation propagates. */
+    suspend fun getExamItemsOnce(
+        token: EASToken,
+        term: TermItem? = null,
+    ): DataState<List<ExamItem>>
+
     fun getSafePersonalInfo(token: EASToken): LiveData<DataState<EASToken>>
 
 }
