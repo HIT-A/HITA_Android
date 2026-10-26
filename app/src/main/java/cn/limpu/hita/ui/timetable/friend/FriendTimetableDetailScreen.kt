@@ -70,6 +70,7 @@ private fun FriendWeekContent(state: FriendDetailState.Ready) {
     )
     selected?.let { occurrence ->
         val full = snapshot.mode == ShareMode.FULL
+        val place = occurrence.place
         val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
         val from = formatter.format(Instant.ofEpochMilli(occurrence.startMillis).atZone(FriendWeekProjection.ZONE))
         val to = formatter.format(Instant.ofEpochMilli(occurrence.endMillis).atZone(FriendWeekProjection.ZONE))
@@ -77,7 +78,7 @@ private fun FriendWeekContent(state: FriendDetailState.Ready) {
             title = { Text(if (full) snapshot.courses[requireNotNull(occurrence.courseIndex)] else busyLabel) },
             text = { Column {
                 Text(stringResource(R.string.friend_timetable_interval, from, to))
-                if (full && !occurrence.place.isNullOrBlank()) Text(occurrence.place)
+                if (full && !place.isNullOrBlank()) Text(place)
             } },
             confirmButton = { TextButton(onClick = { selected = null }) { Text(stringResource(R.string.friend_timetable_close)) } })
     }

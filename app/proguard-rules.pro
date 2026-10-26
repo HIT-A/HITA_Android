@@ -79,17 +79,12 @@
 -keep class com.limpu.stupiduser.data.UserDatabase { *; }
 -keep class com.limpu.stupiduser.data.UserDatabase$* { *; }
 -keep class com.limpu.stupiduser.data.UserDatabase_Impl { *; }
--keep class com.limpu.sync.HistoryDatabase { *; }
--keep class com.limpu.sync.HistoryDatabase$* { *; }
--keep class com.limpu.sync.HistoryDatabase_Impl { *; }
 
 # Keep all model classes used by Room/Gson in ALL modules
 -keep class cn.limpu.hita.data.model.** { *; }
 -keep class com.limpu.stupiduser.data.model.** { *; }
--keep class com.limpu.sync.data.model.** { *; }
 -keep class cn.limpu.hita.data.source.dao.** { *; }
 -keep class com.limpu.stupiduser.data.source.dao.** { *; }
--keep class com.limpu.sync.data.source.dao.** { *; }
 
 # ====== Gson / JSON Parsing (Critical) ======
 -keep class com.google.gson.** { *; }
@@ -120,7 +115,6 @@
 -keep interface cn.limpu.hita.data.source.web.** { *; }
 -keep interface cn.limpu.hita.agent.remote.** { *; }
 -keep interface com.limpu.component.**.** { *; }
--keep interface com.limpu.sync.data.source.web.** { *; }
 -keep interface com.limpu.stupiduser.data.source.web.** { *; }
 
 # ====== PDFBox (Reflection-heavy) ======
@@ -223,7 +217,6 @@
 # ====== Keep ALL application classes (conservative fallback) ======
 -keep class cn.limpu.hita.** { *; }
 -keep class com.limpu.component.** { *; }
--keep class com.limpu.sync.** { *; }
 -keep class com.limpu.stupiduser.** { *; }
 -keep class com.limpu.style.** { *; }
 -keep class com.limpu.hita.theta.** { *; }

@@ -19,7 +19,7 @@ HITA Agent 是一款面向哈工大三校区的 Android 校园助手 App，集�
 - JDK 21
 - Android SDK Platform 35 和 36（应用最低支持 API 26）
 
-最低 API：app 为 26，hitauser 为 23（匹配 Room 2.8.4），component/style 为 21。
+最低 API：app 为 26，hitauser 为 23（匹配 Room 2.8.4），component/style 为 21。timetable-core 使用 JDK 21 工具链生成 Java 8 字节码，不依赖 Android SDK。
 
 ## 项目结构
 
@@ -29,8 +29,10 @@ HITA_Agent/
 ├── component/     # 共享基础组件 — DataState、Result、SharedPreferenceLiveData
 ├── hitauser/      # 用户模块 — 认证、个人信息、独立 Room DB
 ├── style/         # UI 基础 — BaseActivity/Fragment、自定义 Widget、主题工具
-└── sync/          # 数据同步（暂未编译进主工程）
+└── timetable-core/ # 纯 JVM 领域 — 分享协议、规范化与课表比较
 ```
+
+app 通过项目依赖使用 timetable-core 产出的 JAR；分享协议与比较保留原包名，Room 实体映射 `ShareSnapshotBuilder` 留在 app 的 `data/repository/`，与 `ShareSummaryBuilder` 共用跨学期事件筛选。共享样例只在 core 的 testFixtures 中供两侧测试使用，不进入产品 JAR。core 的 `verifyJvmDependencies` 校验实际生产编译/运行依赖，禁止 Android 制品与 app 等模块回依赖。
 
 详见 `CLAUDE.md` 了解完整架构。
 
@@ -45,7 +47,8 @@ HITA_Agent/
 ```bash
 ./gradlew assembleDebug          # Debug APK
 ./gradlew assembleRelease        # Release APK
-./gradlew testDebugUnitTest      # 单元测试
+./gradlew testDebugUnitTest      # Android 模块的 JVM 单元测试
+./gradlew :timetable-core:test :timetable-core:jar # 独立纯 JVM 领域测试与 JAR
 ./gradlew connectedAndroidTest   # 仪器测试（需连接设备/模拟器）
 ./gradlew :style:verifyReleaseResources :style:assembleRelease # style Release 资源校验与 AAR
 ./project_health_check.sh        # 项目文件与仓库卫生检查
@@ -97,17 +100,17 @@ HITA_Agent/
 
 APK 和构建元信息从 CI / Release 获取；源码树不保存旧 `app/debug/` 安装包。`app/schemas/` 和 `hitauser/schemas/` 是 Room 数据库历史结构，供迁移验证使用，不能作为旧生成数据删除。
 
-运行 `./project_health_check.sh` 检查必要项目文件和仓库卫生，`./code_consistency_check.sh` 为兼容入口。检查器验证本地 Markdown 文件链接，并阻止运行数据库、APK 和旧可执行文件重新进入 Git；它不检查外部链接和标题锚点，不使用命名数量作为质量评分。CI 编排四个模块的 JVM 测试、app Debug 编译和全部设备测试（API 35 模拟器串行执行，含中文 PDF 回归），按模块上传原始 JVM/设备 XML。style 当前的实际测试位于 androidTest，其 JVM 任务为 NO-SOURCE，不计作测试通过。CI 还显式执行 `:style:verifyReleaseResources :style:assembleRelease`，使用 `--rerun-tasks --no-build-cache` 确保 Release 资源校验实际运行；该库构建不需要应用 Release 签名。
+运行 `./project_health_check.sh` 检查必要项目文件和仓库卫生，`./code_consistency_check.sh` 为兼容入口。检查器验证本地 Markdown 文件链接，并阻止运行数据库、APK 和旧可执行文件重新进入 Git；它不检查外部链接和标题锚点，不使用命名数量作为质量评分。CI 编排四个 Android 模块及 timetable-core 的 JVM 测试、core JAR 和 app Debug 编译和全部设备测试（API 35 模拟器串行执行，含中文 PDF 回归），按模块上传原始 JVM/设备 XML。style 当前的实际测试位于 androidTest，其 JVM 任务为 NO-SOURCE，不计作测试通过。CI 还显式执行 `:style:verifyReleaseResources :style:assembleRelease`，使用 `--rerun-tasks --no-build-cache` 确保 Release 资源校验实际运行；该库构建不需要应用 Release 签名。
 
 PDF 依赖自带资源的约定、去重依据和回归命令见 [PDF 资源](docs/pdf-resources.md)。
 
 ### 分层依赖检查
 
-同一检查器还禁止以下目录中的 `.kt` / `.java` 主源码引用 `cn.limpu.hita.ui.`，路径均相对 `app/src/main/java/cn/limpu/hita/`：
+同一检查器还禁止以下目录中的 `.kt` / `.java` 主源码引用 `cn.limpu.hita.ui.`，路径相对仓库根目录：
 
-- `data/`
-- `feature/timetableshare/protocol/`
-- `feature/timetablecompare/`
+- `app/src/main/java/cn/limpu/hita/data/`
+- `timetable-core/src/main/`
+- 原 app 中的 `feature/timetableshare/protocol/` 与 `feature/timetablecompare/` 路径仍受检查，防止重新引入绕过边界的代码。
 
 这是源码文本检查，覆盖 import、别名 import、Java static import、通配符 import 和完全限定名，也检查注释及字符串中的完整引用；不解析 Kotlin/Java 语义或间接依赖。范围外源码和测试目录不受此规则限制。与其他仓库检查一致，扫描已跟踪文件及未被 Git 忽略的新文件。
 

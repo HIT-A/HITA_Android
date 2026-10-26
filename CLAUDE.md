@@ -29,10 +29,10 @@ HITA_Agent/
 ├── component/    # Shared base classes: DataState, Result, BaseWebSource, ApiResponse
 ├── hitauser/     # User module — auth, profile, login, isolated Room DB (UserDatabase)
 ├── style/        # Base UI classes (BaseActivity, BaseFragment, BaseListAdapter), widgets, theme tools
-├── sync/         # Data sync (legacy, not actively included in settings.gradle)
+└── timetable-core/ # JVM-only sharing protocol and timetable comparison domain
 ```
 
-`settings.gradle` includes: `app`, `hitauser`, `component`, `style`.
+`settings.gradle` includes: `app`, `hitauser`, `component`, `style`, `timetable-core`. The app consumes the core JAR; Room entity adapters remain in `app/data/repository/`. Core production classpaths reject Android artifacts and dependencies back to application modules.
 
 ### Dependency Injection: Hilt
 
@@ -82,8 +82,8 @@ agent/
 
 ### Timetable Sharing & Comparison
 
-- **Protocol**: `feature/timetableshare/protocol/` — offline HITA1 token codec (Base64URL + GZIP + compact JSON), `StrictShareJson` bounded lexical validation, `ShareLimits` resource caps, FULL/BUSY privacy modes. No backend, no encryption or signing.
-- **Comparison**: `feature/timetablecompare/` — pure-Kotlin `TimetableComparisonEngine` (common free time / same-slot conflicts); standalone UI under `ui/main/timetable/compare/`.
+- **Protocol**: `timetable-core/src/main/kotlin/cn/limpu/hita/feature/timetableshare/protocol/` — offline HITA1 token codec (Base64URL + GZIP + compact JSON), `StrictShareJson` bounded lexical validation, `ShareLimits` resource caps, FULL/BUSY privacy modes. No backend, no encryption or signing.
+- **Comparison**: `timetable-core/src/main/kotlin/cn/limpu/hita/feature/timetablecompare/` — pure-Kotlin `TimetableComparisonEngine` (common free time / same-slot conflicts); standalone UI under `ui/main/timetable/compare/`.
 - **Repositories**: `TimetableSharingRepository` (snapshot build), `FriendTimetableRepository` (transactional friend import/confirm), `TimetableExportRepository` (ICS/token export; oversized multi-token share falls back to a `.txt` attachment), `SharedTimetableImporter` (bounded friend token/ICS → entities, 8 MiB cap), `TimetableComparisonRepository` (transactional reads), `DisplayScopeResolver` (display target — single timetable or group — driving main grid, timeline, widgets, reminders and Agent queries), `TimetableSnapshotStore`/`TimetableSourceApplier` (per-account EAS refresh snapshots and adoption preserving local rename/group).
 - Feature docs: [timetable-sharing](docs/timetable-sharing.md), [timetable-comparison](docs/timetable-comparison.md), [timetable-display-management](docs/timetable-display-management.md).
 
@@ -120,9 +120,9 @@ Defined in `app/build.gradle`:
 
 ### Repository and PDF checks
 
-`./project_health_check.sh` validates required project files and repository hygiene. `./code_consistency_check.sh` runs the same hygiene gate; it does not assign arbitrary scores to names or constants. CI schedules JVM tests for all four modules, builds the app Debug APK, and runs all four modules' instrumentation tests serially on an API 35 emulator. JVM XML and device XML retain their module paths; `style` currently has real device tests and no JVM test sources, so its `NO-SOURCE` JVM task is not test evidence. CI explicitly runs `:style:verifyReleaseResources :style:assembleRelease` with `--rerun-tasks --no-build-cache`; keep Release resource verification enabled. This library build does not require app Release signing. Local Markdown file links, runtime databases, APKs and stale build artifacts are checked by `python3 scripts/check_repository.py`; Room JSON schemas and source fonts are retained.
+`./project_health_check.sh` validates required project files and repository hygiene. `./code_consistency_check.sh` runs the same hygiene gate; it does not assign arbitrary scores to names or constants. CI schedules JVM tests for all four Android modules and `:timetable-core:test :timetable-core:jar`, builds the app Debug APK, and runs all four modules' instrumentation tests serially on an API 35 emulator. JVM XML and device XML retain their module paths; `style` currently has real device tests and no JVM test sources, so its `NO-SOURCE` JVM task is not test evidence. CI explicitly runs `:style:verifyReleaseResources :style:assembleRelease` with `--rerun-tasks --no-build-cache`; keep Release resource verification enabled. This library build does not require app Release signing. Local Markdown file links, runtime databases, APKs and stale build artifacts are checked by `python3 scripts/check_repository.py`; Room JSON schemas and source fonts are retained.
 
-The same checker rejects textual `cn.limpu.hita.ui.` references in Kotlin/Java sources under `app/src/main/java/cn/limpu/hita/data/`, `feature/timetableshare/protocol/`, and `feature/timetablecompare/` (the latter two relative to `app/src/main/java/cn/limpu/hita/`). Historical exceptions in `scripts/layer_allowlist.txt` match an exact source path plus reference; remove the entry when its reference disappears. PR CI compares exceptions with the PR base commit and rejects additions or replacements. Run `python3 scripts/check_repository.py --base-ref origin/main` locally after fetching; see [README_DEV.md](README_DEV.md) for scope and baseline initialization.
+The same checker rejects textual `cn.limpu.hita.ui.` references in Kotlin/Java sources under `app/src/main/java/cn/limpu/hita/data/` and `timetable-core/src/main/`; the original app protocol/comparison paths remain guarded if files are reintroduced there. Historical exceptions in `scripts/layer_allowlist.txt` match an exact source path plus reference; remove the entry when its reference disappears. PR CI compares exceptions with the PR base commit and rejects additions or replacements. Run `python3 scripts/check_repository.py --base-ref origin/main` locally after fetching; see [README_DEV.md](README_DEV.md) for scope and baseline initialization.
 
 PDF resources come from the pinned PDFBox Android dependency. Initialize `PDFBoxResourceLoader` in `HApplication` before parsing; do not reflect into internal CMap caches or re-copy library assets. Chinese PDF regression tests use predefined GB1/CNS1 CMaps without embedded ToUnicode shortcuts; run `PdfResourceInstrumentedTest` on a device after changing PDF dependencies or packaging.
 

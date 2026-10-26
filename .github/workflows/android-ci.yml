@@ -42,8 +42,8 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
 
       # 单元测试（纯 JVM，无模拟器）
-      - name: Unit tests
-        run: ./gradlew :app:testDebugUnitTest :component:testDebugUnitTest :hitauser:testDebugUnitTest :style:testDebugUnitTest --console=plain --no-daemon
+      - name: Unit tests and timetable core JAR
+        run: ./gradlew :timetable-core:test :timetable-core:jar :app:testDebugUnitTest :component:testDebugUnitTest :hitauser:testDebugUnitTest :style:testDebugUnitTest --console=plain --no-daemon
 
       - uses: actions/upload-artifact@v4
         if: always()
@@ -54,6 +54,7 @@ jobs:
             component/build/test-results/testDebugUnitTest/
             hitauser/build/test-results/testDebugUnitTest/
             style/build/test-results/testDebugUnitTest/
+            timetable-core/build/test-results/test/
           if-no-files-found: error
 
       # Debug 编译（含 kapt/Hilt/Room 全链路）

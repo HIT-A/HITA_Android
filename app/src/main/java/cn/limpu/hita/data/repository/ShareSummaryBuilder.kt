@@ -3,7 +3,6 @@ package cn.limpu.hita.data.repository
 import cn.limpu.hita.data.model.timetable.EventItem
 import cn.limpu.hita.data.model.timetable.Timetable
 import cn.limpu.hita.feature.timetableshare.protocol.ShareMode
-import cn.limpu.hita.feature.timetableshare.protocol.ShareSnapshotBuilder
 import cn.limpu.hita.feature.timetableshare.protocol.ShareTermResolver
 import java.util.UUID
 
