@@ -3,7 +3,6 @@ package cn.limpu.hita.ui.eas.classroom
 import cn.limpu.hita.data.model.classroom.BuildingItem
 import cn.limpu.hita.data.model.classroom.ClassroomItem
 import androidx.lifecycle.*
-import cn.limpu.hita.data.analytics.UsageAnalyticsClient
 import cn.limpu.hita.data.analytics.UsageAnalyticsEvent
 import cn.limpu.hita.data.model.eas.TermItem
 import cn.limpu.hita.data.model.timetable.TimePeriodInDay
@@ -17,15 +16,27 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 
 @HiltViewModel
-class EmptyClassroomViewModel @Inject constructor(
+class EmptyClassroomViewModel internal constructor(
     easRepo: EASRepository,
-    private val timetableRepository: TimetableRepository
+    private val inputs: EmptyClassroomPageInputs,
 ) : EASViewModel(easRepo) {
-
+    @Inject constructor(
+        easRepo: EASRepository,
+        timetableRepository: TimetableRepository,
+    ) : this(
+        easRepo,
+        EmptyClassroomPageInputs(
+            getTerms = { easRepo.getAllTerms() },
+            createTeachingBuildingsRequest = easRepo::createTeachingBuildingsRequest,
+            getCurrentWeek = timetableRepository::getCurrentWeekOfTimetable,
+            getScheduleStructure = { easRepo.getScheduleStructure(it) },
+            queryClassrooms = { term, building, week -> easRepo.queryEmptyClassroom(term, building, week) },
+        ),
+    )
 
     private val pageController = MutableLiveData<Trigger>()
     val termsLiveData: LiveData<DataState<List<TermItem>>> = pageController.switchMap {
-        return@switchMap easRepo.getAllTerms().map { state ->
+        return@switchMap inputs.getTerms().map { state ->
             val data = state.data
             if (state.state != DataState.STATE.SUCCESS || data.isNullOrEmpty()) {
                 return@map state
@@ -39,15 +50,15 @@ class EmptyClassroomViewModel @Inject constructor(
         }
     }
     val buildingsLiveData: LiveData<DataState<List<BuildingItem>>> =
-        pageController.loadTeachingBuildings(viewModelScope, easRepo::createTeachingBuildingsRequest)
+        pageController.loadTeachingBuildings(viewModelScope, inputs.createTeachingBuildingsRequest)
     val selectedTermLiveData = MutableLiveData<TermItem>()
     val selectedBuildingLiveData = MutableLiveData<BuildingItem>()
     val selectedWeekLiveData: MediatorLiveData<Int> =
         MTransformations.switchMap(selectedTermLiveData) { term ->
-            return@switchMap timetableRepository.getCurrentWeekOfTimetable(term)
+            return@switchMap inputs.getCurrentWeek(term)
         }
     val timetableStructureLiveData: LiveData<DataState<MutableList<TimePeriodInDay>>> = selectedTermLiveData.switchMap {
-        return@switchMap easRepo.getScheduleStructure(it)
+        return@switchMap inputs.getScheduleStructure(it)
     }
     val classroomLiveData: MediatorLiveData<DataState<List<ClassroomItem>>> =
         MediatorLiveData<DataState<List<ClassroomItem>>>().apply {
@@ -63,14 +74,14 @@ class EmptyClassroomViewModel @Inject constructor(
                 lastQueryKey = queryKey
 
                 currentQuerySource?.let { removeSource(it) }
-                val operation = UsageAnalyticsClient.begin(UsageAnalyticsEvent.EMPTY_ROOM_SEARCH_STARTED)
-                val source = easRepo.queryEmptyClassroom(term, building, week)
+                val operation = inputs.beginOperation(UsageAnalyticsEvent.EMPTY_ROOM_SEARCH_STARTED)
+                val source = inputs.queryClassrooms(term, building, week)
                 currentQuerySource = source
                 addSource(source) { state ->
                     when (state.state) {
-                        DataState.STATE.SUCCESS -> UsageAnalyticsClient.finish(operation, UsageAnalyticsEvent.EMPTY_ROOM_SEARCH_SUCCEEDED)
+                        DataState.STATE.SUCCESS -> inputs.finishOperation(operation, UsageAnalyticsEvent.EMPTY_ROOM_SEARCH_SUCCEEDED, emptyMap())
                         DataState.STATE.NOTHING, DataState.STATE.LOADING -> Unit
-                        else -> UsageAnalyticsClient.finish(operation, UsageAnalyticsEvent.EMPTY_ROOM_SEARCH_FAILED,
+                        else -> inputs.finishOperation(operation, UsageAnalyticsEvent.EMPTY_ROOM_SEARCH_FAILED,
                             mapOf("error_category" to if (state.state in setOf(DataState.STATE.NOT_LOGGED_IN, DataState.STATE.TOKEN_INVALID)) "authentication" else "unknown"))
                     }
                     value = state
@@ -89,6 +100,17 @@ class EmptyClassroomViewModel @Inject constructor(
             }
         }
 
+    fun selectTerm(term: TermItem?) {
+        selectedTermLiveData.value = term
+    }
+
+    fun selectBuilding(building: BuildingItem?) {
+        selectedBuildingLiveData.value = building
+    }
+
+    fun selectWeek(week: Int?) {
+        selectedWeekLiveData.value = week
+    }
 
     fun startRefresh() {
         pageController.value = Trigger.actioning
