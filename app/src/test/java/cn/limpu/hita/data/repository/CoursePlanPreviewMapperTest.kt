@@ -9,6 +9,9 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.util.Calendar
+import java.util.TimeZone
+import java.time.ZoneId
+import java.time.ZonedDateTime
 
 class CoursePlanPreviewMapperTest {
     @Test
@@ -86,6 +89,31 @@ class CoursePlanPreviewMapperTest {
         assertTrue(report.contains("开始节次=13 超出作息 1..12"))
         assertTrue(report.contains("rawSchedule=第13-14节"))
         assertTrue(report.contains("不包含 Cookie、Session"))
+    }
+
+    @Test
+    fun `preview anchor and events stay in academic zone when default zone is UTC`() {
+        val originalZone = TimeZone.getDefault()
+        try {
+            TimeZone.setDefault(TimeZone.getTimeZone("UTC"))
+            val academicZone = ZoneId.of("Asia/Shanghai")
+            val termStart = ZonedDateTime.of(2026, 10, 12, 0, 0, 0, 0, academicZone)
+                .toInstant().toEpochMilli()
+            val projection = CoursePlanPreviewMapper.map(
+                selectedCourses = listOf(course("A", "跨时区课程", meeting(listOf(1), 1, 1).copy(weekday = 1))),
+                draftCourses = emptyList(),
+                termStartMillis = termStart,
+                schedule = schedule(3)
+            )
+
+            assertEquals(termStart, projection.termStartMillis)
+            assertEquals(
+                termStart + 8 * 60 * 60 * 1000L,
+                projection.eventsForWeek(1).single().from.time
+            )
+        } finally {
+            TimeZone.setDefault(originalZone)
+        }
     }
 
     private fun course(

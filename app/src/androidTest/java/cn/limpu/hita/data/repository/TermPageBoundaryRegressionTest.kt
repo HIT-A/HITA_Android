@@ -1,12 +1,15 @@
 package cn.limpu.hita.data.repository
 
+import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.Observer
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModelStore
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import cn.limpu.hita.data.model.eas.EasQueryScope
+import cn.limpu.hita.data.model.eas.TermItem
 import cn.limpu.hita.data.model.timetable.TimePeriodInDay
 import cn.limpu.hita.ui.eas.TermQueryLiveData
+import cn.limpu.hita.ui.eas.catalog.ShenzhenCourseCatalogViewModel
 import cn.limpu.hita.ui.eas.grade.ShenzhenGradeAnalysisViewModel
 import cn.limpu.hita.ui.eas.imp.ImportTimetableViewModel
 import cn.limpu.hita.ui.eas.score.ScoreInquiryViewModel
@@ -23,6 +26,7 @@ import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -144,6 +148,58 @@ class TermPageBoundaryRegressionTest : TermRepositoryContractHarness() {
             assertEquals(1, callbacks)
             assertFalse("Session callback must not touch an incompletely initialized ViewModel", calledDuringConstruction)
         } finally { scope.cancel() }
+    }
+
+    @Test fun catalogSessionRefreshDoesNotReplaceInjectedPreviewStateWithoutSelectedTerm() {
+        val fixture = fixture()
+        val store = ViewModelStore()
+        lateinit var model: ShenzhenCourseCatalogViewModel
+        val termsObserver = Observer<DataState<List<TermItem>>> {}
+        val startDateObserver = Observer<DataState<Calendar>> {}
+        main {
+            model = fixture.catalogPage()
+            store.put("catalog", model)
+            model.termsLiveData.observeForever(termsObserver)
+            model.startDateLiveData.observeForever(startDateObserver)
+        }
+        try {
+            main {
+                assertNull(model.selectedTermLiveData.value)
+                @Suppress("UNCHECKED_CAST")
+                (model.startDateLiveData as MutableLiveData<DataState<Calendar>>).value = DataState(
+                    Calendar.getInstance(), DataState.STATE.SUCCESS
+                )
+                assertEquals(DataState.STATE.SUCCESS, model.startDateLiveData.value?.state)
+            }
+            fixture.preferences.saveEasToken(accountToken().apply { sessionGeneration++ })
+            flushMain()
+            main {
+                assertEquals(
+                    "A session refresh must not rebuild the null-term NOTHING source",
+                    DataState.STATE.SUCCESS,
+                    model.startDateLiveData.value?.state
+                )
+            }
+            main {
+                model.startDateLiveData.removeObserver(startDateObserver)
+                model.selectedTermLiveData.value = remoteTerm()
+            }
+            fixture.preferences.saveEasToken(accountToken().apply { sessionGeneration = 213L })
+            flushMain()
+            main {
+                assertEquals(
+                    "A selected term must still be cleared when the session changes",
+                    null,
+                    model.selectedTermLiveData.value
+                )
+            }
+        } finally {
+            main {
+                model.termsLiveData.removeObserver(termsObserver)
+                model.startDateLiveData.removeObserver(startDateObserver)
+                store.clear()
+            }
+        }
     }
 
     @Test fun cancelledApplicationScopeStillCompletesAndReleasesAutomaticImport() {

@@ -181,7 +181,13 @@ class ShenzhenCourseCatalogViewModel @Inject constructor(
             savedStateHandle.remove<String>(STATE_TERM_ID)
             savedStateHandle.remove<String>(STATE_TERM_YEAR)
             savedStateHandle.remove<String>(STATE_TERM_CODE)
-            selectedTermLiveData.value = null
+            // Avoid emitting a duplicate null term. The planning preview can be
+            // rendered before the first session update settles, and switchMap
+            // would otherwise replace its terminal state with a fresh NOTHING
+            // source even though no term was selected in the first place.
+            if (selectedTermLiveData.value != null) {
+                selectedTermLiveData.value = null
+            }
             selectedTermDisplay.updateOptions(emptyList())
             queryLiveData.value = null
             courseSelectionDraftLiveData.value = null

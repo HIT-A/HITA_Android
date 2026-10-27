@@ -4,9 +4,11 @@ import cn.limpu.hita.data.model.eas.ShenzhenCourseCatalogItem
 import cn.limpu.hita.data.model.timetable.EventItem
 import cn.limpu.hita.data.model.timetable.TimePeriodInDay
 import cn.limpu.hita.utils.ColorTools
-import cn.limpu.hita.utils.TimeTools
 import java.sql.Timestamp
-import java.util.Calendar
+import java.time.DayOfWeek
+import java.time.Instant
+import java.time.ZoneId
+import java.time.temporal.TemporalAdjusters
 import java.util.UUID
 
 data class CoursePlanPreviewProjection(
@@ -56,6 +58,8 @@ data class CoursePlanPreviewProjection(
         UUID.nameUUIDFromBytes(value.toByteArray(Charsets.UTF_8)).toString()
 
     companion object {
+        /** Course times are academic local times and must not follow the emulator time zone. */
+        val ZONE: ZoneId = ZoneId.of("Asia/Shanghai")
         private const val DAY_MILLIS = 24L * 60 * 60 * 1000
         private const val WEEK_MILLIS = 7L * DAY_MILLIS
     }
@@ -97,10 +101,13 @@ object CoursePlanPreviewMapper {
             ?.coerceAtLeast(1)
             ?: 1
 
-        val normalizedStart = TimeTools.getMonday(termStartMillis).apply {
-            set(Calendar.SECOND, 0)
-            set(Calendar.MILLISECOND, 0)
-        }.timeInMillis
+        val normalizedStart = Instant.ofEpochMilli(termStartMillis)
+            .atZone(CoursePlanPreviewProjection.ZONE)
+            .toLocalDate()
+            .with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
+            .atStartOfDay(CoursePlanPreviewProjection.ZONE)
+            .toInstant()
+            .toEpochMilli()
         return CoursePlanPreviewProjection(
             termStartMillis = normalizedStart,
             schedule = schedule,
