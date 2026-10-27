@@ -4,6 +4,11 @@ import android.app.Application
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import cn.limpu.hita.data.repository.EASRepository
+import cn.limpu.hita.data.repository.TimetableChangeStore
+import cn.limpu.hita.data.repository.TimetableMutationLock
+import cn.limpu.hita.data.source.preference.EasCredentialStore
+import cn.limpu.hita.data.source.preference.EasPreferenceSource
+import cn.limpu.hita.data.source.preference.TimetablePreferenceSource
 import cn.limpu.hita.ui.main.agent.AgentChatViewModel
 import java.io.File
 import java.lang.reflect.InvocationTargetException
@@ -19,8 +24,19 @@ import org.junit.runner.RunWith
 class ChatAttachmentLegacyBoundaryTest {
     private val application = ApplicationProvider.getApplicationContext<Application>()
     private val legacyViewModel by lazy {
+        val preferences = EasPreferenceSource(application)
         AgentChatViewModel::class.java.getDeclaredConstructor(Application::class.java, EASRepository::class.java)
-            .newInstance(application, EASRepository(application))
+            .newInstance(
+                application,
+                EASRepository(
+                    application,
+                    preferences,
+                    EasCredentialStore(application),
+                    TimetablePreferenceSource(application, preferences),
+                    TimetableChangeStore(application),
+                    TimetableMutationLock(),
+                ),
+            )
     }
 
     @Test fun advertisedBitmapAndVideoFormatsMustReachTheirMediaRoute() {
