@@ -12,6 +12,7 @@ import cn.limpu.hita.data.model.timetable.Timetable
 import cn.limpu.hita.data.source.dao.EventItemDao
 import cn.limpu.hita.data.source.dao.SubjectDao
 import cn.limpu.hita.data.source.dao.TimetableDao
+import cn.limpu.hita.data.source.dao.TimetableGroupDao
 import cn.limpu.hita.data.source.preference.EasPreferenceSource
 import cn.limpu.hita.data.source.preference.TimetablePreferenceSource
 import cn.limpu.hita.utils.ColorTools
@@ -60,10 +61,10 @@ internal class EASTimetableImportRepository(
     private val queryTerms: suspend (EasQuerySession) -> DataState<List<TermItem>>,
     private val applicationScope: CoroutineScope,
     private val database: cn.limpu.hita.data.AppDatabase,
+    private val timetableGroupDao: TimetableGroupDao,
+    private val examImportRepository: ExamImportRepository,
     private val autoGroupImportedTimetable: (String) -> Unit,
 ) {
-    private val examImportRepository by lazy { ExamImportRepository(database) }
-
     /** Remote work is cancellable; after the Room transaction owns commit, it finishes atomically. */
     suspend fun importTimetableOfTerm(
         session: EasQuerySession,
@@ -659,9 +660,8 @@ internal class EASTimetableImportRepository(
             eventItemDao.deleteEventsFromTimetablesSync(deleteIds)
             subjectDao.deleteSubjectsFromTimetablesSync(deleteIds)
             timetableDao.deleteTimetablesInIdsSync(deleteIds)
-            val groupDao = database.timetableGroupDao()
             groups.forEach { id ->
-                if (groupDao.countMembersSync(id) == 0) groupDao.deleteGroupByIdSync(id)
+                if (timetableGroupDao.countMembersSync(id) == 0) timetableGroupDao.deleteGroupByIdSync(id)
             }
         }
     }

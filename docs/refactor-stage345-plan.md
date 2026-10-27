@@ -1,6 +1,6 @@
 # 阶段 3、4、5 执行与验收台账
 
-初始基线：2026-10-26，`origin/main = fd17e5e773b1ad6f16cd9a267227c595d34c73fa`（#68）。后续 #70 已合并为 `b8a4cea55faab714baccceb1586ecc652cb3f46f`，#71 构建改造已合并为 `f4e809d1458c52cd5f8b43f317f8f643def9f306`。本文件是当前长期目标的完整完成条件，每个实现批次更新实际证据。项目进度与历史 PR 见 [交接文档](refactor-handoff.md)。
+初始基线：2026-10-26，`origin/main = fd17e5e773b1ad6f16cd9a267227c595d34c73fa`（#68）。后续 #70 已合并为 `b8a4cea55faab714baccceb1586ecc652cb3f46f`，#71 构建改造已合并为 `f4e809d1458c52cd5f8b43f317f8f643def9f306`；当前远端 main 已包含 #77，合并提交为 `59b6cc1`。本文件是当前长期目标的完整完成条件，每个实现批次更新实际证据。项目进度与历史 PR 见 [交接文档](refactor-handoff.md)。
 
 ## 1. 授权、范围与完成规则
 
@@ -54,8 +54,8 @@
 | 3.Q7 | 登录、校验、资料补全 | 有限操作用协程；保留三校区认证、凭据保存、补全回退、authEpoch；新登录/注销后旧响应不写 token，取消不变业务失败 | 待做 |
 | 3.I1 | 手工/自动教务导入与快照操作 | Repository 不接 UI MediatorLiveData；没有共享请求归属或 latch/observeForever 等待；owner、锁、提交边界、去重、快照采纳/恢复与刷新实测 | 实施中：与 3.Q3 完整导入链合批，生产与测试编译通过；原实现导入 8 项为 4 个准确缺陷失败、4 个兼容通过，考试尾批 2 个准确缺陷失败；新 44 项设备用例待执行，R2 恢复协议独立推进 |
 | 3.I2 | 成绩通知后台任务 | 可取消执行、共享注入 Repository；首次基线/跨学期去重/部分失败/取消不污染基线，旧 Worker 恢复可用 | 待做 |
-| 3.D1 | EASRepository 内部依赖注入 | 服务选择器、DAO/事务、缓存/快照等明确注入；主类不 new WebSource 或直接取全局 DB；测试可用替身而不建真实网络源 | 待做 |
-| 3.D2 | 会话与注入调用者收尾 | token callback 循环由明确 session coordinator/factory 处理；EventItemFragment/Worker 不手工创建 Repository/锁；通用能力无具体源类型判断 | 待做 |
+| 3.D1 | EASRepository 内部依赖注入 | 服务选择器、DAO/事务、缓存/快照等明确注入；主类不 new WebSource 或直接取全局 DB；测试可用替身而不建真实网络源 | PR #82 待合并：`EASRepository` 已接收数据库、DAO、快照、Gson、考试导入和课表分组能力；服务由 `EasRepositoryServiceFactories` 装配；`EasRepositoryWiringInstrumentedTest` 与 legacy seam 已通过。修复提交 `10e4f94` 后 CI 40495147818 设备 XML 846 项全部通过；本地编译、Debug/AndroidTest APK、仓库检查通过。 |
+| 3.D2 | 会话与注入调用者收尾 | token callback 循环由明确 session coordinator/factory 处理；EventItemFragment/Worker 不手工创建 Repository/锁；通用能力无具体源类型判断 | PR #82 待合并：`EventItemFragment` 改为 Hilt 注入，`ScoreReminderWorker` 通过 Hilt EntryPoint 获取生产 Repository/Store 并保留测试替身，导入链显式接收分组/考试依赖，成绩摘要改用能力接口而非具体源类型判断。CI 40495147818 的 `ScoreReminderSessionTest` 与完整设备套件通过；真实账号/真机仍未验证。 |
 | 3.A1 | Typed AgentToolExecutor 结果与取消 | success/failure/timeout/cancelled 可区分；同步异常、双/迟到回调、重试、clear/dispose 只一次终态；幂等约束和添加活动零重试保护实测 | 实施中：typed 结果/取消到 executor、engine、session、Subject 与实际写入守卫已实现并通过静态独审；旧实现 6 项设备为 3 兼容通过 / 3 预期缺陷失败；当前定向 74 JVM、32 设备全部通过（含新增 29 JVM、12 设备）；整合 Main 后完整交付待验 |
 | 3.A2 | ReAct 工具与 AI 空教室完整链 | suspend 分发直接连接新能力；学期→本地周→教学楼→逐楼查询及 typed 工具桥无 latch；取消/超时传播，analytics 上下文与原输出保留 | 待做 |
 | 3.C1 | ChatSessionRepository 与页面协调 | DB 与会话写入移出 VM；创建/消息/删除事务及顺序、切会话归属/恢复/迟到结果实测；无未管理 Executor，持久化与 UI Job 责任明确 | 实施中：与 C2 按聊天完整链并行实现，旧源码已冻结；尚无验证结果 |
@@ -70,8 +70,8 @@
 |---|---|---|---|
 | 4.M1 | Main 状态、启动、公告与会话转变 | 登录/换账号/节流/首次博客同步、公告排序与已读时机可测；effect 只交付当前宿主，scope 副作用仍统一 | 本地定向通过：状态/启动/effect/公告/更新/导入归属完整接线，独审发现已修；初轮 28 设备 24 通过、4 个测试夹具失败，保留断言修正后共享夹具 7 项全通过；整合 #75 的 Debug/测试 APK 与 app JVM 810 通过 + 1 旧跳过；最终 CI 待验 |
 | 4.M2 | Main 平台资源、Fragment 托管与 Compose | Fragment 恢复/切 tab/动态标签不重复或丢失；Compose 不强转 Activity；壁纸 IO/加载归属与释放实测；原 glass 反射契约保留 | 本地定向通过：壁纸旧文件链 3 兼容通过 / 7 缺陷失败；真实平台旧 seam 3 兼容通过 / 6 缺陷失败，当前对应测试通过；154 JVM 初轮 153 通过、1 个异常副本断言修正后单项通过，整合 #75 后完整 app JVM 811（810 通过 + 1 旧跳过），51 项新增全部保留通过；与 4.M1 合批 |
-| 4.T1 | Timetable 状态、编辑用例与 view 生命周期 | 批次选择受 Job/代次管理；目标课表、只读、THIS/SLOT/ALL 规则实测；旧 view 不交付；写入继续统一入口；VM 不反向引用 Fragment 常量 | 实施中：批次协调与生命周期/写入整链已实现，首轮 15 JVM 通过；旧 Fragment 的 2 项运行被测试 UI 查找夹具阻断，修正后待验，不能计为缺陷复现；独审补齐旧表单回调与失败写入重试保护 |
-| 4.T2 | 复用周组件与布局策略 | 朋友课表/规划预览真实接入；几何/命中、重叠、时区、晚课、手势/动画有覆盖；组件 state/actions 与领域算法分离 | 实施中：Route/Screen/周组件/几何拆分，朋友详情与规划预览继续实际消费；真实宿主和组件设备测试待执行，与 4.T1 合批 |
+| 4.T1 | Timetable 状态、编辑用例与 view 生命周期 | 批次选择受 Job/代次管理；目标课表、只读、THIS/SLOT/ALL 规则实测；旧 view 不交付；写入继续统一入口；VM 不反向引用 Fragment 常量 | 已合并且验证：[#77](https://github.com/HIT-A/HITA_Android/pull/77)，merge `59b6cc1`；`TimetableBatchCoordinator`、宿主 Fragment 与状态/生命周期链已接入；CI 40480112502 实际设备 XML 845 项全通过，0 失败/错误/跳过/重复。 |
+| 4.T2 | 复用周组件与布局策略 | 朋友课表/规划预览真实接入；几何/命中、重叠、时区、晚课、手势/动画有覆盖；组件 state/actions 与领域算法分离 | 已合并且验证：与 4.T1 同批由 [#77](https://github.com/HIT-A/HITA_Android/pull/77) 交付；`TimetableScreen`、周组件、几何和预览消费链已接入；CI 40480112502 实际设备 XML 845 项全通过，未进行真实账号/真机校园环境验证。 |
 | 4.W1 | Web 登录校区会话与 HTTP | 显式事件/状态/一次结果；Cookie 捕获和网络适配分开；三校区/研究生/电子实验/静默/超时回退实测；敏感 Cookie 不写日志 | 待做 |
 | 4.W2 | WebView 浏览器、脚本、MFA、凭据桥与展示 | 生命周期拥有浏览器与回调；origin/main-frame 安全约束、成功才保存凭据、取消清理；实际本地 WebView fixture 验证桥接/导航/销毁，不启用原禁用功能 | 待做 |
 | 4.S1 | Subject 资源请求与课程归属 | 课程不可变 key、agent→fallback、每卡目录栈/请求代次；迟到结果不能回填其他课程；clear 取消；保存/删除仍统一 | 已合并且验证：[#73](https://github.com/HIT-A/HITA_Android/pull/73)，merge `d4806f7`；5 项归属先红后绿；head `127e945` 的 CI 40314264518 JVM 827 通过 + 1 既有跳过、设备 647 全通过 |
@@ -135,5 +135,7 @@
 | 5.K/S 最终交付 | #74 已合并且验证，merge `51819ca061063e0e7e6a0ff37cd348a913faf935`，树与 head `7e33899` 相同 | [CI 40317563827](https://github.com/HIT-A/HITA_Android/actions/runs/40317563827) 两 job 成功；原始 JVM 828（827 通过 + 1 旧跳过）、设备 647 全通过；artifact 摘要及全部 testcase 身份在合并前核实，style 资源校验实际执行；`core/final-signoff.json`、`core/delivery-state.json`、`core/ci-40317563827/`。阶段 5 六项主体已交付；最终审计与全目标 R4 平台边界仍保留 |
 | 3.Q2 最终交付 | #75 已合并且验证，merge `463a5982c937c29b078974f7e5b0ac6540625cad`；树与 head `d7aef7c` 相同 | `term-cache/final-signoff.json`、`term-cache/ci-40320879654/`；JVM 828（827 通过 + 1 旧跳过）、设备 726 全通过；两个 ZIP 摘要和全部原始 testcase 在合并前核验 |
 | 4.M1/M2 本地检查点 | 51 项新增 JVM 与 28 项新增设备均在相应检查点通过；初次失败、修正及重跑分别保留，未冒充一次全量执行 | `main/targeted-jvm-first-audit.json`（153/154）与 `callback-correction-jvm-audit.json`（1/1）；`platform-current-first-audit.json`（24/28）与 `platform-correction-second-audit.json`（7/7）；测试夹具修正经独立审查，无生产行为断言降级；`q2-integrated-app-jvm-audit.json` 为整合 #75 后完整 app JVM 811（810 通过 + 1 旧跳过），Debug/测试 APK 通过；最终 CI 待验 |
+| 4.T1/T2 页面整链 | #77 已合并，课表批次、页面状态与周组件/预览拆分完成 | merge `59b6cc1`；CI 40480112502 实际设备 XML 845 项全通过，原有断言和新增页面/组件用例均在同一报告核验；未做真实账号或物理真机验证 |
+| 3.D1/D2 EASRepository 装配 | PR #82 待合并，CI 已通过 | 分支 `codex/eas-repository-injection`；修复提交 `10e4f94`；本地编译、`assembleDebug`、`assembleDebugAndroidTest` 与仓库检查通过；CI 40495147818 设备 XML app 820、component 7、hitauser 11、style 8，共 846 项全部通过，JVM XML 937 通过 + 1 个既有可选联网跳过；真实账号/真机未验证 |
 
 Main 最终主题 smoke：`main/theme-cache-run.log` 的一次实际 instrumentation 方法覆盖全部七种主题并通过，`main/screenshots-final/main-theme-smoke/` 的七张截图已逐张审阅；这是实际渲染 smoke，不是像素等价或真实账号验证。最后夹具改动只涉及 accessibility 虚节点遍历与缓存刷新，生产/JVM 输入未变，复用上述 app JVM 与构建结果；最终完整 CI 仍待验。

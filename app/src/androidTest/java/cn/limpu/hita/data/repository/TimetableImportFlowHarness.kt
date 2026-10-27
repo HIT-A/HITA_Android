@@ -80,7 +80,10 @@ internal class TimetableImportFlowHarness(campus: EASToken.Campus = EASToken.Cam
         snapshots, TimetableMutationLock(), changes, timetablePreferences, application,
         state.authEpoch, state.lock, inProgress, ::session,
         queryTerms = { calls += "terms"; fetchTerms() }, applicationScope = scope,
-        database = database, autoGroupImportedTimetable = {},
+        database = database,
+        timetableGroupDao = database.timetableGroupDao(),
+        examImportRepository = ExamImportRepository(database),
+        autoGroupImportedTimetable = {},
     )
 
     fun session(): EasQuerySession {

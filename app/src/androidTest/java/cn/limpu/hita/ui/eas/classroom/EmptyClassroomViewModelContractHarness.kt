@@ -22,6 +22,7 @@ import cn.limpu.hita.data.model.eas.EASToken
 import cn.limpu.hita.data.model.eas.TermItem
 import cn.limpu.hita.data.model.timetable.TimePeriodInDay
 import cn.limpu.hita.data.repository.EASRepository
+import cn.limpu.hita.data.repository.LegacyEasRepositoryDependencies
 import cn.limpu.hita.data.repository.EmptyClassroomQueryRequest
 import cn.limpu.hita.data.repository.TeachingBuildingsRequest
 import cn.limpu.hita.data.repository.TimetableChangeStore
@@ -77,9 +78,11 @@ internal class EmptyClassroomViewModelContractHarness {
 
     init {
         val easPreferences = EasPreferenceSource(context)
+        val dependencies = LegacyEasRepositoryDependencies.from(app)
         val repository = EASRepository(
             app, easPreferences, EasCredentialStore(context),
             TimetablePreferenceSource(context, easPreferences), TimetableChangeStore(app), TimetableMutationLock(),
+            dependencies.database, dependencies.serviceFactories,
         )
         val inputs = EmptyClassroomPageInputs(
             getTerms = {

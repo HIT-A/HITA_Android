@@ -15,6 +15,7 @@ import cn.limpu.hita.data.repository.AutoImportResult
 import cn.limpu.hita.data.repository.DisplayScopeSelector
 import cn.limpu.hita.data.repository.EASRepository
 import cn.limpu.hita.data.repository.EasSettingsRepository
+import cn.limpu.hita.data.repository.LegacyEasRepositoryDependencies
 import cn.limpu.hita.data.repository.TimetableChangeStore
 import cn.limpu.hita.data.repository.TimetableMutationLock
 import cn.limpu.hita.data.source.preference.EasCredentialStore
@@ -163,8 +164,10 @@ class MainViewModelInstrumentedTest {
         private val isolated = IsolatedApplication(app)
         private val database = Room.inMemoryDatabaseBuilder(app, UserDatabase::class.java).build()
         private val preference = EasPreferenceSource(isolated)
+        val dependencies = LegacyEasRepositoryDependencies.from(app)
         val eas = EASRepository(app, preference, EasCredentialStore(isolated),
-            TimetablePreferenceSource(isolated, preference), TimetableChangeStore(isolated), TimetableMutationLock())
+            TimetablePreferenceSource(isolated, preference), TimetableChangeStore(isolated), TimetableMutationLock(),
+            dependencies.database, dependencies.serviceFactories)
         val settings = EasSettingsRepository(isolated)
         val requests = Requests()
         val store = ViewModelStore()

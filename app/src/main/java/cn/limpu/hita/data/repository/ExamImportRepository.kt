@@ -21,8 +21,8 @@ class ExamImportTargetMissingException(val timetableId: String) :
     IllegalArgumentException("The target timetable no longer exists: $timetableId")
 
 /** Shared mapping and deduplication, with the original transaction boundary of each entry point. */
-class ExamImportRepository internal constructor(private val database: AppDatabase) {
-    @Inject constructor(application: Application) : this(AppDatabase.getDatabase(application))
+class ExamImportRepository @Inject internal constructor(private val database: AppDatabase) {
+    constructor(application: Application) : this(AppDatabase.getDatabase(application))
 
     private val eventItemDao = database.eventItemDao()
 

@@ -9,6 +9,7 @@ import cn.limpu.hita.data.model.eas.*
 import cn.limpu.hita.data.model.timetable.TermSubject
 import cn.limpu.hita.data.model.timetable.TimeInDay
 import cn.limpu.hita.data.model.timetable.TimePeriodInDay
+import cn.limpu.hita.data.source.web.service.EASScoreSummaryService
 import cn.limpu.hita.data.source.web.service.EASService
 import cn.limpu.hita.data.model.classroom.BuildingItem
 import cn.limpu.hita.data.model.classroom.ClassroomItem
@@ -45,7 +46,7 @@ import kotlinx.coroutines.withContext
 abstract class AbstractEASWebSource(
 
     protected val onCookiesUpdated: ((EASToken) -> Unit)? = null,
-) : EASService {
+) : EASService, EASScoreSummaryService {
 
     /** 校区教务主域名，如本部 WebVPN / 威海 WebVPN 入口。 */
 
@@ -393,7 +394,7 @@ abstract class AbstractEASWebSource(
     }
 
 
-    fun getPersonalScoresWithSummary(
+    override fun getPersonalScoresWithSummary(
         term: TermItem,
         token: EASToken,
         testType: EASService.TestType

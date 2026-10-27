@@ -69,15 +69,11 @@ internal class ApplicationDisplayScopeSelector(private val application: Applicat
     }
 }
 
-class TimetableRepository internal constructor(
+class TimetableRepository @Inject internal constructor(
     val application: Application,
     private val database: AppDatabase,
     private val displayScopeSelector: DisplayScopeSelector,
 ) : TimetableWriteStore {
-    @Inject constructor(application: Application, displayScopeSelector: DisplayScopeSelector) : this(
-        application, AppDatabase.getDatabase(application), displayScopeSelector,
-    )
-
     // Legacy callers construct this repository directly. Resolve only when a selection is made,
     // so read-only callers do not initialize the coordinator or its resolver.
     constructor(application: Application) : this(
