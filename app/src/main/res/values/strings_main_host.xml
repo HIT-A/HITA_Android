@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="main_avatar_change">更换头像</string>
+    <string name="main_avatar_pick">从相册选择</string>
+    <string name="main_avatar_changed">头像更换成功</string>
+    <string name="main_avatar_failed">图片处理失败</string>
+    <string name="main_action_cancel">取消</string>
+    <string name="main_view_profile">查看资料</string>
+    <string name="main_logout">退出登录</string>
+    <string name="main_notice_ack">知道了</string>
+    <string name="main_notice_update">查看更新</string>
+    <string name="main_notice_later">稍后</string>
+    <string name="main_style_classic">经典搭配</string>
+    <string name="main_style_glass">玻璃艺术</string>
+    <string name="main_style_cyber">赛博朋克</string>
+    <string name="main_style_sora">日映构成</string>
+    <string name="main_style_persona">波普涂鸦</string>
+    <string name="main_style_deep_space">深空星野</string>
+    <string name="main_style_sumi">水墨宣纸</string>
+</resources>
