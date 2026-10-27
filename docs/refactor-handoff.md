@@ -12,7 +12,7 @@
 - [PR #70](https://github.com/HIT-A/HITA_Android/pull/70) 已合并为 `b8a4cea55faab714baccceb1586ecc652cb3f46f`。head `72751747ba5acccfb8abf4240d3b6f1700445e66` 的 [CI 40299381154](https://github.com/HIT-A/HITA_Android/actions/runs/40299381154) 两个 job 成功，原始设备 XML 独立核实 607 项全部通过；这是 PR head 的结果，不是合并后的 main 另跑一次验证。
 - [PR #77](https://github.com/HIT-A/HITA_Android/pull/77) 已合并为 `59b6cc1`，完成课表批次协调、页面状态/生命周期与周组件/规划预览拆分。[CI 40480112502](https://github.com/HIT-A/HITA_Android/actions/runs/40480112502) 实际设备 XML 独立核实 845 项全部通过，0 失败、错误、跳过或重复；这是 PR head 的设备证据，未进行真实校园账号或物理真机验证。
 - 阶段 3.1 已交付上述查询能力；学期缓存与全部消费端已由 #75 交付；其余教务请求、Repository 内部依赖注入、聊天拆分及 Agent 执行语义改造仍须按台账逐项实施与验证。
-- 当前 EASRepository 注入批次位于隔离工作树 `codex/eas-repository-injection`，生产调用链和 wiring seam 已完成。`EASRepository` 接收数据库、DAO、快照、Gson、考试导入和课表分组能力；`EventItemFragment` 使用 Hilt；`ScoreReminderWorker` 通过 Hilt EntryPoint 获取生产依赖并保留测试替身；成绩摘要按能力接口选择服务。`compileDebugKotlin`、`compileDebugAndroidTestKotlin`、`testDebugUnitTest`、`assembleDebug` 及仓库/health/consistency/diff 检查均通过；本地无 AVD，新增 wiring AndroidTest 仅完成编译，尚无设备运行、CI、PR 或合并证据。
+- 当前 EASRepository 注入批次位于隔离工作树 `codex/eas-repository-injection`，生产调用链和 wiring seam 已完成。`EASRepository` 接收数据库、DAO、快照、Gson、考试导入和课表分组能力；`EventItemFragment` 使用 Hilt；`ScoreReminderWorker` 通过 Hilt EntryPoint 获取生产依赖并保留测试替身；成绩摘要按能力接口选择服务。PR #82 的首次 device-tests 暴露了测试 entry point 未被生产 Hilt 聚合和关闭提醒的旧 Worker 过早访问 EntryPoint 两个装配问题，修复提交 `10e4f94` 后 [CI 40495147818](https://github.com/HIT-A/HITA_Android/actions/runs/40495147818) 已通过。设备 XML 独立核实 app 820、component 7、hitauser 11、style 8，共 846 项全部通过；JVM XML 938 项中 937 通过、1 项既有可选联网测试跳过。真实校园账号、WebVPN 和物理真机仍未验证，PR 尚待合并。
 - 完整验收文档已通过 #69 合并为 `f48cc4b`；对应 head `d89c58d` 的 [CI 40292512701](https://github.com/HIT-A/HITA_Android/actions/runs/40292512701) 两个 job 成功，下载的实际设备 XML 为原 481 项全部通过。后续每批从最新 `origin/main` 新建分支，不在已合并功能分支追加工作。
 - 用户此前保留的交接文档改动已备份到 `/tmp/hita-stage345-skdpckp3/handoff-before-update.md`，本次明确要求“补齐之后继续”，因此将既有文档更新与 #66–#68 补充一并纳入文档 PR。
 - **当前目标的新增授权**：用户明确要求“你自己开 PR、自己审核、自己合并，不要打扰我，直到做完 3、4、5”。这覆盖本目标内的方案、实现、文档、commit、origin push、PR、审核、必要分支同步及合并；不再逐批请求确认。它覆盖本目标，并非修改其他任务的默认授权规则。仍不发布 release、不推 fork。
@@ -263,11 +263,11 @@ CI [40198232504](https://github.com/HIT-A/HITA_Android/actions/runs/40198232504)
 - [CI 40480112502](https://github.com/HIT-A/HITA_Android/actions/runs/40480112502) 实际设备 XML 为 845 项，全部通过，0 失败、错误、跳过或重复。测试覆盖批次 UI、宿主生命周期、周组件、几何和旧边界；报告对应 PR head。
 - 设备使用合成数据和 API 35 模拟器，未进行真实校园账号、WebVPN 或物理真机验证；阶段 4 的 Main 最终审计与 Web 登录链仍未完成。
 
-### 3.D1/D2 EASRepository 装配（当前批次，PR 待 CI）
+### 3.D1/D2 EASRepository 装配（PR #82，待合并）
 
 当前隔离工作树 `codex/eas-repository-injection` 已把 EASRepository 的生产依赖链收拢到 Hilt/显式 seam：数据库、DAO、快照存储、Gson、考试导入、课表分组和服务工厂由构造或模块装配；`EventItemFragment` 改用 Hilt；`ScoreReminderWorker` 通过 Hilt EntryPoint 获取生产 Repository/Store 并保留测试替身；导入 Repository 显式接收分组与考试依赖；成绩摘要按 `EASScoreSummaryService` 能力接口选择，移除具体 WebSource 类型判断。
 
-本地已通过 `:app:compileDebugKotlin`、`:app:compileDebugAndroidTestKotlin`、`:app:testDebugUnitTest`、`:app:assembleDebug`、`:app:assembleDebugAndroidTest`，以及 `python3 scripts/check_repository.py --base-ref origin/main`、`project_health_check.sh`、`code_consistency_check.sh`、`git diff --check`。新增 `EasRepositoryWiringInstrumentedTest` 已编译，当前环境没有 AVD，因此还没有设备运行、PR CI、合并或真实账号证据；代码已提交为 `34ef8d6`，PR 尚待创建。
+本地已通过 `:app:compileDebugKotlin`、`:app:compileDebugAndroidTestKotlin`、`:app:testDebugUnitTest`、`:app:assembleDebug`、`:app:assembleDebugAndroidTest`，以及 `python3 scripts/check_repository.py --base-ref origin/main`、`project_health_check.sh`、`code_consistency_check.sh`、`git diff --check`。修复提交 `10e4f94` 后 PR #82 的 CI 40495147818 两个 job 均通过；设备 XML 为 846 项全部通过，JVM XML 为 937 通过、1 个既有可选联网跳过。当前无真实账号或物理真机证据，PR 待合并。
 
 ## 10. 遗留事项与阶段 3–5 路线
 
