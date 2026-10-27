@@ -2,6 +2,8 @@ package cn.limpu.hita.utils
 
 import androidx.appcompat.app.AlertDialog
 import android.content.Context
+import cn.limpu.hita.agent.core.AgentCancellation
+import java.util.concurrent.atomic.AtomicBoolean
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.Observer
 import com.limpu.component.data.DataState
@@ -55,43 +57,61 @@ object CourseResourceLinker {
         }
     }
 
+    /** Cancellation releases aggregation/delivery; already running direct HTTP calls may finish. */
     fun resolveCandidates(
         owner: LifecycleOwner,
         courseCodeRaw: String?,
         courseNameRaw: String?,
         campus: String? = null,
         onResolved: (List<CourseResourceItem>) -> Unit,
-    ) {
+    ): AgentCancellation = resolveCandidatesWithSource(
+        courseCodeRaw, courseNameRaw, campus, HoaResourceSource::searchCoursesDirect, onResolved,
+    )
+
+    internal fun resolveCandidatesWithSource(
+        courseCodeRaw: String?,
+        courseNameRaw: String?,
+        campus: String?,
+        source: (String, String?, (DataState<List<CourseResourceItem>>) -> Unit) -> Unit,
+        onResolved: (List<CourseResourceItem>) -> Unit,
+    ): AgentCancellation {
         val queryContext = buildQueryContext(courseCodeRaw, courseNameRaw)
         if (queryContext.queries.isEmpty()) {
             onResolved(emptyList())
-            return
+            return AgentCancellation.NONE
         }
-
+        val main = android.os.Handler(android.os.Looper.getMainLooper())
+        val active = AtomicBoolean(true)
         val collected = mutableListOf<CourseResourceItem>()
-        val latch = java.util.concurrent.CountDownLatch(queryContext.queries.size)
-        val lock = Object()
-
-        for (query in queryContext.queries) {
-            LogUtils.d("CourseResourceLinker resolveCandidates parallel: query=$query")
-            HoaResourceSource.searchCoursesDirect(query, campus) { value ->
-                if (value.state == DataState.STATE.SUCCESS) {
-                    synchronized(lock) {
-                        collected.addAll(value.data.orEmpty())
-                    }
-                } else {
-                    LogUtils.d("CourseResourceLinker resolveCandidates parallel: query=$query failed state=${value.state}")
+        val lock = Any()
+        var remaining = queryContext.queries.size
+        val deliver = Runnable {
+            if (active.compareAndSet(true, false)) {
+                val result = synchronized(lock) {
+                    rankCandidates(collected, queryContext.normalizedCode, queryContext.normalizedName)
+                        .also { collected.clear() }
                 }
-                latch.countDown()
+                onResolved(result)
             }
         }
-
-        Thread {
-            latch.await()
-            LogUtils.d("CourseResourceLinker resolveCandidates all done: total=${collected.size}")
-            val result = rankCandidates(collected, queryContext.normalizedCode, queryContext.normalizedName)
-            android.os.Handler(android.os.Looper.getMainLooper()).post { onResolved(result) }
-        }.start()
+        for (query in queryContext.queries) {
+            val answered = AtomicBoolean(false)
+            source(query, campus) { value ->
+                if (answered.compareAndSet(false, true)) synchronized(lock) {
+                    if (active.get()) {
+                        if (value.state == DataState.STATE.SUCCESS) collected.addAll(value.data.orEmpty())
+                        remaining--
+                        if (remaining == 0) main.post(deliver)
+                    }
+                }
+            }
+        }
+        return AgentCancellation {
+            if (active.compareAndSet(true, false)) {
+                main.removeCallbacks(deliver)
+                synchronized(lock) { collected.clear() }
+            }
+        }
     }
 
     private data class QueryContext(

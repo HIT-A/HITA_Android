@@ -28,7 +28,7 @@ class GetTimetableTool : ReActTool {
             toMs = toMs
         )
 
-        val info = ToolHelper.runTimetableToolSync(agentInput, input.agentProvider, input.onTrace)
+        val info = ToolHelper.formatTimetableResult(ToolHelper.runTimetableToolSync(agentInput, input.agentProvider, input.onTrace))
 
         val dateLabel = SimpleDateFormat("yyyy-MM-dd EEEE", Locale.CHINA).format(Date(fromMs))
 

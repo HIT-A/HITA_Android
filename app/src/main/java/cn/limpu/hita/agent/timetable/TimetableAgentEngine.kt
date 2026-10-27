@@ -1,5 +1,7 @@
 package cn.limpu.hita.agent.timetable
 
+import cn.limpu.hita.agent.core.AgentCancellation
+import cn.limpu.hita.agent.core.notifyAgentObserver
 import cn.limpu.hita.agent.core.AgentEngine
 import cn.limpu.hita.agent.core.AgentToolExecutionPolicy
 import cn.limpu.hita.agent.core.AgentToolExecutor
@@ -17,14 +19,14 @@ class TimetableAgentEngine(
         input: TimetableAgentInput,
         onTrace: (AgentTraceEvent) -> Unit,
         onResult: (AgentToolResult<TimetableAgentOutput>) -> Unit,
-    ) {
-        onTrace(
+    ): AgentCancellation {
+        notifyAgentObserver { onTrace(
             AgentTraceEvent(
                 stage = "start",
                 message = "正在运行课表智能体",
                 payload = AgentTraceSanitizer.sanitizePayload("action=${input.action},timetableId=${input.timetableId.orEmpty()}"),
             )
-        )
+        ) }
 
         val toolName = when (input.action) {
             TimetableAgentInput.Action.GET_LOCAL_TIMETABLE -> "get_local_timetable"
@@ -34,8 +36,8 @@ class TimetableAgentEngine(
 
         val tool = toolRegistry.get<TimetableAgentInput, TimetableAgentOutput>(toolName)
         if (tool == null) {
-            onResult(AgentToolResult.failure("未找到所需的课表工具"))
-            return
+            notifyAgentObserver { onResult(AgentToolResult.failure("未找到所需的课表工具")) }
+            return AgentCancellation.NONE
         }
 
         val policy = if (input.action == TimetableAgentInput.Action.ADD_TIMETABLE_ARRANGEMENT) {
@@ -45,24 +47,18 @@ class TimetableAgentEngine(
             AgentToolExecutionPolicy(timeoutMs = 5000L, retryCount = 1, retryDelayMs = 180L)
         }
 
-        toolExecutor.execute(
+        return toolExecutor.execute(
             tool = tool,
             input = input,
             policy = policy,
             onTrace = onTrace,
         ) { result ->
-            if (!result.ok) {
-                onResult(AgentToolResult.failure(result.error ?: "课表工具执行失败"))
+            if (result is AgentToolResult.Failure) {
+                onResult(result)
                 return@execute
             }
-
-            val output = result.data
-            if (output == null) {
-                onResult(AgentToolResult.failure("课表工具返回为空"))
-                return@execute
-            }
-
-            onTrace(
+            val output = (result as AgentToolResult.Success).value
+            notifyAgentObserver { onTrace(
                 AgentTraceEvent(
                     stage = "result",
                     message = "课表智能体执行完成",
@@ -70,8 +66,8 @@ class TimetableAgentEngine(
                         "action=${output.action},eventCount=${output.events.size},addedCount=${output.addedEventIds.size}"
                     ),
                 )
-            )
-            onResult(AgentToolResult.success(output))
+            ) }
+            onResult(result)
         }
     }
 }

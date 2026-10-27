@@ -16,7 +16,7 @@ class SearchTimetableTool : ReActTool {
             keyword = keyword,
         )
 
-        return ToolHelper.runTimetableToolSync(agentInput, input.agentProvider, input.onTrace)
+        return ToolHelper.formatTimetableResult(ToolHelper.runTimetableToolSync(agentInput, input.agentProvider, input.onTrace))
     }
 
     private fun extractKeyword(actionInput: String): String {

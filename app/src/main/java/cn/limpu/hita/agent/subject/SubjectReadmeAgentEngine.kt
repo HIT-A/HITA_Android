@@ -1,5 +1,7 @@
 package cn.limpu.hita.agent.subject
 
+import cn.limpu.hita.agent.core.AgentCancellation
+import cn.limpu.hita.agent.core.notifyAgentObserver
 import cn.limpu.hita.agent.core.AgentEngine
 import cn.limpu.hita.agent.core.AgentToolExecutionPolicy
 import cn.limpu.hita.agent.core.AgentToolExecutor
@@ -17,19 +19,19 @@ class SubjectReadmeAgentEngine(
         input: SubjectReadmeAgentInput,
         onTrace: (AgentTraceEvent) -> Unit,
         onResult: (AgentToolResult<SubjectReadmeAgentOutput>) -> Unit,
-    ) {
-        onTrace(
+    ): AgentCancellation {
+        notifyAgentObserver { onTrace(
             AgentTraceEvent(
                 stage = "start",
                 message = "正在匹配课程资料候选项",
                 payload = AgentTraceSanitizer.sanitizePayload("subjectId=${input.subjectId}"),
             )
-        )
+        ) }
 
         val tool = toolRegistry.get<SubjectReadmeAgentInput, List<cn.limpu.hita.data.model.resource.CourseResourceItem>>("resolve_course_candidates")
         if (tool == null) {
-            onResult(AgentToolResult.failure("未找到课程资料候选匹配工具"))
-            return
+            notifyAgentObserver { onResult(AgentToolResult.failure("未找到课程资料候选匹配工具")) }
+            return AgentCancellation.NONE
         }
 
         val policy = AgentToolExecutionPolicy(
@@ -37,26 +39,25 @@ class SubjectReadmeAgentEngine(
             retryCount = 1,
             retryDelayMs = 180L,
         )
-        toolExecutor.execute(
+        return toolExecutor.execute(
             tool = tool,
             input = input,
             policy = policy,
             onTrace = onTrace,
         ) { result ->
-            if (!result.ok) {
-                onResult(AgentToolResult.failure(result.error ?: "课程资料候选匹配失败"))
+            if (result is AgentToolResult.Failure) {
+                onResult(result)
                 return@execute
             }
-
-            val candidates = result.data.orEmpty()
-            onTrace(
+            val candidates = (result as AgentToolResult.Success).value
+            notifyAgentObserver { onTrace(
                 AgentTraceEvent(
                     stage = "result",
                     message = "课程资料候选项匹配完成",
                     payload = AgentTraceSanitizer.sanitizePayload("count=${candidates.size}"),
                 )
-            )
-            onResult(AgentToolResult.success(SubjectReadmeAgentOutput(candidates = candidates)))
+            ) }
+            onResult(result.map { SubjectReadmeAgentOutput(candidates = it) })
         }
     }
 }
