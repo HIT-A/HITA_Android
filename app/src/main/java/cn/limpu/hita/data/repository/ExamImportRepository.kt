@@ -36,8 +36,8 @@ class ExamImportRepository internal constructor(private val database: AppDatabas
         }
 
     /**
-     * Automatic refresh already holds tokenStateLock then TimetableMutationLock and validates its
-     * session/target. Preserve global deduplication and individual inserts without a batch transaction.
+     * Automatic refresh owns tokenStateLock, TimetableMutationLock and the complete Room transaction.
+     * Its cancellation/session guard runs after SQLite acquisition; global exam deduplication is retained.
      */
     @WorkerThread
     internal fun importAutomatically(exams: List<ExamItem>, timetable: Timetable): ExamImportResult =

@@ -1,15 +1,8 @@
 package cn.limpu.hita.data.repository
 
 import android.content.Context
-import android.os.Handler
-import android.os.Looper
 import android.os.SystemClock
 import androidx.annotation.WorkerThread
-import androidx.lifecycle.LiveData
-import androidx.lifecycle.MediatorLiveData
-import androidx.lifecycle.MutableLiveData
-import androidx.lifecycle.Observer
-import androidx.lifecycle.map
 import cn.limpu.hita.R
 import cn.limpu.hita.data.model.eas.*
 import cn.limpu.hita.data.model.timetable.EventItem
@@ -21,7 +14,6 @@ import cn.limpu.hita.data.source.dao.SubjectDao
 import cn.limpu.hita.data.source.dao.TimetableDao
 import cn.limpu.hita.data.source.preference.EasPreferenceSource
 import cn.limpu.hita.data.source.preference.TimetablePreferenceSource
-import cn.limpu.hita.data.source.web.service.EASService
 import cn.limpu.hita.utils.ColorTools
 import cn.limpu.hita.utils.CourseCodeUtils
 import cn.limpu.hita.utils.CourseNameUtils
@@ -30,18 +22,12 @@ import cn.limpu.hita.utils.TermNameFormatter
 import com.limpu.component.data.DataState
 import java.sql.Timestamp
 import java.util.*
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
-import kotlin.concurrent.thread
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.async
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
@@ -58,7 +44,6 @@ enum class AutoImportResult {
 }
 
 internal class EASTimetableImportRepository(
-    private val getService: (EASToken.Campus) -> EASService,
     private val easPreferenceSource: EasPreferenceSource,
     private val eventItemDao: EventItemDao,
     private val timetableDao: TimetableDao,
@@ -74,397 +59,367 @@ internal class EASTimetableImportRepository(
     private val captureSession: () -> EasQuerySession,
     private val queryTerms: suspend (EasQuerySession) -> DataState<List<TermItem>>,
     private val applicationScope: CoroutineScope,
+    private val database: cn.limpu.hita.data.AppDatabase,
+    private val autoGroupImportedTimetable: (String) -> Unit,
 ) {
-    private val database by lazy { cn.limpu.hita.data.AppDatabase.getDatabase(appContext) }
     private val examImportRepository by lazy { ExamImportRepository(database) }
 
-    private var timetableWebLiveData: LiveData<DataState<List<CourseItem>>>? = null
-    fun startImportTimetableOfTerm(
-        term: TermItem,
-        startDate: Calendar,
-        schedule: List<TimePeriodInDay>,//课表结构
-        importTimetableLiveData: MediatorLiveData<DataState<Boolean>>,
+    /** Remote work is cancellable; after the Room transaction owns commit, it finishes atomically. */
+    suspend fun importTimetableOfTerm(
+        session: EasQuerySession,
+        requestedTerm: TermItem,
+        requestedDate: Calendar,
+        requestedSchedule: List<TimePeriodInDay>,
         importMode: TimetableImportMode = TimetableImportMode.REPLACE,
         importOperation: EasTimetableImportGuard? = null,
-    ) {
-        startDate.set(Calendar.HOUR_OF_DAY, 0)
-        startDate.set(Calendar.MINUTE, 0)
-        startDate.firstDayOfWeek = Calendar.MONDAY
-        startDate.set(Calendar.DAY_OF_WEEK, Calendar.MONDAY)
-        startDate.set(Calendar.SECOND, 0)
-        startDate.set(Calendar.MILLISECOND, 0)
-        val (easToken, operation) = synchronized(tokenStateLock) {
-            val token = easPreferenceSource.getEasToken()
-            token to (importOperation ?: EasTimetableImportGuard(
-                token, authEpoch.get(), SystemClock.elapsedRealtime() + 90_000L
-            ))
+        timeoutMillis: Long = 90_000L,
+    ): DataState<Boolean> {
+        require(timeoutMillis > 0)
+        val term = requestedTerm.copyForQuery()
+        val startDate = (requestedDate.clone() as Calendar).apply {
+            set(Calendar.HOUR_OF_DAY, 0)
+            set(Calendar.MINUTE, 0)
+            firstDayOfWeek = Calendar.MONDAY
+            set(Calendar.DAY_OF_WEEK, Calendar.MONDAY)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
         }
+        val schedule = requestedSchedule.map { it.clone() }
+        val snapshotOwnerKey = FollowedTeachingSectionStore.ownerKey(session.token)
+        if (!session.loggedIn) return DataState(DataState.STATE.NOT_LOGGED_IN)
+        session.ensureCurrent()
+        val deadline = SystemClock.elapsedRealtime() + timeoutMillis
+        val operation = importOperation ?: synchronized(tokenStateLock) {
+            EasTimetableImportGuard(session.token, authEpoch.get(), deadline)
+        }
+        return try {
+            session.whileCurrent {
+                withContext(Dispatchers.IO) {
+                    val prepared = withTimeoutOrNull(timeoutMillis) {
+                        val response = session.service.getTimetableOfTermOnce(term, session.token)
+                        currentCoroutineContext().ensureActive()
+                        session.ensureCurrent()
+                        if (response.state != DataState.STATE.SUCCESS) {
+                            return@withTimeoutOrNull PreparedResult.Failed(DataState(response.state, response.message))
+                        }
+                        val courses = response.data
+                        if (courses.isNullOrEmpty()) {
+                            return@withTimeoutOrNull PreparedResult.Failed(DataState(DataState.STATE.FETCH_FAILED, "empty timetable"))
+                        }
+                        check(operation.tryStartProcessing()) { "Import operation already completed" }
+                        val meta = if (session.campus == EASToken.Campus.SHENZHEN) {
+                            withTimeoutOrNull(8_000L) { fetchSelectedSubjectMeta(term, session) }
+                                ?: SelectedSubjectMeta()
+                        } else SelectedSubjectMeta()
+                        currentCoroutineContext().ensureActive()
+                        session.ensureCurrent()
+                        PreparedResult.Ready(courses, meta)
+                    } ?: return@withContext DataState(DataState.STATE.FETCH_FAILED, "导入超时，请重试")
+                    if (prepared is PreparedResult.Failed) return@withContext prepared.state
+                    val remote = prepared as PreparedResult.Ready
+                    val coroutine = currentCoroutineContext()
+                    // Keep token -> shared timetable -> SQLite acquisition order. Cancellation is
+                    // checked inside Room too, because acquiring its connection can block.
+                    synchronized(tokenStateLock) {
+                        timetableMutationLock.exclusive {
+                            coroutine.ensureActive()
+                            session.ensureCurrent()
+                            var committed: PreparedImport? = null
+                            var emptyEvents = false
+                            database.runInTransaction {
+                                coroutine.ensureActive()
+                                session.ensureCurrent()
+                                // Preparation reads the latest local subjects/timetable under the same
+                                // serialization boundary as the write, including concurrent first imports.
+                                val data = prepareImport(term, session.token, startDate, schedule, remote.courses, remote.meta)
+                                if (data.events.isEmpty()) { emptyEvents = true; return@runInTransaction }
+                                coroutine.ensureActive()
+                                if (SystemClock.elapsedRealtime() >= deadline ||
+                                    !operation.tryBeginCommit(authEpoch.get(), easPreferenceSource.getEasToken(), SystemClock.elapsedRealtime())) {
+                                    return@runInTransaction
+                                }
+                                val timetable = data.timetable
+                                if (importMode == TimetableImportMode.MERGE) {
+                                    applyMergedTimetable(
+                                        term, snapshotOwnerKey, timetable, data.pendingSubjects, data.events,
+                                        data.maxTs, data.timetableCode, buildTimetableName(term, session.campus),
+                                        startDate.timeInMillis, data.schedule, data.isNewTimetable,
+                                    )
+                                } else {
+                                    timetableSnapshotStore.capture(snapshotOwnerKey, term, timetable, TimetableSnapshotKind.BEFORE_REFRESH)
+                                    eventItemDao.deleteCourseFromTimetable(timetable.id)
+                                    subjectDao.saveSubjectsSync(data.pendingSubjects.values.toList())
+                                    eventItemDao.saveEvents(data.events)
+                                    val current = timetableDao.getTimetableByIdSync(timetable.id)
+                                    timetable.name = current?.name ?: buildTimetableName(term, session.campus)
+                                    timetable.groupId = current?.groupId
+                                    timetable.startTime = Timestamp(startDate.timeInMillis)
+                                    timetable.endTime = Timestamp(data.maxTs)
+                                    timetable.code = data.timetableCode
+                                    timetable.scheduleStructure = data.schedule
+                                    timetableDao.saveTimetableSync(timetable)
+                                }
+                                cleanupDefaultDuplicateTimetablesAfterImport(timetable.id)
+                                committed = data
+                            }
+                            val data = committed
+                            if (data == null) {
+                                DataState(DataState.STATE.FETCH_FAILED, if (emptyEvents) "empty events" else "导入超时，请重试")
+                            } else {
+                                // Post-commit bookkeeping must not report an already persisted import as failed.
+                                runCatching {
+                                    timetableSnapshotStore.capture(snapshotOwnerKey, term, data.timetable, TimetableSnapshotKind.IMPORTED)
+                                }.onFailure { LogUtils.e("import: snapshot capture after commit failed", it) }
+                                if (data.isNewTimetable) {
+                                    runCatching { autoGroupImportedTimetable(data.timetable.id) }
+                                        .onFailure { LogUtils.e("import: auto-group failed", it) }
+                                }
+                                DataState(true, DataState.STATE.SUCCESS)
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            LogUtils.e("import: failed for term=${term.getCode()}", error)
+            DataState(DataState.STATE.FETCH_FAILED, error.message)
+        } finally {
+            operation.finishProcessing()
+        }
+    }
+
+    private sealed interface PreparedResult {
+        data class Ready(val courses: List<CourseItem>, val meta: SelectedSubjectMeta) : PreparedResult
+        data class Failed(val state: DataState<Boolean>) : PreparedResult
+    }
+
+    private data class PreparedImport(
+        val timetable: Timetable,
+        val isNewTimetable: Boolean,
+        val timetableCode: String,
+        val pendingSubjects: Map<String, TermSubject>,
+        val events: List<EventItem>,
+        val maxTs: Long,
+        val schedule: List<TimePeriodInDay>,
+    )
+
+    private fun prepareImport(
+        term: TermItem,
+        easToken: EASToken,
+        startDate: Calendar,
+        schedule: List<TimePeriodInDay>,
+        courseItems: List<CourseItem>,
+        meta: SelectedSubjectMeta,
+    ): PreparedImport {
         val timetableCode = EASTimetableCode.of(easToken.campus, term)
         val legacyTimetableCode = term.getCode()
-        LogUtils.d("startImport: term=${term.getCode()}, campus=${easToken.campus}, code=$timetableCode, isLogin=${easToken.isLogin()}")
-        if (operation.isCurrentSession(authEpoch.get(), easToken)) {
-            val timeoutHandler = Handler(Looper.getMainLooper())
-            val timeoutRunnable = Runnable {
-                if (operation.finishWaiting()) {
-                    importTimetableLiveData.value =
-                        DataState(DataState.STATE.FETCH_FAILED, "导入超时，请重试")
-                }
-            }
-            timeoutHandler.postDelayed(timeoutRunnable, 90_000L)
-            timetableWebLiveData?.let { importTimetableLiveData.removeSource(it) }
-            timetableWebLiveData =
-                getService(easToken.campus).getTimetableOfTerm(term, easToken)
-            importTimetableLiveData.addSource(timetableWebLiveData!!) {
-                when (it.state) {
-                    DataState.STATE.SUCCESS -> {
-                        val courseItems = it.data
-                        LogUtils.d( "import: timetable response state=${it.state} term=${term.getCode()} courseCount=${courseItems?.size ?: -1}")
-                        if (courseItems.isNullOrEmpty()) {
-                            if (operation.finishWaiting()) {
-                                timeoutHandler.removeCallbacks(timeoutRunnable)
-                                importTimetableLiveData.value =
-                                    DataState(DataState.STATE.FETCH_FAILED, "empty timetable")
-                            }
-                            return@addSource
-                        }
-                        if (!operation.tryStartProcessing()) return@addSource
-                        Thread {
-                            try {
-                                val meta = if (easToken.campus == EASToken.Campus.SHENZHEN) {
-                                    fetchSelectedSubjectMeta(term, easToken)
-                                } else {
-                                    SelectedSubjectMeta(
-                                        emptyMap(),
-                                        emptyMap(),
-                                        emptyMap(),
-                                        emptyMap(),
-                                        emptyMap(),
-                                        emptyMap()
-                                    )
-                                }
-                                val teacherMap = meta.teacherMap
-                                val creditMap = meta.creditMap
-                                val maxPeriod = courseItems.maxOfOrNull { item ->
-                                    (item.begin + item.last - 1).coerceAtLeast(item.begin)
-                                } ?: 0
-                                val safeSchedule = buildSafeSchedule(schedule, maxPeriod)
-                                LogUtils.d(
-                                    "import: processing term=${term.getCode()} campus=${easToken.campus} code=$timetableCode courseCount=${courseItems.size} maxPeriod=$maxPeriod schedule=${describeSchedule(safeSchedule)}"
-                                )
-                                //更新timetable信息
-                                var timetable = timetableDao.getTimetableByEASCodeCandidatesSync(
-                                    EASTimetableCode.candidates(term, easToken.campus),
-                                    timetableCode,
-                                    legacyTimetableCode
-                                )
-                                val isNewTimetable = timetable == null
-                                if (timetable == null) {
-                                    timetable = Timetable()
-                                }
-                                //记录最后的时间戳，作为学期结束的标志
-                                var maxTs: Long = 0
-                                //添加时间表
-                                val events = mutableListOf<EventItem>()
-                                val pendingSubjects = linkedMapOf<String, TermSubject>()
-                                val subjectsByKey = mutableMapOf<String, TermSubject>()
-                                subjectDao.getSubjectsSync(timetable.id).forEach { subject ->
-                                    EasImportIdentity.registerSubject(
-                                        subjectsByKey,
-                                        subject,
-                                        CourseNameUtils.normalize(subject.name) ?: subject.name,
-                                        subject.name,
-                                    )
-                                }
-                                val generatedClassKeys = mutableSetOf<String>()
-
-                                // Count free time courses before processing
-                                val freeTimeCount = courseItems.count { item ->
-                                    !item.startTime.isNullOrBlank() && !item.endTime.isNullOrBlank() && item.begin == -1 && item.last == -1
-                                }
-                                LogUtils.d("import: courses=${courseItems.size} freeTime=$freeTimeCount period=${courseItems.size - freeTimeCount}")
-
-                                for (item in courseItems) {
-                                    // Check if this is a free time course (has startTime/EndTime)
-                                    val isFreeTimeCourse = !item.startTime.isNullOrBlank() && !item.endTime.isNullOrBlank() && item.begin == -1 && item.last == -1
-
-                                    // Debug log for experiment courses
-                                    // Skip period-based courses with invalid indices
-                                    if (!isFreeTimeCourse) {
-                                        val startIndex = item.begin - 1
-                                        val endIndex = item.begin + item.last - 2
-                                        if (startIndex !in safeSchedule.indices || endIndex !in safeSchedule.indices) {
-                                            continue
-                                        }
-                                    }
-
-                                    val rawName = item.name?.toString().orEmpty().trim()
-                                    if (rawName.isBlank()) {
-                                        continue
-                                    }
-                                    val normalizedName = CourseNameUtils.normalize(rawName) ?: rawName
-                                    val code = (
-                                        CourseCodeUtils.normalize(item.code)
-                                            ?: item.code?.trim().orEmpty()
-                                        ).ifBlank {
-                                        meta.codeMap[rawName]
-                                            ?: meta.codeMap[normalizedName]
-                                            ?: ""
-                                    }
-
-                                    //添加科目
-                                    var subject = EasImportIdentity.findReusableSubject(
-                                        subjectsByKey,
-                                        code,
-                                        normalizedName,
-                                        rawName,
-                                    )
-                                    if (subject == null) {//不存在，新建
-                                        subject = TermSubject()
-                                        // 优先保存完整的原始名称
-                                        subject.name = rawName
-                                        subject.timetableId = timetable.id
-                                        subject.id = UUID.randomUUID().toString()
-                                        subject.color = ColorTools.colorForName(normalizedName)
-                                    } else {
-                                        // 科目已存在，总是尝试更新为更完整的名称
-                                        // 优先选择包含更多信息（括号、方括号）的名称
-                                        val oldHasBrackets = subject.name.contains("（") || subject.name.contains("(") ||
-                                                                       subject.name.contains("[") || subject.name.contains("【")
-                                        val newHasBrackets = rawName.contains("（") || rawName.contains("(") ||
-                                                                       rawName.contains("[") || rawName.contains("【")
-
-                                        // 如果新名称包含括号信息（通常更完整），或者新名称明显更长，则更新
-                                        if (newHasBrackets && !oldHasBrackets) {
-                                            subject.name = rawName
-                                        } else if (rawName.length > subject.name.length + 2) {
-                                            // 只有新名称明显更长时才更新（避免因细微差异反复更新）
-                                            subject.name = rawName
-                                        }
-                                    }
-                                    if (code.isNotBlank() && subject.code.isNullOrBlank()) {
-                                        subject.code = code
-                                    }
-                                    if (subject.credit <= 0f) {
-                                        val mappedCredit = creditMap[code]
-                                            ?: creditMap[rawName]
-                                            ?: creditMap[normalizedName]
-                                        if (mappedCredit != null && mappedCredit > 0f) {
-                                            subject.credit = mappedCredit
-                                        }
-                                    }
-                                    if (subject.field.isNullOrBlank()) {
-                                        val mappedField = meta.fieldMap[code]
-                                            ?: meta.fieldMap[rawName]
-                                            ?: meta.fieldMap[normalizedName]
-                                        if (!mappedField.isNullOrBlank()) {
-                                            subject.field = mappedField
-                                        }
-                                    }
-                                    if (subject.selectCategory.isNullOrBlank()) {
-                                        val mappedSelect = meta.selectCategoryMap[code]
-                                            ?: meta.selectCategoryMap[rawName]
-                                            ?: meta.selectCategoryMap[normalizedName]
-                                        if (!mappedSelect.isNullOrBlank()) {
-                                            subject.selectCategory = mappedSelect
-                                        }
-                                    }
-                                    if (subject.nature.isNullOrBlank()) {
-                                        val mappedNature = meta.natureMap[code]
-                                            ?: meta.natureMap[rawName]
-                                            ?: meta.natureMap[normalizedName]
-                                        if (!mappedNature.isNullOrBlank()) {
-                                            subject.nature = mappedNature
-                                        }
-                                    }
-                                    EasImportIdentity.registerSubject(
-                                        subjectsByKey,
-                                        subject,
-                                        normalizedName,
-                                        subject.name,
-                                    )
-                                    var itemHasEvent = false
-
-                                    for (date in resolveEasCourseDates(item, startDate)) {
-                                        val from = date.clone() as Calendar
-                                        val to = date.clone() as Calendar
-
-                                        // Handle free time courses (experiment courses with custom times)
-                                        if (isFreeTimeCourse) {
-                                            val startTime = item.startTime
-                                            val endTime = item.endTime
-                                            if (startTime != null && endTime != null) {
-                                                // Parse "HH:MM" format
-                                                val startParts = startTime.split(":")
-                                                val endParts = endTime.split(":")
-                                                from.set(Calendar.HOUR_OF_DAY, startParts[0].toInt())
-                                                from.set(Calendar.MINUTE, startParts[1].toInt())
-                                                to.set(Calendar.HOUR_OF_DAY, endParts[0].toInt())
-                                                to.set(Calendar.MINUTE, endParts[1].toInt())
-                                            }
-                                        } else {
-                                            // Period-based courses
-                                            val spStart = safeSchedule[item.begin - 1]
-                                            val spEnd = safeSchedule[item.begin + item.last - 2]
-                                            from.set(Calendar.HOUR_OF_DAY, spStart.from.hour)
-                                            from.set(Calendar.MINUTE, spStart.from.minute)
-                                            to.set(Calendar.HOUR_OF_DAY, spEnd.to.hour)
-                                            to.set(Calendar.MINUTE, spEnd.to.minute)
-                                        }
-
-                                        val e = EventItem()
-                                        e.source = EventItem.SOURCE_EAS_IMPORT
-                                        // 使用原始完整名称而不是normalized
-                                        e.name = rawName
-                                        e.from.time = from.timeInMillis
-                                        e.fromNumber = if (isFreeTimeCourse) 0 else item.begin
-                                        e.subjectId = subject.id
-                                        e.lastNumber = if (isFreeTimeCourse) 0 else item.last
-                                        e.to.time = to.timeInMillis
-                                        val itemTeacher = sanitizeImportedTeacher(rawName, item.teacher)
-                                        val mappedTeacher = itemTeacher
-                                            ?: code.takeIf { it.isNotBlank() }?.let { teacherMap[it] }
-                                            ?: teacherMap[rawName]
-                                            ?: teacherMap[normalizedName]
-                                        val teacherSource = when {
-                                            !itemTeacher.isNullOrBlank() -> "item"
-                                            !code.isNullOrBlank() && !teacherMap[code].isNullOrBlank() -> "meta_by_code"
-                                            !teacherMap[rawName].isNullOrBlank() -> "meta_by_name_raw"
-                                            !teacherMap[normalizedName].isNullOrBlank() -> "meta_by_name_normalized"
-                                            else -> "none"
-                                        }
-                                        e.teacher = mappedTeacher
-                                        e.place = item.classroom
-                                        e.timetableId = timetable.id
-                                        if (!generatedClassKeys.add(EasImportIdentity.classEventIdentityKey(e))) {
-                                            continue
-                                        }
-                                        if (e.to.time > maxTs) maxTs = e.to.time
-                                        events.add(e)
-                                        itemHasEvent = true
-                                    }
-                                    if (itemHasEvent) {
-                                        pendingSubjects[subject.id] = subject
-                                    }
-                                }
-                                if (events.isEmpty()) {
-                                    LogUtils.w("import: empty events for term=${term.getCode()}")
-                                    if (operation.finishWaiting()) {
-                                        timeoutHandler.removeCallbacks(timeoutRunnable)
-                                        importTimetableLiveData.postValue(
-                                            DataState(DataState.STATE.FETCH_FAILED, "empty events")
-                                        )
-                                    }
-                                    return@Thread
-                                }
-                                // Keep token -> timetable order, including synchronous token observers.
-                                val committed = synchronized(tokenStateLock) {
-                                    timetableMutationLock.exclusive {
-                                        // Recheck only after taking both locks, before snapshots or Room writes.
-                                        if (!operation.tryBeginCommit(
-                                                authEpoch.get(), easPreferenceSource.getEasToken(),
-                                                SystemClock.elapsedRealtime()
-                                            )) {
-                                            return@exclusive false
-                                        }
-                                        timeoutHandler.removeCallbacks(timeoutRunnable)
-                                        LogUtils.d( "import: saving ${events.size} events for term=${term.getCode()}")
-                                        val snapshotOwnerKey = FollowedTeachingSectionStore.ownerKey(easToken)
-                                        if (importMode == TimetableImportMode.MERGE) {
-                                            applyMergedTimetable(
-                                                term = term,
-                                                easToken = easToken,
-                                                timetable = timetable,
-                                                pendingSubjects = pendingSubjects,
-                                                events = events,
-                                                maxTs = maxTs,
-                                                timetableCode = timetableCode,
-                                                timetableName = buildTimetableName(term, easToken.campus),
-                                                startMillis = startDate.timeInMillis,
-                                                schedule = safeSchedule,
-                                                isNewTimetable = isNewTimetable
-                                            )
-                                        } else {
-                                            timetableSnapshotStore.capture(
-                                                snapshotOwnerKey,
-                                                term,
-                                                timetable,
-                                                TimetableSnapshotKind.BEFORE_REFRESH
-                                            )
-                                            database.runInTransaction {
-                                                eventItemDao.deleteCourseFromTimetable(timetable.id)
-                                                subjectDao.saveSubjectsSync(pendingSubjects.values.toList())
-                                                eventItemDao.saveEvents(events)
-
-                                                // Preserve concurrently edited local display metadata.
-                                                val current = timetableDao.getTimetableByIdSync(timetable.id)
-                                                timetable.name = current?.name ?: buildTimetableName(term, easToken.campus)
-                                                timetable.groupId = current?.groupId
-                                                timetable.startTime = Timestamp(startDate.timeInMillis)
-                                                timetable.endTime = Timestamp(maxTs)
-                                                timetable.code = timetableCode
-                                                timetable.scheduleStructure = safeSchedule
-                                                timetableDao.saveTimetableSync(timetable)
-                                            }
-                                            timetableSnapshotStore.capture(
-                                                snapshotOwnerKey,
-                                                term,
-                                                timetable,
-                                                TimetableSnapshotKind.IMPORTED
-                                            )
-                                        }
-                                        // New tables can be created by either REPLACE or MERGE.
-                                        if (isNewTimetable) {
-                                            runCatching {
-                                                TimetableRepository(appContext.applicationContext as android.app.Application)
-                                                    .autoGroupAfterEasImportSync(timetable.id)
-                                            }.onFailure { LogUtils.e("import: auto-group failed", it) }
-                                        }
-                                        cleanupDefaultDuplicateTimetablesAfterImport(timetable.id)
-
-                                        if (operation.finishProcessing()) {
-                                            timeoutHandler.removeCallbacks(timeoutRunnable)
-                                            LogUtils.success("import: term=${term.getCode()} events=${events.size}")
-                                            importTimetableLiveData.postValue(DataState(true, DataState.STATE.SUCCESS))
-                                        }
-                                        true
-                                    }
-                                }
-                                if (!committed && operation.finishWaiting()) {
-                                    timeoutHandler.removeCallbacks(timeoutRunnable)
-                                    val stillCurrent = synchronized(tokenStateLock) {
-                                        operation.isCurrentSession(authEpoch.get(), easPreferenceSource.getEasToken())
-                                    }
-                                    importTimetableLiveData.postValue(
-                                        if (stillCurrent) DataState(DataState.STATE.FETCH_FAILED, "导入超时，请重试")
-                                        else DataState(DataState.STATE.NOT_LOGGED_IN)
-                                    )
-                                }
-                            } catch (e: Exception) {
-                                LogUtils.e( "import: failed for term=${term.getCode()}", e)
-                                if (operation.finishProcessing()) {
-                                    timeoutHandler.removeCallbacks(timeoutRunnable)
-                                    importTimetableLiveData.postValue(
-                                        DataState(DataState.STATE.FETCH_FAILED, e.message)
-                                    )
-                                }
-                            }
-                        }.start()
-                    }
-                    DataState.STATE.FETCH_FAILED, DataState.STATE.NOT_LOGGED_IN -> {
-                        LogUtils.w( "import: timetable fetch failed for term=${term.getCode()} message=${it.message}")
-                        if (operation.finishWaiting()) {
-                            timeoutHandler.removeCallbacks(timeoutRunnable)
-                            importTimetableLiveData.value =
-                                DataState(it.state, it.message)
-                        }
-                    }
-                    else -> Unit
-                }
-            }
-        } else {
-            LogUtils.e("startImport: not logged in, cannot import")
-            importTimetableLiveData.value = DataState(DataState.STATE.NOT_LOGGED_IN)
+        val teacherMap = meta.teacherMap
+        val creditMap = meta.creditMap
+        val maxPeriod = courseItems.maxOfOrNull { item ->
+            (item.begin + item.last - 1).coerceAtLeast(item.begin)
+        } ?: 0
+        val safeSchedule = buildSafeSchedule(schedule, maxPeriod)
+        LogUtils.d(
+            "import: processing term=${term.getCode()} campus=${easToken.campus} code=$timetableCode courseCount=${courseItems.size} maxPeriod=$maxPeriod schedule=${describeSchedule(safeSchedule)}"
+        )
+        //更新timetable信息
+        var timetable = timetableDao.getTimetableByEASCodeCandidatesSync(
+            EASTimetableCode.candidates(term, easToken.campus),
+            timetableCode,
+            legacyTimetableCode
+        )
+        val isNewTimetable = timetable == null
+        if (timetable == null) {
+            timetable = Timetable()
         }
+        //记录最后的时间戳，作为学期结束的标志
+        var maxTs: Long = 0
+        //添加时间表
+        val events = mutableListOf<EventItem>()
+        val pendingSubjects = linkedMapOf<String, TermSubject>()
+        val subjectsByKey = mutableMapOf<String, TermSubject>()
+        subjectDao.getSubjectsSync(timetable.id).forEach { subject ->
+            EasImportIdentity.registerSubject(
+                subjectsByKey,
+                subject,
+                CourseNameUtils.normalize(subject.name) ?: subject.name,
+                subject.name,
+            )
+        }
+        val generatedClassKeys = mutableSetOf<String>()
+
+        // Count free time courses before processing
+        val freeTimeCount = courseItems.count { item ->
+            !item.startTime.isNullOrBlank() && !item.endTime.isNullOrBlank() && item.begin == -1 && item.last == -1
+        }
+        LogUtils.d("import: courses=${courseItems.size} freeTime=$freeTimeCount period=${courseItems.size - freeTimeCount}")
+
+        for (item in courseItems) {
+            // Check if this is a free time course (has startTime/EndTime)
+            val isFreeTimeCourse = !item.startTime.isNullOrBlank() && !item.endTime.isNullOrBlank() && item.begin == -1 && item.last == -1
+
+            // Debug log for experiment courses
+            // Skip period-based courses with invalid indices
+            if (!isFreeTimeCourse) {
+                val startIndex = item.begin - 1
+                val endIndex = item.begin + item.last - 2
+                if (startIndex !in safeSchedule.indices || endIndex !in safeSchedule.indices) {
+                    continue
+                }
+            }
+
+            val rawName = item.name?.toString().orEmpty().trim()
+            if (rawName.isBlank()) {
+                continue
+            }
+            val normalizedName = CourseNameUtils.normalize(rawName) ?: rawName
+            val code = (
+                CourseCodeUtils.normalize(item.code)
+                    ?: item.code?.trim().orEmpty()
+                ).ifBlank {
+                meta.codeMap[rawName]
+                    ?: meta.codeMap[normalizedName]
+                    ?: ""
+            }
+
+            //添加科目
+            var subject = EasImportIdentity.findReusableSubject(
+                subjectsByKey,
+                code,
+                normalizedName,
+                rawName,
+            )
+            if (subject == null) {//不存在，新建
+                subject = TermSubject()
+                // 优先保存完整的原始名称
+                subject.name = rawName
+                subject.timetableId = timetable.id
+                subject.id = UUID.randomUUID().toString()
+                subject.color = ColorTools.colorForName(normalizedName)
+            } else {
+                // 科目已存在，总是尝试更新为更完整的名称
+                // 优先选择包含更多信息（括号、方括号）的名称
+                val oldHasBrackets = subject.name.contains("（") || subject.name.contains("(") ||
+                                               subject.name.contains("[") || subject.name.contains("【")
+                val newHasBrackets = rawName.contains("（") || rawName.contains("(") ||
+                                               rawName.contains("[") || rawName.contains("【")
+
+                // 如果新名称包含括号信息（通常更完整），或者新名称明显更长，则更新
+                if (newHasBrackets && !oldHasBrackets) {
+                    subject.name = rawName
+                } else if (rawName.length > subject.name.length + 2) {
+                    // 只有新名称明显更长时才更新（避免因细微差异反复更新）
+                    subject.name = rawName
+                }
+            }
+            if (code.isNotBlank() && subject.code.isNullOrBlank()) {
+                subject.code = code
+            }
+            if (subject.credit <= 0f) {
+                val mappedCredit = creditMap[code]
+                    ?: creditMap[rawName]
+                    ?: creditMap[normalizedName]
+                if (mappedCredit != null && mappedCredit > 0f) {
+                    subject.credit = mappedCredit
+                }
+            }
+            if (subject.field.isNullOrBlank()) {
+                val mappedField = meta.fieldMap[code]
+                    ?: meta.fieldMap[rawName]
+                    ?: meta.fieldMap[normalizedName]
+                if (!mappedField.isNullOrBlank()) {
+                    subject.field = mappedField
+                }
+            }
+            if (subject.selectCategory.isNullOrBlank()) {
+                val mappedSelect = meta.selectCategoryMap[code]
+                    ?: meta.selectCategoryMap[rawName]
+                    ?: meta.selectCategoryMap[normalizedName]
+                if (!mappedSelect.isNullOrBlank()) {
+                    subject.selectCategory = mappedSelect
+                }
+            }
+            if (subject.nature.isNullOrBlank()) {
+                val mappedNature = meta.natureMap[code]
+                    ?: meta.natureMap[rawName]
+                    ?: meta.natureMap[normalizedName]
+                if (!mappedNature.isNullOrBlank()) {
+                    subject.nature = mappedNature
+                }
+            }
+            EasImportIdentity.registerSubject(
+                subjectsByKey,
+                subject,
+                normalizedName,
+                subject.name,
+            )
+            var itemHasEvent = false
+
+            for (date in resolveEasCourseDates(item, startDate)) {
+                val from = date.clone() as Calendar
+                val to = date.clone() as Calendar
+
+                // Handle free time courses (experiment courses with custom times)
+                if (isFreeTimeCourse) {
+                    val startTime = item.startTime
+                    val endTime = item.endTime
+                    if (startTime != null && endTime != null) {
+                        // Parse "HH:MM" format
+                        val startParts = startTime.split(":")
+                        val endParts = endTime.split(":")
+                        from.set(Calendar.HOUR_OF_DAY, startParts[0].toInt())
+                        from.set(Calendar.MINUTE, startParts[1].toInt())
+                        to.set(Calendar.HOUR_OF_DAY, endParts[0].toInt())
+                        to.set(Calendar.MINUTE, endParts[1].toInt())
+                    }
+                } else {
+                    // Period-based courses
+                    val spStart = safeSchedule[item.begin - 1]
+                    val spEnd = safeSchedule[item.begin + item.last - 2]
+                    from.set(Calendar.HOUR_OF_DAY, spStart.from.hour)
+                    from.set(Calendar.MINUTE, spStart.from.minute)
+                    to.set(Calendar.HOUR_OF_DAY, spEnd.to.hour)
+                    to.set(Calendar.MINUTE, spEnd.to.minute)
+                }
+
+                val e = EventItem()
+                e.source = EventItem.SOURCE_EAS_IMPORT
+                // 使用原始完整名称而不是normalized
+                e.name = rawName
+                e.from.time = from.timeInMillis
+                e.fromNumber = if (isFreeTimeCourse) 0 else item.begin
+                e.subjectId = subject.id
+                e.lastNumber = if (isFreeTimeCourse) 0 else item.last
+                e.to.time = to.timeInMillis
+                val itemTeacher = sanitizeImportedTeacher(rawName, item.teacher)
+                val mappedTeacher = itemTeacher
+                    ?: code.takeIf { it.isNotBlank() }?.let { teacherMap[it] }
+                    ?: teacherMap[rawName]
+                    ?: teacherMap[normalizedName]
+                val teacherSource = when {
+                    !itemTeacher.isNullOrBlank() -> "item"
+                    !code.isNullOrBlank() && !teacherMap[code].isNullOrBlank() -> "meta_by_code"
+                    !teacherMap[rawName].isNullOrBlank() -> "meta_by_name_raw"
+                    !teacherMap[normalizedName].isNullOrBlank() -> "meta_by_name_normalized"
+                    else -> "none"
+                }
+                e.teacher = mappedTeacher
+                e.place = item.classroom
+                e.timetableId = timetable.id
+                if (!generatedClassKeys.add(EasImportIdentity.classEventIdentityKey(e))) {
+                    continue
+                }
+                if (e.to.time > maxTs) maxTs = e.to.time
+                events.add(e)
+                itemHasEvent = true
+            }
+            if (itemHasEvent) {
+                pendingSubjects[subject.id] = subject
+            }
+        }
+        return PreparedImport(timetable, isNewTimetable, timetableCode, pendingSubjects, events, maxTs, safeSchedule)
     }
 
     /**
@@ -481,7 +436,7 @@ internal class EASTimetableImportRepository(
     @WorkerThread
     private fun applyMergedTimetable(
         term: TermItem,
-        easToken: EASToken,
+        snapshotOwnerKey: String,
         timetable: Timetable,
         pendingSubjects: Map<String, TermSubject>,
         events: List<EventItem>,
@@ -492,7 +447,6 @@ internal class EASTimetableImportRepository(
         schedule: List<TimePeriodInDay>,
         isNewTimetable: Boolean
     ) = timetableMutationLock.exclusive {
-        val snapshotOwnerKey = FollowedTeachingSectionStore.ownerKey(easToken)
         val localEvents = eventItemDao.getImportedClassEventsOfTimetableSync(timetable.id)
         val localSubjectsById = subjectDao.getSubjectsSync(timetable.id).associateBy { it.id }
 
@@ -769,73 +723,58 @@ internal class EASTimetableImportRepository(
     }
 
     private data class SelectedSubjectMeta(
-        val codeMap: Map<String, String>,
-        val teacherMap: Map<String, String>,
-        val creditMap: Map<String, Float>,
-        val fieldMap: Map<String, String>,
-        val selectCategoryMap: Map<String, String>,
-        val natureMap: Map<String, String>
+        val codeMap: Map<String, String> = emptyMap(),
+        val teacherMap: Map<String, String> = emptyMap(),
+        val creditMap: Map<String, Float> = emptyMap(),
+        val fieldMap: Map<String, String> = emptyMap(),
+        val selectCategoryMap: Map<String, String> = emptyMap(),
+        val natureMap: Map<String, String> = emptyMap(),
     )
 
-    private fun fetchSelectedSubjectMeta(term: TermItem, token: EASToken): SelectedSubjectMeta {
+    private suspend fun fetchSelectedSubjectMeta(term: TermItem, session: EasQuerySession): SelectedSubjectMeta {
         val codeMap = mutableMapOf<String, String>()
         val teacherMap = mutableMapOf<String, String>()
         val creditMap = mutableMapOf<String, Float>()
         val fieldMap = mutableMapOf<String, String>()
         val selectCategoryMap = mutableMapOf<String, String>()
         val natureMap = mutableMapOf<String, String>()
-        val latch = CountDownLatch(1)
-        val live = getService(token.campus).getSubjectsOfTerm(token, term)
-        val observer = Observer<DataState<MutableList<TermSubject>>> { state ->
-            if (state.state == DataState.STATE.SUCCESS || state.state == DataState.STATE.FETCH_FAILED) {
-                state.data?.forEach { subject ->
-                    val code = CourseCodeUtils.normalize(subject.code)
-                        ?: subject.code?.trim().orEmpty()
-                    val nameKeys = listOfNotNull(
-                        subject.name.trim().takeIf { it.isNotEmpty() },
-                        CourseNameUtils.normalize(subject.name)?.trim()?.takeIf { it.isNotEmpty() }
-                    ).distinct()
-                    if (code.isNotBlank()) {
-                        nameKeys.forEach { name -> codeMap[name] = code }
-                    }
-                    val teacher = subject.teacher?.trim()
-                    if (!teacher.isNullOrEmpty()) {
-                        if (code.isNotBlank()) teacherMap[code] = teacher
-                        nameKeys.forEach { name -> teacherMap[name] = teacher }
-                    }
-                    val credit = subject.credit
-                    if (credit > 0f) {
-                        if (code.isNotBlank()) creditMap[code] = credit
-                        nameKeys.forEach { name -> creditMap[name] = credit }
-                    }
-                    subject.field?.trim()?.takeIf { it.isNotEmpty() }?.let { value ->
-                        if (code.isNotBlank()) fieldMap[code] = value
-                        nameKeys.forEach { name -> fieldMap[name] = value }
-                    }
-                    subject.selectCategory?.trim()?.takeIf { it.isNotEmpty() }?.let { value ->
-                        if (code.isNotBlank()) selectCategoryMap[code] = value
-                        nameKeys.forEach { name -> selectCategoryMap[name] = value }
-                    }
-                    subject.nature?.trim()?.takeIf { it.isNotEmpty() }?.let { value ->
-                        if (code.isNotBlank()) natureMap[code] = value
-                        nameKeys.forEach { name -> natureMap[name] = value }
-                    }
-                }
-                latch.countDown()
+        val state = session.service.getSubjectsOfTermOnce(session.token, term)
+        currentCoroutineContext().ensureActive()
+        session.ensureCurrent()
+        state.data?.forEach { subject ->
+            val code = CourseCodeUtils.normalize(subject.code)
+                ?: subject.code?.trim().orEmpty()
+            val nameKeys = listOfNotNull(
+                subject.name.trim().takeIf { it.isNotEmpty() },
+                CourseNameUtils.normalize(subject.name)?.trim()?.takeIf { it.isNotEmpty() }
+            ).distinct()
+            if (code.isNotBlank()) {
+                nameKeys.forEach { name -> codeMap[name] = code }
+            }
+            val teacher = subject.teacher?.trim()
+            if (!teacher.isNullOrEmpty()) {
+                if (code.isNotBlank()) teacherMap[code] = teacher
+                nameKeys.forEach { name -> teacherMap[name] = teacher }
+            }
+            val credit = subject.credit
+            if (credit > 0f) {
+                if (code.isNotBlank()) creditMap[code] = credit
+                nameKeys.forEach { name -> creditMap[name] = credit }
+            }
+            subject.field?.trim()?.takeIf { it.isNotEmpty() }?.let { value ->
+                if (code.isNotBlank()) fieldMap[code] = value
+                nameKeys.forEach { name -> fieldMap[name] = value }
+            }
+            subject.selectCategory?.trim()?.takeIf { it.isNotEmpty() }?.let { value ->
+                if (code.isNotBlank()) selectCategoryMap[code] = value
+                nameKeys.forEach { name -> selectCategoryMap[name] = value }
+            }
+            subject.nature?.trim()?.takeIf { it.isNotEmpty() }?.let { value ->
+                if (code.isNotBlank()) natureMap[code] = value
+                nameKeys.forEach { name -> natureMap[name] = value }
             }
         }
-        val mainHandler = Handler(Looper.getMainLooper())
-        mainHandler.post { live.observeForever(observer) }
-        latch.await(8, TimeUnit.SECONDS)
-        mainHandler.post { live.removeObserver(observer) }
-        return SelectedSubjectMeta(
-            codeMap,
-            teacherMap,
-            creditMap,
-            fieldMap,
-            selectCategoryMap,
-            natureMap
-        )
+        return SelectedSubjectMeta(codeMap, teacherMap, creditMap, fieldMap, selectCategoryMap, natureMap)
     }
 
     fun startAutoImportCurrentTimetable(
@@ -864,28 +803,33 @@ internal class EASTimetableImportRepository(
                         result = AutoImportResult.NOT_LOGGED_IN
                         return@whileCurrent
                     }
-                    val term = termsState.data?.firstOrNull { it.isCurrent }
-                        ?: termsState.data?.firstOrNull() ?: return@whileCurrent
+                    val term = (termsState.data?.firstOrNull { it.isCurrent }
+                        ?: termsState.data?.firstOrNull())?.copyForQuery() ?: return@whileCurrent
                     val startState = withTimeoutOrNull(6_000L) {
-                        awaitEasDataState { session.service.getStartDate(token, term) }
+                        session.service.getStartDateOnce(token, term)
                     } ?: DataState(DataState.STATE.FETCH_FAILED)
                     session.ensureCurrent()
                     if (startState.state == DataState.STATE.NOT_LOGGED_IN) {
                         result = AutoImportResult.NOT_LOGGED_IN
                         return@whileCurrent
                     }
-                    val startDate = startState.data ?: return@whileCurrent
+                    val startDate = (startState.data?.clone() as? Calendar) ?: return@whileCurrent
+                    if (session.campus == EASToken.Campus.BENBU) {
+                        cn.limpu.hita.data.source.preference.BenbuStartDatePreferenceSource(appContext)
+                            .getStartDateMillis(term.getCode())?.let { startDate.timeInMillis = it }
+                    }
                     val scheduleState = withTimeoutOrNull(6_000L) {
-                        awaitEasDataState { session.service.getScheduleStructure(term, isUndergraduate, token) }
+                        session.service.getScheduleStructureOnce(term, isUndergraduate, token)
                     } ?: DataState(DataState.STATE.FETCH_FAILED)
                     session.ensureCurrent()
                     if (scheduleState.state == DataState.STATE.NOT_LOGGED_IN) {
                         result = AutoImportResult.NOT_LOGGED_IN
                         return@whileCurrent
                     }
-                    val schedule = scheduleState.data ?: timetablePreferenceSource.getSchedule(isUndergraduate)
-                    val importState = awaitAutomaticImport(term, startDate, schedule, operation, session)
-                        ?: return@whileCurrent
+                    val schedule = if (timetablePreferenceSource.hasSavedSchedule()) {
+                        timetablePreferenceSource.getSchedule(isUndergraduate)
+                    } else scheduleState.data ?: timetablePreferenceSource.getSchedule(isUndergraduate)
+                    val importState = importTimetableOfTerm(session, term, startDate, schedule, TimetableImportMode.MERGE, operation, 25_000L)
                     session.ensureCurrent()
                     if (importState.state == DataState.STATE.NOT_LOGGED_IN) {
                         result = AutoImportResult.NOT_LOGGED_IN
@@ -904,13 +848,19 @@ internal class EASTimetableImportRepository(
                         timetableMutationLock.exclusive {
                             coroutine.ensureActive()
                             session.ensureCurrent()
-                            if (!operation.isCurrentSession(authEpoch.get(), easPreferenceSource.getEasToken())) {
-                                return@exclusive 0
+                            database.runInTransaction<Int> {
+                                // A request may have been cancelled while SQLite's writer was held.
+                                // Once this guard passes, the complete exam batch commits atomically.
+                                coroutine.ensureActive()
+                                session.ensureCurrent()
+                                if (!operation.isCurrentSession(authEpoch.get(), easPreferenceSource.getEasToken())) {
+                                    return@runInTransaction 0
+                                }
+                                val timetable = timetableDao.getTimetableByEASCodeCandidatesSync(
+                                    EASTimetableCode.candidates(term, session.campus), timetableCode, term.getCode()
+                                ) ?: return@runInTransaction 0
+                                examImportRepository.importAutomatically(examState.data.orEmpty(), timetable).importedCount
                             }
-                            val timetable = timetableDao.getTimetableByEASCodeCandidatesSync(
-                                EASTimetableCode.candidates(term, session.campus), timetableCode, term.getCode()
-                            ) ?: return@exclusive 0
-                            examImportRepository.importAutomatically(examState.data.orEmpty(), timetable).importedCount
                         }
                     }
                     if (importState.state == DataState.STATE.SUCCESS || importedExamCount > 0) result = AutoImportResult.SUCCESS
@@ -930,78 +880,60 @@ internal class EASTimetableImportRepository(
         return job
     }
 
-    /** Keep the original 25s wait and 5s grace only for a commit that already owns its boundary. */
-    private suspend fun awaitAutomaticImport(
-        term: TermItem,
-        startDate: Calendar,
-        schedule: List<TimePeriodInDay>,
-        operation: EasTimetableImportGuard,
-        session: EasQuerySession,
-    ): DataState<Boolean>? = coroutineScope {
-        val live = MediatorLiveData<DataState<Boolean>>()
-        val completion = async {
-            awaitEasDataState(source = { live }, afterObserve = {
-                session.ensureCurrent()
-                startImportTimetableOfTerm(term, startDate, schedule, live,
-                    TimetableImportMode.MERGE, importOperation = operation)
-            })
-        }
-        try {
-            withTimeoutOrNull(25_000L) { completion.await() } ?: run {
-                if (operation.finishWaiting() || !operation.isCommitting()) null
-                else withTimeoutOrNull(5_000L) { completion.await() }
-            }
-        } finally { completion.cancel() }
-    }
-
     /** 重新登录后调用：清空「记住忽略」指纹，让上游现状重新提示一次。 */
     fun clearIgnoredTimetableChangeFingerprints() {
         timetableChangeStore.clearIgnoredFingerprints()
     }
 
-    fun getTimetableSnapshots(term: TermItem): LiveData<DataState<List<TimetableVersionSnapshot>>> {
-        val result = MutableLiveData<DataState<List<TimetableVersionSnapshot>>>(
-            DataState(DataState.STATE.NOTHING)
-        )
-        thread(name = "timetable-snapshot-list") {
-            runCatching {
-                val token = easPreferenceSource.getEasToken()
-                val ownerKey = FollowedTeachingSectionStore.ownerKey(token)
-                timetableSnapshotStore.snapshots(ownerKey, term.id)
-            }.onSuccess {
-                result.postValue(DataState(it, DataState.STATE.SUCCESS))
-            }.onFailure { error ->
-                result.postValue(DataState(DataState.STATE.FETCH_FAILED, error.message))
+    suspend fun getTimetableSnapshots(
+        session: EasQuerySession,
+        term: TermItem,
+    ): DataState<List<TimetableVersionSnapshot>> = session.whileCurrent {
+        val termId = term.id
+        val ownerKey = FollowedTeachingSectionStore.ownerKey(session.token)
+        withContext(Dispatchers.IO) {
+            try {
+                currentCoroutineContext().ensureActive()
+                DataState(timetableSnapshotStore.snapshots(ownerKey, termId), DataState.STATE.SUCCESS)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                DataState(DataState.STATE.FETCH_FAILED, error.message)
             }
         }
-        return result
     }
 
-    fun restoreTimetableSnapshot(snapshotId: String): LiveData<DataState<TimetableVersionSnapshot>> {
-        val result = MutableLiveData<DataState<TimetableVersionSnapshot>>(
-            DataState(DataState.STATE.NOTHING)
-        )
-        thread(name = "timetable-snapshot-restore") {
-            runCatching {
-                val token = easPreferenceSource.getEasToken()
-                val ownerKey = FollowedTeachingSectionStore.ownerKey(token)
-                val restored = timetableMutationLock.exclusive {
-                    val snapshot = timetableSnapshotStore.restore(ownerKey, snapshotId)
-                    timetableChangeStore.pruneResolvedDecisions(
-                        snapshot.termId,
-                        snapshot.subjects.map {
-                            TimetableRefreshMergePolicy.courseKey(it.name, it.code)
-                        }.toSet()
-                    )
-                    snapshot
+    suspend fun restoreTimetableSnapshot(
+        session: EasQuerySession,
+        snapshotId: String,
+    ): DataState<TimetableVersionSnapshot> = session.whileCurrent {
+        val ownerKey = FollowedTeachingSectionStore.ownerKey(session.token)
+        withContext(Dispatchers.IO) {
+            try {
+                val coroutine = currentCoroutineContext()
+                val restored = synchronized(tokenStateLock) {
+                    timetableMutationLock.exclusive {
+                        coroutine.ensureActive()
+                        session.ensureCurrent()
+                        val snapshot = timetableSnapshotStore.restore(ownerKey, snapshotId) {
+                            coroutine.ensureActive()
+                            session.ensureCurrent()
+                        }
+                        runCatching {
+                            timetableChangeStore.pruneResolvedDecisions(
+                                snapshot.termId,
+                                snapshot.subjects.map { TimetableRefreshMergePolicy.courseKey(it.name, it.code) }.toSet(),
+                            )
+                        }.onFailure { LogUtils.e("restore: decision cleanup after commit failed", it) }
+                        snapshot
+                    }
                 }
-                restored
-            }.onSuccess {
-                result.postValue(DataState(it, DataState.STATE.SUCCESS))
-            }.onFailure { error ->
-                result.postValue(DataState(DataState.STATE.FETCH_FAILED, error.message))
+                DataState(restored, DataState.STATE.SUCCESS)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                DataState(DataState.STATE.FETCH_FAILED, error.message)
             }
         }
-        return result
     }
 }

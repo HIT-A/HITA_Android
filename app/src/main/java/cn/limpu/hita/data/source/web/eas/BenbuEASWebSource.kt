@@ -32,6 +32,11 @@ class BenbuEASWebSource internal constructor(
     private val classroomHostOverride: String? = null,
     private val termsHostOverride: String? = null,
     private val graduateTermsHostOverride: String? = null,
+    private val timetableHostOverride: String? = null,
+    private val experimentHostOverride: String? = null,
+    private val electronicExperimentHostOverride: String? = null,
+    private val graduateTimetableHostOverride: String? = null,
+    private val graduateBridgeHostOverride: String? = null,
 ) : AbstractEASWebSource(onCookiesUpdated) {
     constructor(onCookiesUpdated: ((EASToken) -> Unit)? = null) : this(null, onCookiesUpdated)
 
@@ -40,6 +45,7 @@ class BenbuEASWebSource internal constructor(
         get() = teachingBuildingsHostOverride?.trimEnd('/') ?: hostName
     override val termsHostName: String
         get() = termsHostOverride?.trimEnd('/') ?: hostName
+    override val timetableHostName: String get() = timetableHostOverride?.trimEnd('/') ?: hostName
     override val campusDisplayName: String = "本部"
 
     override fun getGraduateTermsOrNull(
@@ -48,8 +54,8 @@ class BenbuEASWebSource internal constructor(
         checkCancelled: (() -> Unit)?,
     ): List<TermItem>? = if (isGraduate) getGraduateTerms(token, checkCancelled) else null
 
-    override fun loadCoursesForSchedule(term: TermItem, token: EASToken): List<CourseItem> =
-        getCachedOrFetchCourses(term, token)
+    override fun loadCoursesForSchedule(term: TermItem, token: EASToken, account: TimetableCourseAccount, checkCancelled: () -> Unit): List<CourseItem> =
+        getCachedOrFetchCourses(term, token, account, checkCancelled)
 
 
     private val experimentHostName = "http://sjjx-hit-edu-cn.ivpn.hit.edu.cn:1080"
@@ -58,8 +64,10 @@ class BenbuEASWebSource internal constructor(
     private val graduateCourseHostName = "http://gcourse-hit-edu-cn.ivpn.hit.edu.cn:1080"
 
     // Cache to avoid double-fetching in import flow (getScheduleStructure + getTimetableOfTerm)
-    @Volatile private var cachedTermCode: String? = null
-    @Volatile private var cachedCourses: List<CourseItem>? = null
+    private data class CourseCacheKey(val term: String, val current: Boolean, val account: TimetableCourseAccount)
+    private data class CourseCacheEntry(val key: CourseCacheKey, val courses: List<CourseItem>)
+    private val courseCacheLock = Any()
+    private var courseCache: CourseCacheEntry? = null
 
     override fun login(
         username: String,
@@ -181,45 +189,50 @@ class BenbuEASWebSource internal constructor(
     }
 
 
-    private fun getCachedOrFetchCourses(term: TermItem, token: EASToken): List<CourseItem> {
-        val termCode = term.getCode()
-        if (cachedTermCode == termCode && cachedCourses != null) {
-            val cached = cachedCourses!!
-            cachedTermCode = null
-            cachedCourses = null
-            return cached
+    private fun getCachedOrFetchCourses(term: TermItem, token: EASToken, account: TimetableCourseAccount, checkCancelled: () -> Unit = {}): List<CourseItem> {
+        checkCancelled()
+        val key = CourseCacheKey(term.getCode(), term.isCurrent, account)
+        synchronized(courseCacheLock) {
+            checkCancelled()
+            courseCache?.takeIf { it.key == key }?.let {
+                courseCache = null
+                return it.courses
+            }
         }
-        val courses = getTimetableOfTermSync(term, token)
-        cachedTermCode = termCode
-        cachedCourses = courses
+        val courses = getTimetableOfTermSync(term, token, account, checkCancelled)
+        synchronized(courseCacheLock) {
+            checkCancelled()
+            courseCache = CourseCacheEntry(key, courses)
+        }
         return courses
     }
 
-    override fun getTimetableOfTerm(
-        term: TermItem,
-        token: EASToken
-    ): LiveData<DataState<List<CourseItem>>> {
-        val result = MutableLiveData<DataState<List<CourseItem>>>()
-        result.value = DataState(DataState.STATE.NOTHING)
+    override fun getTimetableOfTerm(term: TermItem, token: EASToken): LiveData<DataState<List<CourseItem>>> =
+        legacyTimetableQuery(DataState.STATE.NOTHING) { getTimetableOfTermOnce(term, token) }
 
-        executor.execute {
+    override suspend fun getTimetableOfTermOnce(term: TermItem, token: EASToken): DataState<List<CourseItem>> {
+        val selected = term.timetableQueryCopy()
+        val account = captureTimetableAccount(token)
+        return withContext(Dispatchers.IO) {
+            val context = currentCoroutineContext()
             try {
-                val courses = getCachedOrFetchCourses(term, token)
-                cachedTermCode = null
-                cachedCourses = null
-                result.postValue(DataState(courses))
-            } catch (e: EastSessionExpiredException) {
-                LogUtils.w("getTimetableOfTerm: session expired")
-                result.postValue(DataState(DataState.STATE.NOT_LOGGED_IN, e.message))
-            } catch (e: Exception) {
-                LogUtils.e("getTimetableOfTerm: failed", e)
-                result.postValue(DataState(DataState.STATE.FETCH_FAILED, e.message))
+                val courses = getCachedOrFetchCourses(selected, token, account) { context.ensureActive() }
+                synchronized(courseCacheLock) {
+                    if (courseCache?.courses === courses) courseCache = null
+                }
+                context.ensureActive()
+                DataState(courses)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (expired: EastSessionExpiredException) {
+                context.ensureActive()
+                DataState(DataState.STATE.NOT_LOGGED_IN, expired.message)
+            } catch (error: Exception) {
+                context.ensureActive()
+                DataState(DataState.STATE.FETCH_FAILED, error.message)
             }
         }
-
-        return result
     }
-
 
     override fun getTeachingBuildings(token: EASToken): LiveData<DataState<List<BuildingItem>>> {
         val result = MutableLiveData<DataState<List<BuildingItem>>>()
@@ -267,32 +280,40 @@ class BenbuEASWebSource internal constructor(
     }
 
 
-    private fun getTimetableOfTermSync(term: TermItem, token: EASToken): List<CourseItem> {
-        if (token.stutype == EASToken.TYPE.GRAD) {
-            return getGraduateTimetable(term, token)
+    private fun getTimetableOfTermSync(term: TermItem, token: EASToken, account: TimetableCourseAccount, checkCancelled: () -> Unit = {}): List<CourseItem> {
+        checkCancelled()
+        if (account.type == EASToken.TYPE.GRAD) {
+            return getGraduateTimetable(term, token, account.studentId ?: account.username, checkCancelled)
         }
         // 查询普通课程
-        val regularCourses = getRegularCourses(term, token)
+        val regularCourses = getRegularCourses(term, token, checkCancelled)
 
         // 查询实验课程
         val experimentCourses = try {
-            getExperimentCourses(term, token)
+            getExperimentCourses(term, token, checkCancelled)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (e: Exception) {
+            checkCancelled()
             LogUtils.w("getTimetableOfTermSync: failed to fetch experiment courses, message=${e.message}")
             emptyList()
         }
 
         // 查询电子实验中心课程
         val electronicExperimentCourses = try {
-            getElectronicExperimentCourses(term, token)
+            getElectronicExperimentCourses(term, token, account.experimentToken, checkCancelled)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (e: Exception) {
+            checkCancelled()
             LogUtils.w("getTimetableOfTermSync: failed to fetch electronic experiment courses, message=${e.message}")
             emptyList()
         }
 
+        checkCancelled()
         // 合并所有课程
         val allCourses = regularCourses + experimentCourses + electronicExperimentCourses
-        val mergedCourses = mergeAdjacentCourses(allCourses, scheduleFor(token))
+        val mergedCourses = mergeAdjacentCourses(allCourses, scheduleFor(account.type))
 
         LogUtils.d(
             "getTimetableOfTermSync: term=${term.getCode()} " +
@@ -325,20 +346,24 @@ class BenbuEASWebSource internal constructor(
         return parseTermsFromDoc(page, "xnxq").also { checkCancelled?.invoke() }
     }
 
-    private fun getGraduateTimetable(term: TermItem, token: EASToken): List<CourseItem> {
-        val studentId = token.stuId ?: token.username ?: throw IllegalStateException("研究生学号为空")
-        establishGraduateCourseSession(token)
+    private fun getGraduateTimetable(term: TermItem, token: EASToken, selectedStudentId: String?, checkCancelled: () -> Unit = {}): List<CourseItem> {
+        val studentId = selectedStudentId ?: throw IllegalStateException("研究生学号为空")
+        checkCancelled()
+        establishGraduateCourseSession(token, graduateBridgeHostOverride, checkCancelled)
+        checkCancelled()
+        val courseHost = graduateTimetableHostOverride?.trimEnd('/') ?: graduateCourseHostName
         val endpoint = if (term.isCurrent) "queryXsckcb" else "queryXsckcbyy"
-        val response = Jsoup.connect("$graduateCourseHostName/kbgl/$endpoint")
+        val response = Jsoup.connect("$courseHost/kbgl/$endpoint")
             .cookies(token.cookies)
             .header("Accept", "application/json, text/plain, */*")
-            .header("Referer", "$graduateCourseHostName/kbgl/queryxskbxsy")
+            .header("Referer", "$courseHost/kbgl/queryxskbxsy")
             .header("X-Requested-With", "XMLHttpRequest")
             .data("xh", studentId)
             .data("xnxq", term.getCode())
             .apply { if (term.isCurrent) data("ys", "1") }
             .timeout(timeout).ignoreContentType(true).ignoreHttpErrors(true)
             .method(Connection.Method.GET).execute()
+        checkCancelled()
         val statusCode = response.statusCode()
         val body = response.body()
         // 错误分类对齐 iOS：登录特征 / 401 / 403 → 会话失效；5xx → 上游不可用。
@@ -368,8 +393,8 @@ class BenbuEASWebSource internal constructor(
             .timeout(timeout).ignoreContentType(true).ignoreHttpErrors(true)
             .followRedirects(true)
             .method(Connection.Method.GET).execute()
-        token.cookies.putAll(response.cookies())
         checkCancelled?.invoke()
+        token.cookies.putAll(response.cookies())
         if (response.statusCode() !in 200..299) {
             throw IllegalStateException("研究生课表桥接失败 HTTP ${response.statusCode()}")
         }
@@ -384,8 +409,9 @@ class BenbuEASWebSource internal constructor(
         return response.parse().also { checkCancelled?.invoke() }
     }
 
-    private fun getRegularCourses(term: TermItem, token: EASToken): List<CourseItem> {
-        val response = Jsoup.connect("$hostName/kbcx/queryGrkb")
+    private fun getRegularCourses(term: TermItem, token: EASToken, checkCancelled: () -> Unit = {}): List<CourseItem> {
+        checkCancelled()
+        val response = Jsoup.connect("$timetableHostName/kbcx/queryGrkb")
             .cookies(token.cookies)
             .header("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15")
             .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
@@ -398,6 +424,7 @@ class BenbuEASWebSource internal constructor(
             .ignoreHttpErrors(true)
             .method(Connection.Method.POST)
             .execute()
+        checkCancelled()
         val statusCode = response.statusCode()
         val body = response.body()
 
@@ -422,11 +449,13 @@ class BenbuEASWebSource internal constructor(
         return parsedCourses
     }
 
-    private fun getExperimentCourses(term: TermItem, token: EASToken): List<CourseItem> {
+    private fun getExperimentCourses(term: TermItem, token: EASToken, checkCancelled: () -> Unit = {}): List<CourseItem> {
+        checkCancelled()
         val experimentCookies = HashMap<String, String>(token.cookies)
+        val experimentHost = experimentHostOverride?.trimEnd('/') ?: experimentHostName
 
         try {
-            val loginResponse = Jsoup.connect("$hostName/loginsysj/loginSygl")
+            val loginResponse = Jsoup.connect("$timetableHostName/loginsysj/loginSygl")
                 .cookies(token.cookies)
                 .header("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.3.1 Safari/605.1.15")
                 .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
@@ -439,14 +468,19 @@ class BenbuEASWebSource internal constructor(
                 .method(Connection.Method.GET)
                 .execute()
 
+            checkCancelled()
             loginResponse.cookies().forEach { (key, value) ->
                 experimentCookies[key] = value
             }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (e: Exception) {
+            checkCancelled()
             LogUtils.e("getExperimentCourses: session auth failed, ${e.message}")
         }
 
-        val getResponse = Jsoup.connect("$experimentHostName/xskb/queryXszkb")
+        checkCancelled()
+        val getResponse = Jsoup.connect("$experimentHost/xskb/queryXszkb")
             .cookies(experimentCookies)
             .header("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.3.1 Safari/605.1.15")
             .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
@@ -458,6 +492,7 @@ class BenbuEASWebSource internal constructor(
             .method(Connection.Method.GET)
             .execute()
 
+        checkCancelled()
         if (getResponse.statusCode() != 200) {
             LogUtils.e("getExperimentCourses: HTTP ${getResponse.statusCode()}")
             return emptyList()
@@ -476,8 +511,9 @@ class BenbuEASWebSource internal constructor(
         return parsedCourses
     }
 
-    private fun getElectronicExperimentCourses(term: TermItem, token: EASToken): List<CourseItem> {
-        val jwtToken = token.electronicExpToken
+    private fun getElectronicExperimentCourses(term: TermItem, token: EASToken, jwtToken: String?, checkCancelled: () -> Unit = {}): List<CourseItem> {
+        checkCancelled()
+        val electronicHost = electronicExperimentHostOverride?.trimEnd('/') ?: electronicExpHostName
         if (jwtToken.isNullOrBlank()) {
             LogUtils.w("getElectronicExpCourses: JWT token is empty, skipping")
             return emptyList()
@@ -485,15 +521,15 @@ class BenbuEASWebSource internal constructor(
         LogUtils.d("getElectronicExpCourses: JWT token ready, length=${jwtToken.length}")
 
         try {
-            val url = "$electronicExpHostName/api/stu/viewCKKB?sf_request_type=ajax"
+            val url = "$electronicHost/api/stu/viewCKKB?sf_request_type=ajax"
 
             val response = Jsoup.connect(url)
                 .cookies(token.cookies)
                 .header("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.3.1 Safari/605.1.15")
                 .header("Accept", "*/*")
                 .header("Content-Type", "application/x-www-form-urlencoded")
-                .header("Origin", electronicExpHostName)
-                .header("Referer", "$electronicExpHostName/stu_ckkb.html")
+                .header("Origin", electronicHost)
+                .header("Referer", "$electronicHost/stu_ckkb.html")
                 .header("X-Requested-With", "XMLHttpRequest")
                 .header("Accept-Language", "zh-CN,zh-Hans;q=0.9")
                 .header("VcTchType", "stu")
@@ -504,6 +540,7 @@ class BenbuEASWebSource internal constructor(
                 .method(Connection.Method.POST)
                 .execute()
 
+            checkCancelled()
             LogUtils.d("getElectronicExpCourses: HTTP ${response.statusCode()}, body length=${response.body().length}")
             if (response.statusCode() != 200) {
                 LogUtils.e("getElectronicExpCourses: request failed")
@@ -515,7 +552,10 @@ class BenbuEASWebSource internal constructor(
 
             return parsedCourses
 
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (e: Exception) {
+            checkCancelled()
             LogUtils.e("getElectronicExpCourses: query failed", e)
             return emptyList()
         }
@@ -698,8 +738,8 @@ class BenbuEASWebSource internal constructor(
         )
     }
 
-    private fun scheduleFor(token: EASToken): List<TimePeriodInDay> =
-        if (token.stutype == EASToken.TYPE.UNDERGRAD) {
+    private fun scheduleFor(type: EASToken.TYPE): List<TimePeriodInDay> =
+        if (type == EASToken.TYPE.UNDERGRAD) {
             CampusDefaultSchedule.undergraduate(EASToken.Campus.BENBU)
         } else {
             graduateSchedule

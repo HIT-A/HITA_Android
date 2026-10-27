@@ -51,6 +51,9 @@ abstract class AbstractEASWebSource(
 
     protected abstract val hostName: String
 
+    /** Timetable/calendar-only endpoint seam for loopback contract fixtures. */
+    protected open val timetableHostName: String get() = hostName
+
     /** 仅教学楼查询可替换地址，供本地 HTTP 契约测试使用。 */
     protected open val teachingBuildingsHostName: String get() = hostName
 
@@ -104,7 +107,27 @@ abstract class AbstractEASWebSource(
 
     /** 课表结构页的数据来源：本部走带缓存的 getCachedOrFetchCourses，威海直查。 */
 
-    protected abstract fun loadCoursesForSchedule(term: TermItem, token: EASToken): List<CourseItem>
+    protected data class TimetableCourseAccount(
+        val campus: EASToken.Campus,
+        val studentId: String?,
+        val username: String?,
+        val type: EASToken.TYPE,
+        val cookies: Map<String, String>,
+        val experimentToken: String?,
+        val generation: Long,
+    )
+
+    protected fun captureTimetableAccount(token: EASToken) = TimetableCourseAccount(
+        token.campus, token.stuId, token.username, token.stutype,
+        token.cookies.toMap(), token.electronicExpToken, token.sessionGeneration,
+    )
+
+    protected abstract fun loadCoursesForSchedule(
+        term: TermItem,
+        token: EASToken,
+        account: TimetableCourseAccount,
+        checkCancelled: () -> Unit = {},
+    ): List<CourseItem>
 
     /** 研究生学期列表，仅本部实现；默认返回 null 表示跳过该分支。 */
 
@@ -296,47 +319,38 @@ abstract class AbstractEASWebSource(
     }
 
 
-    override fun getScheduleStructure(
-        term: TermItem,
-        isUndergraduate: Boolean?,
-        token: EASToken
-    ): LiveData<DataState<MutableList<TimePeriodInDay>>> {
-        val result = MutableLiveData<DataState<MutableList<TimePeriodInDay>>>()
-        result.postValue(DataState(DataState.STATE.NOTHING))
+    override fun getScheduleStructure(term: TermItem, isUndergraduate: Boolean?, token: EASToken): LiveData<DataState<MutableList<TimePeriodInDay>>> =
+        legacyTimetableQuery(DataState.STATE.NOTHING) { getScheduleStructureOnce(term, isUndergraduate, token) }
 
-        executor.execute {
+    override suspend fun getScheduleStructureOnce(term: TermItem, isUndergraduate: Boolean?, token: EASToken): DataState<MutableList<TimePeriodInDay>> {
+        val selected = term.timetableQueryCopy()
+        val account = captureTimetableAccount(token)
+        val undergraduate = isUndergraduate ?: (account.type == EASToken.TYPE.UNDERGRAD)
+        return withContext(Dispatchers.IO) {
+            val context = currentCoroutineContext()
             try {
-                val courses = loadCoursesForSchedule(term, token)
+                val courses = loadCoursesForSchedule(selected, token, account) { context.ensureActive() }
+                context.ensureActive()
                 val maxPeriod = courses.maxOfOrNull { it.begin + it.last - 1 } ?: 0
-                val schedule = defaultScheduleStructure(
-                    isUndergraduate ?: (token.stutype == EASToken.TYPE.UNDERGRAD)
-                )
-                val resolved = if (maxPeriod in 1 until schedule.size) {
-                    schedule.take(maxPeriod).toMutableList()
-                } else {
-                    schedule
-                }
-                result.postValue(DataState(resolved, DataState.STATE.SUCCESS))
-            } catch (e: Exception) {
-                LogUtils.w("getScheduleStructure: fallback to default: ${e.message}")
-                result.postValue(DataState(defaultScheduleStructure(
-                    isUndergraduate ?: (token.stutype == EASToken.TYPE.UNDERGRAD)
-                ), DataState.STATE.SUCCESS))
+                val schedule = defaultScheduleStructure(undergraduate)
+                DataState(if (maxPeriod in 1 until schedule.size) schedule.take(maxPeriod).toMutableList() else schedule, DataState.STATE.SUCCESS)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                context.ensureActive()
+                LogUtils.w("getScheduleStructure: fallback to default: ${error.message}")
+                DataState(defaultScheduleStructure(undergraduate), DataState.STATE.SUCCESS)
             }
         }
-        return result
     }
 
+    override fun getSubjectsOfTerm(token: EASToken, term: TermItem): LiveData<DataState<MutableList<TermSubject>>> =
+        legacyTimetableQuery { getSubjectsOfTermOnce(token, term) }
 
-    override fun getSubjectsOfTerm(
-        token: EASToken,
-        term: TermItem
-    ): LiveData<DataState<MutableList<TermSubject>>> {
-        return MutableLiveData<DataState<MutableList<TermSubject>>>().apply {
-            postValue(DataState(DataState.STATE.FETCH_FAILED, "${campusDisplayName}暂不支持课程列表"))
-        }
+    override suspend fun getSubjectsOfTermOnce(token: EASToken, term: TermItem): DataState<MutableList<TermSubject>> {
+        currentCoroutineContext().ensureActive()
+        return DataState(DataState.STATE.FETCH_FAILED, "${campusDisplayName}暂不支持课程列表")
     }
-
 
     override fun getPersonalScores(
         term: TermItem,
@@ -574,35 +588,35 @@ abstract class AbstractEASWebSource(
         return result
     }
 
-    override fun getStartDate(token: EASToken, term: TermItem): LiveData<DataState<Calendar>> {
-        val result = MutableLiveData<DataState<Calendar>>()
-        result.postValue(DataState(DataState.STATE.NOTHING))
+    override fun getStartDate(token: EASToken, term: TermItem): LiveData<DataState<Calendar>> =
+        legacyTimetableQuery(DataState.STATE.NOTHING) { getStartDateOnce(token, term) }
 
-        executor.execute {
+    override suspend fun getStartDateOnce(token: EASToken, term: TermItem): DataState<Calendar> {
+        val selected = term.timetableQueryCopy()
+        return withContext(Dispatchers.IO) {
+            val context = currentCoroutineContext()
             try {
-                // 优先从教务「校历」接口获取真实开学日期（对齐 iOS AcademicWebCalendarParser 路径），
-                // 失败时回退到本地推算逻辑。
-                val real = fetchTermStartDateFromCalendar(token, term)
-                val start = real ?: inferTermStartDate(term)
-                LogUtils.d(
-                    "getStartDate: term=${term.getCode()} source=${if (real != null) "calendar" else "inferred"} " +
-                        "start=${start.time} termName=${term.termName} label=${term.name}"
-                )
-                result.postValue(DataState(start, DataState.STATE.SUCCESS))
-            } catch (e: Exception) {
-                result.postValue(DataState(DataState.STATE.FETCH_FAILED, e.message ?: "获取开学日期失败"))
+                val real = fetchTermStartDateFromCalendar(token, selected) { context.ensureActive() }
+                context.ensureActive()
+                val start = real ?: inferTermStartDate(selected)
+                DataState(start.clone() as Calendar, DataState.STATE.SUCCESS)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                context.ensureActive()
+                DataState(DataState.STATE.FETCH_FAILED, error.message ?: "获取开学日期失败")
             }
         }
-        return result
     }
 
     /**
      * 请求教务校历接口 `/xlcx/queryXlcx`，解析第 1 教学周周一（开学日）。
      * 网络或解析失败返回 null，由调用方回退到推算。
      */
-    private fun fetchTermStartDateFromCalendar(token: EASToken, term: TermItem): Calendar? {
+    private fun fetchTermStartDateFromCalendar(token: EASToken, term: TermItem, checkCancelled: () -> Unit): Calendar? {
         return try {
-            val response = Jsoup.connect("$hostName/xlcx/queryXlcx")
+            checkCancelled()
+            val response = Jsoup.connect("$timetableHostName/xlcx/queryXlcx")
                 .cookies(token.cookies)
                 .header("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15")
                 .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
@@ -614,6 +628,7 @@ abstract class AbstractEASWebSource(
                 .ignoreHttpErrors(true)
                 .method(Connection.Method.POST)
                 .execute()
+            checkCancelled()
             if (response.statusCode() != 200) {
                 LogUtils.w("getStartDate: calendar HTTP ${response.statusCode()} term=${term.getCode()}")
                 return null
@@ -624,7 +639,10 @@ abstract class AbstractEASWebSource(
                     LogUtils.w("getStartDate: calendar parse failed term=${term.getCode()}")
                 }
             }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (e: Exception) {
+            checkCancelled()
             LogUtils.w("getStartDate: calendar request failed term=${term.getCode()} message=${e.message}")
             null
         }

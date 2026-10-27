@@ -20,6 +20,16 @@ import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import org.jsoup.Connection
 
@@ -31,232 +41,261 @@ internal class ShenzhenTimetableWebSource(
     private val debugWeek: Int,
     private val debugDow: Int,
 ) {
+    /** Blocking sockets finish on IO; cancellation prevents every subsequent request and delivery. */
+    private suspend fun checkedJsonPost(token: EASToken, path: String, body: String, role: String): Connection.Response {
+        val context = currentCoroutineContext()
+        context.ensureActive()
+        return try { jsonPost(token, path, body, role) } finally { context.ensureActive() }
+    }
+
+    private suspend fun checkedJwFormPost(token: EASToken, path: String, form: Map<String, String>, referer: String): Connection.Response {
+        val context = currentCoroutineContext()
+        context.ensureActive()
+        return try { jwFormPost(token, path, form, referer) } finally { context.ensureActive() }
+    }
+
+    private suspend fun checkedSelectedSubjects(token: EASToken, term: TermItem, studentType: String): Connection.Response =
+        checkedJwFormPost(token, "/Xsxk/queryYxkc?sf_request_type=ajax", shenzhenSelectedSubjectsForm(token, term, studentType), "/Xsxk/query/1")
+
     @SuppressLint("SimpleDateFormat")
-    fun getStartDate(token: EASToken, term: TermItem): LiveData<DataState<Calendar>> {
-        if (token.accessToken.isNullOrBlank() && token.hasShenzhenWebSession()) {
-            return getShenzhenCoursePlanningStartDate(token, term)
+    fun getStartDate(token: EASToken, term: TermItem): LiveData<DataState<Calendar>> =
+        legacyTimetableQuery { getStartDateOnce(token, term) }
+
+    suspend fun getStartDateOnce(token: EASToken, term: TermItem): DataState<Calendar> {
+        val selected = term.timetableQueryCopy()
+        val useWeb = token.accessToken.isNullOrBlank() && token.hasShenzhenWebSession()
+        return withContext(Dispatchers.IO) {
+            currentCoroutineContext().ensureActive()
+            requestStartDate(token, selected, useWeb)
         }
-        val res = MutableLiveData<DataState<Calendar>>()
-        Thread {
-            try {
-                val calendar = Calendar.getInstance()
-                calendar.firstDayOfWeek = Calendar.MONDAY
-                // 用第1周课表矩阵接口获取第1天日期
-                val weekBody = """{"xn":"${term.yearCode}","xq":"${term.termCode}","zc":"1","type":"json"}"""
-                val weekResp = jsonPost(token, "/app/Kbcx/query", weekBody, "06")
-                val weekJo = JsonUtils.getJsonObject(weekResp.body())
-                val contentArr = weekJo?.optJSONArray("content")
-                val df = SimpleDateFormat("yyyy-MM-dd")
-                if (contentArr != null) {
-                    for (i in 0 until contentArr.length()) {
-                        val obj = contentArr.optJSONObject(i) ?: continue
-                        val rqList = obj.optJSONArray("rqList") ?: continue
-                        val firstDay = rqList.optJSONObject(0) ?: continue
-                        val rq = firstDay.optString("RQ")
-                        if (rq.isNotEmpty()) {
-                            val parsed = df.parse(rq)
-                            if (parsed != null) calendar.timeInMillis = parsed.time
-                        }
-                        break
+    }
+
+    private suspend fun requestStartDate(token: EASToken, term: TermItem, useWeb: Boolean): DataState<Calendar> {
+        if (useWeb) return requestCoursePlanningStartDate(token, term)
+        try {
+            val calendar = Calendar.getInstance()
+            calendar.firstDayOfWeek = Calendar.MONDAY
+            // 用第1周课表矩阵接口获取第1天日期
+            val weekBody = """{"xn":"${term.yearCode}","xq":"${term.termCode}","zc":"1","type":"json"}"""
+            val weekResp = checkedJsonPost(token, "/app/Kbcx/query", weekBody, "06")
+            val weekJo = JsonUtils.getJsonObject(weekResp.body())
+            val contentArr = weekJo?.optJSONArray("content")
+            val df = SimpleDateFormat("yyyy-MM-dd")
+            if (contentArr != null) {
+                for (i in 0 until contentArr.length()) {
+                    val obj = contentArr.optJSONObject(i) ?: continue
+                    val rqList = obj.optJSONArray("rqList") ?: continue
+                    val firstDay = rqList.optJSONObject(0) ?: continue
+                    val rq = firstDay.optString("RQ")
+                    if (rq.isNotEmpty()) {
+                        val parsed = df.parse(rq)
+                        if (parsed != null) calendar.timeInMillis = parsed.time
                     }
+                    break
                 }
-                res.postValue(DataState(calendar))
-            } catch (e: Exception) {
-                LogUtils.e("getStartDate: failed, error=${e.message}", e)
-                res.postValue(DataState(DataState.STATE.FETCH_FAILED, e.message))
             }
-        }.start()
-        return res
+            return DataState(calendar)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (e: Exception) {
+            currentCoroutineContext().ensureActive()
+            LogUtils.e("getStartDate: failed, error=${e.message}", e)
+            return DataState(DataState.STATE.FETCH_FAILED, e.message)
+        }
     }
 
-    fun getShenzhenCoursePlanningStartDate(
-        token: EASToken,
-        term: TermItem
-    ): LiveData<DataState<Calendar>> {
-        if (!token.hasShenzhenWebSession()) {
-            return MutableLiveData<DataState<Calendar>>(
-                DataState(DataState.STATE.NOT_LOGGED_IN, "请先连接深圳 Web 教务")
-            )
+    fun getShenzhenCoursePlanningStartDate(token: EASToken, term: TermItem): LiveData<DataState<Calendar>> =
+        legacyTimetableQuery { getShenzhenCoursePlanningStartDateOnce(token, term) }
+
+    suspend fun getShenzhenCoursePlanningStartDateOnce(token: EASToken, term: TermItem): DataState<Calendar> {
+        val selected = term.timetableQueryCopy()
+        val hasWebSession = token.hasShenzhenWebSession()
+        return withContext(Dispatchers.IO) {
+            currentCoroutineContext().ensureActive()
+            if (hasWebSession) requestCoursePlanningStartDate(token, selected)
+            else DataState(DataState.STATE.NOT_LOGGED_IN, "请先连接深圳 Web 教务")
         }
-        val result = MutableLiveData<DataState<Calendar>>()
-        Thread {
-            try {
-                val response = jwFormPost(token, "/component/queryRlZcSj", mapOf("xn" to term.yearCode, "xq" to term.termCode, "djz" to "1"), "/Xsxk/query/1")
-                if (isJwAuthenticationExpired(response)) {
-                    result.postValue(DataState(DataState.STATE.NOT_LOGGED_IN, "深圳 Web 会话已失效"))
-                    return@Thread
-                }
-                val date = ShenzhenWebAcademicParser.parseStartDate(response.body())
-                if (response.statusCode() != 200 || date == null) {
-                    result.postValue(DataState(DataState.STATE.FETCH_FAILED, "未获取到第一教学周日期"))
-                    return@Thread
-                }
-                val calendar = Calendar.getInstance().apply {
-                    clear()
-                    firstDayOfWeek = Calendar.MONDAY
-                    set(date.year, date.monthValue - 1, date.dayOfMonth)
-                }
-                result.postValue(DataState(calendar, DataState.STATE.SUCCESS))
-            } catch (error: Exception) {
-                result.postValue(DataState(DataState.STATE.FETCH_FAILED, error.message))
-            }
-        }.start()
-        return result
     }
 
-    fun getShenzhenCoursePlanningScheduleStructure(
-        token: EASToken,
-        term: TermItem
-    ): LiveData<DataState<MutableList<TimePeriodInDay>>> {
-        if (!token.hasShenzhenWebSession()) {
-            return MutableLiveData<DataState<MutableList<TimePeriodInDay>>>(
-                DataState(DataState.STATE.NOT_LOGGED_IN, "请先连接深圳 Web 教务")
-            )
-        }
-        val result = MutableLiveData<DataState<MutableList<TimePeriodInDay>>>()
-        Thread {
-            try {
-                val selectionResponse = requestShenzhenWebSelectedSubjects(token, term)
-                if (isJwAuthenticationExpired(selectionResponse)) {
-                    result.postValue(DataState(DataState.STATE.NOT_LOGGED_IN, "深圳 Web 会话已失效"))
-                    return@Thread
-                }
-                val selectionSchedule = selectionResponse
-                    .takeIf { it.statusCode() == 200 }
-                    ?.let { ShenzhenWebAcademicParser.parseScheduleStructure(it.body()) }
-                if (!selectionSchedule.isNullOrEmpty()) {
-                    result.postValue(DataState(selectionSchedule, DataState.STATE.SUCCESS))
-                    return@Thread
-                }
-
-                val response = jwFormPost(token, "/component/queryKbjg", mapOf(
-                        "xn" to term.yearCode,
-                        "xq" to term.termCode,
-                        "pylx" to token.getStudentType()
-                    ), "/Xsxk/query/1")
-                if (isJwAuthenticationExpired(response)) {
-                    result.postValue(DataState(DataState.STATE.NOT_LOGGED_IN, "深圳 Web 会话已失效"))
-                    return@Thread
-                }
-                val schedule = ShenzhenWebAcademicParser.parseScheduleStructure(response.body())
-                if (response.statusCode() != 200 || schedule.isNullOrEmpty()) {
-                    result.postValue(DataState(DataState.STATE.FETCH_FAILED, "节次结构解析失败"))
-                } else {
-                    result.postValue(DataState(schedule, DataState.STATE.SUCCESS))
-                }
-            } catch (error: Exception) {
-                result.postValue(DataState(DataState.STATE.FETCH_FAILED, error.message))
+    private suspend fun requestCoursePlanningStartDate(token: EASToken, term: TermItem): DataState<Calendar> {
+        try {
+            val response = checkedJwFormPost(token, "/component/queryRlZcSj", mapOf("xn" to term.yearCode, "xq" to term.termCode, "djz" to "1"), "/Xsxk/query/1")
+            if (isJwAuthenticationExpired(response)) {
+                return DataState(DataState.STATE.NOT_LOGGED_IN, "深圳 Web 会话已失效")
             }
-        }.start()
-        return result
+            val date = ShenzhenWebAcademicParser.parseStartDate(response.body())
+            if (response.statusCode() != 200 || date == null) {
+                return DataState(DataState.STATE.FETCH_FAILED, "未获取到第一教学周日期")
+            }
+            val calendar = Calendar.getInstance().apply {
+                clear()
+                firstDayOfWeek = Calendar.MONDAY
+                set(date.year, date.monthValue - 1, date.dayOfMonth)
+            }
+            return DataState(calendar, DataState.STATE.SUCCESS)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            currentCoroutineContext().ensureActive()
+            return DataState(DataState.STATE.FETCH_FAILED, error.message)
+        }
+    }
+
+    fun getShenzhenCoursePlanningScheduleStructure(token: EASToken, term: TermItem): LiveData<DataState<MutableList<TimePeriodInDay>>> =
+        legacyTimetableQuery { getShenzhenCoursePlanningScheduleStructureOnce(token, term) }
+
+    suspend fun getShenzhenCoursePlanningScheduleStructureOnce(token: EASToken, term: TermItem): DataState<MutableList<TimePeriodInDay>> {
+        val selected = term.timetableQueryCopy()
+        val hasWebSession = token.hasShenzhenWebSession()
+        val studentType = token.getStudentType()
+        return withContext(Dispatchers.IO) {
+            currentCoroutineContext().ensureActive()
+            if (hasWebSession) requestCoursePlanningSchedule(token, selected, studentType)
+            else DataState(DataState.STATE.NOT_LOGGED_IN, "请先连接深圳 Web 教务")
+        }
+    }
+
+    private suspend fun requestCoursePlanningSchedule(token: EASToken, term: TermItem, studentType: String): DataState<MutableList<TimePeriodInDay>> {
+        try {
+            val selectionResponse = checkedSelectedSubjects(token, term, studentType)
+            if (isJwAuthenticationExpired(selectionResponse)) {
+                return DataState(DataState.STATE.NOT_LOGGED_IN, "深圳 Web 会话已失效")
+            }
+            val selectionSchedule = selectionResponse
+                .takeIf { it.statusCode() == 200 }
+                ?.let { ShenzhenWebAcademicParser.parseScheduleStructure(it.body()) }
+            if (!selectionSchedule.isNullOrEmpty()) {
+                return DataState(selectionSchedule, DataState.STATE.SUCCESS)
+            }
+
+            val response = checkedJwFormPost(token, "/component/queryKbjg", mapOf(
+                    "xn" to term.yearCode,
+                    "xq" to term.termCode,
+                    "pylx" to studentType
+                ), "/Xsxk/query/1")
+            if (isJwAuthenticationExpired(response)) {
+                return DataState(DataState.STATE.NOT_LOGGED_IN, "深圳 Web 会话已失效")
+            }
+            val schedule = ShenzhenWebAcademicParser.parseScheduleStructure(response.body())
+            if (response.statusCode() != 200 || schedule.isNullOrEmpty()) {
+                return DataState(DataState.STATE.FETCH_FAILED, "节次结构解析失败")
+            } else {
+                return DataState(schedule, DataState.STATE.SUCCESS)
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            currentCoroutineContext().ensureActive()
+            return DataState(DataState.STATE.FETCH_FAILED, error.message)
+        }
     }
 
     // ================================================================ 已选课程
-    fun getSubjectsOfTerm(
-        token: EASToken,
-        term: TermItem
-    ): LiveData<DataState<MutableList<TermSubject>>> {
-        // Keep the bearer API as the primary source. A remembered Web cookie may already be
-        // expired, so it must never replace a working API session for this core query.
-        if (ShenzhenCoreDataSourcePolicy.shouldUseWebFallback(token)) {
-            return getShenzhenWebSubjects(token, term)
+    fun getSubjectsOfTerm(token: EASToken, term: TermItem): LiveData<DataState<MutableList<TermSubject>>> =
+        legacyTimetableQuery { getSubjectsOfTermOnce(token, term) }
+
+    suspend fun getSubjectsOfTermOnce(token: EASToken, term: TermItem): DataState<MutableList<TermSubject>> {
+        val selected = term.timetableQueryCopy()
+        val useWeb = ShenzhenCoreDataSourcePolicy.shouldUseWebFallback(token)
+        val studentType = token.getStudentType()
+        return withContext(Dispatchers.IO) {
+            currentCoroutineContext().ensureActive()
+            if (useWeb) requestWebSubjects(token, selected, studentType)
+            else requestSubjects(token, selected, studentType)
         }
-        val res = MutableLiveData<DataState<MutableList<TermSubject>>>()
-        Thread {
-            val result: MutableList<TermSubject> = ArrayList()
-            try {
-                val pylxRaw = token.getStudentType()
-                val pylxPad = pylxRaw.padStart(2, '0')
-                val pylxCandidates = linkedSetOf(pylxRaw, pylxPad)
-                val roleCandidates = listOf("01", "06")
-                val xnxqCandidates = linkedSetOf(
-                    term.getCode(),
-                    "${term.yearCode}-${term.termCode}",
-                    term.yearCode + term.termCode.padStart(2, '0'),
-                    "${term.yearCode}-${term.termCode.padStart(2, '0')}"
-                )
-                val xkfsCandidates = listOf("yixuan", "")
-                var yxkc: org.json.JSONArray? = null
-                for (roleHeader in roleCandidates) {
-                    for (pylx in pylxCandidates) {
-                        for (xnxq in xnxqCandidates) {
-                            for (xkfs in xkfsCandidates) {
-                                val body =
-                                    """{"RoleCode":"$roleHeader","p_pylx":"$pylx","p_xn":"${term.yearCode}","p_xq":"${term.termCode}","p_xnxq":"$xnxq","p_gjz":"","p_kc_gjz":"","p_xkfsdm":"$xkfs"}"""
-                                val resp = jsonPost(token, "/app/Xsxk/queryYxkc?_lang=zh_CN", body, roleHeader)
-                                val jo = JsonUtils.getJsonObject(resp.body())
-                                val list = extractYxkcList(jo)
-                                if (list != null && list.length() > 0) {
-                                    yxkc = list
-                                    break
-                                }
+    }
+
+    private suspend fun requestSubjects(token: EASToken, term: TermItem, studentType: String): DataState<MutableList<TermSubject>> {
+        val result: MutableList<TermSubject> = ArrayList()
+        try {
+            val pylxRaw = studentType
+            val pylxPad = pylxRaw.padStart(2, '0')
+            val pylxCandidates = linkedSetOf(pylxRaw, pylxPad)
+            val roleCandidates = listOf("01", "06")
+            val xnxqCandidates = linkedSetOf(
+                term.getCode(),
+                "${term.yearCode}-${term.termCode}",
+                term.yearCode + term.termCode.padStart(2, '0'),
+                "${term.yearCode}-${term.termCode.padStart(2, '0')}"
+            )
+            val xkfsCandidates = listOf("yixuan", "")
+            var yxkc: org.json.JSONArray? = null
+            for (roleHeader in roleCandidates) {
+                for (pylx in pylxCandidates) {
+                    for (xnxq in xnxqCandidates) {
+                        for (xkfs in xkfsCandidates) {
+                            val body =
+                                """{"RoleCode":"$roleHeader","p_pylx":"$pylx","p_xn":"${term.yearCode}","p_xq":"${term.termCode}","p_xnxq":"$xnxq","p_gjz":"","p_kc_gjz":"","p_xkfsdm":"$xkfs"}"""
+                            val resp = checkedJsonPost(token, "/app/Xsxk/queryYxkc?_lang=zh_CN", body, roleHeader)
+                            val jo = JsonUtils.getJsonObject(resp.body())
+                            val list = extractYxkcList(jo)
+                            if (list != null && list.length() > 0) {
+                                yxkc = list
+                                break
                             }
-                            if (yxkc != null) break
                         }
                         if (yxkc != null) break
                     }
                     if (yxkc != null) break
                 }
-                yxkc?.let {
-                    for (i in 0 until it.length()) {
-                        val subject = it.optJSONObject(i) ?: continue
-                        val s = TermSubject()
-                        val rawCode = subject.optString("kcdm")
-                        s.code = CourseCodeUtils.normalize(rawCode) ?: rawCode
-                        s.name = subject.optString("kcmc", "")
-                        s.school = subject.optString("kkyxmc")
-                        s.teacher = extractSelectedTeacher(subject)
-                        s.credit = subject.optString("xf").toFloatOrNull() ?: 0f
-                        s.key = subject.optString("id")
-                        s.field = optStringFirst(subject, listOf("kclbmc", "KCLBMC"))
-                        s.selectCategory = optStringFirst(
-                            subject,
-                            listOf("rwlxmc", "RWLXMC", "xkfsmc", "XKFSMC", "xklbmc", "XKLBMC")
-                        )
-                        s.nature = optStringFirst(subject, listOf("kcxzmc", "KCXZMC"))
-                        when (subject.optString("kcxzmc")) {
-                            "必修" -> s.type = TermSubject.TYPE.COM_A
-                            "限选" -> s.type = TermSubject.TYPE.OPT_A
-                            "任选" -> s.type = TermSubject.TYPE.OPT_B
-                        }
-                        val rwlxmc = subject.optString("rwlxmc", "")
-                        if (rwlxmc.contains("MOOC", ignoreCase = true))
-                            s.type = TermSubject.TYPE.MOOC
-                        result.add(s)
-                    }
-                }
-                res.postValue(DataState(result))
-            } catch (e: Exception) {
-                LogUtils.e("getSubjectsOfTerm: failed, error=${e.message}", e)
-                res.postValue(DataState(DataState.STATE.FETCH_FAILED, e.message))
+                if (yxkc != null) break
             }
-        }.start()
-        return res
+            yxkc?.let {
+                for (i in 0 until it.length()) {
+                    val subject = it.optJSONObject(i) ?: continue
+                    val s = TermSubject()
+                    val rawCode = subject.optString("kcdm")
+                    s.code = CourseCodeUtils.normalize(rawCode) ?: rawCode
+                    s.name = subject.optString("kcmc", "")
+                    s.school = subject.optString("kkyxmc")
+                    s.teacher = extractSelectedTeacher(subject)
+                    s.credit = subject.optString("xf").toFloatOrNull() ?: 0f
+                    s.key = subject.optString("id")
+                    s.field = optStringFirst(subject, listOf("kclbmc", "KCLBMC"))
+                    s.selectCategory = optStringFirst(
+                        subject,
+                        listOf("rwlxmc", "RWLXMC", "xkfsmc", "XKFSMC", "xklbmc", "XKLBMC")
+                    )
+                    s.nature = optStringFirst(subject, listOf("kcxzmc", "KCXZMC"))
+                    when (subject.optString("kcxzmc")) {
+                        "必修" -> s.type = TermSubject.TYPE.COM_A
+                        "限选" -> s.type = TermSubject.TYPE.OPT_A
+                        "任选" -> s.type = TermSubject.TYPE.OPT_B
+                    }
+                    val rwlxmc = subject.optString("rwlxmc", "")
+                    if (rwlxmc.contains("MOOC", ignoreCase = true))
+                        s.type = TermSubject.TYPE.MOOC
+                    result.add(s)
+                }
+            }
+            return DataState(result)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (e: Exception) {
+            currentCoroutineContext().ensureActive()
+            LogUtils.e("getSubjectsOfTerm: failed, error=${e.message}", e)
+            return DataState(DataState.STATE.FETCH_FAILED, e.message)
+        }
     }
 
-    private fun getShenzhenWebSubjects(
-        token: EASToken,
-        term: TermItem
-    ): LiveData<DataState<MutableList<TermSubject>>> {
-        val result = MutableLiveData<DataState<MutableList<TermSubject>>>()
-        Thread {
-            try {
-                val response = requestShenzhenWebSelectedSubjects(token, term)
-                if (isJwAuthenticationExpired(response)) {
-                    result.postValue(DataState(DataState.STATE.NOT_LOGGED_IN, "深圳 Web 会话已失效"))
-                    return@Thread
-                }
-                val subjects = ShenzhenWebAcademicParser.parseSelectedSubjects(response.body())
-                if (response.statusCode() != 200 || subjects == null) {
-                    result.postValue(DataState(DataState.STATE.FETCH_FAILED, "已选课程解析失败"))
-                } else {
-                    result.postValue(DataState(subjects, DataState.STATE.SUCCESS))
-                }
-            } catch (error: Exception) {
-                result.postValue(DataState(DataState.STATE.FETCH_FAILED, error.message))
+    private suspend fun requestWebSubjects(token: EASToken, term: TermItem, studentType: String): DataState<MutableList<TermSubject>> {
+        try {
+            val response = checkedSelectedSubjects(token, term, studentType)
+            if (isJwAuthenticationExpired(response)) {
+                return DataState(DataState.STATE.NOT_LOGGED_IN, "深圳 Web 会话已失效")
             }
-        }.start()
-        return result
+            val subjects = ShenzhenWebAcademicParser.parseSelectedSubjects(response.body())
+            if (response.statusCode() != 200 || subjects == null) {
+                return DataState(DataState.STATE.FETCH_FAILED, "已选课程解析失败")
+            } else {
+                return DataState(subjects, DataState.STATE.SUCCESS)
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            currentCoroutineContext().ensureActive()
+            return DataState(DataState.STATE.FETCH_FAILED, error.message)
+        }
     }
 
     internal fun requestShenzhenWebSelectedSubjects(
@@ -266,11 +305,12 @@ internal class ShenzhenTimetableWebSource(
 
     internal fun shenzhenSelectedSubjectsForm(
         token: EASToken,
-        term: TermItem
+        term: TermItem,
+        studentType: String = token.getStudentType(),
     ): Map<String, String> = mapOf(
             "cxsfmt" to "0",
-            "p_pylx" to token.getStudentType(),
-            "mxpylx" to token.getStudentType(),
+            "p_pylx" to studentType,
+            "mxpylx" to studentType,
             "p_sfgldjr" to "0",
             "p_sfredis" to "0",
             "p_sfsyxkgwc" to "0",
@@ -349,205 +389,210 @@ internal class ShenzhenTimetableWebSource(
     }
 
     // ================================================================ 周课表（按周矩阵：/app/Kbcx/query）
-    fun getTimetableOfTerm(
-        term: TermItem,
-        token: EASToken
-    ): LiveData<DataState<List<CourseItem>>> {
-        if (token.accessToken.isNullOrBlank() && token.hasShenzhenWebSession()) {
-            return getShenzhenWebTimetable(token, term)
+    fun getTimetableOfTerm(term: TermItem, token: EASToken): LiveData<DataState<List<CourseItem>>> =
+        legacyTimetableQuery { getTimetableOfTermOnce(term, token) }
+
+    suspend fun getTimetableOfTermOnce(term: TermItem, token: EASToken): DataState<List<CourseItem>> {
+        val selected = term.timetableQueryCopy()
+        val useWeb = token.accessToken.isNullOrBlank() && token.hasShenzhenWebSession()
+        val studentType = token.getStudentType()
+        return withContext(Dispatchers.IO) {
+            currentCoroutineContext().ensureActive()
+            if (useWeb) requestWebTimetable(token, selected, studentType)
+            else requestTimetable(token, selected, studentType)
         }
-        val res = MutableLiveData<DataState<List<CourseItem>>>()
-        Thread {
-            try {
-                // 策略1：先尝试 querykbrczong 总览接口
-                val zongResult = fetchTimetableFromOverview(token, term)
-                if (!zongResult.isNullOrEmpty()) {
-                    LogUtils.d("getTimetableOfTerm: using overview result, count=${zongResult.size}")
-                    res.postValue(DataState(zongResult, DataState.STATE.SUCCESS))
-                    return@Thread
-                }
-
-                // 策略2：总览没结果，走 Kbcx/query + querykbrcbyday 周表路径
-                LogUtils.d("getTimetableOfTerm: overview empty, falling back to week schedule")
-                val merged = linkedMapOf<String, CourseItem>()
-                val selectedCourseNameByCode = fetchSelectedCourseNameByCodeSync(token, term)
-                val dayScheduleCache = java.util.concurrent.ConcurrentHashMap<String, List<DayScheduleItem>>()
-                val pool = java.util.concurrent.Executors.newFixedThreadPool(4)
-
-                // 收集所有需要富化的日期，然后并行请求
-                val enrichmentNeeded = java.util.concurrent.ConcurrentLinkedQueue<String>()
-                data class WeekData(val week: Int, val kcxxList: org.json.JSONArray, val weekDates: List<String>)
-                val allWeekData = mutableListOf<WeekData>()
-
-                // 并行获取所有周数据
-                val weekFutures = (1..25).map { week ->
-                    pool.submit(java.util.concurrent.Callable<WeekData?> {
-                        val kbBody = """{"xn":"${term.yearCode}","xq":"${term.termCode}","zc":"$week","type":"json"}"""
-                        val kbResp = jsonPost(token, "/app/Kbcx/query", kbBody, "06")
-                        val kbJo = JsonUtils.getJsonObject(kbResp.body()) ?: return@Callable null
-                        if (kbJo.optInt("code", -1) != 200) return@Callable null
-
-                        val contentArr = kbJo.optJSONArray("content") ?: return@Callable null
-                        val kcxxList = extractKcxxListFromKbcxContent(contentArr)
-                        val weekDates = extractWeekDatesFromKbcx(contentArr)
-                        if (kcxxList.length() == 0) {
-                            return@Callable null
-                        }
-                        WeekData(week, kcxxList, weekDates)
-                    })
-                }
-
-                val fetchedWeekData = weekFutures.mapNotNull { it.get() }.sortedBy { it.week }
-
-                // 第一遍：收集需要富化的日期
-                for (wd in fetchedWeekData) {
-                    val weekDates = wd.weekDates
-                    for (i in 0 until wd.kcxxList.length()) {
-                        val kc = wd.kcxxList.optJSONObject(i) ?: continue
-                        val kbxx = kc.optString("KBXX", "")
-                        if (kbxx.contains("...") || kbxx.contains("[") || kbxx.contains("【实验】")) {
-                            val dow = kc.optInt("XQJ", -1)
-                            val dateForDow = weekDates.getOrNull(dow - 1)
-                            if (!dateForDow.isNullOrBlank() && !dayScheduleCache.containsKey(dateForDow)) {
-                                enrichmentNeeded.add(dateForDow)
-                            }
-                        }
-                    }
-                    allWeekData.add(wd)
-                }
-
-                // 并行请求所有需要富化的日期
-                if (enrichmentNeeded.isNotEmpty()) {
-                    LogUtils.d("getTimetableOfTerm: fetching ${enrichmentNeeded.size} day schedules in parallel")
-                    val futures = enrichmentNeeded.distinct().map { date ->
-                        pool.submit(java.util.concurrent.Callable<Unit> {
-                            dayScheduleCache[date] = fetchDaySchedule(token, date)
-                        })
-                    }
-                    futures.forEach { it.get() }
-                }
-
-                // 第二遍：解析课程数据（日课表已在缓存中）
-                for (wd in allWeekData) {
-                    val week = wd.week
-                    val kcxxList = wd.kcxxList
-                    val weekDates = wd.weekDates
-                    val debugWeekRows = mutableListOf<CourseItem>()
-                    for (i in 0 until kcxxList.length()) {
-                        val kc = kcxxList.optJSONObject(i) ?: continue
-                        val dow = kc.optInt("XQJ", -1)
-                        val ksjc = kc.optInt("KSJC", -1)
-                        val jsjc = kc.optInt("JSJC", -1)
-                        if (dow !in 1..7 || ksjc <= 0) continue
-
-                        val kbxx = kc.optString("KBXX", "")
-                        val rawCode = kc.optString("KCDM", "")
-                        val code = CourseCodeUtils.normalize(rawCode) ?: rawCode
-                        val fallbackName = normalizedCourseName(kbxx)
-                        if (fallbackName.isBlank()) continue
-
-                        val classroom = extractClassroomFromKbxx(kbxx) ?: ""
-                        val sessionHint = extractSessionHint(kbxx)
-
-                        // 只在 KBXX 包含 ... 或 [] 时才查日课表
-                        val needsEnrichment = kbxx.contains("...") || kbxx.contains("[")
-                        val dateForDow = weekDates.getOrNull(dow - 1)
-                        val canonicalName = if (needsEnrichment && !dateForDow.isNullOrBlank()) {
-                            val daySchedules = dayScheduleCache[dateForDow]
-                            if (daySchedules != null) bestDayScheduleRawName(daySchedules, dow, ksjc, jsjc, classroom) else null
-                        } else null
-
-                        val displayName = composeCourseDisplayName(canonicalName, fallbackName, sessionHint)
-
-                        val teacher = extractTeacher(kc, displayName, kbxx)
-                        val last = if (jsjc >= ksjc) jsjc - ksjc + 1 else 1
-
-                        val course = CourseItem().apply {
-                            this.code = code
-                            this.name = displayName
-                            this.rawName = displayName
-                            this.teacher = teacher
-                            this.classroom = classroom
-                            this.dow = dow
-                            this.begin = ksjc
-                            this.last = last
-                            this.weeks = mutableListOf(week)
-                        }
-                        if (week == debugWeek && dow == debugDow) {
-                            debugWeekRows.add(copyCourse(course))
-                        }
-                        upsertCourse(merged, course)
-                    }
-                    if (week == debugWeek) {
-                        val summary = debugWeekRows
-                            .sortedWith(compareBy<CourseItem> { it.dow }.thenBy { it.begin })
-                            .joinToString(" || ") { debugCourseIdentity(it) }
-                        LogUtils.d("[DBG] raw week=$week dow=$debugDow rows=${debugWeekRows.size} term=${term.getCode()} -> $summary")
-                    }
-                }
-                pool.shutdown()
-
-                val result = merged.values.toMutableList()
-                result.forEach { it.weeks = it.weeks.distinct().sorted().toMutableList() }
-                result.sortWith(compareBy<CourseItem> { it.dow }.thenBy { it.begin }.thenBy { it.name })
-                val debugBeforeMerge = result
-                    .filter { it.dow == debugDow && it.weeks.contains(debugWeek) }
-                    .sortedWith(compareBy<CourseItem> { it.begin }.thenBy { it.name })
-                LogUtils.d(
-                    "[DBG] dedup week=$debugWeek dow=$debugDow count=${debugBeforeMerge.size} term=${term.getCode()} -> " +
-                        debugBeforeMerge.joinToString(" || ") { debugCourseIdentity(it) }
-                )
-                val mergedAdjacent = mergeAdjacentCourses(result)
-                val debugAfterMerge = mergedAdjacent
-                    .filter { it.dow == debugDow && it.weeks.contains(debugWeek) }
-                    .sortedWith(compareBy<CourseItem> { it.begin }.thenBy { it.name })
-                LogUtils.d(
-                    "[DBG] merged week=$debugWeek dow=$debugDow count=${debugAfterMerge.size} term=${term.getCode()} -> " +
-                        debugAfterMerge.joinToString(" || ") { debugCourseIdentity(it) }
-                )
-
-                if (mergedAdjacent.isEmpty()) {
-                    res.postValue(DataState(DataState.STATE.FETCH_FAILED, "未获取到课表数据"))
-                } else {
-                    res.postValue(DataState(mergedAdjacent, DataState.STATE.SUCCESS))
-                }
-            } catch (e: Exception) {
-                LogUtils.e("getTimetableOfTerm: failed, error=${e.message}", e)
-                res.postValue(DataState(DataState.STATE.FETCH_FAILED, e.message))
-            }
-        }.start()
-        return res
     }
 
-    private fun getShenzhenWebTimetable(
-        token: EASToken,
-        term: TermItem
-    ): LiveData<DataState<List<CourseItem>>> {
-        val result = MutableLiveData<DataState<List<CourseItem>>>()
-        Thread {
-            try {
-                val timetableResponse = jwFormPost(token, "/xszykb/queryxszykbzong", mapOf("xn" to term.yearCode, "xq" to term.termCode), "/xszykb/queryxszykb")
-                if (isJwAuthenticationExpired(timetableResponse)) {
-                    result.postValue(DataState(DataState.STATE.NOT_LOGGED_IN, "深圳 Web 会话已失效"))
-                    return@Thread
-                }
-                val subjectResponse = requestShenzhenWebSelectedSubjects(token, term)
-                val subjects = if (isJwAuthenticationExpired(subjectResponse)) {
-                    emptyList()
-                } else {
-                    ShenzhenWebAcademicParser.parseSelectedSubjects(subjectResponse.body()).orEmpty()
-                }
-                val courses = ShenzhenWebAcademicParser.parseTimetable(timetableResponse.body(), subjects)
-                if (timetableResponse.statusCode() != 200 || courses == null) {
-                    result.postValue(DataState(DataState.STATE.FETCH_FAILED, "个人课表解析失败"))
-                } else {
-                    result.postValue(DataState(courses, DataState.STATE.SUCCESS))
-                }
-            } catch (error: Exception) {
-                result.postValue(DataState(DataState.STATE.FETCH_FAILED, error.message))
+    private suspend fun requestTimetable(token: EASToken, term: TermItem, studentType: String): DataState<List<CourseItem>> {
+        try {
+            // 策略1：先尝试 querykbrczong 总览接口
+            val zongResult = fetchTimetableFromOverview(token, term)
+            if (!zongResult.isNullOrEmpty()) {
+                LogUtils.d("getTimetableOfTerm: using overview result, count=${zongResult.size}")
+                return DataState(zongResult, DataState.STATE.SUCCESS)
             }
-        }.start()
-        return result
+
+            // 策略2：总览没结果，走 Kbcx/query + querykbrcbyday 周表路径
+            LogUtils.d("getTimetableOfTerm: overview empty, falling back to week schedule")
+            val merged = linkedMapOf<String, CourseItem>()
+            fetchSelectedCourseNameByCode(token, term, studentType)
+            val dayScheduleCache = java.util.concurrent.ConcurrentHashMap<String, List<DayScheduleItem>>()
+            val requests = Semaphore(4)
+
+            // 收集所有需要富化的日期，然后并行请求
+            val enrichmentNeeded = java.util.concurrent.ConcurrentLinkedQueue<String>()
+            data class WeekData(val week: Int, val kcxxList: org.json.JSONArray, val weekDates: List<String>)
+            val allWeekData = mutableListOf<WeekData>()
+
+            // 并行获取所有周数据
+            val fetchedWeekData = coroutineScope {
+                (1..25).map { week ->
+                    async {
+                        requests.withPermit {
+                            val kbBody = """{"xn":"${term.yearCode}","xq":"${term.termCode}","zc":"$week","type":"json"}"""
+                            val kbResp = checkedJsonPost(token, "/app/Kbcx/query", kbBody, "06")
+                            val kbJo = JsonUtils.getJsonObject(kbResp.body()) ?: return@withPermit null
+                            if (kbJo.optInt("code", -1) != 200) return@withPermit null
+
+                            val contentArr = kbJo.optJSONArray("content") ?: return@withPermit null
+                            val kcxxList = extractKcxxListFromKbcxContent(contentArr)
+                            val weekDates = extractWeekDatesFromKbcx(contentArr)
+                            if (kcxxList.length() == 0) {
+                                return@withPermit null
+                            }
+                            WeekData(week, kcxxList, weekDates)
+                        }
+                    }
+                }.awaitAll().filterNotNull().sortedBy { it.week }
+            }
+
+            // 第一遍：收集需要富化的日期
+            for (wd in fetchedWeekData) {
+                val weekDates = wd.weekDates
+                for (i in 0 until wd.kcxxList.length()) {
+                    val kc = wd.kcxxList.optJSONObject(i) ?: continue
+                    val kbxx = kc.optString("KBXX", "")
+                    if (kbxx.contains("...") || kbxx.contains("[") || kbxx.contains("【实验】")) {
+                        val dow = kc.optInt("XQJ", -1)
+                        val dateForDow = weekDates.getOrNull(dow - 1)
+                        if (!dateForDow.isNullOrBlank() && !dayScheduleCache.containsKey(dateForDow)) {
+                            enrichmentNeeded.add(dateForDow)
+                        }
+                    }
+                }
+                allWeekData.add(wd)
+            }
+
+            // 并行请求所有需要富化的日期
+            if (enrichmentNeeded.isNotEmpty()) {
+                LogUtils.d("getTimetableOfTerm: fetching ${enrichmentNeeded.size} day schedules in parallel")
+                coroutineScope {
+                    enrichmentNeeded.distinct().map { date ->
+                        async {
+                            requests.withPermit {
+                                dayScheduleCache[date] = fetchDaySchedule(token, date)
+                            }
+                        }
+                    }.awaitAll()
+                }
+            }
+
+            // 第二遍：解析课程数据（日课表已在缓存中）
+            for (wd in allWeekData) {
+                val week = wd.week
+                val kcxxList = wd.kcxxList
+                val weekDates = wd.weekDates
+                val debugWeekRows = mutableListOf<CourseItem>()
+                for (i in 0 until kcxxList.length()) {
+                    val kc = kcxxList.optJSONObject(i) ?: continue
+                    val dow = kc.optInt("XQJ", -1)
+                    val ksjc = kc.optInt("KSJC", -1)
+                    val jsjc = kc.optInt("JSJC", -1)
+                    if (dow !in 1..7 || ksjc <= 0) continue
+
+                    val kbxx = kc.optString("KBXX", "")
+                    val rawCode = kc.optString("KCDM", "")
+                    val code = CourseCodeUtils.normalize(rawCode) ?: rawCode
+                    val fallbackName = normalizedCourseName(kbxx)
+                    if (fallbackName.isBlank()) continue
+
+                    val classroom = extractClassroomFromKbxx(kbxx) ?: ""
+                    val sessionHint = extractSessionHint(kbxx)
+
+                    // 只在 KBXX 包含 ... 或 [] 时才查日课表
+                    val needsEnrichment = kbxx.contains("...") || kbxx.contains("[")
+                    val dateForDow = weekDates.getOrNull(dow - 1)
+                    val canonicalName = if (needsEnrichment && !dateForDow.isNullOrBlank()) {
+                        val daySchedules = dayScheduleCache[dateForDow]
+                        if (daySchedules != null) bestDayScheduleRawName(daySchedules, dow, ksjc, jsjc, classroom) else null
+                    } else null
+
+                    val displayName = composeCourseDisplayName(canonicalName, fallbackName, sessionHint)
+
+                    val teacher = extractTeacher(kc, displayName, kbxx)
+                    val last = if (jsjc >= ksjc) jsjc - ksjc + 1 else 1
+
+                    val course = CourseItem().apply {
+                        this.code = code
+                        this.name = displayName
+                        this.rawName = displayName
+                        this.teacher = teacher
+                        this.classroom = classroom
+                        this.dow = dow
+                        this.begin = ksjc
+                        this.last = last
+                        this.weeks = mutableListOf(week)
+                    }
+                    if (week == debugWeek && dow == debugDow) {
+                        debugWeekRows.add(copyCourse(course))
+                    }
+                    upsertCourse(merged, course)
+                }
+                if (week == debugWeek) {
+                    val summary = debugWeekRows
+                        .sortedWith(compareBy<CourseItem> { it.dow }.thenBy { it.begin })
+                        .joinToString(" || ") { debugCourseIdentity(it) }
+                    LogUtils.d("[DBG] raw week=$week dow=$debugDow rows=${debugWeekRows.size} term=${term.getCode()} -> $summary")
+                }
+            }
+
+            val result = merged.values.toMutableList()
+            result.forEach { it.weeks = it.weeks.distinct().sorted().toMutableList() }
+            result.sortWith(compareBy<CourseItem> { it.dow }.thenBy { it.begin }.thenBy { it.name })
+            val debugBeforeMerge = result
+                .filter { it.dow == debugDow && it.weeks.contains(debugWeek) }
+                .sortedWith(compareBy<CourseItem> { it.begin }.thenBy { it.name })
+            LogUtils.d(
+                "[DBG] dedup week=$debugWeek dow=$debugDow count=${debugBeforeMerge.size} term=${term.getCode()} -> " +
+                    debugBeforeMerge.joinToString(" || ") { debugCourseIdentity(it) }
+            )
+            val mergedAdjacent = mergeAdjacentCourses(result)
+            val debugAfterMerge = mergedAdjacent
+                .filter { it.dow == debugDow && it.weeks.contains(debugWeek) }
+                .sortedWith(compareBy<CourseItem> { it.begin }.thenBy { it.name })
+            LogUtils.d(
+                "[DBG] merged week=$debugWeek dow=$debugDow count=${debugAfterMerge.size} term=${term.getCode()} -> " +
+                    debugAfterMerge.joinToString(" || ") { debugCourseIdentity(it) }
+            )
+
+            if (mergedAdjacent.isEmpty()) {
+                return DataState(DataState.STATE.FETCH_FAILED, "未获取到课表数据")
+            } else {
+                return DataState(mergedAdjacent, DataState.STATE.SUCCESS)
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (e: Exception) {
+            currentCoroutineContext().ensureActive()
+            LogUtils.e("getTimetableOfTerm: failed, error=${e.message}", e)
+            return DataState(DataState.STATE.FETCH_FAILED, e.message)
+        }
+    }
+
+    private suspend fun requestWebTimetable(token: EASToken, term: TermItem, studentType: String): DataState<List<CourseItem>> {
+        try {
+            val timetableResponse = checkedJwFormPost(token, "/xszykb/queryxszykbzong", mapOf("xn" to term.yearCode, "xq" to term.termCode), "/xszykb/queryxszykb")
+            if (isJwAuthenticationExpired(timetableResponse)) {
+                return DataState(DataState.STATE.NOT_LOGGED_IN, "深圳 Web 会话已失效")
+            }
+            val subjectResponse = checkedSelectedSubjects(token, term, studentType)
+            val subjects = if (isJwAuthenticationExpired(subjectResponse)) {
+                emptyList()
+            } else {
+                ShenzhenWebAcademicParser.parseSelectedSubjects(subjectResponse.body()).orEmpty()
+            }
+            val courses = ShenzhenWebAcademicParser.parseTimetable(timetableResponse.body(), subjects)
+            if (timetableResponse.statusCode() != 200 || courses == null) {
+                return DataState(DataState.STATE.FETCH_FAILED, "个人课表解析失败")
+            } else {
+                return DataState(courses, DataState.STATE.SUCCESS)
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            currentCoroutineContext().ensureActive()
+            return DataState(DataState.STATE.FETCH_FAILED, error.message)
+        }
     }
 
     private fun extractKcxxListFromKbcxContent(contentArr: org.json.JSONArray): org.json.JSONArray {
@@ -572,13 +617,14 @@ internal class ShenzhenTimetableWebSource(
         return dates
     }
 
-    private fun fetchSelectedCourseNameByCodeSync(
+    private suspend fun fetchSelectedCourseNameByCode(
         token: EASToken,
-        term: TermItem
+        term: TermItem,
+        studentType: String,
     ): Map<String, String> {
         return runCatching {
             val mapping = linkedMapOf<String, String>()
-            val pylxRaw = token.getStudentType()
+            val pylxRaw = studentType
             val pylxPad = pylxRaw.padStart(2, '0')
             val pylxCandidates = linkedSetOf(pylxRaw, pylxPad)
             val roleCandidates = listOf("01", "06")
@@ -597,7 +643,7 @@ internal class ShenzhenTimetableWebSource(
                         for (xkfs in xkfsCandidates) {
                             val body =
                                 """{"RoleCode":"$roleHeader","p_pylx":"$pylx","p_xn":"${term.yearCode}","p_xq":"${term.termCode}","p_xnxq":"$xnxq","p_gjz":"","p_kc_gjz":"","p_xkfsdm":"$xkfs"}"""
-                            val resp = jsonPost(token, "/app/Xsxk/queryYxkc?_lang=zh_CN", body, roleHeader)
+                            val resp = checkedJsonPost(token, "/app/Xsxk/queryYxkc?_lang=zh_CN", body, roleHeader)
                             val jo = JsonUtils.getJsonObject(resp.body())
                             val list = extractYxkcList(jo)
                             if (list != null && list.length() > 0) {
@@ -629,7 +675,11 @@ internal class ShenzhenTimetableWebSource(
             }
 
             mapping
-        }.getOrDefault(emptyMap())
+        }.getOrElse { error ->
+            if (error is CancellationException) throw error
+            currentCoroutineContext().ensureActive()
+            emptyMap()
+        }
     }
 
     private fun resolveTimetableCourseName(
@@ -1260,126 +1310,127 @@ internal class ShenzhenTimetableWebSource(
 
     // ================================================================ 课表时间结构
     @SuppressLint("SimpleDateFormat")
-    fun getScheduleStructure(
-        term: TermItem,
-        isUndergraduate: Boolean?,
-        token: EASToken
-    ): LiveData<DataState<MutableList<TimePeriodInDay>>> {
-        if (token.accessToken.isNullOrBlank() && token.hasShenzhenWebSession()) {
-            return getShenzhenWebScheduleStructure(token, term)
+    fun getScheduleStructure(term: TermItem, isUndergraduate: Boolean?, token: EASToken): LiveData<DataState<MutableList<TimePeriodInDay>>> =
+        legacyTimetableQuery { getScheduleStructureOnce(term, isUndergraduate, token) }
+
+    suspend fun getScheduleStructureOnce(term: TermItem, isUndergraduate: Boolean?, token: EASToken): DataState<MutableList<TimePeriodInDay>> {
+        val selected = term.timetableQueryCopy()
+        val useWeb = token.accessToken.isNullOrBlank() && token.hasShenzhenWebSession()
+        val undergraduate = isUndergraduate ?: (token.stutype == EASToken.TYPE.UNDERGRAD)
+        val studentType = token.getStudentType()
+        return withContext(Dispatchers.IO) {
+            currentCoroutineContext().ensureActive()
+            if (useWeb) requestWebSchedule(token, selected, studentType)
+            else requestSchedule(token, selected, undergraduate)
         }
-        val res = MutableLiveData<DataState<MutableList<TimePeriodInDay>>>()
-        Thread {
-            try {
-                val kbBody = """{"xn":"${term.yearCode}","xq":"${term.termCode}","zc":"1","type":"json"}"""
-                val kbResp = jsonPost(token, "/app/Kbcx/query", kbBody, "06")
-                val kbJo = JsonUtils.getJsonObject(kbResp.body())
-                val contentArr = kbJo?.optJSONArray("content")
-                val df = SimpleDateFormat("HH:mm", Locale.getDefault())
-                val slots: MutableList<TimePeriodInDay?> = mutableListOf()
-                if (contentArr != null) {
-                    for (i in 0 until contentArr.length()) {
-                        val obj = contentArr.optJSONObject(i) ?: continue
-                        val jcList = obj.optJSONArray("jcList") ?: continue
-                        var maxPeriod = 0
-                        for (j in 0 until jcList.length()) {
-                            val jc = jcList.optJSONObject(j) ?: continue
-                            val jsjc = jc.optInt("JSJC", 0)
-                            if (jsjc > maxPeriod) maxPeriod = jsjc
-                        }
-                        if (maxPeriod <= 0) continue
-                        val defaults = defaultScheduleStructure(
-                            isUndergraduate ?: (token.stutype == EASToken.TYPE.UNDERGRAD)
-                        )
-                        if (maxPeriod <= defaults.size) {
-                            res.postValue(DataState(defaults.take(maxPeriod).toMutableList()))
-                            return@Thread
-                        }
-                        while (slots.size < maxPeriod) slots.add(null)
-                        for (j in 0 until jcList.length()) {
-                            val jc = jcList.optJSONObject(j) ?: continue
-                            val ks = jc.optInt("KSJC", 0)
-                            val js = jc.optInt("JSJC", 0)
-                            val count = js - ks + 1
-                            val sj = jc.optString("SJ", "")
-                            val parts = sj.split("—", "–", "-")
-                            if (count <= 0 || parts.size < 2) continue
-                            try {
-                                val start = df.parse(parts[0].trim()) ?: continue
-                                val end = df.parse(parts[1].trim()) ?: continue
-                                val totalMinutes = ((end.time - start.time) / 60000L).toInt()
-                                if (totalMinutes <= 0) continue
-                                val perSlot = totalMinutes / count
-                                if (perSlot <= 0) continue
-                                for (idx in 0 until count) {
-                                    val slotStart = (start.time / 60000L).toInt() + perSlot * idx
-                                    val slotEnd = if (idx == count - 1) {
-                                        (end.time / 60000L).toInt()
-                                    } else {
-                                        (start.time / 60000L).toInt() + perSlot * (idx + 1)
-                                    }
-                                    val from = TimeInDay(slotStart / 60, slotStart % 60)
-                                    val to = TimeInDay(slotEnd / 60, slotEnd % 60)
-                                    val pos = ks - 1 + idx
-                                    if (pos in slots.indices) {
-                                        slots[pos] = TimePeriodInDay(from, to)
-                                    }
-                                }
-                            } catch (_: Exception) { LogUtils.w("Failed to parse slot structure") }
-                        }
-                        if (slots.any { it != null }) break
-                    }
-                }
-                val result = if (slots.isNotEmpty() && slots.all { it != null }) {
-                    slots.map { it!! }.toMutableList()
-                } else {
-                    val defaults = defaultScheduleStructure(
-                        isUndergraduate ?: (token.stutype == EASToken.TYPE.UNDERGRAD)
-                    )
-                    val size = maxOf(slots.size, defaults.size)
-                    val filled = MutableList(size) { idx ->
-                        slots.getOrNull(idx) ?: defaults.getOrNull(idx) ?: defaults.last()
-                    }
-                    filled
-                }
-                res.postValue(DataState(result))
-            } catch (e: Exception) {
-                LogUtils.e("getScheduleStructure: failed, error=${e.message}", e)
-                res.postValue(DataState(defaultScheduleStructure(
-                    isUndergraduate ?: (token.stutype == EASToken.TYPE.UNDERGRAD)
-                )))
-            }
-        }.start()
-        return res
     }
 
-    private fun getShenzhenWebScheduleStructure(
-        token: EASToken,
-        term: TermItem
-    ): LiveData<DataState<MutableList<TimePeriodInDay>>> {
-        val result = MutableLiveData<DataState<MutableList<TimePeriodInDay>>>()
-        Thread {
-            try {
-                val response = jwFormPost(token, "/component/queryKbjg", mapOf(
-                        "xn" to term.yearCode,
-                        "xq" to term.termCode,
-                        "pylx" to token.getStudentType()
-                    ), "/authentication/main")
-                if (isJwAuthenticationExpired(response)) {
-                    result.postValue(DataState(DataState.STATE.NOT_LOGGED_IN, "深圳 Web 会话已失效"))
-                    return@Thread
+    private suspend fun requestSchedule(token: EASToken, term: TermItem, isUndergraduate: Boolean): DataState<MutableList<TimePeriodInDay>> {
+        try {
+            val kbBody = """{"xn":"${term.yearCode}","xq":"${term.termCode}","zc":"1","type":"json"}"""
+            val kbResp = checkedJsonPost(token, "/app/Kbcx/query", kbBody, "06")
+            val kbJo = JsonUtils.getJsonObject(kbResp.body())
+            val contentArr = kbJo?.optJSONArray("content")
+            val df = SimpleDateFormat("HH:mm", Locale.getDefault())
+            val slots: MutableList<TimePeriodInDay?> = mutableListOf()
+            if (contentArr != null) {
+                for (i in 0 until contentArr.length()) {
+                    val obj = contentArr.optJSONObject(i) ?: continue
+                    val jcList = obj.optJSONArray("jcList") ?: continue
+                    var maxPeriod = 0
+                    for (j in 0 until jcList.length()) {
+                        val jc = jcList.optJSONObject(j) ?: continue
+                        val jsjc = jc.optInt("JSJC", 0)
+                        if (jsjc > maxPeriod) maxPeriod = jsjc
+                    }
+                    if (maxPeriod <= 0) continue
+                    val defaults = defaultScheduleStructure(
+                        isUndergraduate
+                    )
+                    if (maxPeriod <= defaults.size) {
+                        return DataState(defaults.take(maxPeriod).toMutableList())
+                    }
+                    while (slots.size < maxPeriod) slots.add(null)
+                    for (j in 0 until jcList.length()) {
+                        val jc = jcList.optJSONObject(j) ?: continue
+                        val ks = jc.optInt("KSJC", 0)
+                        val js = jc.optInt("JSJC", 0)
+                        val count = js - ks + 1
+                        val sj = jc.optString("SJ", "")
+                        val parts = sj.split("—", "–", "-")
+                        if (count <= 0 || parts.size < 2) continue
+                        try {
+                            val start = df.parse(parts[0].trim()) ?: continue
+                            val end = df.parse(parts[1].trim()) ?: continue
+                            val totalMinutes = ((end.time - start.time) / 60000L).toInt()
+                            if (totalMinutes <= 0) continue
+                            val perSlot = totalMinutes / count
+                            if (perSlot <= 0) continue
+                            for (idx in 0 until count) {
+                                val slotStart = (start.time / 60000L).toInt() + perSlot * idx
+                                val slotEnd = if (idx == count - 1) {
+                                    (end.time / 60000L).toInt()
+                                } else {
+                                    (start.time / 60000L).toInt() + perSlot * (idx + 1)
+                                }
+                                val from = TimeInDay(slotStart / 60, slotStart % 60)
+                                val to = TimeInDay(slotEnd / 60, slotEnd % 60)
+                                val pos = ks - 1 + idx
+                                if (pos in slots.indices) {
+                                    slots[pos] = TimePeriodInDay(from, to)
+                                }
+                            }
+                        } catch (_: Exception) { LogUtils.w("Failed to parse slot structure") }
+                    }
+                    if (slots.any { it != null }) break
                 }
-                val schedule = ShenzhenWebAcademicParser.parseScheduleStructure(response.body())
-                if (response.statusCode() != 200 || schedule == null) {
-                    result.postValue(DataState(DataState.STATE.FETCH_FAILED, "节次结构解析失败"))
-                } else {
-                    result.postValue(DataState(schedule, DataState.STATE.SUCCESS))
-                }
-            } catch (error: Exception) {
-                result.postValue(DataState(DataState.STATE.FETCH_FAILED, error.message))
             }
-        }.start()
-        return result
+            val result = if (slots.isNotEmpty() && slots.all { it != null }) {
+                slots.map { it!! }.toMutableList()
+            } else {
+                val defaults = defaultScheduleStructure(
+                    isUndergraduate
+                )
+                val size = maxOf(slots.size, defaults.size)
+                val filled = MutableList(size) { idx ->
+                    slots.getOrNull(idx) ?: defaults.getOrNull(idx) ?: defaults.last()
+                }
+                filled
+            }
+            return DataState(result)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (e: Exception) {
+            currentCoroutineContext().ensureActive()
+            LogUtils.e("getScheduleStructure: failed, error=${e.message}", e)
+            return DataState(defaultScheduleStructure(
+                isUndergraduate
+            ))
+        }
+    }
+
+    private suspend fun requestWebSchedule(token: EASToken, term: TermItem, studentType: String): DataState<MutableList<TimePeriodInDay>> {
+        try {
+            val response = checkedJwFormPost(token, "/component/queryKbjg", mapOf(
+                    "xn" to term.yearCode,
+                    "xq" to term.termCode,
+                    "pylx" to studentType
+                ), "/authentication/main")
+            if (isJwAuthenticationExpired(response)) {
+                return DataState(DataState.STATE.NOT_LOGGED_IN, "深圳 Web 会话已失效")
+            }
+            val schedule = ShenzhenWebAcademicParser.parseScheduleStructure(response.body())
+            if (response.statusCode() != 200 || schedule == null) {
+                return DataState(DataState.STATE.FETCH_FAILED, "节次结构解析失败")
+            } else {
+                return DataState(schedule, DataState.STATE.SUCCESS)
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            currentCoroutineContext().ensureActive()
+            return DataState(DataState.STATE.FETCH_FAILED, error.message)
+        }
     }
 
     @SuppressLint("SimpleDateFormat")
@@ -1438,13 +1489,13 @@ internal class ShenzhenTimetableWebSource(
         return firstLine.replace(Regex("\\[[^\\]]*]"), "").trim()
     }
 
-    private fun fetchTimetableFromOverview(
+    private suspend fun fetchTimetableFromOverview(
         token: EASToken,
         term: TermItem
     ): List<CourseItem>? {
         return try {
             val body = """{"xn":"${term.yearCode}","xq":"${term.termCode}","type":"json"}"""
-            val resp = jsonPost(token, "/app/kbrcbyapp/querykbrczong", body, "06")
+            val resp = checkedJsonPost(token, "/app/kbrcbyapp/querykbrczong", body, "06")
             val jo = JsonUtils.getJsonObject(resp.body())
             val content = jo?.optJSONArray("content") ?: return null
             val result = mutableListOf<CourseItem>()
@@ -1486,19 +1537,22 @@ internal class ShenzhenTimetableWebSource(
                 })
             }
             result.takeIf { it.isNotEmpty() }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (e: Exception) {
+            currentCoroutineContext().ensureActive()
             LogUtils.e("fetchTimetableFromOverview: failed, error=${e.message}", e)
             null
         }
     }
 
-    private fun fetchDaySchedule(
+    private suspend fun fetchDaySchedule(
         token: EASToken,
         date: String
     ): List<DayScheduleItem> {
         return try {
             val body = """{"nyr":"$date"}"""
-            val resp = jsonPost(token, "/app/kbrcbyapp/querykbrcbyday", body, "06")
+            val resp = checkedJsonPost(token, "/app/kbrcbyapp/querykbrcbyday", body, "06")
             val jo = JsonUtils.getJsonObject(resp.body())
             val content = jo?.optJSONArray("content") ?: return emptyList()
             val result = mutableListOf<DayScheduleItem>()
@@ -1514,7 +1568,10 @@ internal class ShenzhenTimetableWebSource(
                 ))
             }
             result
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (e: Exception) {
+            currentCoroutineContext().ensureActive()
             LogUtils.e("fetchDaySchedule: failed, error=${e.message}", e)
             emptyList()
         }

@@ -103,7 +103,7 @@ class EASRepository internal constructor(
     private val tokenStateLock = querySessionState.lock
     private val authEpoch = querySessionState.authEpoch
     private val credentialScopeRandom = SecureRandom()
-    private val autoImportInProgress = AtomicBoolean(false)
+    private val autoImportInProgress = queryCoordinator.autoImportInProgress
     private var acceptServiceTokenRefresh: Boolean
         get() = querySessionState.acceptServiceRefresh
         set(value) { querySessionState.acceptServiceRefresh = value }
@@ -144,7 +144,6 @@ class EASRepository internal constructor(
         scoreCacheOwnerKey = ::scoreCacheOwnerKey,
     )
     private val timetableImportRepository = EASTimetableImportRepository(
-        getService = ::getService,
         easPreferenceSource = easPreferenceSource,
         eventItemDao = eventItemDao,
         timetableDao = timetableDao,
@@ -160,6 +159,11 @@ class EASRepository internal constructor(
         captureSession = ::captureQuerySession,
         queryTerms = { queryTermsRemoteOnce(it) },
         applicationScope = queryCoordinator.applicationScope,
+        database = database,
+        autoGroupImportedTimetable = { id ->
+            TimetableRepository(application, database, ApplicationDisplayScopeSelector(application))
+                .autoGroupAfterEasImportSync(id)
+        },
     )
 
     companion object {
@@ -387,21 +391,30 @@ class EASRepository internal constructor(
         return result
     }
 
-    /**
-     * 获取学期开始日期
-     */
-    fun getStartDateOfTerm(term: TermItem): LiveData<DataState<Calendar>> {
-        return getStartDateOfTerm(captureQuerySession(), term)
+    internal suspend fun getStartDateOfTermOnce(session: EasQuerySession, term: TermItem): DataState<Calendar> {
+        if (!session.loggedIn) return DataState(DataState.STATE.NOT_LOGGED_IN)
+        val captured = term.copyForQuery()
+        return session.whileCurrent { session.service.getStartDateOnce(session.token, captured) }
     }
 
-    internal fun getStartDateOfTerm(session: EasQuerySession, term: TermItem): LiveData<DataState<Calendar>> {
-        if (session.loggedIn && session.isCurrent()) {
-            return session.service.getStartDate(session.token, term)
-        }
-        LogUtils.w("getStartDateOfTerm: not logged in")
-        return LiveDataUtils.getMutableLiveData<DataState<Calendar>>(DataState(DataState.STATE.NOT_LOGGED_IN))
+    internal suspend fun getScheduleStructureOnce(
+        session: EasQuerySession,
+        term: TermItem,
+        isUndergraduate: Boolean? = null,
+    ): DataState<MutableList<TimePeriodInDay>> {
+        if (!session.loggedIn) return DataState(DataState.STATE.NOT_LOGGED_IN)
+        val captured = term.copyForQuery()
+        return session.whileCurrent { session.service.getScheduleStructureOnce(captured, isUndergraduate, session.token) }
     }
 
+    internal suspend fun getShenzhenCoursePlanningStartDateOnce(session: EasQuerySession, term: TermItem): DataState<Calendar> =
+        session.whileCurrent { shenzhenService.getShenzhenCoursePlanningStartDateOnce(session.token, term.copyForQuery()) }
+
+    internal suspend fun getShenzhenCoursePlanningScheduleStructureOnce(
+        session: EasQuerySession, term: TermItem,
+    ): DataState<MutableList<TimePeriodInDay>> = session.whileCurrent {
+        shenzhenService.getShenzhenCoursePlanningScheduleStructureOnce(session.token, term.copyForQuery())
+    }
 
     internal val querySessions get() = querySessionState.changes
 
@@ -494,32 +507,7 @@ class EASRepository internal constructor(
         return LiveDataUtils.getMutableLiveData(DataState(DataState.STATE.NOT_LOGGED_IN))
     }
 
-    /**
-     * 获取课表结构
-     */
-    fun getScheduleStructure(
-        term: TermItem,
-        isUndergraduate: Boolean? = null
-    ): LiveData<DataState<MutableList<TimePeriodInDay>>> {
-        return getScheduleStructure(captureQuerySession(), term, isUndergraduate)
-    }
 
-    internal fun getScheduleStructure(
-        session: EasQuerySession,
-        term: TermItem,
-        isUndergraduate: Boolean? = null,
-    ): LiveData<DataState<MutableList<TimePeriodInDay>>> {
-        if (session.loggedIn && session.isCurrent()) {
-            return session.service.getScheduleStructure(term, isUndergraduate, session.token)
-        }
-        LogUtils.w("getScheduleStructure: not logged in")
-        return LiveDataUtils.getMutableLiveData<DataState<MutableList<TimePeriodInDay>>>(
-            DataState(
-                DataState.STATE.NOT_LOGGED_IN
-            )
-        )
-
-    }
 
     /**
      * 获取教学楼列表
@@ -813,11 +801,13 @@ class EASRepository internal constructor(
      * 老教务解析逻辑不要挪到这里；如果某校区字段变化，应优先修改对应 WebSource 或 Parser。
      */
     // ===== 委托给 timetableImportRepository =====
-    fun startImportTimetableOfTerm(term: TermItem,
+    internal suspend fun importTimetableOfTerm(
+        session: EasQuerySession,
+        term: TermItem,
         startDate: Calendar,
-        schedule: List<TimePeriodInDay>,//课表结构
-        importTimetableLiveData: MediatorLiveData<DataState<Boolean>>,
-        importMode: TimetableImportMode = TimetableImportMode.REPLACE) = timetableImportRepository.startImportTimetableOfTerm(term, startDate, schedule, importTimetableLiveData, importMode)
+        schedule: List<TimePeriodInDay>,
+        importMode: TimetableImportMode = TimetableImportMode.REPLACE,
+    ) = timetableImportRepository.importTimetableOfTerm(session, term, startDate, schedule, importMode)
     fun startAutoImportCurrentTimetable(isUndergraduate: Boolean,
         onResult: ((AutoImportResult) -> Unit)? = null) = timetableImportRepository.startAutoImportCurrentTimetable(isUndergraduate, onResult)
 
@@ -889,8 +879,6 @@ class EASRepository internal constructor(
     fun getShenzhenCreditProgress(term: TermItem? = null): LiveData<DataState<ShenzhenCreditProgress>> = shenzhenRepository.getShenzhenCreditProgress(term)
     fun getShenzhenTrainingPlanCourses(plan: ShenzhenTrainingPlan): LiveData<DataState<ShenzhenTrainingPlanDetail>> = shenzhenRepository.getShenzhenTrainingPlanCourses(plan)
     fun downloadShenzhenCourseAttachment(attachment: ShenzhenCourseAttachment): Long = shenzhenRepository.downloadShenzhenCourseAttachment(attachment)
-    fun getShenzhenCoursePlanningStartDate(term: TermItem): LiveData<DataState<Calendar>> = shenzhenRepository.getShenzhenCoursePlanningStartDate(term)
-    fun getShenzhenCoursePlanningScheduleStructure(term: TermItem): LiveData<DataState<MutableList<TimePeriodInDay>>> = shenzhenRepository.getShenzhenCoursePlanningScheduleStructure(term)
     fun getShenzhenRecommendationTracks(): LiveData<DataState<List<ShenzhenRecommendationTrack>>> = shenzhenRepository.getShenzhenRecommendationTracks()
 
     fun getHoaCampus(@Suppress("UNUSED_PARAMETER") campus: EASToken.Campus = easPreferenceSource.getEasToken().campus): String {
@@ -915,8 +903,8 @@ class EASRepository internal constructor(
     }
 
     // ===== 委托给 timetableImportRepository =====
-    fun getTimetableSnapshots(term: TermItem): LiveData<DataState<List<TimetableVersionSnapshot>>> = timetableImportRepository.getTimetableSnapshots(term)
-    fun restoreTimetableSnapshot(snapshotId: String): LiveData<DataState<TimetableVersionSnapshot>> = timetableImportRepository.restoreTimetableSnapshot(snapshotId)
+    internal suspend fun getTimetableSnapshots(session: EasQuerySession, term: TermItem): DataState<List<TimetableVersionSnapshot>> = timetableImportRepository.getTimetableSnapshots(session, term)
+    internal suspend fun restoreTimetableSnapshot(session: EasQuerySession, snapshotId: String): DataState<TimetableVersionSnapshot> = timetableImportRepository.restoreTimetableSnapshot(session, snapshotId)
 
     fun observeEasToken(): LiveData<EASToken> {
         return easTokenLiveData

@@ -32,6 +32,7 @@ class WeihaiEASWebSource internal constructor(
     private val examHostOverride: String? = null,
     private val classroomHostOverride: String? = null,
     private val termsHostOverride: String? = null,
+    private val timetableHostOverride: String? = null,
 ) : AbstractEASWebSource(onCookiesUpdated) {
     constructor(onCookiesUpdated: ((EASToken) -> Unit)? = null) : this(null, onCookiesUpdated)
 
@@ -40,13 +41,14 @@ class WeihaiEASWebSource internal constructor(
         get() = teachingBuildingsHostOverride?.trimEnd('/') ?: hostName
     override val termsHostName: String
         get() = termsHostOverride?.trimEnd('/') ?: hostName
+    override val timetableHostName: String get() = timetableHostOverride?.trimEnd('/') ?: hostName
     override val campusDisplayName: String = "威海"
 
     override fun postProcessTerms(terms: MutableList<TermItem>): MutableList<TermItem> =
         WeihaiTermPolicy.filterVisible(terms).toMutableList()
 
-    override fun loadCoursesForSchedule(term: TermItem, token: EASToken): List<CourseItem> =
-        getTimetableOfTermSync(term, token)
+    override fun loadCoursesForSchedule(term: TermItem, token: EASToken, account: TimetableCourseAccount, checkCancelled: () -> Unit): List<CourseItem> =
+        getTimetableOfTermSync(term, token, checkCancelled)
 
     override val timetableDebugCellSelector: String = "td,th"
 
@@ -152,69 +154,27 @@ class WeihaiEASWebSource internal constructor(
     }
 
 
-    override fun getTimetableOfTerm(
-        term: TermItem,
-        token: EASToken
-    ): LiveData<DataState<List<CourseItem>>> {
-        val result = MutableLiveData<DataState<List<CourseItem>>>()
-        result.value = DataState(DataState.STATE.NOTHING)
+    override fun getTimetableOfTerm(term: TermItem, token: EASToken): LiveData<DataState<List<CourseItem>>> =
+        legacyTimetableQuery(DataState.STATE.NOTHING) { getTimetableOfTermOnce(term, token) }
 
-        executor.execute {
+    override suspend fun getTimetableOfTermOnce(term: TermItem, token: EASToken): DataState<List<CourseItem>> {
+        val selected = term.timetableQueryCopy()
+        return withContext(Dispatchers.IO) {
+            val context = currentCoroutineContext()
             try {
-                val termCode = term.getCode()
-                LogUtils.d("getTimetableOfTerm: request path=/kbcx/queryGrkb params={fhlj=kbcx/queryGrkb,xnxq=$termCode}")
-                val response = Jsoup.connect("$hostName/kbcx/queryGrkb")
-                    .cookies(token.cookies)
-                    .header("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15")
-                    .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
-                    .header("Accept-Language", "zh-CN,zh-Hans;q=0.9")
-                    .header("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
-                    .data("fhlj", "kbcx/queryGrkb")
-                    .data("xnxq", termCode)
-                    .timeout(timeout)
-                    .ignoreContentType(true)
-                    .ignoreHttpErrors(true)
-                    .method(Connection.Method.POST)
-                    .execute()
-
-                val statusCode = response.statusCode()
-                val body = response.body()
-                val hasTimetableTable = Jsoup.parse(body).selectFirst("table.addlist_01") != null
-                LogUtils.d(
-                    "getTimetableOfTerm: response, term=$termCode status=$statusCode hasAddlist01=$hasTimetableTable cookieKeys=${token.cookies.keys.sorted()} ${cookieFingerprintSummary(token.cookies)}"
-                )
-
-                // 错误分类对齐 iOS：登录特征 / 401 / 403 → 会话失效（引导重登）；
-                // 5xx（上游不可用）→ 提示稍后重试，不引导重登。
-                if (statusCode == 401 || statusCode == 403 || isAuthExpiredResponse(response, body)) {
-                    LogUtils.w("getTimetableOfTerm: auth expired, term=$termCode status=$statusCode")
-                    result.postValue(DataState(DataState.STATE.NOT_LOGGED_IN, "登录已失效，请重新登录"))
-                    return@execute
-                }
-
-                if (statusCode in 500..599) {
-                    LogUtils.w("getTimetableOfTerm: upstream unavailable, term=$termCode status=$statusCode")
-                    result.postValue(DataState(DataState.STATE.FETCH_FAILED, "服务器错误，请稍后重试"))
-                    return@execute
-                }
-
-                if (statusCode != 200) {
-                    result.postValue(DataState(DataState.STATE.FETCH_FAILED, "HTTP $statusCode"))
-                    return@execute
-                }
-
-                ensureTimetableResponse(term, body, statusCode)
-                val parsedCourses = BenbuScheduleParser.parseScheduleHtml(body)
-                val courses = mergeAdjacentCourses(parsedCourses, scheduleFor(token))
-                logEmptyTimetableDetails(term, body, courses)
-                LogUtils.d("getTimetableOfTerm: parsed, term=$termCode rawCourseCount=${parsedCourses.size} mergedCourseCount=${courses.size}")
-                result.postValue(DataState(courses))
-            } catch (e: Exception) {
-                result.postValue(DataState(DataState.STATE.FETCH_FAILED, e.message))
+                val courses = getTimetableOfTermSync(selected, token) { context.ensureActive() }
+                context.ensureActive()
+                DataState(courses)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (expired: EastSessionExpiredException) {
+                context.ensureActive()
+                DataState(DataState.STATE.NOT_LOGGED_IN, "登录已失效，请重新登录")
+            } catch (error: Exception) {
+                context.ensureActive()
+                DataState(DataState.STATE.FETCH_FAILED, error.message)
             }
         }
-
-        return result
     }
 
     override fun getTeachingBuildings(token: EASToken): LiveData<DataState<List<BuildingItem>>> {
@@ -306,8 +266,9 @@ class WeihaiEASWebSource internal constructor(
     }
 
 
-    private fun getTimetableOfTermSync(term: TermItem, token: EASToken): List<CourseItem> {
-        val response = Jsoup.connect("$hostName/kbcx/queryGrkb")
+    private fun getTimetableOfTermSync(term: TermItem, token: EASToken, checkCancelled: () -> Unit = {}): List<CourseItem> {
+        checkCancelled()
+        val response = Jsoup.connect("$timetableHostName/kbcx/queryGrkb")
             .cookies(token.cookies)
             .header("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15")
             .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
@@ -320,6 +281,7 @@ class WeihaiEASWebSource internal constructor(
             .ignoreHttpErrors(true)
             .method(Connection.Method.POST)
             .execute()
+        checkCancelled()
         val statusCode = response.statusCode()
         val body = response.body()
         // 错误分类对齐 iOS：登录特征 / 401 / 403 → 会话失效；5xx → 上游不可用。
