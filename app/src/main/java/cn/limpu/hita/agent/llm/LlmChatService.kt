@@ -528,7 +528,7 @@ suspend fun LlmChatService.chatWithAttachment(
                 val response = ZhipuClient.service.chatCompletion(
                     ZhipuClient.authHeader(application),
                     zhipuRequest
-                ).execute()
+                ).awaitCancellable()
 
                 if (!response.isSuccessful) {
                     val errorBody = response.errorBody()?.string()

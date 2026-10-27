@@ -18,3 +18,17 @@ data class AgentChatMessage(
         TRACE,
     }
 }
+
+internal fun AgentChatMessage.toRecord() = cn.limpu.hita.data.model.chat.ChatMessageRecord(
+    role = cn.limpu.hita.data.model.chat.ChatMessageRecord.Role.valueOf(role.name),
+    text = text,
+    resourceCards = resourceCards.toList(),
+    timestampMs = timestampMs,
+)
+
+internal fun cn.limpu.hita.data.model.chat.ChatMessageRecord.toUiMessage() = AgentChatMessage(
+    role = AgentChatMessage.Role.valueOf(role.name),
+    text = text,
+    resourceCards = resourceCards,
+    timestampMs = timestampMs,
+)

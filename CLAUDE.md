@@ -72,7 +72,7 @@ agent/
 └── timetable/   # Timetable agent (local timetable queries + calendar add)
 ```
 
-**Chat attachments**: PDF, DOCX, XLSX, PPTX and TXT attachments are currently copied with a byte cap (`cacheChatAttachment` in `ChatAttachmentFile.kt`) and parsed inside `AgentChatViewModel` (`ui/main/agent/`); there is no `agent/document` package or `FileParserDispatcher`. Extracting a dedicated attachment processor is a planned refactor, not current structure.
+**Chat attachments**: `agent/attachment/AndroidChatAttachmentSource` owns Android URI/display-name adaptation, `ChatAttachmentProcessor` owns bounded byte caching and typed text/media/failure results, and `DocumentTextParser` owns bounded PDF/DOCX/XLSX/PPTX/TXT parsing. `AgentChatViewModel` only coordinates attachment results with session/request delivery; it does not parse documents or own temporary files. `ChatModule` wires the processor and loader through Hilt.
 
 **Chat ReAct path**: `LlmChatService.chat()` calls `localReAct()` to run the reasoning/tool loop on Android. Chat tools implement `ReActTool`, are registered in `ReActToolRegistry`, receive `ReActToolInput`, and return textual observations. Model requests go through `LlmClient` and the configured provider. The chat entry point currently does not use the backend ReAct loop.
 
