@@ -1,8 +1,8 @@
-# 全仓优化交接（2026-10-26，#75 合并后）
+# 全仓优化交接（2026-10-27，#77 合并后）
 
 本文记录分阶段优化的已交付结果、证据和剩余范围。项目约定见 [AGENTS.md](../AGENTS.md)，阶段 3–5 的完整验收台账见 [refactor-stage345-plan.md](refactor-stage345-plan.md)。历史测试数对应各 PR head，不代表合并后的 main 已另行验证。
 
-**阶段 0、1、2 已完成。阶段 3.1 已合并教学楼查询 #65、考试查询 #66、空教室远端查询 #67、空教室 Repository 与页面迁移 #68，以及学期远端协程能力 #70。阶段 5.V/M/R 构建改造已合并 #71，5.T 子模块测试与兼容修复已合并 #72；Subject 整链已合并 #73；纯 JVM 核心/旧 sync 清理已合并 #74，学期缓存/全部消费端已合并 #75，其余功能链继续实施；阶段 3 其余范围、阶段 4 与阶段 5 尚未完成。**
+**阶段 0、1、2 已完成。阶段 3.1 已合并教学楼查询 #65、考试查询 #66、空教室远端查询 #67、空教室 Repository 与页面迁移 #68，以及学期远端协程能力 #70。阶段 5.V/M/R 构建改造已合并 #71，5.T 子模块测试与兼容修复已合并 #72；Subject 整链已合并 #73；纯 JVM 核心/旧 sync 清理已合并 #74，学期缓存/全部消费端已合并 #75；课表页面状态、批次与周组件拆分已合并 #77。当前 3.D1/D2 EASRepository 装配批次已完成本地编译和仓库检查，待提交 PR CI；阶段 3 其余范围、阶段 4 的 Main/Web 登录和阶段 5 最终审计尚未完成。**
 
 ## 1. 当前状态
 
@@ -10,7 +10,9 @@
 - #68 [CI 40288044464](https://github.com/HIT-A/HITA_Android/actions/runs/40288044464) 两个 job 成功。实际设备 XML 独立核实 481 项全部通过：原 378 + 40 项兼容基线 + 5 项原失败回归 + 58 项新增能力测试；无失败、错误、跳过、重复或缺漏。
 - #68 本地 JVM 795 项中 794 通过、1 项既有可选 HOA 联网测试跳过；Debug 与 androidTest APK 构建、仓库/分层/health/consistency 检查通过。CI 的 JVM 步骤成功，但 CI 未上传 JVM XML，不能把本地精确计数说成 CI XML 结果。
 - [PR #70](https://github.com/HIT-A/HITA_Android/pull/70) 已合并为 `b8a4cea55faab714baccceb1586ecc652cb3f46f`。head `72751747ba5acccfb8abf4240d3b6f1700445e66` 的 [CI 40299381154](https://github.com/HIT-A/HITA_Android/actions/runs/40299381154) 两个 job 成功，原始设备 XML 独立核实 607 项全部通过；这是 PR head 的结果，不是合并后的 main 另跑一次验证。
+- [PR #77](https://github.com/HIT-A/HITA_Android/pull/77) 已合并为 `59b6cc1`，完成课表批次协调、页面状态/生命周期与周组件/规划预览拆分。[CI 40480112502](https://github.com/HIT-A/HITA_Android/actions/runs/40480112502) 实际设备 XML 独立核实 845 项全部通过，0 失败、错误、跳过或重复；这是 PR head 的设备证据，未进行真实校园账号或物理真机验证。
 - 阶段 3.1 已交付上述查询能力；学期缓存与全部消费端已由 #75 交付；其余教务请求、Repository 内部依赖注入、聊天拆分及 Agent 执行语义改造仍须按台账逐项实施与验证。
+- 当前 EASRepository 注入批次位于隔离工作树 `codex/eas-repository-injection`，生产调用链和 wiring seam 已完成。`EASRepository` 接收数据库、DAO、快照、Gson、考试导入和课表分组能力；`EventItemFragment` 使用 Hilt；`ScoreReminderWorker` 通过 Hilt EntryPoint 获取生产依赖并保留测试替身；成绩摘要按能力接口选择服务。`compileDebugKotlin`、`compileDebugAndroidTestKotlin`、`testDebugUnitTest`、`assembleDebug` 及仓库/health/consistency/diff 检查均通过；本地无 AVD，新增 wiring AndroidTest 仅完成编译，尚无设备运行、CI、PR 或合并证据。
 - 完整验收文档已通过 #69 合并为 `f48cc4b`；对应 head `d89c58d` 的 [CI 40292512701](https://github.com/HIT-A/HITA_Android/actions/runs/40292512701) 两个 job 成功，下载的实际设备 XML 为原 481 项全部通过。后续每批从最新 `origin/main` 新建分支，不在已合并功能分支追加工作。
 - 用户此前保留的交接文档改动已备份到 `/tmp/hita-stage345-skdpckp3/handoff-before-update.md`，本次明确要求“补齐之后继续”，因此将既有文档更新与 #66–#68 补充一并纳入文档 PR。
 - **当前目标的新增授权**：用户明确要求“你自己开 PR、自己审核、自己合并，不要打扰我，直到做完 3、4、5”。这覆盖本目标内的方案、实现、文档、commit、origin push、PR、审核、必要分支同步及合并；不再逐批请求确认。它覆盖本目标，并非修改其他任务的默认授权规则。仍不发布 release、不推 fork。
@@ -24,8 +26,8 @@
 | 0 | 固定基线、修复数据写入失败窗口、升级路径测试、CI 设备测试 | **完成** |
 | 1 | 依赖方向检查、共享模型归位、深圳教务拆分类接入 | **1.1–1.4 全部合并**（#56–#61） |
 | 2 | 显示目标副作用、普通课表写入用例、考试导入入口 | **2.1–2.3 全部合并**（#62–#64），本地及 PR CI 验证完成 |
-| 3 | 教务一次性请求改 suspend、EASRepository 注入、聊天会话/附件拆分、AgentToolExecutor 结果语义 | **进行中**：#65–#68、#70、#75 已合并；完整剩余范围见验收台账 |
-| 4 | 拆 MainActivity → TimetableFragment → WebViewLoginActivity → SubjectActivity | Subject 已合并 #73 并核验完整 CI；Main 本地定向验证通过，最终交付待验；课表页面实现与独审中，Web 登录待做 |
+| 3 | 教务一次性请求改 suspend、EASRepository 注入、聊天会话/附件拆分、AgentToolExecutor 结果语义 | **进行中**：#65–#68、#70、#75 已合并；3.D1/D2 当前批次本地通过、PR 待 CI；完整剩余范围见验收台账 |
+| 4 | 拆 MainActivity → TimetableFragment → WebViewLoginActivity → SubjectActivity | Subject 已合并 #73；课表页面状态、批次与周组件已由 #77 合并并核验 845 项设备测试；Main 最终交付和 Web 登录仍待做 |
 | 5 | 版本目录统一、mavenLocal 开关、恢复 style 的 verifyReleaseResources、子模块测试、纯 Kotlin 模块提取、sync 模块清理 | **进行中**：5.V/M/R 已合并 #71，5.T 已合并 #72；纯 JVM 模块/旧 sync 清理合批已合并 #74，最终审计待做；其余进度见台账 |
 
 阶段 0 落地记录：
@@ -251,7 +253,23 @@ CI [40198232504](https://github.com/HIT-A/HITA_Android/actions/runs/40198232504)
 
 111 配置严格对照、三种 Maven Local 模式及冷缓存构建通过；整合 #70 后 Debug/测试 APK 构建、JVM 794 通过 + 1 既有跳过、设备 607 项全通过。随后合入的资源校验实际执行成功，30 项 Release 任务全执行，新 style AAR 与原字节一致；没有发现需要修改资源的 AAPT 错误。整合前后测试边界、旧基线制品比较和原始证据路径集中记录在 [验收台账](refactor-stage345-plan.md)，最终 [PR #71](https://github.com/HIT-A/HITA_Android/pull/71) 的 CI 40305741411 两 job 成功，设备 607 项全通过，资源任务实际执行；合并 `f4e809d` 已 fetch 核实与已审提交树相同。
 
-## 9. 遗留事项与阶段 3–5 路线
+## 9. 近期批次：课表页面与 EASRepository 装配
+
+### 4.T1/T2 课表页面整链（PR #77，已合并且验证）
+
+课表页面批次已完成协调器、状态与生命周期拆分，并把周组件、几何、课程卡片和课程规划预览接到新的展示链。`TimetableFragment` 保留宿主职责，批次选择由 `TimetableBatchCoordinator` 管理，组件接收显式 state/actions；保留朋友课表、只读目标、时间范围和校园时区行为。
+
+- [PR #77](https://github.com/HIT-A/HITA_Android/pull/77) 已合并，合并提交 `59b6cc1`；这是当前 `origin/main` 的 HEAD。
+- [CI 40480112502](https://github.com/HIT-A/HITA_Android/actions/runs/40480112502) 实际设备 XML 为 845 项，全部通过，0 失败、错误、跳过或重复。测试覆盖批次 UI、宿主生命周期、周组件、几何和旧边界；报告对应 PR head。
+- 设备使用合成数据和 API 35 模拟器，未进行真实校园账号、WebVPN 或物理真机验证；阶段 4 的 Main 最终审计与 Web 登录链仍未完成。
+
+### 3.D1/D2 EASRepository 装配（当前批次，PR 待 CI）
+
+当前隔离工作树 `codex/eas-repository-injection` 已把 EASRepository 的生产依赖链收拢到 Hilt/显式 seam：数据库、DAO、快照存储、Gson、考试导入、课表分组和服务工厂由构造或模块装配；`EventItemFragment` 改用 Hilt；`ScoreReminderWorker` 通过 Hilt EntryPoint 获取生产 Repository/Store 并保留测试替身；导入 Repository 显式接收分组与考试依赖；成绩摘要按 `EASScoreSummaryService` 能力接口选择，移除具体 WebSource 类型判断。
+
+本地已通过 `:app:compileDebugKotlin`、`:app:compileDebugAndroidTestKotlin`、`:app:testDebugUnitTest`、`:app:assembleDebug`、`:app:assembleDebugAndroidTest`，以及 `python3 scripts/check_repository.py --base-ref origin/main`、`project_health_check.sh`、`code_consistency_check.sh`、`git diff --check`。新增 `EasRepositoryWiringInstrumentedTest` 已编译，当前环境没有 AVD，因此还没有设备运行、PR CI、合并或真实账号证据；代码已提交为 `34ef8d6`，PR 尚待创建。
+
+## 10. 遗留事项与阶段 3–5 路线
 
 - 当前按 [完整验收台账](refactor-stage345-plan.md) 自主推进。#70 学期远端能力已合并，学期缓存与全部十个消费端整链已由 #75 合并并核验完整 CI；后续覆盖全部适合的一次性请求及渐进结果流、Repository 装配、聊天/附件、AI 调用链和执行语义，以及四个大型页面及构建/模块整理。
 - `TimetableSourceApplier.applyHeldBatch` 在 Room 事务内调用 `changeStore.clearTerm` 写文件；提交失败仍存在恢复风险，需要独立失败基线与修复。
@@ -261,13 +279,13 @@ CI [40198232504](https://github.com/HIT-A/HITA_Android/actions/runs/40198232504)
 - 本目标新增工作不能只凭目录移动、接口存在或构建成功宣称完成。必须验证真实调用者接入、缓存/认证/线程/生命周期行为及模块依赖方向。
 - `/tmp` 证据可能清理，已合并 PR 与 Actions 为持久入口。不要重跑绑定旧快照的 prepare/generator 脚本。历史统计只适用于对应 SHA，不是当前度量。
 
-## 10. 下一会话恢复提示词
+## 11. 下一会话恢复提示词
 
 ```text
 继续 /home/rinat/projects/HITA 阶段 3、4、5 的自主重构目标。
 先读 AGENTS.md、本交接及 docs/refactor-stage345-plan.md；以当前 Git、PR、CI、源码为准，不把历史说明当最新状态。
-阶段0/1/2已完成；3.1已合并#65教学楼、#66考试、#67空教室远端、#68空教室Repository/页面、#70学期远端能力。#70合并为b8a4cea，head7275174的CI40299381154实际设备607全通过，本地JVM794通过+1既有可选跳过；学期缓存和全部消费端留3.Q2。
-5.V/M/R合为构建改造批次：三模式/冷缓存111配置对照通过；V/M整合b8a4cea后607设备全通过，R实际资源校验/AAR通过；最终#71 CI40305741411两job通过、607设备全绿，已合并f4e809d；5.T已合并#72，最终CI JVM 805通过+1既有跳过、633设备全绿；Subject已合并#73，head127e945的CI40314264518实际JVM827通过+1旧跳过、647设备全绿；纯JVM核心与旧sync清理已合并#74，CI40317563827实际JVM827通过+1旧跳过、647设备全绿，合并51819ca；学期缓存/十消费者整链已合并 #75，CI40320879654 实际 JVM827通过+1旧跳过、726设备全通过。精确状态和证据统一读验收台账。阶段3其余、阶段4与阶段5都未完成。
+阶段0/1/2已完成；3.1已合并#65教学楼、#66考试、#67空教室远端、#68空教室Repository/页面、#70学期远端能力。#70合并为b8a4cea，head7275174的CI40299381154实际设备607全通过，本地JVM794通过+1既有可选跳过；学期缓存和全部消费端已由#75合并。#77已合并为59b6cc1，CI40480112502实际设备845全通过，课表页面状态、批次和周组件链已交付。
+5.V/M/R合为构建改造批次：三模式/冷缓存111配置对照通过；V/M整合b8a4cea后607设备全通过，R实际资源校验/AAR通过；最终#71 CI40305741411两job通过、607设备全绿，已合并f4e809d；5.T已合并#72，最终CI JVM 805通过+1既有跳过、633设备全绿；Subject已合并#73，head127e945的CI40314264518实际JVM827通过+1旧跳过、647设备全绿；纯JVM核心与旧sync清理已合并#74，CI40317563827实际JVM827通过+1旧跳过、647设备全绿，合并51819ca；学期缓存/十消费者整链已合并#75，CI40320879654实际JVM827通过+1旧跳过、726设备全通过。当前3.D1/D2位于隔离工作树，相关本地编译、单测和仓库检查通过，尚无设备运行/CI/合并证据。精确状态和证据统一读验收台账。阶段3其余、阶段4 Main/Web登录和阶段5最终审计都未完成。
 用户已明确授权阶段3/4/5内自主方案、实现、commit、origin push、PR、审核及合并，不再逐项询问；不发release、不推fork。
 维护完整验收台账，不把已完成局部替代完整目标。独立审查、合适构建/真实测试报告、原用例完整保留、缺陷先红后绿仍须执行。
 从最新origin/main新建每批分支，完成真实调用者迁移与证据后提交PR/合并，再更新台账继续；最终逐项核实全部范围后才结束目标。

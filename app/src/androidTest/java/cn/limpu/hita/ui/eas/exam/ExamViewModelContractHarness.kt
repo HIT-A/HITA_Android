@@ -19,6 +19,7 @@ import cn.limpu.hita.data.analytics.UsageAnalyticsEvent
 import cn.limpu.hita.data.model.eas.ExamItem
 import cn.limpu.hita.data.model.eas.TermItem
 import cn.limpu.hita.data.repository.EASRepository
+import cn.limpu.hita.data.repository.LegacyEasRepositoryDependencies
 import cn.limpu.hita.data.repository.ExamQueryRequest
 import cn.limpu.hita.data.repository.ExamImportRepository
 import cn.limpu.hita.data.repository.TimetableChangeStore
@@ -63,9 +64,11 @@ internal class ExamViewModelContractHarness(initialMemos: List<ExamItem> = empty
     init {
         initialMemos.forEach(memoStore::upsert)
         val easPreferences = EasPreferenceSource(context)
+        val dependencies = LegacyEasRepositoryDependencies.from(app)
         val repository = EASRepository(
             app, easPreferences, EasCredentialStore(context),
             TimetablePreferenceSource(context, easPreferences), TimetableChangeStore(app), TimetableMutationLock(),
+            dependencies.database, dependencies.serviceFactories,
         )
         val inputs = ExamPageInputs(
             getTerms = {

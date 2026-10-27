@@ -87,7 +87,7 @@ data class SnapshotEvent(
 
 internal class TimetableSnapshotStore(
     context: Context,
-    private val database: AppDatabase = AppDatabase.getDatabase(context.applicationContext),
+    private val database: AppDatabase,
 ) {
     private data class Payload(
         val version: Int = 1,

@@ -1,6 +1,5 @@
 package cn.limpu.hita.data.work
 
-import android.app.Application
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -16,27 +15,37 @@ import cn.limpu.hita.data.model.eas.CourseScoreItem
 import cn.limpu.hita.data.repository.EASRepository
 import cn.limpu.hita.data.repository.EasQuerySession
 import cn.limpu.hita.data.repository.awaitEasDataState
-import cn.limpu.hita.data.repository.TimetableChangeStore
-import cn.limpu.hita.data.repository.TimetableMutationLock
-import cn.limpu.hita.data.source.preference.EasPreferenceSource
-import cn.limpu.hita.data.source.preference.EasCredentialStore
 import cn.limpu.hita.data.source.preference.ScoreReminderStore
-import cn.limpu.hita.data.source.preference.TimetablePreferenceSource
 import cn.limpu.hita.data.source.web.service.EASService
 import cn.limpu.hita.ui.eas.score.ScoreInquiryActivity
+import dagger.hilt.EntryPoint
+import dagger.hilt.InstallIn
+import dagger.hilt.android.EntryPointAccessors
+import dagger.hilt.components.SingletonComponent
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withTimeoutOrNull
 
+@EntryPoint
+@InstallIn(SingletonComponent::class)
+internal interface ScoreReminderRepositoryEntryPoint {
+    fun easRepository(): EASRepository
+    fun scoreReminderStore(): ScoreReminderStore
+}
+
 class ScoreReminderWorker private constructor(
     appContext: Context,
     params: WorkerParameters,
-    private val repositoryFactory: (Application) -> EASRepository,
-    private val notifyScores: ((List<CourseScoreItem>) -> Unit)?,
+    private val dependencies: Dependencies,
 ) : CoroutineWorker(appContext, params) {
+    private data class Dependencies(
+        val repository: EASRepository?,
+        val notifyScores: ((List<CourseScoreItem>) -> Unit)?,
+    )
+
     // Preserve this public signature and class name for already persisted WorkSpecs.
     constructor(appContext: Context, params: WorkerParameters) : this(
-        appContext, params, ::createRepository, null,
+        appContext, params, Dependencies(null, null),
     )
 
     internal constructor(
@@ -44,13 +53,20 @@ class ScoreReminderWorker private constructor(
         params: WorkerParameters,
         repository: EASRepository,
         notifyScores: (List<CourseScoreItem>) -> Unit,
-    ) : this(appContext, params, { repository }, notifyScores)
+    ) : this(appContext, params, Dependencies(repository, notifyScores))
 
     override suspend fun doWork(): Result {
-        val store = ScoreReminderStore(applicationContext)
+        val entryPoint = if (dependencies.repository == null) {
+            EntryPointAccessors.fromApplication(
+                applicationContext,
+                ScoreReminderRepositoryEntryPoint::class.java,
+            )
+        } else {
+            null
+        }
+        val store = entryPoint?.scoreReminderStore() ?: ScoreReminderStore(applicationContext)
         if (!store.isEnabled()) return Result.success()
-        val app = applicationContext as? Application ?: return Result.failure()
-        val repository = repositoryFactory(app)
+        val repository = dependencies.repository ?: entryPoint!!.easRepository()
         val session = repository.captureQuerySession()
         if (!session.loggedIn) return Result.success()
         val ownerKey = session.ownerKey ?: return Result.retry()
@@ -103,7 +119,7 @@ class ScoreReminderWorker private constructor(
         }
         currentCoroutineContext().ensureActive()
         session.ensureCurrent()
-        if (changedItems.isNotEmpty()) (notifyScores ?: ::sendNotification)(changedItems)
+        if (changedItems.isNotEmpty()) (dependencies.notifyScores ?: ::sendNotification)(changedItems)
         baselineUpdates.forEach { (scopeKey, keys) ->
             currentCoroutineContext().ensureActive()
             session.ensureCurrent()
@@ -162,13 +178,5 @@ class ScoreReminderWorker private constructor(
         private const val CHANNEL_ID = "score_reminder"
         private const val NOTIF_ID = 2101
 
-        private fun createRepository(app: Application): EASRepository {
-            val preferences = EasPreferenceSource(app)
-            return EASRepository(
-                app, preferences, EasCredentialStore(app),
-                TimetablePreferenceSource(app, preferences), TimetableChangeStore(app),
-                TimetableMutationLock(),
-            )
-        }
     }
 }

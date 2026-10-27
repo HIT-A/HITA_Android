@@ -43,11 +43,6 @@ import cn.limpu.hita.R
 import cn.limpu.hita.data.model.timetable.EventItem
 import cn.limpu.hita.data.model.timetable.TimeInDay
 import cn.limpu.hita.data.repository.EASRepository
-import cn.limpu.hita.data.repository.TimetableChangeStore
-import cn.limpu.hita.data.repository.TimetableMutationLock
-import cn.limpu.hita.data.source.preference.EasPreferenceSource
-import cn.limpu.hita.data.source.preference.EasCredentialStore
-import cn.limpu.hita.data.source.preference.TimetablePreferenceSource
 import cn.limpu.hita.ui.design.HitaComposeTheme
 import cn.limpu.hita.ui.design.HitaCoursePaletteDialog
 import cn.limpu.hita.ui.design.HitaTheme
@@ -58,12 +53,14 @@ import cn.limpu.hita.utils.CourseResourceLinker
 import cn.limpu.hita.utils.TimeTools
 import com.limpu.style.ThemeTools
 import dagger.hilt.android.AndroidEntryPoint
+import javax.inject.Inject
 import java.util.Calendar
 
 @AndroidEntryPoint
 class EventItemFragment : Fragment() {
 
     protected val viewModel: EventItemViewModel by viewModels()
+    @Inject lateinit var easRepository: EASRepository
 
     interface EventParent {
         fun callDismiss()
@@ -71,18 +68,6 @@ class EventItemFragment : Fragment() {
 
     var eventParent: EventParent? = null
 
-    private val easRepository by lazy {
-        val appContext = requireActivity().application.applicationContext
-        val easPreferenceSource = EasPreferenceSource(appContext)
-        EASRepository(
-            requireActivity().application,
-            easPreferenceSource,
-            EasCredentialStore(appContext),
-            TimetablePreferenceSource(appContext, easPreferenceSource),
-            TimetableChangeStore(requireActivity().application),
-            TimetableMutationLock()
-        )
-    }
     private val hoaCampus by lazy { easRepository.getHoaCampus() }
 
     override fun onCreateView(

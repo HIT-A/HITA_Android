@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import cn.limpu.hita.data.repository.EASRepository
+import cn.limpu.hita.data.repository.LegacyEasRepositoryDependencies
 import cn.limpu.hita.data.repository.TimetableChangeStore
 import cn.limpu.hita.data.repository.TimetableMutationLock
 import cn.limpu.hita.data.source.preference.EasCredentialStore
@@ -26,6 +27,7 @@ class ChatAttachmentLegacyBoundaryTest {
     private val application = ApplicationProvider.getApplicationContext<Application>()
     private val legacyViewModel by lazy {
         val preferences = EasPreferenceSource(application)
+        val dependencies = LegacyEasRepositoryDependencies.from(application)
         AgentChatViewModel::class.java.getDeclaredConstructor(Application::class.java, EASRepository::class.java)
             .newInstance(
                 application,
@@ -36,6 +38,8 @@ class ChatAttachmentLegacyBoundaryTest {
                     TimetablePreferenceSource(application, preferences),
                     TimetableChangeStore(application),
                     TimetableMutationLock(),
+                    dependencies.database,
+                    dependencies.serviceFactories,
                 ),
             )
     }

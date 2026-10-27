@@ -35,6 +35,8 @@ import cn.limpu.hita.data.model.eas.ShenzhenTrainingPlanDetail
 import cn.limpu.hita.data.model.eas.TermItem
 import cn.limpu.hita.data.model.timetable.TermSubject
 import cn.limpu.hita.data.model.timetable.TimePeriodInDay
+import cn.limpu.hita.data.source.web.service.EASScoreSummaryService
+import cn.limpu.hita.data.source.web.service.EASShenzhenService
 import cn.limpu.hita.data.source.web.service.EASService
 import cn.limpu.hita.data.repository.EasCredentialReloginPolicy
 import cn.limpu.hita.data.source.preference.EasCredential
@@ -77,7 +79,7 @@ class EASWebSource internal constructor(
     private val apiHostOverride: String? = null,
     private val webHostOverride: String? = null,
     private val examApiHostOverride: String? = null,
-) : EASService {
+) : EASShenzhenService, EASScoreSummaryService {
 
     private val hostName = apiHostOverride?.trimEnd('/') ?: "https://mjw.hitsz.edu.cn/incoSpringBoot"
     private val jwDirectHostName = "https://jw.hitsz.edu.cn"
@@ -658,14 +660,14 @@ class EASWebSource internal constructor(
     override suspend fun getAllTermsOnce(token: EASToken): DataState<List<TermItem>> =
         academicSource.getAllTermsOnce(token)
 
-    fun getShenzhenWebTerms(token: EASToken): LiveData<DataState<List<TermItem>>> =
+    override fun getShenzhenWebTerms(token: EASToken): LiveData<DataState<List<TermItem>>> =
         academicSource.getShenzhenWebTerms(token)
 
     /** Single Web-only term query, retaining the independent Shenzhen Web session route. */
-    suspend fun getShenzhenWebTermsOnce(token: EASToken): DataState<List<TermItem>> =
+    override suspend fun getShenzhenWebTermsOnce(token: EASToken): DataState<List<TermItem>> =
         academicSource.getShenzhenWebTermsOnce(token)
 
-    fun queryShenzhenAvailableCourses(
+    override fun queryShenzhenAvailableCourses(
         token: EASToken,
         term: TermItem,
         pool: ShenzhenSelectionPool,
@@ -676,7 +678,7 @@ class EASWebSource internal constructor(
         academicSource.queryShenzhenAvailableCourses(token, term, pool, keyword, page, pageSize)
 
     @WorkerThread
-    fun submitShenzhenCourseOnce(
+    override fun submitShenzhenCourseOnce(
         token: EASToken,
         job: CourseSelectionJob,
         course: CourseSelectionJobCourse
@@ -684,13 +686,13 @@ class EASWebSource internal constructor(
         academicSource.submitShenzhenCourseOnce(token, job, course)
 
     @WorkerThread
-    fun getShenzhenSelectedRequestIdsOnce(
+    override fun getShenzhenSelectedRequestIdsOnce(
         token: EASToken,
         job: CourseSelectionJob
     ): Set<String> =
         academicSource.getShenzhenSelectedRequestIdsOnce(token, job)
 
-    fun queryShenzhenSchoolCourses(
+    override fun queryShenzhenSchoolCourses(
         token: EASToken,
         term: TermItem,
         studentType: String,
@@ -700,40 +702,40 @@ class EASWebSource internal constructor(
     ): LiveData<DataState<ShenzhenCourseCatalogPage>> =
         academicSource.queryShenzhenSchoolCourses(token, term, studentType, keyword, page, pageSize)
 
-    fun getShenzhenCourseRecommendations(
+    override fun getShenzhenCourseRecommendations(
         token: EASToken,
         term: TermItem,
         pools: List<ShenzhenSelectionPool>,
         options: ShenzhenRecommendationOptions,
-        requirements: List<ShenzhenCreditRequirement> = emptyList()
+        requirements: List<ShenzhenCreditRequirement>
     ): LiveData<DataState<ShenzhenCourseRecommendationResult>> =
         academicSource.getShenzhenCourseRecommendations(token, term, pools, options, requirements)
 
-    fun getShenzhenCourseAttachments(
+    override fun getShenzhenCourseAttachments(
         token: EASToken,
         courseId: String,
         taskNumber: String
     ): LiveData<DataState<List<ShenzhenCourseAttachment>>> =
         academicSource.getShenzhenCourseAttachments(token, courseId, taskNumber)
 
-    fun getShenzhenGradeCourses(
+    override fun getShenzhenGradeCourses(
         token: EASToken,
         term: TermItem
     ): LiveData<DataState<List<ShenzhenGradeCourse>>> =
         academicSource.getShenzhenGradeCourses(token, term)
 
-    fun getShenzhenGradeAnalysis(
+    override fun getShenzhenGradeAnalysis(
         token: EASToken,
         course: ShenzhenGradeCourse
     ): LiveData<DataState<ShenzhenGradeAnalysis>> =
         academicSource.getShenzhenGradeAnalysis(token, course)
 
-    fun getShenzhenHistoricalTeacherFailureRates(
+    override fun getShenzhenHistoricalTeacherFailureRates(
         token: EASToken,
         referenceTerm: TermItem,
         studentType: String,
         referenceCourse: ShenzhenCourseCatalogItem,
-        yearsBack: Int = 2
+        yearsBack: Int
     ): LiveData<DataState<ShenzhenHistoricalFailureReport>> =
         academicSource.getShenzhenHistoricalTeacherFailureRates(
             token,
@@ -743,17 +745,17 @@ class EASWebSource internal constructor(
             yearsBack,
         )
 
-    fun getShenzhenTrainingPlans(
+    override fun getShenzhenTrainingPlans(
         token: EASToken
     ): LiveData<DataState<List<ShenzhenTrainingPlan>>> =
         academicSource.getShenzhenTrainingPlans(token)
 
-    fun getShenzhenCreditProgress(
+    override fun getShenzhenCreditProgress(
         token: EASToken,
-        selectedTerm: TermItem? = null,
-        includeDetails: Boolean = true,
-        includeCourseRecords: Boolean = true,
-        trackCoursesOnly: Boolean = false
+        selectedTerm: TermItem?,
+        includeDetails: Boolean,
+        includeCourseRecords: Boolean,
+        trackCoursesOnly: Boolean
     ): LiveData<DataState<ShenzhenCreditProgress>> =
         academicSource.getShenzhenCreditProgress(
             token,
@@ -763,7 +765,7 @@ class EASWebSource internal constructor(
             trackCoursesOnly,
         )
 
-    fun getShenzhenTrainingPlanCourses(
+    override fun getShenzhenTrainingPlanCourses(
         token: EASToken,
         plan: ShenzhenTrainingPlan
     ): LiveData<DataState<ShenzhenTrainingPlanDetail>> =
@@ -773,13 +775,13 @@ class EASWebSource internal constructor(
     override fun getStartDate(token: EASToken, term: TermItem): LiveData<DataState<Calendar>> =
         timetableSource.getStartDate(token, term)
 
-    fun getShenzhenCoursePlanningStartDate(
+    override fun getShenzhenCoursePlanningStartDate(
         token: EASToken,
         term: TermItem
     ): LiveData<DataState<Calendar>> =
         timetableSource.getShenzhenCoursePlanningStartDate(token, term)
 
-    fun getShenzhenCoursePlanningScheduleStructure(
+    override fun getShenzhenCoursePlanningScheduleStructure(
         token: EASToken,
         term: TermItem
     ): LiveData<DataState<MutableList<TimePeriodInDay>>> =
@@ -791,7 +793,7 @@ class EASWebSource internal constructor(
     ): LiveData<DataState<MutableList<TermSubject>>> =
         timetableSource.getSubjectsOfTerm(token, term)
 
-    fun getShenzhenSelectedCourses(
+    override fun getShenzhenSelectedCourses(
         token: EASToken,
         term: TermItem
     ): LiveData<DataState<List<ShenzhenCourseCatalogItem>>> =
@@ -826,10 +828,10 @@ class EASWebSource internal constructor(
     override suspend fun getTimetableOfTermOnce(term: TermItem, token: EASToken): DataState<List<CourseItem>> =
         timetableSource.getTimetableOfTermOnce(term, token)
 
-    suspend fun getShenzhenCoursePlanningStartDateOnce(token: EASToken, term: TermItem): DataState<Calendar> =
+    override suspend fun getShenzhenCoursePlanningStartDateOnce(token: EASToken, term: TermItem): DataState<Calendar> =
         timetableSource.getShenzhenCoursePlanningStartDateOnce(token, term)
 
-    suspend fun getShenzhenCoursePlanningScheduleStructureOnce(
+    override suspend fun getShenzhenCoursePlanningScheduleStructureOnce(
         token: EASToken,
         term: TermItem,
     ): DataState<MutableList<TimePeriodInDay>> =
@@ -843,7 +845,7 @@ class EASWebSource internal constructor(
     ): LiveData<DataState<List<CourseScoreItem>>> =
         academicSource.getPersonalScores(term, token, testType)
 
-    fun getPersonalScoresWithSummary(
+    override fun getPersonalScoresWithSummary(
         term: TermItem,
         token: EASToken,
         testType: EASService.TestType

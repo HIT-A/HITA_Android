@@ -15,7 +15,7 @@ import cn.limpu.hita.data.model.eas.*
 import cn.limpu.hita.data.model.timetable.TimePeriodInDay
 import cn.limpu.hita.data.source.dao.ScoreCacheDao
 import cn.limpu.hita.data.source.preference.EasPreferenceSource
-import cn.limpu.hita.data.source.web.eas.EASWebSource
+import cn.limpu.hita.data.source.web.service.EASShenzhenService
 import cn.limpu.hita.utils.LiveDataUtils
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
@@ -29,7 +29,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 internal class EASShenzhenRepository(
-    private val shenzhenService: EASWebSource,
+    private val shenzhenService: EASShenzhenService,
     private val easPreferenceSource: EasPreferenceSource,
     private val scoreCacheDao: ScoreCacheDao,
     private val gson: Gson,
@@ -158,7 +158,10 @@ internal class EASShenzhenRepository(
         val token = easPreferenceSource.getEasToken()
         return shenzhenService.getShenzhenCreditProgress(
             token,
-            includeDetails = false
+            selectedTerm = null,
+            includeDetails = false,
+            includeCourseRecords = true,
+            trackCoursesOnly = false,
         ).switchMap { progressState ->
             val progress = progressState.data
             val hasRecommendationRequirements = progress?.categories?.any { requirement ->
@@ -201,6 +204,7 @@ internal class EASShenzhenRepository(
     fun getShenzhenRecommendationTracks(): LiveData<DataState<List<ShenzhenRecommendationTrack>>> {
         return shenzhenService.getShenzhenCreditProgress(
             easPreferenceSource.getEasToken(),
+            selectedTerm = null,
             includeDetails = true,
             includeCourseRecords = false,
             trackCoursesOnly = true
@@ -361,7 +365,10 @@ internal class EASShenzhenRepository(
     fun getShenzhenCreditProgress(term: TermItem? = null): LiveData<DataState<ShenzhenCreditProgress>> {
         return shenzhenService.getShenzhenCreditProgress(
             easPreferenceSource.getEasToken(),
-            selectedTerm = term
+            selectedTerm = term,
+            includeDetails = true,
+            includeCourseRecords = true,
+            trackCoursesOnly = false,
         )
     }
 

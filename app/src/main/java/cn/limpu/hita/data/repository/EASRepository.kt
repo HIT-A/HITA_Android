@@ -31,10 +31,15 @@ import cn.limpu.hita.data.source.preference.EasPreferenceSource
 import cn.limpu.hita.data.source.preference.EasCredential
 import cn.limpu.hita.data.source.preference.EasCredentialStore
 import cn.limpu.hita.data.source.preference.TimetablePreferenceSource
-import cn.limpu.hita.data.source.web.eas.BenbuEASWebSource
-import cn.limpu.hita.data.source.web.eas.EASWebSource
-import cn.limpu.hita.data.source.web.eas.WeihaiEASWebSource
+import cn.limpu.hita.data.source.dao.ClassroomCacheDao
+import cn.limpu.hita.data.source.dao.EventItemDao
+import cn.limpu.hita.data.source.dao.ScoreCacheDao
+import cn.limpu.hita.data.source.dao.SubjectDao
+import cn.limpu.hita.data.source.dao.TimetableDao
+import cn.limpu.hita.data.source.dao.TimetableGroupDao
 import cn.limpu.hita.data.source.web.service.EASService
+import cn.limpu.hita.data.source.web.service.EASScoreSummaryService
+import cn.limpu.hita.data.source.web.service.EASShenzhenService
 import cn.limpu.hita.data.model.classroom.BuildingItem
 import cn.limpu.hita.data.model.classroom.ClassroomItem
 import cn.limpu.hita.utils.LiveDataUtils
@@ -65,36 +70,51 @@ import kotlinx.coroutines.flow.emitAll
 
 /** Source construction stays at the repository boundary, including its session-refresh callbacks. */
 internal class EasRepositoryServiceFactories(
-    val shenzhen: ((EASToken) -> Unit, (EASToken.Campus, String?) -> EasCredential?) -> EASWebSource =
-        { onTokenRefreshed, credentialProvider ->
-            EASWebSource(onTokenRefreshed = onTokenRefreshed, credentialProvider = credentialProvider)
-        },
-    val benbu: ((EASToken) -> Unit) -> EASService = { BenbuEASWebSource(it) },
-    val weihai: ((EASToken) -> Unit) -> EASService = { WeihaiEASWebSource(it) },
+    val shenzhen: ((EASToken) -> Unit, (EASToken.Campus, String?) -> EasCredential?) -> EASShenzhenService =
+        LegacyEasRepositorySourceFactory::shenzhen,
+    val benbu: ((EASToken) -> Unit) -> EASService = LegacyEasRepositorySourceFactory::benbu,
+    val weihai: ((EASToken) -> Unit) -> EASService = LegacyEasRepositorySourceFactory::weihai,
 )
 
 @Singleton
-class EASRepository internal constructor(
+class EASRepository @Inject internal constructor(
     application: Application,
     private val easPreferenceSource: EasPreferenceSource,
     private val easCredentialStore: EasCredentialStore,
     private val timetablePreferenceSource: TimetablePreferenceSource,
     private val timetableChangeStore: TimetableChangeStore,
     private val timetableMutationLock: TimetableMutationLock,
-    database: AppDatabase,
+    private val database: AppDatabase,
+    private val eventItemDao: EventItemDao,
+    private val timetableDao: TimetableDao,
+    private val subjectDao: SubjectDao,
+    private val classroomCacheDao: ClassroomCacheDao,
+    private val scoreCacheDao: ScoreCacheDao,
+    private val timetableGroupDao: TimetableGroupDao,
+    private val examImportRepository: ExamImportRepository,
+    private val timetableSnapshotStore: TimetableSnapshotStore,
+    private val gson: Gson,
+    private val timetableImportGrouping: TimetableImportGrouping,
     serviceFactories: EasRepositoryServiceFactories,
 ) : ShenzhenCourseSelectionGateway {
-    @Inject constructor(
+    /** Explicit dependency seam retained for repository/source contract harnesses. */
+    internal constructor(
         application: Application,
         easPreferenceSource: EasPreferenceSource,
         easCredentialStore: EasCredentialStore,
         timetablePreferenceSource: TimetablePreferenceSource,
         timetableChangeStore: TimetableChangeStore,
         timetableMutationLock: TimetableMutationLock,
+        database: AppDatabase,
+        serviceFactories: EasRepositoryServiceFactories,
     ) : this(
         application, easPreferenceSource, easCredentialStore, timetablePreferenceSource,
-        timetableChangeStore, timetableMutationLock, AppDatabase.getDatabase(application),
-        EasRepositoryServiceFactories(),
+        timetableChangeStore, timetableMutationLock, database,
+        database.eventItemDao(), database.timetableDao(), database.subjectDao(),
+        database.classroomCacheDao(), database.scoreCacheDao(),
+        database.timetableGroupDao(), ExamImportRepository(database),
+        TimetableSnapshotStore(application, database), Gson(),
+        LegacyTimetableImportGrouping(application, database), serviceFactories,
     )
 
     private val appContext = application.applicationContext
@@ -107,7 +127,7 @@ class EASRepository internal constructor(
     private var acceptServiceTokenRefresh: Boolean
         get() = querySessionState.acceptServiceRefresh
         set(value) { querySessionState.acceptServiceRefresh = value }
-    private val shenzhenService: EASWebSource = serviceFactories.shenzhen(
+    private val shenzhenService: EASShenzhenService = serviceFactories.shenzhen(
         { token -> saveRefreshedEasToken(token) },
         { campus, username -> easCredentialStore.get(campus, username) },
     )
@@ -117,14 +137,7 @@ class EASRepository internal constructor(
     private val weihaiService: EASService = serviceFactories.weihai { token ->
         saveRefreshedEasToken(token)
     }
-    private var eventItemDao = database.eventItemDao()
-    private var timetableDao = database.timetableDao()
-    private var subjectDao = database.subjectDao()
-    private var classroomCacheDao = database.classroomCacheDao()
-    private var scoreCacheDao = database.scoreCacheDao()
-    private val timetableSnapshotStore = TimetableSnapshotStore(appContext, database)
     private val easTokenLiveData = MutableLiveData(easPreferenceSource.getEasToken())
-    private val gson = Gson()
     private val scoreListType = object : TypeToken<List<CourseScoreItem>>() {}.type
     private val courseSelectionExecutionTokens =
         CourseSelectionExecutionTokenStore(easPreferenceSource::getEasToken)
@@ -160,10 +173,9 @@ class EASRepository internal constructor(
         queryTerms = { queryTermsRemoteOnce(it) },
         applicationScope = queryCoordinator.applicationScope,
         database = database,
-        autoGroupImportedTimetable = { id ->
-            TimetableRepository(application, database, ApplicationDisplayScopeSelector(application))
-                .autoGroupAfterEasImportSync(id)
-        },
+        timetableGroupDao = timetableGroupDao,
+        examImportRepository = examImportRepository,
+        autoGroupImportedTimetable = timetableImportGrouping::autoGroupAfterEasImportSync,
     )
 
     companion object {
@@ -681,18 +693,15 @@ class EASRepository internal constructor(
             return LiveDataUtils.getMutableLiveData(DataState(DataState.STATE.NOT_LOGGED_IN))
         }
         val service = getService(easToken.campus)
-        return when (service) {
-            is EASWebSource -> service.getPersonalScoresWithSummary(term, easToken, testType)
-            is BenbuEASWebSource -> service.getPersonalScoresWithSummary(term, easToken, testType)
-            is WeihaiEASWebSource -> service.getPersonalScoresWithSummary(term, easToken, testType)
-            else -> service.getPersonalScores(term, easToken, testType).map { state ->
-                if (state.state == DataState.STATE.SUCCESS) {
-                    DataState(ScoreQueryResult(items = state.data ?: emptyList(), summary = null), state.state)
-                } else {
-                    DataState<ScoreQueryResult>(state.state, state.message)
-                }
+        val summaryService = service as? EASScoreSummaryService
+        return summaryService?.getPersonalScoresWithSummary(term, easToken, testType)
+            ?: service.getPersonalScores(term, easToken, testType).map { state ->
+                    if (state.state == DataState.STATE.SUCCESS) {
+                        DataState(ScoreQueryResult(items = state.data ?: emptyList(), summary = null), state.state)
+                    } else {
+                        DataState<ScoreQueryResult>(state.state, state.message)
+                    }
             }
-        }
     }
 
     private fun scoreCacheOwnerKey(token: EASToken): String? {

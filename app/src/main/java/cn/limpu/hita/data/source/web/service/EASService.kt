@@ -158,3 +158,147 @@ interface EASService {
     fun getSafePersonalInfo(token: EASToken): LiveData<DataState<EASToken>>
 
 }
+
+/**
+ * Optional score capability implemented by sources that can fetch the academic summary
+ * together with the score rows.  Callers can keep the ordinary [EASService] contract and
+ * fall back to rows-only when a campus does not expose a summary endpoint.
+ */
+interface EASScoreSummaryService {
+    fun getPersonalScoresWithSummary(
+        term: TermItem,
+        token: EASToken,
+        testType: EASService.TestType,
+    ): LiveData<DataState<ScoreQueryResult>>
+}
+
+/** Shenzhen-only capabilities kept behind a source-facing interface. */
+interface EASShenzhenService : EASService {
+    fun getShenzhenWebTerms(token: EASToken): LiveData<DataState<List<TermItem>>>
+    suspend fun getShenzhenWebTermsOnce(token: EASToken): DataState<List<TermItem>>
+    fun queryShenzhenAvailableCourses(
+        token: EASToken,
+        term: TermItem,
+        pool: ShenzhenSelectionPool,
+        keyword: String,
+        page: Int,
+        pageSize: Int,
+    ): LiveData<DataState<ShenzhenCourseCatalogPage>>
+    fun submitShenzhenCourseOnce(
+        token: EASToken,
+        job: CourseSelectionJob,
+        course: CourseSelectionJobCourse,
+    ): CourseSelectionCourseResult
+    fun getShenzhenSelectedRequestIdsOnce(
+        token: EASToken,
+        job: CourseSelectionJob,
+    ): Set<String>
+    fun queryShenzhenSchoolCourses(
+        token: EASToken,
+        term: TermItem,
+        studentType: String,
+        keyword: String,
+        page: Int,
+        pageSize: Int,
+    ): LiveData<DataState<ShenzhenCourseCatalogPage>>
+    fun getShenzhenCourseRecommendations(
+        token: EASToken,
+        term: TermItem,
+        pools: List<ShenzhenSelectionPool>,
+        options: ShenzhenRecommendationOptions,
+        requirements: List<ShenzhenCreditRequirement>,
+    ): LiveData<DataState<ShenzhenCourseRecommendationResult>>
+
+    fun getShenzhenCourseRecommendations(
+        token: EASToken,
+        term: TermItem,
+        pools: List<ShenzhenSelectionPool>,
+        options: ShenzhenRecommendationOptions,
+    ): LiveData<DataState<ShenzhenCourseRecommendationResult>> =
+        getShenzhenCourseRecommendations(token, term, pools, options, emptyList())
+    fun getShenzhenCourseAttachments(
+        token: EASToken,
+        courseId: String,
+        taskNumber: String,
+    ): LiveData<DataState<List<ShenzhenCourseAttachment>>>
+    fun getShenzhenGradeCourses(
+        token: EASToken,
+        term: TermItem,
+    ): LiveData<DataState<List<ShenzhenGradeCourse>>>
+    fun getShenzhenGradeAnalysis(
+        token: EASToken,
+        course: ShenzhenGradeCourse,
+    ): LiveData<DataState<ShenzhenGradeAnalysis>>
+    fun getShenzhenHistoricalTeacherFailureRates(
+        token: EASToken,
+        referenceTerm: TermItem,
+        studentType: String,
+        referenceCourse: ShenzhenCourseCatalogItem,
+        yearsBack: Int,
+    ): LiveData<DataState<ShenzhenHistoricalFailureReport>>
+
+    fun getShenzhenHistoricalTeacherFailureRates(
+        token: EASToken,
+        referenceTerm: TermItem,
+        studentType: String,
+        referenceCourse: ShenzhenCourseCatalogItem,
+    ): LiveData<DataState<ShenzhenHistoricalFailureReport>> =
+        getShenzhenHistoricalTeacherFailureRates(
+            token, referenceTerm, studentType, referenceCourse, 2,
+        )
+    fun getShenzhenTrainingPlans(token: EASToken): LiveData<DataState<List<ShenzhenTrainingPlan>>>
+    fun getShenzhenCreditProgress(
+        token: EASToken,
+        selectedTerm: TermItem?,
+        includeDetails: Boolean,
+        includeCourseRecords: Boolean,
+        trackCoursesOnly: Boolean,
+    ): LiveData<DataState<ShenzhenCreditProgress>>
+
+    fun getShenzhenCreditProgress(token: EASToken): LiveData<DataState<ShenzhenCreditProgress>> =
+        getShenzhenCreditProgress(token, null, true, true, false)
+
+    fun getShenzhenCreditProgress(
+        token: EASToken,
+        selectedTerm: TermItem?,
+        includeDetails: Boolean,
+    ): LiveData<DataState<ShenzhenCreditProgress>> =
+        getShenzhenCreditProgress(token, selectedTerm, includeDetails, true, false)
+
+    fun getShenzhenCreditProgress(
+        token: EASToken,
+        includeDetails: Boolean,
+    ): LiveData<DataState<ShenzhenCreditProgress>> =
+        getShenzhenCreditProgress(token, null, includeDetails, true, false)
+
+    fun getShenzhenCreditProgress(
+        token: EASToken,
+        includeCourseRecords: Boolean,
+        trackCoursesOnly: Boolean,
+    ): LiveData<DataState<ShenzhenCreditProgress>> =
+        getShenzhenCreditProgress(token, null, true, includeCourseRecords, trackCoursesOnly)
+    fun getShenzhenTrainingPlanCourses(
+        token: EASToken,
+        plan: ShenzhenTrainingPlan,
+    ): LiveData<DataState<ShenzhenTrainingPlanDetail>>
+    fun getShenzhenCoursePlanningStartDate(
+        token: EASToken,
+        term: TermItem,
+    ): LiveData<DataState<Calendar>>
+    fun getShenzhenCoursePlanningScheduleStructure(
+        token: EASToken,
+        term: TermItem,
+    ): LiveData<DataState<MutableList<TimePeriodInDay>>>
+    fun getShenzhenSelectedCourses(
+        token: EASToken,
+        term: TermItem,
+    ): LiveData<DataState<List<ShenzhenCourseCatalogItem>>>
+    suspend fun getShenzhenCoursePlanningStartDateOnce(
+        token: EASToken,
+        term: TermItem,
+    ): DataState<Calendar>
+    suspend fun getShenzhenCoursePlanningScheduleStructureOnce(
+        token: EASToken,
+        term: TermItem,
+    ): DataState<MutableList<TimePeriodInDay>>
+}
