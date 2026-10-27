@@ -10,6 +10,7 @@ import cn.limpu.hita.data.repository.AiSettings
 import cn.limpu.hita.data.repository.AiSettingsRepository
 import okhttp3.OkHttpClient
 import retrofit2.Call
+import retrofit2.Callback
 import retrofit2.Response
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
@@ -17,6 +18,10 @@ import retrofit2.http.Body
 import retrofit2.http.Header
 import retrofit2.http.POST
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.CancellableContinuation
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 
 interface LlmApiService {
     @POST("v1/chat/completions")
@@ -103,7 +108,7 @@ object LlmClient {
             .create(LlmApiService::class.java)
     }
 
-    fun chatCompletion(context: Context, request: ChatCompletionRequest): Response<ChatCompletionResponse> {
+    suspend fun chatCompletion(context: Context, request: ChatCompletionRequest): Response<ChatCompletionResponse> {
         val settings = AiSettingsRepository(context).getSettings()
         val apiKey = resolveDeepSeekApiKey(
             chatProvider = settings.chatProvider,
@@ -115,7 +120,7 @@ object LlmClient {
         var inputTokens: Long? = null
         var outputTokens: Long? = null
         try {
-            val response = directService.chatCompletion(authHeader(apiKey), request).execute()
+            val response = directService.chatCompletion(authHeader(apiKey), request).awaitCancellable()
             if (response.isSuccessful && response.body() != null) outcome = "success"
             response.body()?.usage?.let { inputTokens = it.promptTokens?.toLong(); outputTokens = it.completionTokens?.toLong() }
             return response
@@ -134,6 +139,24 @@ object LlmClient {
         }
     }
 }
+
+/**
+ * Retrofit's blocking `execute()` has no coroutine cancellation hook. Keep the underlying
+ * OkHttp call tied to the caller's Job so deleting a chat session can stop an in-flight request.
+ */
+internal suspend fun <T> Call<T>.awaitCancellable(): Response<T> =
+    suspendCancellableCoroutine { continuation: CancellableContinuation<Response<T>> ->
+        continuation.invokeOnCancellation { cancel() }
+        enqueue(object : Callback<T> {
+            override fun onResponse(call: Call<T>, response: Response<T>) {
+                continuation.resume(response)
+            }
+
+            override fun onFailure(call: Call<T>, error: Throwable) {
+                continuation.resumeWithException(error)
+            }
+        })
+    }
 
 internal fun resolveDeepSeekApiKey(
     chatProvider: AiChatProvider,

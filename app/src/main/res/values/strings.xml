@@ -1747,4 +1747,19 @@
     <string name="timeline_empty_events">今天暂无课程或日程安排</string>
     <string name="outside_selected_term">非所选学期</string>
     <string name="exam_term_load_failed">暂时无法获取可用学期，请点击刷新重试</string>
+    <string name="chat_save_failed">对话保存失败，请重试</string>
+    <string name="chat_restore_failed">对话加载失败，请重试</string>
+    <string name="chat_attachment_empty">无法打开文件，请重试</string>
+    <string name="chat_attachment_too_large">文件过大！\n限制：%1$d MB\n\n建议：\n- 图片/视频请压缩到10MB以下\n- 文档请控制在20MB以下</string>
+    <string name="chat_attachment_unsupported">不支持的文件类型：%1$s\n\n支持的格式：\n- 文档：PDF、Word、Excel、PowerPoint（本地解析）\n- 图片：JPG、PNG、GIF、WebP、BMP\n- 视频：MP4、MOV、AVI、MKV、WebM</string>
+    <string name="chat_attachment_expanded_limit">文档展开后的内容过大，无法处理。请拆分文档后重试。</string>
+    <string name="chat_attachment_read_failed">附件处理失败：%1$s</string>
+    <string name="chat_attachment_memory">内存不足，请尝试更小的文件</string>
+    <string name="chat_attachment_parse_failed">附件解析失败：%1$s\n\n建议：请复制文件内容粘贴到对话框中</string>
+    <string name="chat_attachment_pdf_error">错误：%1$s\n\n建议：截图上传或复制PDF中的文本</string>
+    <string name="chat_attachment_docx_error">错误：%1$s\n\n建议：复制文档中的文本粘贴到聊天框</string>
+    <string name="chat_attachment_document_error">错误：%1$s</string>
+    <string name="chat_attachment_pdf_memory">内存不足，请尝试更小的PDF文件</string>
+    <string name="chat_attachment_document_memory">内存不足，请尝试更小的文件</string>
+    <string name="chat_attachment_media_memory">文件过大，无法处理。\n\n建议：\n1. 图片请压缩后重新上传（建议小于5MB）\n2. 视频请剪辑后重新上传（建议小于10MB）\n3. 或使用截图功能</string>
 </resources>

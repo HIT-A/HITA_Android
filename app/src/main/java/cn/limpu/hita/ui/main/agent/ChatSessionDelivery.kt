@@ -50,10 +50,10 @@ internal fun persistChatMessage(
     firstUserText: (String) -> String?,
     updateTitle: (String, String) -> Unit,
 ): Boolean {
-    if (!sessionExists(sessionId)) return false
-    save(sessionId, message)
-    val text = firstUserText(sessionId)
-    val title = text?.take(20)?.plus(if (text.length > 20) "…" else "") ?: "新对话"
-    updateTitle(sessionId, title)
-    return true
+    return cn.limpu.hita.data.repository.chat.persistChatRecord(
+        sessionId, message.toRecord(), sessionExists,
+        save = { id, _ -> save(id, message) },
+        firstUserText = firstUserText,
+        updateTitle = updateTitle,
+    )
 }
