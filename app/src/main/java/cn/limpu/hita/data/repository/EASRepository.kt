@@ -67,6 +67,7 @@ import kotlinx.coroutines.flow.last
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.collect
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
@@ -134,6 +135,7 @@ class EASRepository @Inject internal constructor(
     private val appContext = application.applicationContext
     private val querySessionState = easPreferenceSource.querySessionState
     private val queryCoordinator = EasQueryCoordinator.forSession(querySessionState)
+    private val scoreQueryCoordinator = ScoreQueryCoordinator.forSession(querySessionState)
     private val tokenStateLock = querySessionState.lock
     private val authEpoch = querySessionState.authEpoch
     private val credentialScopeRandom = SecureRandom()
@@ -617,6 +619,180 @@ class EASRepository @Inject internal constructor(
     /**
      * 获取最终成绩
      */
+    suspend fun getPersonalScoresOnce(
+        term: TermItem,
+        testType: EASService.TestType,
+    ): DataState<List<CourseScoreItem>> =
+        getPersonalScoresOnce(captureQuerySession(), term, testType)
+
+    internal suspend fun getPersonalScoresOnce(
+        session: EasQuerySession,
+        term: TermItem,
+        testType: EASService.TestType,
+    ): DataState<List<CourseScoreItem>> {
+        session.ensureCurrent()
+        if (!session.loggedIn) return DataState(DataState.STATE.NOT_LOGGED_IN)
+        val capturedTerm = term.copyForQuery()
+        val key = "${capturedTerm.yearCode}|${capturedTerm.termCode}|${testType.name}"
+        val ticket = scoreQueryCoordinator.begin(session.ownerKey, key)
+        fun ensureTicket() {
+            session.ensureCurrent()
+            if (ticket != null && !ticket.isCurrent()) {
+                throw kotlinx.coroutines.CancellationException("A newer score query owns this key")
+            }
+        }
+        ensureTicket()
+        return session.whileCurrent {
+            withContext(Dispatchers.IO) {
+                ensureTicket()
+                queryPersonalScoresOnce(session, capturedTerm, testType).also { ensureTicket() }
+            }
+        }
+    }
+
+    /** Query the source without claiming a score ordering ticket. */
+    private suspend fun queryPersonalScoresOnce(
+        session: EasQuerySession,
+        term: TermItem,
+        testType: EASService.TestType,
+    ): DataState<List<CourseScoreItem>> = try {
+        session.service.getPersonalScoresOnce(term, session.token, testType)
+    } catch (cancelled: kotlinx.coroutines.CancellationException) {
+        throw cancelled
+    } catch (error: Exception) {
+        LogUtils.e("getPersonalScoresOnce: failed, error=${error.message}", error)
+        DataState(DataState.STATE.FETCH_FAILED, error.message)
+    }
+
+    internal fun createScoreQueryRequest(
+        session: EasQuerySession = captureQuerySession(),
+        term: TermItem,
+        testType: EASService.TestType,
+        useCache: Boolean = true,
+    ): ScoreQueryRequest {
+        val capturedTerm = term.copyForQuery()
+        val key = "${capturedTerm.yearCode}|${capturedTerm.termCode}|${testType.name}"
+        val owner = session.ownerKey
+        val cache = ScoreCacheDaoQuery(scoreCacheDao, gson, scoreListType)
+        return ScoreQueryRequest(session, flow {
+            val context = currentCoroutineContext()
+            fun ensureCurrent() {
+                context.ensureActive()
+                session.ensureCurrent()
+            }
+            ensureCurrent()
+            val ticket = scoreQueryCoordinator.begin(owner, key)
+            fun ensureTicket() {
+                ensureCurrent()
+                if (ticket != null && !ticket.isCurrent()) {
+                    throw kotlinx.coroutines.CancellationException("A newer score query owns this key")
+                }
+            }
+            val cached = if (useCache && owner != null) {
+                try {
+                    withContext(Dispatchers.IO) {
+                        ensureTicket()
+                        if (queryCoordinator.cleanOwnerSync(owner, scoreCacheDao)) {
+                            cache.read(owner, capturedTerm, testType)
+                        } else null
+                    }
+                } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                    throw cancelled
+                } catch (failure: Exception) {
+                    LogUtils.e("Unable to read score cache", failure)
+                    null
+                }
+            } else null
+            if (cached != null) {
+                ensureTicket()
+                emit(DataState(cached, DataState.STATE.SUCCESS).setFromCache(true))
+            }
+
+            if (!session.loggedIn) {
+                if (cached == null) emit(DataState(DataState.STATE.NOT_LOGGED_IN))
+                return@flow
+            }
+            ensureTicket()
+            val remote = scoreFlow(session, capturedTerm, testType)
+            var emittedRemote = false
+            session.whileCurrent {
+                remote.collect { state ->
+                    ensureTicket()
+                    if (state.state == DataState.STATE.SUCCESS && state.data != null) {
+                        emittedRemote = true
+                        val result = state.data!!
+                        if (useCache && owner != null && ticket != null) {
+                            try {
+                                withContext(Dispatchers.IO) {
+                                    ensureTicket()
+                                    if (queryCoordinator.cleanOwnerSync(owner, scoreCacheDao)) {
+                                        cache.save(owner, capturedTerm, testType, result, cached) {
+                                            session.isCurrent() && ticket.isCurrent() &&
+                                                !queryCoordinator.hasPendingCleanup(owner)
+                                        }
+                                    }
+                                }
+                            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                                throw cancelled
+                            } catch (failure: Exception) {
+                                LogUtils.e("Unable to save score cache", failure)
+                            }
+                        }
+                        ensureTicket()
+                        emit(state)
+                    } else if (cached == null && !emittedRemote) {
+                        ensureTicket()
+                        emit(state)
+                    }
+                }
+            }
+        })
+    }
+
+    internal fun getPersonalScoresWithSummaryFlow(
+        session: EasQuerySession,
+        term: TermItem,
+        testType: EASService.TestType,
+        useCache: Boolean = true,
+    ): kotlinx.coroutines.flow.Flow<DataState<ScoreQueryResult>> =
+        createScoreQueryRequest(session, term, testType, useCache).states()
+
+    fun getPersonalScoresWithSummaryFlow(
+        term: TermItem,
+        testType: EASService.TestType,
+        useCache: Boolean = true,
+    ): kotlinx.coroutines.flow.Flow<DataState<ScoreQueryResult>> =
+        getPersonalScoresWithSummaryFlow(captureQuerySession(), term, testType, useCache)
+
+    private fun scoreFlow(
+        session: EasQuerySession,
+        term: TermItem,
+        testType: EASService.TestType,
+    ): kotlinx.coroutines.flow.Flow<DataState<ScoreQueryResult>> = flow {
+        try {
+            val service = session.service
+            val summaryService = service as? EASScoreSummaryService
+            if (summaryService != null) {
+                summaryService.getPersonalScoresWithSummaryFlow(term, session.token, testType)
+                    .collect { state ->
+                        currentCoroutineContext().ensureActive()
+                        emit(state)
+                    }
+                return@flow
+            }
+            val items = queryPersonalScoresOnce(session, term, testType)
+            if (items.state == DataState.STATE.SUCCESS && items.data != null) {
+                emit(DataState(ScoreQueryResult(items.data.orEmpty()), DataState.STATE.SUCCESS))
+            } else {
+                emit(DataState<ScoreQueryResult>(items.state, items.message))
+            }
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            emit(DataState(DataState.STATE.FETCH_FAILED, error.message))
+        }
+    }
+
     fun getPersonalScores(
         term: TermItem,
         testType: EASService.TestType

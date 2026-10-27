@@ -8,6 +8,7 @@ import cn.limpu.hita.data.model.timetable.TimePeriodInDay
 import cn.limpu.hita.data.model.classroom.BuildingItem
 import cn.limpu.hita.data.model.classroom.ClassroomItem
 import java.util.*
+import kotlinx.coroutines.flow.Flow
 
 /**
  * 三校区教务系统的统一适配接口。
@@ -132,6 +133,13 @@ interface EASService {
         testType: TestType
      ):LiveData<DataState<List<CourseScoreItem>>>
 
+    /** Single score-list request. Optional summary enrichment is intentionally separate. */
+    suspend fun getPersonalScoresOnce(
+        term: TermItem,
+        token: EASToken,
+        testType: TestType,
+    ): DataState<List<CourseScoreItem>>
+
 
     enum class TestType(val value:String){
         ALL("-1"), NORMAL("0"), RESIT("1"), RETAKE("2")
@@ -170,6 +178,13 @@ interface EASScoreSummaryService {
         token: EASToken,
         testType: EASService.TestType,
     ): LiveData<DataState<ScoreQueryResult>>
+
+    /** Cold, cancellable score-list then summary enrichment stream. */
+    fun getPersonalScoresWithSummaryFlow(
+        term: TermItem,
+        token: EASToken,
+        testType: EASService.TestType,
+    ): Flow<DataState<ScoreQueryResult>>
 }
 
 /** Shenzhen-only capabilities kept behind a source-facing interface. */

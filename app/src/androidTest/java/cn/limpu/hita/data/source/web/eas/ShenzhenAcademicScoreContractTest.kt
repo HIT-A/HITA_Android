@@ -16,6 +16,9 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.flow.take
+import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.runBlocking
 
 /** 公共成绩入口的旧实现基线；只使用合成响应与本地服务器。 */
 @RunWith(AndroidJUnit4::class)
@@ -388,6 +391,24 @@ class ShenzhenAcademicScoreContractTest : ShenzhenAcademicContractHarness() {
         assertTrue(apiRequests.isEmpty())
         assertEquals(listOf(WEB_SCORES_PATH, OFFICIAL_SUMMARY_PATH), webRequests.map { it.path })
         assertOfficialSummaryRequest()
+    }
+
+    @Test
+    fun summaryFlowCancellationAfterItemsDoesNotStartEnrichmentRequests() = runBlocking {
+        apiResponse = { request ->
+            assertEquals(API_SCORES_PATH, request.path)
+            json(API_SCORES_WITH_INLINE_SUMMARY)
+        }
+
+        val states = source
+            .getPersonalScoresWithSummaryFlow(term, bothSessions(), EASService.TestType.NORMAL)
+            .take(1)
+            .toList()
+
+        assertEquals(1, states.size)
+        assertApiScore(requireNotNull(states.single().data).items.single())
+        assertEquals(listOf(API_SCORES_PATH), apiRequests.map { it.path })
+        assertTrue(webRequests.isEmpty())
     }
 
     @Test

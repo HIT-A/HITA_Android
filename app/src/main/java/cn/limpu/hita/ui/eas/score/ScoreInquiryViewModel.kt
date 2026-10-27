@@ -7,6 +7,7 @@ import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.map
 import androidx.lifecycle.switchMap
+import androidx.lifecycle.asLiveData
 import androidx.lifecycle.viewModelScope
 import com.limpu.component.data.DataState
 import com.limpu.component.data.MTransformations
@@ -19,7 +20,6 @@ import cn.limpu.hita.data.source.web.service.EASService
 import cn.limpu.hita.ui.eas.EASViewModel
 import cn.limpu.hita.ui.eas.TermQueryLiveData
 import cn.limpu.hita.ui.eas.mapTerms
-import cn.limpu.hita.ui.eas.sessionBoundData
 import cn.limpu.hita.ui.eas.TermSelectionDisplaySource
 import cn.limpu.hita.ui.eas.sameTermKey
 import cn.limpu.hita.utils.WeightedScoreCalculator
@@ -75,11 +75,23 @@ class ScoreInquiryViewModel @Inject constructor(
                 return@testType MutableLiveData(DataState<cn.limpu.hita.data.model.eas.ScoreQueryResult>(DataState.STATE.NOTHING))
             }
             val operation = UsageAnalyticsClient.begin(UsageAnalyticsEvent.SCORES_REFRESH_STARTED)
-            easRepo.sessionBoundData { easRepo.getPersonalScoresWithSummary(selectedTermDisplay.current() ?: term, testType) }.map { result ->
+            var analyticsFinished = false
+            val capturedSession = easRepo.captureQuerySession()
+            easRepo.getPersonalScoresWithSummaryFlow(
+                capturedSession,
+                selectedTermDisplay.current() ?: term,
+                testType,
+            ).asLiveData(viewModelScope.coroutineContext).map { result ->
                 when (result.state) {
-                    DataState.STATE.SUCCESS -> UsageAnalyticsClient.finish(operation, UsageAnalyticsEvent.SCORES_REFRESH_SUCCEEDED)
+                    DataState.STATE.SUCCESS -> if (!analyticsFinished) {
+                        analyticsFinished = true
+                        UsageAnalyticsClient.finish(operation, UsageAnalyticsEvent.SCORES_REFRESH_SUCCEEDED)
+                    }
                     DataState.STATE.NOTHING, DataState.STATE.LOADING -> Unit
-                    else -> UsageAnalyticsClient.finish(operation, UsageAnalyticsEvent.SCORES_REFRESH_FAILED, mapOf("error_category" to "unknown"))
+                    else -> if (!analyticsFinished) {
+                        analyticsFinished = true
+                        UsageAnalyticsClient.finish(operation, UsageAnalyticsEvent.SCORES_REFRESH_FAILED, mapOf("error_category" to "unknown"))
+                    }
                 }
                 result
             }
@@ -87,7 +99,12 @@ class ScoreInquiryViewModel @Inject constructor(
 
     val scoresLiveData: LiveData<DataState<List<CourseScoreItem>>> =
         scoresWithSummaryLiveData.map { state ->
-            DataState(state.data?.items ?: emptyList(), state.state)
+            DataState(state.data?.items ?: emptyList(), state.state).also {
+                it.message = state.message
+                it.fromCache = state.fromCache
+                it.listAction = state.listAction
+                it.stateRetried = state.stateRetried
+            }
         }
 
     val scoreSummaryLiveData: LiveData<ScoreSummary?> =

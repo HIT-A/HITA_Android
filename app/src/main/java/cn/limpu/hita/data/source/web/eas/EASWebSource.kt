@@ -9,6 +9,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.Flow
 import cn.limpu.hita.utils.LogUtils
 import com.limpu.component.data.DataState
 import cn.limpu.hita.data.model.eas.CourseSelectionCourseResult
@@ -845,12 +846,26 @@ class EASWebSource internal constructor(
     ): LiveData<DataState<List<CourseScoreItem>>> =
         academicSource.getPersonalScores(term, token, testType)
 
+    override suspend fun getPersonalScoresOnce(
+        term: TermItem,
+        token: EASToken,
+        testType: EASService.TestType,
+    ): DataState<List<CourseScoreItem>> =
+        academicSource.getPersonalScoresOnce(term, token, testType)
+
     override fun getPersonalScoresWithSummary(
         term: TermItem,
         token: EASToken,
         testType: EASService.TestType
     ): LiveData<DataState<ScoreQueryResult>> =
         academicSource.getPersonalScoresWithSummary(term, token, testType)
+
+    override fun getPersonalScoresWithSummaryFlow(
+        term: TermItem,
+        token: EASToken,
+        testType: EASService.TestType,
+    ): Flow<DataState<ScoreQueryResult>> =
+        academicSource.getPersonalScoresWithSummaryFlow(term, token, testType)
 
     // ================================================================ 教学楼列表
     override fun getTeachingBuildings(token: EASToken): LiveData<DataState<List<BuildingItem>>> {
