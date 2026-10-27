@@ -1,5 +1,6 @@
 package cn.limpu.hita.data.repository
 
+import android.app.Application
 import android.content.Context
 import cn.limpu.hita.data.AppDatabase
 import cn.limpu.hita.data.model.eas.TermItem
@@ -10,6 +11,7 @@ import cn.limpu.hita.data.model.timetable.TimePeriodInDay
 import cn.limpu.hita.data.model.timetable.Timetable
 import com.google.gson.Gson
 import java.io.File
+import java.io.IOException
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 import java.sql.Timestamp
@@ -89,7 +91,7 @@ internal class TimetableSnapshotStore(
 ) {
     private data class Payload(
         val version: Int = 1,
-        val snapshots: List<TimetableVersionSnapshot> = emptyList()
+        val snapshots: List<TimetableVersionSnapshot>? = null
     )
 
     private val appContext = context.applicationContext
@@ -99,7 +101,44 @@ internal class TimetableSnapshotStore(
     private val gson = Gson()
     private val directory = File(appContext.filesDir, "timetable_snapshots")
     private val payloadFile = File(directory, "v1.json")
-    private val lock = Any()
+    private val atomicFile = TimetableAtomicFile(payloadFile)
+    // Facades constructed by import, recovery and user adoption share the same file lock.
+    private val lock get() = TimetableMutationLock.lock
+
+    private class SnapshotDraft(val path: String, val snapshots: MutableList<TimetableVersionSnapshot>)
+
+    internal fun <T> stage(block: () -> T): T = synchronized(lock) {
+        check(draft.get() == null) { "Nested timetable snapshot staging" }
+        draft.set(SnapshotDraft(payloadFile.canonicalPath, mutableListOf()))
+        try {
+            block()
+        } finally {
+            draft.remove()
+        }
+    }
+
+    internal fun stagedSnapshots(): List<TimetableVersionSnapshot> =
+        checkNotNull(draft.get()).also { check(it.path == payloadFile.canonicalPath) }.snapshots.toList()
+
+    internal fun publishCommitted(snapshots: List<TimetableVersionSnapshot>) = synchronized(lock) {
+        if (snapshots.isEmpty()) return@synchronized
+        val current = payload().snapshots.orEmpty().toMutableList()
+        var changed = false
+        snapshots.forEach { snapshot ->
+            val latest = current.filter { it.ownerKey == snapshot.ownerKey && it.termId == snapshot.termId }
+                .maxByOrNull { it.createdAtMillis }
+            if (current.none { it.id == snapshot.id } && latest?.fingerprint != snapshot.fingerprint) {
+                current += snapshot
+                changed = true
+            }
+        }
+        if (changed) {
+            val retained = current.groupBy { it.ownerKey to it.termId }.values.flatMap { group ->
+                group.sortedByDescending { it.createdAtMillis }.take(MAX_PER_TERM)
+            }
+            persist(Payload(snapshots = retained))
+        }
+    }
 
     fun capture(
         ownerKey: String,
@@ -115,7 +154,9 @@ internal class TimetableSnapshotStore(
         val snapshotSubjects = subjects.map { it.toSnapshot() }
         val snapshotEvents = events.map { it.toSnapshot() }
         val fingerprint = fingerprint(snapshotTimetable, snapshotSubjects, snapshotEvents)
-        val current = payload().snapshots.toMutableList()
+        val activeDraft = draft.get()?.also { check(it.path == payloadFile.canonicalPath) }
+        // A before-image is captured from Room even when the snapshot file cannot currently be written.
+        val current = activeDraft?.snapshots ?: payload().snapshots.orEmpty()
         val latest = current.filter { it.ownerKey == ownerKey && it.termId == term.id }
             .maxByOrNull { it.createdAtMillis }
         if (latest?.fingerprint == fingerprint) return@synchronized latest
@@ -131,24 +172,27 @@ internal class TimetableSnapshotStore(
             events = snapshotEvents,
             fingerprint = fingerprint
         )
-        current += snapshot
-        val retained = current.groupBy { it.ownerKey to it.termId }.values.flatMap { group ->
-            group.sortedByDescending { it.createdAtMillis }.take(MAX_PER_TERM)
-        }
-        persist(Payload(snapshots = retained))
+        if (activeDraft != null) activeDraft.snapshots += snapshot else publishCommitted(listOf(snapshot))
         snapshot
     }
 
     fun snapshots(ownerKey: String, termId: String): List<TimetableVersionSnapshot> = synchronized(lock) {
-        payload().snapshots.filter { it.ownerKey == ownerKey && it.termId == termId }
+        payload().snapshots.orEmpty().filter { it.ownerKey == ownerKey && it.termId == termId }
             .sortedByDescending { it.createdAtMillis }
     }
 
-    fun restore(ownerKey: String, snapshotId: String): TimetableVersionSnapshot = synchronized(lock) {
-        val snapshot = payload().snapshots.firstOrNull {
+    fun restore(
+        ownerKey: String,
+        snapshotId: String,
+        beforeCommit: () -> Unit = {},
+    ): TimetableVersionSnapshot = synchronized(lock) {
+        val snapshot = payload().snapshots.orEmpty().firstOrNull {
             it.ownerKey == ownerKey && it.id == snapshotId
         } ?: error("课表版本不存在或不属于当前账号")
-        database.runInTransaction {
+        TimetableChangeRecovery(
+            appContext as Application, database, snapshotStore = this
+        ).commit {
+            beforeCommit()
             val current = timetableDao.getTimetableByIdSync(snapshot.timetable.id)
             if (current != null) {
                 val termParts = snapshot.termId.split('-')
@@ -181,22 +225,16 @@ internal class TimetableSnapshotStore(
     }
 
     private fun payload(): Payload {
-        if (!payloadFile.isFile) return Payload()
-        return runCatching { gson.fromJson(payloadFile.readText(), Payload::class.java) }
-            .getOrNull()
-            ?.takeIf { it.version == 1 }
-            ?: Payload()
+        val json = atomicFile.readOrNull() ?: return Payload()
+        val parsed = gson.fromJson(json, Payload::class.java)
+            ?: throw IOException("Invalid timetable snapshot state")
+        if (parsed.version != 1 || parsed.snapshots == null) {
+            throw IOException("Unsupported timetable snapshot state")
+        }
+        return parsed.copy(snapshots = requireNotNull(parsed.snapshots))
     }
 
-    private fun persist(payload: Payload) {
-        directory.mkdirs()
-        val temporary = File(directory, "v1.json.tmp")
-        temporary.writeText(gson.toJson(payload))
-        if (!temporary.renameTo(payloadFile)) {
-            payloadFile.writeText(temporary.readText())
-            temporary.delete()
-        }
-    }
+    private fun persist(payload: Payload) = atomicFile.write(gson.toJson(payload))
 
     private fun fingerprint(
         timetable: SnapshotTimetable,
@@ -289,6 +327,7 @@ internal class TimetableSnapshotStore(
     }
 
     companion object {
+        private val draft = ThreadLocal<SnapshotDraft>()
         private const val MAX_PER_TERM = 12
     }
 }

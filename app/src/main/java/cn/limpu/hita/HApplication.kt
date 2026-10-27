@@ -60,6 +60,9 @@ class HApplication : Application() {
                     database.timetableDao()
                     database.subjectDao()
                     database.eventItemDao()
+                    cn.limpu.hita.data.repository.TimetableChangeRecovery(
+                        this@HApplication, database
+                    ).recover()
                     // 一次性回填已导入课表中作废的作息结构（幂等）。
                     try {
                         cn.limpu.hita.data.repository.TimetableScheduleStructureMigration.run(

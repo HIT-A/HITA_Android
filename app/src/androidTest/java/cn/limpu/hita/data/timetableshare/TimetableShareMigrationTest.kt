@@ -12,8 +12,10 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class TimetableShareMigrationTest {
     private fun createLegacyDatabase(name: String, version: Int = 14) = createLegacyAppDatabase(name, version)
+    private val migration17To18
+        get() = AppDatabase.ALL_MIGRATIONS.single { it.startVersion == 17 && it.endVersion == 18 }
 
-    @Test fun migrates14To17PreservingEveryPersonalColumn() {
+    @Test fun migrates14To18PreservingEveryPersonalColumn() {
         val name = "timetable-share-migration-test-v14"
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val legacy = createLegacyDatabase(name)
@@ -29,7 +31,7 @@ class TimetableShareMigrationTest {
         }
         val migrated = Room.databaseBuilder(context, AppDatabase::class.java, name)
             .addMigrations(AppDatabase.MIGRATION_14_15, AppDatabase.MIGRATION_15_16,
-                AppDatabase.MIGRATION_16_17).build()
+                AppDatabase.MIGRATION_16_17, migration17To18).build()
         try {
             val db = migrated.openHelper.writableDatabase
             assertEquals(expected, personalRows(db))
@@ -44,7 +46,7 @@ class TimetableShareMigrationTest {
         }
     }
 
-    @Test fun migrates15To17PreservingSharesAndAllowingGroups() {
+    @Test fun migrates15To18PreservingSharesAndAllowingGroups() {
         val name = "timetable-group-migration-test-v15"
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val legacy = createLegacyDatabase(name, 15)
@@ -53,7 +55,8 @@ class TimetableShareMigrationTest {
             legacy.writableDatabase.execSQL("INSERT INTO friend_timetable(shareId,nickname,remark,termName,startMillis,endMillis,mode,snapshotJson,contentDigest,importedAt,updatedAt) VALUES('friend','好友','备注','春季',1,2,'FULL','{}','digest',3,4)")
         } finally { legacy.close() }
         val migrated = Room.databaseBuilder(context, AppDatabase::class.java, name)
-            .addMigrations(AppDatabase.MIGRATION_15_16, AppDatabase.MIGRATION_16_17).build()
+            .addMigrations(AppDatabase.MIGRATION_15_16, AppDatabase.MIGRATION_16_17,
+                migration17To18).build()
         try {
             val db = migrated.openHelper.writableDatabase
             db.query("SELECT shareId FROM timetable_share_identity").use {
@@ -72,7 +75,7 @@ class TimetableShareMigrationTest {
         } finally { migrated.close(); context.deleteDatabase(name) }
     }
 
-    @Test fun migratesLegacyManualBatchIntoOneSubject() {
+    @Test fun migratesLegacyManualBatchIntoOneSubjectAndOutbox() {
         val name = "manual-course-group-migration-test-v16"
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val legacy = createLegacyDatabase(name, 16)
@@ -85,7 +88,7 @@ class TimetableShareMigrationTest {
         } finally { legacy.close() }
 
         val migrated = Room.databaseBuilder(context, AppDatabase::class.java, name)
-            .addMigrations(AppDatabase.MIGRATION_16_17).build()
+            .addMigrations(AppDatabase.MIGRATION_16_17, migration17To18).build()
         try {
             val db = migrated.openHelper.writableDatabase
             db.query("SELECT id, type, subjectId FROM events ORDER BY id").use { cursor ->
