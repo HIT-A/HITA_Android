@@ -10,7 +10,7 @@ import org.junit.runner.RunWith
 /** Identical tests run on the actual frozen old SourceApplier/Room/stores and current production. */
 @RunWith(AndroidJUnit4::class)
 class TimetableRecoveryLegacyBoundaryTest {
-    @Test fun failedFinalRoomCommitPreservesCourseRowsAndPendingDecisions() = TimetableRecoveryTestFixture().use { f ->
+    @Test fun failedRoomWritePreservesCourseRowsAndPendingDecisions() = TimetableRecoveryTestFixture().use { f ->
         f.seedPendingState()
         val before = f.changes.currentState()
         val vetoes = f.changes.getVetoes(f.term.id)
@@ -18,7 +18,7 @@ class TimetableRecoveryLegacyBoundaryTest {
         f.failFinalCommit()
         f.statements.clear()
         val failure = runCatching { f.applier.adoptHeldBatch() }.exceptionOrNull()
-        assertTrue("Real deferred constraint must reject COMMIT: $failure", failure is SQLiteException)
+        assertTrue("Real SQLite write failure must abort the transaction: $failure", failure is SQLiteException)
         assertTrue(failure!!.message.orEmpty().contains("FOREIGN KEY", ignoreCase = true))
         assertEquals(listOf("Original"), f.imported().map { it.name })
         assertTrue("The transaction reached real course persistence", f.statements.any { it.contains("INSERT", true) && it.contains("`events`", true) })

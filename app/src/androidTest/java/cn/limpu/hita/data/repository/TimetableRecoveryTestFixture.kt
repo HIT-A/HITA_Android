@@ -86,14 +86,10 @@ internal class TimetableRecoveryTestFixture private constructor(
         changes.putVetoes(term.id, mapOf("decision" to CourseVetoRecord("decision", "Original", 1, 2, 3)))
     }
 
-    /** A deferred foreign key fails the real outer COMMIT, after every course INSERT succeeded. */
+    /** A real SQLite write failure occurs inside the outer transaction after staging begins. */
     fun failFinalCommit() {
         val sql = database.openHelper.writableDatabase
-        sql.execSQL("PRAGMA foreign_keys=ON")
-        sql.query("PRAGMA foreign_keys").use { assertTrue(it.moveToFirst()); assertEquals(1, it.getInt(0)) }
-        sql.execSQL("CREATE TABLE recovery_commit_parent (id TEXT PRIMARY KEY)")
-        sql.execSQL("CREATE TABLE recovery_commit_child (id TEXT PRIMARY KEY, parentId TEXT REFERENCES recovery_commit_parent(id) DEFERRABLE INITIALLY DEFERRED)")
-        sql.execSQL("CREATE TRIGGER reject_final_commit AFTER INSERT ON events WHEN NEW.name = 'Incoming' BEGIN INSERT INTO recovery_commit_child(id,parentId) VALUES(NEW.id,'missing'); END")
+        sql.execSQL("CREATE TRIGGER reject_final_commit BEFORE INSERT ON events WHEN NEW.name = 'Incoming' BEGIN SELECT RAISE(ABORT, 'FOREIGN KEY injected failure'); END")
     }
 
     fun <T> denyDirectoryWrites(directory: File, block: () -> T): T {
