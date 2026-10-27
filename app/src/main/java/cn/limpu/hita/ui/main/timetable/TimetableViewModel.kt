@@ -24,13 +24,11 @@ import cn.limpu.hita.data.repository.KEY_WALLPAPER_PATH
 import cn.limpu.hita.feature.timetable.write.TimetableWriteUseCaseFactory
 import cn.limpu.hita.utils.LogUtils
 import cn.limpu.hita.data.model.timetable.WEEK_MILLS
-import cn.limpu.hita.ui.subject.SubjectBatchDeleteScope
-import cn.limpu.hita.ui.subject.SubjectBatchEditScope
-import cn.limpu.hita.ui.main.timetable.TimetableFragment.Companion.WINDOW_SIZE
-import com.limpu.component.data.DataState
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.CancellationException
 import java.util.Calendar
 import javax.inject.Inject
 
@@ -53,11 +51,19 @@ class TimetableViewModel @Inject constructor(
         }
     /** 课表变更状态：刷新摘要、待确认决策、整批挂起。 */
     val changeStateLiveData: LiveData<TimetableChangeState> = changeStore.observeState()
-    /** 用户决策（采用/保留）的执行结果，供界面提示失败原因。 */
-    private val decisionResultLiveData = MutableLiveData<DataState<Boolean>>()
-    val decisionResult: LiveData<DataState<Boolean>> = decisionResultLiveData
-    private val batchSessionLiveData = MutableLiveData<TimetableBatchSession?>(null)
-    internal val batchSession: LiveData<TimetableBatchSession?> = batchSessionLiveData
+    internal val batches = TimetableBatchCoordinator(
+        viewModelScope,
+        classes = { id -> withContext(Dispatchers.IO) { timetableRepository.getClassesOfSubjectSync(id) } },
+        timetable = { id -> withContext(Dispatchers.IO) { timetableRepository.getTimetableByIdSync(id) } },
+        update = { events, completed -> timetableWrites.update(events, completed) },
+        delete = { events, completed -> timetableWrites.delete(events, completed) },
+    )
+    private var viewOwner: Long? = null
+    internal fun attachView(): Long = batches.attach().also { viewOwner = it }
+    internal fun detachView(owner: Long) {
+        if (viewOwner == owner) viewOwner = null
+        batches.detach(owner)
+    }
     val startTimeLiveData: LiveData<Int>
         get() = timetableStyleRepository.startTimeLiveData
     val periodLabelLiveData: LiveData<Boolean>
@@ -78,9 +84,20 @@ class TimetableViewModel @Inject constructor(
     val wallpaperLabelColorLiveData: LiveData<Int>
         get() = timetableStyleRepository.wallpaperLabelColorLiveData
 
-    var currentPageStartDate: MutableLiveData<Long>
-    var currentIndex = 0
-    var startIndex = 0
+    private val pageStart = MutableLiveData(mondayOf(System.currentTimeMillis()))
+    val currentPageStartDate: LiveData<Long> = pageStart
+
+    fun navigateToWeek(mondayMillis: Long) {
+        if (pageStart.value == mondayMillis) return
+        batches.cancel()
+        pageStart.value = mondayMillis
+    }
+
+    internal fun currentTimetableAndWeek(): Pair<Timetable?, Int?> {
+        val start = pageStart.value ?: return null to null
+        val table = TimetableTargetPolicy.hitTimetable(resolvedScope.value?.timetables.orEmpty(), start)
+        return table to table?.getWeekNumber(start)
+    }
 
     private val timetableStyleLiveData: LiveData<TimetableStyleSheet> =
         timetableStyleRepository.getStyleSheetLiveData()
@@ -102,48 +119,24 @@ class TimetableViewModel @Inject constructor(
 
     fun selectScope(scope: DisplayScope) = scopeSelector.select(scope)
 
-    val windowEventsData: MutableList<MediatorLiveData<EventStylePair>> =
-        mutableListOf()
-    val windowStartData: MutableList<MutableLiveData<Long>> = mutableListOf()
-    val windowHashesData = mutableListOf<Int>()
-
-    init {
-        val ws = Calendar.getInstance()
-        ws.firstDayOfWeek = Calendar.MONDAY
-        ws[Calendar.DAY_OF_WEEK] = Calendar.MONDAY
-        ws[Calendar.HOUR_OF_DAY] = 0
-        ws[Calendar.MINUTE] = 0
-        ws[Calendar.SECOND] = 0
-        ws[Calendar.MILLISECOND] = 0
-        currentPageStartDate = MutableLiveData(ws.timeInMillis)
-        for (i in 0 until WINDOW_SIZE) {
-            windowHashesData.add(0)
-            val startLD = MutableLiveData<Long>()
-            windowStartData.add(startLD)
-            val scopeAndStart = MediatorLiveData<Pair<Long, List<String>>>()
-            fun refreshScopeAndStart() {
-                val start = startLD.value ?: return
-                // resolver 尚未产出时保持空窗,避免闪现全量叠加事件。
-                val ids = scopeResolver.resolved.value?.timetableIds.orEmpty()
-                val current = scopeAndStart.value
-                val next = start to ids
-                if (current != next) scopeAndStart.value = next
+    /** One observable window: Compose has no ring indices or writable intermediate dates. */
+    private val scopeAndStart = MediatorLiveData<Pair<Long, List<String>>>().apply {
+        fun refresh() {
+            val next = (pageStart.value ?: return) to scopeResolver.resolved.value?.timetableIds.orEmpty()
+            if (value != next) {
+                batches.cancel()
+                value = next
             }
-            scopeAndStart.addSource(startLD) { refreshScopeAndStart() }
-            scopeAndStart.addSource(scopeResolver.resolved) { refreshScopeAndStart() }
-            val eventsRawData = scopeAndStart.switchMap { (start, ids) ->
-                return@switchMap timetableRepository.getEventsDuringWithColor(
-                    start,
-                    start + WEEK_MILLS,
-                    ids
-                )
-            }
-            val eventsData = MTransformations.switchMap(eventsRawData,timetableStyleLiveData){
-                return@switchMap MutableLiveData(EventStylePair(it.first, it.second))
-            }
-            windowEventsData.add(eventsData)
         }
+        addSource(pageStart) { refresh() }
+        addSource(scopeResolver.resolved) { refresh() }
     }
+    val currentWindow: LiveData<EventStylePair> = MTransformations.switchMap(
+        scopeAndStart.switchMap { (start, ids) ->
+            timetableRepository.getEventsDuringWithColor(start, start + WEEK_MILLS, ids)
+        },
+        timetableStyleLiveData,
+    ) { MutableLiveData(EventStylePair(it.first, it.second)) }
 
     fun startRefresh() {
         viewModelScope.launch(Dispatchers.IO) { academicCalendarRepository.refresh() }
@@ -176,40 +169,21 @@ class TimetableViewModel @Inject constructor(
         runDecision { sourceApplier.applyPendingConfirmations(adopted, remember) }
     }
 
-    internal fun beginBatchEdit(session: TimetableBatchSession) {
-        batchSessionLiveData.postValue(session)
-    }
-
-    internal fun clearBatchSession() {
-        batchSessionLiveData.postValue(null)
-    }
-
-    fun updateEvents(events: Collection<EventItem>) {
-        timetableWrites.update(events)
-    }
-
-    fun deleteEvents(events: Collection<EventItem>) {
-        timetableWrites.delete(events)
-    }
-
-    fun classesOfSubjectSync(subjectId: String): List<EventItem> =
-        timetableRepository.getClassesOfSubjectSync(subjectId)
-
-    fun timetableByIdSync(id: String): Timetable? = timetableRepository.getTimetableByIdSync(id)
-
     private fun runDecision(block: () -> Unit) {
-        viewModelScope.launch(Dispatchers.IO) {
-            val result = runCatching { block() }
+        val owner = viewOwner ?: return
+        viewModelScope.launch {
+            val result = try {
+                withContext(Dispatchers.IO) { block() }
+                Result.success(Unit)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                Result.failure<Unit>(error)
+            }
             result.exceptionOrNull()?.let { error ->
                 LogUtils.e("timetable decision failed", error)
+                batches.reportFailure(owner, error)
             }
-            decisionResultLiveData.postValue(
-                if (result.isSuccess) {
-                    DataState(true, DataState.STATE.SUCCESS)
-                } else {
-                    DataState(DataState.STATE.FETCH_FAILED, result.exceptionOrNull()?.message)
-                }
-            )
         }
     }
 
@@ -219,22 +193,24 @@ class TimetableViewModel @Inject constructor(
 
     fun addStartDate(offset: Long) {
         currentPageStartDate.value?.let {
-            currentPageStartDate.value = it + offset
+            navigateToWeek(it + offset)
         }
     }
 
 }
-
-internal data class TimetableBatchSession(
-    val edit: Boolean,
-    val editScope: SubjectBatchEditScope,
-    val deleteScope: SubjectBatchDeleteScope,
-    val events: List<EventItem>,
-    val timetable: Timetable?,
-)
 
 /** Wrapper that uses reference equality so Compose always recomposes on new emissions. */
 class EventStylePair(
     val events: List<EventItem>,
     val style: TimetableStyleSheet
 )
+
+internal fun mondayOf(ts: Long): Long = Calendar.getInstance().apply {
+    timeInMillis = ts
+    firstDayOfWeek = Calendar.MONDAY
+    set(Calendar.DAY_OF_WEEK, Calendar.MONDAY)
+    set(Calendar.HOUR_OF_DAY, 0)
+    set(Calendar.MINUTE, 0)
+    set(Calendar.SECOND, 0)
+    set(Calendar.MILLISECOND, 0)
+}.timeInMillis
