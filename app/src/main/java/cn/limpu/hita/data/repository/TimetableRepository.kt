@@ -972,6 +972,16 @@ class TimetableRepository internal constructor(
         }
     }
 
+    /** Agent cancellation is checked after acquiring locks, before default table creation. */
+    @WorkerThread
+    fun ensureDefaultCustomTimetableSync(beforeWrite: () -> Unit): Timetable =
+        timetableMutationLock.exclusive {
+            database.runInTransaction<Timetable> {
+                beforeWrite()
+                ensureDefaultCustomTimetableSync()
+            }
+        }
+
     @WorkerThread
     fun ensureDefaultCustomTimetableSync(): Timetable {
         val existing = timetableDao.getFirstCustomTimetableSync()
@@ -1143,12 +1153,24 @@ class TimetableRepository internal constructor(
             changeTimetableStructureSync(operation.timetable, operation.period, operation.position)
     }
 
+    @WorkerThread
+    override fun writeSync(operation: TimetableWriteOperation, beforeWrite: () -> Unit): Boolean =
+        if (operation is TimetableWriteOperation.Add) {
+            addScheduleEventsSync(operation.result, operation.subject, beforeWrite)
+        } else {
+            beforeWrite()
+            writeSync(operation)
+        }
+
     /** The subject, sessions and necessary timetable extension either all commit or all roll back. */
     @WorkerThread
-    private fun addScheduleEventsSync(result: ScheduleEventCreator.Result, subject: TermSubject?): Boolean {
+    private fun addScheduleEventsSync(
+        result: ScheduleEventCreator.Result, subject: TermSubject?, beforeWrite: () -> Unit = {},
+    ): Boolean {
         if (result.events.isEmpty()) return false
         return timetableMutationLock.exclusive {
             database.runInTransaction<Boolean> {
+                beforeWrite()
                 val current = checkNotNull(timetableDao.getTimetableByIdSync(result.timetable.id)) {
                     "The target timetable no longer exists"
                 }

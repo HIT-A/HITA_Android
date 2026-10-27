@@ -48,8 +48,11 @@ class TimetableWriteUseCase internal constructor(
 
     /** Agent callers receive write failures directly, after persistence has actually finished. */
     @WorkerThread
-    fun addSync(result: ScheduleEventCreator.Result, subjectToSave: TermSubject? = null) =
-        execute(TimetableWriteOperation.Add(result, subjectToSave))
+    fun addSync(
+        result: ScheduleEventCreator.Result,
+        subjectToSave: TermSubject? = null,
+        beforeWrite: () -> Unit = {},
+    ) = execute(TimetableWriteOperation.Add(result, subjectToSave), beforeWrite)
 
     private fun submit(operation: TimetableWriteOperation, onResult: ((Result<Unit>) -> Unit)?) {
         if (operation.isEmpty()) {
@@ -63,8 +66,8 @@ class TimetableWriteUseCase internal constructor(
         }
     }
 
-    private fun execute(operation: TimetableWriteOperation) {
-        if (operation.isEmpty() || !store.writeSync(operation)) return
+    private fun execute(operation: TimetableWriteOperation, beforeWrite: () -> Unit = {}) {
+        if (operation.isEmpty() || !store.writeSync(operation, beforeWrite)) return
         // Persistence has committed. A refresh error must not invite a duplicate write on retry.
         runCatching(refreshWidgets).onFailure(onRefreshFailure)
     }

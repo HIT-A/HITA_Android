@@ -12,6 +12,12 @@ interface TimetableWriteStore {
 
     /** Runs on a worker thread. False means empty input or a missing timetable for a schedule edit. */
     fun writeSync(operation: TimetableWriteOperation): Boolean
+
+    /** Guard immediately before persistence; locking stores override to check after acquiring locks. */
+    fun writeSync(operation: TimetableWriteOperation, beforeWrite: () -> Unit): Boolean {
+        beforeWrite()
+        return writeSync(operation)
+    }
 }
 
 sealed interface TimetableWriteOperation {

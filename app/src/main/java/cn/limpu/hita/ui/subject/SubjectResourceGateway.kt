@@ -7,6 +7,9 @@ import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.Observer
+import cn.limpu.hita.agent.core.AgentCancellation
+import cn.limpu.hita.agent.core.AgentToolException
+import cn.limpu.hita.agent.core.AgentToolResult
 import cn.limpu.hita.agent.subject.SubjectReadmeAgentFactory
 import cn.limpu.hita.agent.subject.SubjectReadmeAgentInput
 import cn.limpu.hita.data.model.eas.EASToken
@@ -47,7 +50,7 @@ interface SubjectResourceGateway : SubjectCandidateGateway {
 }
 
 /** Legacy bridge owns no Activity. Cancel detaches observation and suppresses queued delivery.
- * The legacy candidate resolver's HTTP/latch worker may still finish after cancellation.
+ * Already running legacy candidate HTTP calls may still finish after cancellation.
  */
 class AndroidSubjectResourceGateway @Inject constructor(
     private val hoa: HoaRepository,
@@ -66,8 +69,10 @@ class AndroidSubjectResourceGateway @Inject constructor(
             SubjectReadmeAgentInput(owner, key.subjectId, key.code, key.name, key.hoaCampus),
             onTrace = {},
             onResult = { response ->
-                delivery.finish(if (response.ok) Result.success(response.data?.candidates.orEmpty())
-                    else Result.failure(IllegalStateException(response.error.orEmpty())))
+                delivery.finish(when (response) {
+                    is AgentToolResult.Success -> Result.success(response.value.candidates)
+                    is AgentToolResult.Failure -> Result.failure(AgentToolException(response))
+                })
             },
         )
         return delivery
@@ -75,8 +80,9 @@ class AndroidSubjectResourceGateway @Inject constructor(
 
     override fun direct(key: SubjectResourceKey, result: (Result<List<CourseResourceItem>>) -> Unit): SubjectRequest {
         val owner = RequestOwner()
-        val delivery = MainDelivery(main, result, owner::close)
-        CourseResourceLinker.resolveCandidates(owner, key.code, key.name, key.hoaCampus) {
+        var request = AgentCancellation.NONE
+        val delivery = MainDelivery(main, result) { request.cancel(); owner.close() }
+        request = CourseResourceLinker.resolveCandidates(owner, key.code, key.name, key.hoaCampus) {
             delivery.finish(Result.success(it))
         }
         return delivery

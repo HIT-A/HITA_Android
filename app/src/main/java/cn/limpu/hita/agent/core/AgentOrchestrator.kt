@@ -7,7 +7,5 @@ class AgentOrchestrator<I, O>(
         input: I,
         onTrace: (AgentTraceEvent) -> Unit,
         onResult: (AgentToolResult<O>) -> Unit,
-    ) {
-        engine.run(input, onTrace, onResult)
-    }
+    ): AgentCancellation = engine.run(input, onTrace, onResult)
 }

@@ -33,7 +33,7 @@ class AddActivityTool : ReActTool {
                 timetableId = input.timetableId,
                 arrangement = ArrangementInput(name = name, fromMs = fromMs, toMs = toMs, place = place),
             )
-            return ToolHelper.runTimetableToolSync(timetableInput, input.agentProvider, input.onTrace)
+            return ToolHelper.formatTimetableResult(ToolHelper.runTimetableToolSync(timetableInput, input.agentProvider, input.onTrace))
         }
         return "未找到活动信息"
     }

@@ -2,6 +2,7 @@ package cn.limpu.hita.agent.tools
 
 import android.app.Application
 import cn.limpu.hita.BuildConfig
+import cn.limpu.hita.agent.core.AgentToolResult
 import cn.limpu.hita.agent.core.AgentProvider
 import cn.limpu.hita.agent.core.AgentTraceEvent
 import cn.limpu.hita.agent.timetable.TimetableAgentInput
@@ -14,8 +15,6 @@ import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.TimeUnit
 
 /** Shared infrastructure for ReAct tool implementations. */
 internal object ToolHelper {
@@ -82,67 +81,59 @@ internal object ToolHelper {
         input: TimetableAgentInput,
         agentProvider: AgentProvider<TimetableAgentInput, TimetableAgentOutput>,
         onTrace: (AgentTraceEvent) -> Unit,
-    ): String {
-        val session = agentProvider.createSession()
-        val latch = CountDownLatch(1)
-        var observation = ""
-        session.run(input, onTrace) { result ->
-            observation = when {
-                result.ok && result.data != null -> {
-                    val output = result.data
-                    when (output.action) {
-                        TimetableAgentInput.Action.GET_LOCAL_TIMETABLE -> {
-                            if (output.events.isEmpty()) ""
-                            else {
-                                val sdf = SimpleDateFormat("HH:mm", Locale.CHINA)
-                                buildString {
-                                    output.events.take(15).forEach { ev ->
-                                        val from = sdf.format(Date(ev.fromMs))
-                                        val to = sdf.format(Date(ev.toMs))
-                                        append("- ${ev.name}  $from~$to")
-                                        if (ev.place.isNotBlank()) append("  @ ${ev.place}")
-                                        append("\n")
-                                    }
-                                }
-                            }
-                        }
-                        TimetableAgentInput.Action.ADD_TIMETABLE_ARRANGEMENT -> {
-                            if (output.addedEventIds.isNotEmpty()) "已成功添加 ${output.addedEventIds.size} 个活动。"
-                            else "活动添加成功。"
-                        }
-                        TimetableAgentInput.Action.SEARCH_TIMETABLE -> {
-                            if (output.events.isEmpty()) "未找到匹配的事件。"
-                            else {
-                                val sdf = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.CHINA)
-                                buildString {
-                                    append("找到 ${output.events.size} 个匹配的事件:\n")
-                                    output.events.take(20).forEach { ev ->
-                                        val from = sdf.format(Date(ev.fromMs))
-                                        val to = sdf.format(Date(ev.toMs))
-                                        val typeLabel = when (ev.type.name) {
-                                            "EXAM" -> "[考试]"
-                                            "CLASS" -> "[课程]"
-                                            "OTHER" -> "[其他]"
-                                            else -> "[${ev.type.name}]"
-                                        }
-                                        append("\n$typeLabel ${ev.name}")
-                                        append("\n  时间: $from ~ $to")
-                                        if (ev.place.isNotBlank()) append("\n  地点: ${ev.place}")
-                                        if (ev.teacher.isNotBlank()) append("\n  教师: ${ev.teacher}")
-                                    }
-                                }
+    ): AgentToolResult<TimetableAgentOutput> {
+        return TypedAgentBlockingAdapter.run(input, agentProvider, onTrace)
+    }
+
+    /** ReAct still consumes text; this is the sole explicit typed-to-text boundary. */
+    fun formatTimetableResult(result: AgentToolResult<TimetableAgentOutput>): String = when (result) {
+        is AgentToolResult.Failure -> "工具执行失败 [${result.kind}]: ${result.message}"
+        is AgentToolResult.Success -> {
+            val output = result.value
+            when (output.action) {
+                TimetableAgentInput.Action.GET_LOCAL_TIMETABLE -> {
+                    if (output.events.isEmpty()) ""
+                    else {
+                        val sdf = SimpleDateFormat("HH:mm", Locale.CHINA)
+                        buildString {
+                            output.events.take(15).forEach { ev ->
+                                val from = sdf.format(Date(ev.fromMs))
+                                val to = sdf.format(Date(ev.toMs))
+                                append("- ${ev.name}  $from~$to")
+                                if (ev.place.isNotBlank()) append("  @ ${ev.place}")
+                                append("\n")
                             }
                         }
                     }
                 }
-                else -> "工具执行失败: ${result.error ?: "未知错误"}"
+                TimetableAgentInput.Action.ADD_TIMETABLE_ARRANGEMENT -> {
+                    if (output.addedEventIds.isNotEmpty()) "已成功添加 ${output.addedEventIds.size} 个活动。"
+                    else "活动添加成功。"
+                }
+                TimetableAgentInput.Action.SEARCH_TIMETABLE -> {
+                    if (output.events.isEmpty()) "未找到匹配的事件。"
+                    else {
+                        val sdf = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.CHINA)
+                        buildString {
+                            append("找到 ${output.events.size} 个匹配的事件:\n")
+                            output.events.take(20).forEach { ev ->
+                                val from = sdf.format(Date(ev.fromMs))
+                                val to = sdf.format(Date(ev.toMs))
+                                val typeLabel = when (ev.type.name) {
+                                    "EXAM" -> "[考试]"
+                                    "CLASS" -> "[课程]"
+                                    "OTHER" -> "[其他]"
+                                    else -> "[${ev.type.name}]"
+                                }
+                                append("\n$typeLabel ${ev.name}")
+                                append("\n  时间: $from ~ $to")
+                                if (ev.place.isNotBlank()) append("\n  地点: ${ev.place}")
+                                if (ev.teacher.isNotBlank()) append("\n  教师: ${ev.teacher}")
+                            }
+                        }
+                    }
+                }
             }
-            latch.countDown()
         }
-        if (!latch.await(30, TimeUnit.SECONDS)) {
-            LogUtils.e("工具执行超时")
-            return "工具执行超时"
-        }
-        return observation.ifBlank { "" }
     }
 }
