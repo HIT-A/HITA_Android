@@ -6,6 +6,7 @@ import android.content.Context
 import android.util.Log
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -257,18 +258,24 @@ internal fun CoursePlanPreviewContent(
                         onPrevious = { selectedWeek = (selectedWeek - 1).coerceAtLeast(1) },
                         onNext = { selectedWeek = (selectedWeek + 1).coerceAtMost(projection.maxWeek) }
                     )
-                    ReadOnlyTimetableWeek(
-                        startDate = projection.weekStartMillis(selectedWeek),
-                        events = projection.eventsForWeek(selectedWeek),
-                        scheduleStructure = projection.schedule,
-                        onPreviousWeek = {
-                            selectedWeek = (selectedWeek - 1).coerceAtLeast(1)
-                        },
-                        onNextWeek = {
-                            selectedWeek = (selectedWeek + 1).coerceAtMost(projection.maxWeek)
-                        },
-                        onEventClick = { selectedEvent = it }
-                    )
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f)
+                    ) {
+                        ReadOnlyTimetableWeek(
+                            startDate = projection.weekStartMillis(selectedWeek),
+                            events = projection.eventsForWeek(selectedWeek),
+                            scheduleStructure = projection.schedule,
+                            onPreviousWeek = {
+                                selectedWeek = (selectedWeek - 1).coerceAtLeast(1)
+                            },
+                            onNextWeek = {
+                                selectedWeek = (selectedWeek + 1).coerceAtMost(projection.maxWeek)
+                            },
+                            onEventClick = { selectedEvent = it }
+                        )
+                    }
                 }
             }
         }
