@@ -77,13 +77,12 @@ internal object ToolHelper {
         return if (diffDays in -365..365) diffDays else 0
     }
 
-    fun runTimetableToolSync(
+    suspend fun runTimetableTool(
         input: TimetableAgentInput,
         agentProvider: AgentProvider<TimetableAgentInput, TimetableAgentOutput>,
         onTrace: (AgentTraceEvent) -> Unit,
-    ): AgentToolResult<TimetableAgentOutput> {
-        return TypedAgentBlockingAdapter.run(input, agentProvider, onTrace)
-    }
+    ): AgentToolResult<TimetableAgentOutput> =
+        TypedAgentSuspendingAdapter.run(input, agentProvider, onTrace)
 
     /** ReAct still consumes text; this is the sole explicit typed-to-text boundary. */
     fun formatTimetableResult(result: AgentToolResult<TimetableAgentOutput>): String = when (result) {

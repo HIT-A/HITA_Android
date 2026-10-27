@@ -8,8 +8,8 @@ import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
 
-class AddActivityTool : ReActTool {
-    override fun execute(input: ReActToolInput): String? {
+class AddActivityTool : SuspendingReActTool {
+    override suspend fun execute(input: ReActToolInput): String? {
         val activity = parseAddActivityInput(input.actionInput)
         val name = activity.name
         val fromMs = activity.fromMs
@@ -33,7 +33,7 @@ class AddActivityTool : ReActTool {
                 timetableId = input.timetableId,
                 arrangement = ArrangementInput(name = name, fromMs = fromMs, toMs = toMs, place = place),
             )
-            return ToolHelper.formatTimetableResult(ToolHelper.runTimetableToolSync(timetableInput, input.agentProvider, input.onTrace))
+            return ToolHelper.formatTimetableResult(ToolHelper.runTimetableTool(timetableInput, input.agentProvider, input.onTrace))
         }
         return "未找到活动信息"
     }

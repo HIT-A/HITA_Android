@@ -6,8 +6,8 @@ import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 
-class GetTimetableTool : ReActTool {
-    override fun execute(input: ReActToolInput): String {
+class GetTimetableTool : SuspendingReActTool {
+    override suspend fun execute(input: ReActToolInput): String {
         val dayOffset = ToolHelper.parseDayOffset(input.userMessage)
         val cal = Calendar.getInstance().apply {
             add(Calendar.DAY_OF_MONTH, dayOffset)
@@ -28,7 +28,7 @@ class GetTimetableTool : ReActTool {
             toMs = toMs
         )
 
-        val info = ToolHelper.formatTimetableResult(ToolHelper.runTimetableToolSync(agentInput, input.agentProvider, input.onTrace))
+        val info = ToolHelper.formatTimetableResult(ToolHelper.runTimetableTool(agentInput, input.agentProvider, input.onTrace))
 
         val dateLabel = SimpleDateFormat("yyyy-MM-dd EEEE", Locale.CHINA).format(Date(fromMs))
 

@@ -1,8 +1,8 @@
-# 全仓优化交接（2026-10-27，#77 合并后）
+# 全仓优化交接（2026-10-27，#83 合并后）
 
 本文记录分阶段优化的已交付结果、证据和剩余范围。项目约定见 [AGENTS.md](../AGENTS.md)，阶段 3–5 的完整验收台账见 [refactor-stage345-plan.md](refactor-stage345-plan.md)。历史测试数对应各 PR head，不代表合并后的 main 已另行验证。
 
-**阶段 0、1、2 已完成。阶段 3.1 已合并教学楼查询 #65、考试查询 #66、空教室远端查询 #67、空教室 Repository 与页面迁移 #68，以及学期远端协程能力 #70。阶段 5.V/M/R 构建改造已合并 #71，5.T 子模块测试与兼容修复已合并 #72；Subject 整链已合并 #73；纯 JVM 核心/旧 sync 清理已合并 #74，学期缓存/全部消费端已合并 #75；课表页面状态、批次与周组件拆分已合并 #77；3.D1/D2 EASRepository 装配已合并 #82。阶段 3 其余范围、阶段 4 的 Main/Web 登录和阶段 5 最终审计尚未完成。**
+**阶段 0、1、2 已完成。阶段 3.1 已合并教学楼查询 #65、考试查询 #66、空教室远端查询 #67、空教室 Repository 与页面迁移 #68，以及学期远端协程能力 #70。阶段 5.V/M/R 构建改造已合并 #71，5.T 子模块测试与兼容修复已合并 #72；Subject 整链已合并 #73；纯 JVM 核心/旧 sync 清理已合并 #74，学期缓存/全部消费端已合并 #75；课表页面状态、批次与周组件拆分已合并 #77；3.D1/D2 EASRepository 装配已合并 #82；3.Q4/I2 成绩查询与通知整链已合并 #83。阶段 3 其余范围、阶段 4 的 Main/Web 登录和阶段 5 最终审计尚未完成。**
 
 ## 1. 当前状态
 
@@ -11,8 +11,9 @@
 - #68 本地 JVM 795 项中 794 通过、1 项既有可选 HOA 联网测试跳过；Debug 与 androidTest APK 构建、仓库/分层/health/consistency 检查通过。CI 的 JVM 步骤成功，但 CI 未上传 JVM XML，不能把本地精确计数说成 CI XML 结果。
 - [PR #70](https://github.com/HIT-A/HITA_Android/pull/70) 已合并为 `b8a4cea55faab714baccceb1586ecc652cb3f46f`。head `72751747ba5acccfb8abf4240d3b6f1700445e66` 的 [CI 40299381154](https://github.com/HIT-A/HITA_Android/actions/runs/40299381154) 两个 job 成功，原始设备 XML 独立核实 607 项全部通过；这是 PR head 的结果，不是合并后的 main 另跑一次验证。
 - [PR #77](https://github.com/HIT-A/HITA_Android/pull/77) 已合并为 `59b6cc1`，完成课表批次协调、页面状态/生命周期与周组件/规划预览拆分。[CI 40480112502](https://github.com/HIT-A/HITA_Android/actions/runs/40480112502) 实际设备 XML 独立核实 845 项全部通过，0 失败、错误、跳过或重复；这是 PR head 的设备证据，未进行真实校园账号或物理真机验证。
-- 阶段 3.1 已交付上述查询能力；学期缓存与全部消费端已由 #75 交付；其余教务请求、Repository 内部依赖注入、聊天拆分及 Agent 执行语义改造仍须按台账逐项实施与验证。
+- 阶段 3.1 已交付上述查询能力；学期缓存与全部消费端已由 #75 交付；聊天/附件拆分与 typed Agent 执行语义已分别由 #79/#81 合并；当前按台账推进 ReAct 工具与 AI 空教室的取消链及其余教务能力。
 - 当前 EASRepository 注入批次已由 PR #82 合并为 `1477dcea`。生产调用链和 wiring seam 已完成。`EASRepository` 接收数据库、DAO、快照、Gson、考试导入和课表分组能力；`EventItemFragment` 使用 Hilt；`ScoreReminderWorker` 通过 Hilt EntryPoint 获取生产依赖并保留测试替身；成绩摘要按能力接口选择服务。修复提交 `10e4f94` 后 [CI 40497758753](https://github.com/HIT-A/HITA_Android/actions/runs/40497758753) 两个 job 已通过。设备 XML 独立核实 app 820、component 7、hitauser 11、style 8，共 846 项全部通过；JVM XML 938 项中 937 通过、1 项既有可选联网测试跳过。真实校园账号、WebVPN 和物理真机仍未验证。
+- 成绩查询与通知整链已由 [PR #83](https://github.com/HIT-A/HITA_Android/pull/83) 合并为 `ecdd736`（head `3ff2ca1`）。[CI 40509648499](https://github.com/HIT-A/HITA_Android/actions/runs/40509648499) 两个 job 成功；设备 XML app 825、component 7、hitauser 11、style 8，共 851 项全部通过，JVM XML 共 938 项（937 通过、1 个既有可选 HOA 联网跳过），测试身份无重复。真实校园账号、WebVPN 和物理真机仍未验证。
 - 完整验收文档已通过 #69 合并为 `f48cc4b`；对应 head `d89c58d` 的 [CI 40292512701](https://github.com/HIT-A/HITA_Android/actions/runs/40292512701) 两个 job 成功，下载的实际设备 XML 为原 481 项全部通过。后续每批从最新 `origin/main` 新建分支，不在已合并功能分支追加工作。
 - 用户此前保留的交接文档改动已备份到 `/tmp/hita-stage345-skdpckp3/handoff-before-update.md`，本次明确要求“补齐之后继续”，因此将既有文档更新与 #66–#68 补充一并纳入文档 PR。
 - **当前目标的新增授权**：用户明确要求“你自己开 PR、自己审核、自己合并，不要打扰我，直到做完 3、4、5”。这覆盖本目标内的方案、实现、文档、commit、origin push、PR、审核、必要分支同步及合并；不再逐批请求确认。它覆盖本目标，并非修改其他任务的默认授权规则。仍不发布 release、不推 fork。
@@ -269,11 +270,17 @@ CI [40198232504](https://github.com/HIT-A/HITA_Android/actions/runs/40198232504)
 
 本地已通过 `:app:compileDebugKotlin`、`:app:compileDebugAndroidTestKotlin`、`:app:testDebugUnitTest`、`:app:assembleDebug`、`:app:assembleDebugAndroidTest`，以及 `python3 scripts/check_repository.py --base-ref origin/main`、`project_health_check.sh`、`code_consistency_check.sh`、`git diff --check`。PR #82 已合并为 `1477dcea`；CI 40497758753 两个 job 均通过，设备 XML 为 846 项全部通过，JVM XML 为 937 通过、1 个既有可选联网跳过。当前无真实账号或物理真机证据。
 
-### 3.Q4/I2 成绩查询与通知整链（当前分支，待 PR CI）
+### 3.Q4/I2 成绩查询与通知整链（PR #83，已合并且验证）
 
-当前隔离工作树为 `/home/rinat/projects/HITA-stage345-score-q4`，分支 `codex/score-query-flow-next`，基线 `origin/main=1477dcea`。本批把成绩单次请求、成绩汇总渐进 Flow、Repository 缓存与同 key 请求代次、成绩页面和通知 Worker 一起接通：items 先发、summary 后补，缓存命中后继续远端刷新；会话切换、取消、旧请求发射和缓存写入均在 Repository 边界保护。Worker 使用共享 Repository 的可取消单次请求，保留旧构造器、WorkSpec、通知 ID/channel/Intent 和首次基线、部分失败、取消语义。
+本批把成绩单次请求、成绩汇总渐进 Flow、Repository 缓存与同 key 请求代次、成绩页面和通知 Worker 一起接通：items 先发、summary 后补，缓存命中后继续远端刷新；会话切换、取消、旧请求发射和缓存写入均在 Repository 边界保护。Worker 使用共享 Repository 的可取消单次请求，保留旧构造器、WorkSpec、通知 ID/channel/Intent 和首次基线、部分失败、取消语义。
 
-旧深圳成绩 15 项契约、ScoreReminderSessionTest 7 项身份和 ScoreReminderPolicyTest 7 项身份保持；新增 Repository Flow 4 项缓存/取消/并发/未缓存写入用例及深圳 Flow 取消契约。当前已通过 `:app:compileDebugKotlin`、`:app:compileDebugAndroidTestKotlin`、`:app:testDebugUnitTest`、`python3 scripts/check_repository.py --base-ref origin/main` 与 `git diff --check`。本机没有 adb 设备，因此设备运行、CI、真实校园账号、WebVPN 和物理真机仍未验证。
+旧深圳成绩契约、ScoreReminderSessionTest 7 项身份和 ScoreReminderPolicyTest 7 项身份保持；新增 Repository Flow 4 项缓存/取消/并发/未缓存写入用例及深圳 Flow 取消契约。PR #83 的 CI 已核对 851 项设备测试全部通过、JVM 938 项中 937 通过且 1 项既有可选联网测试跳过；本机没有 adb 设备，真实校园账号、WebVPN 和物理真机仍未验证。
+
+### 3.A2 ReAct 工具与 AI 空教室整链（当前工作树，待 PR CI）
+
+当前隔离工作树为 `/home/rinat/projects/HITA-stage345-react`，分支 `codex/react-empty-classroom-flow`，基线 `origin/main=ecdd736`。本批把本地课表读取、课表搜索、活动添加和空教室查询接入 `SuspendingReActTool`：typed Agent bridge 从 CountDownLatch 改为可取消挂起适配器，超时/父取消/迟到回调/重复回调均保持单一终态；空教室本地周读取改为一次性 Room DAO seam，不再由工具持有 `observeForever`，并保留学期→教学楼→逐楼查询、部分失败、analytics 上下文和原文字输出。
+
+已通过 `:app:testDebugUnitTest --tests cn.limpu.hita.agent.tools.TypedAgentSuspendingAdapterTest`（7 项）、完整 `:app:testDebugUnitTest`、`:app:compileDebugKotlin`、`:app:compileDebugAndroidTestKotlin`、`:app:assembleDebug`、`:app:assembleDebugAndroidTest` 与 `git diff --check`。本机无 adb 设备，因此 SearchEmptyClassroomSessionTest、instrumentation、PR CI、真实账号/WebVPN 和物理真机仍待验证。
 
 ## 10. 遗留事项与阶段 3–5 路线
 

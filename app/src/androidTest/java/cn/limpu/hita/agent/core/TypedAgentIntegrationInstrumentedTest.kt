@@ -20,6 +20,7 @@ import org.junit.runner.RunWith
 import java.util.PriorityQueue
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.runBlocking
 
 @RunWith(AndroidJUnit4::class)
 class TypedAgentIntegrationInstrumentedTest {
@@ -74,7 +75,7 @@ class TypedAgentIntegrationInstrumentedTest {
         assertEquals(2, result.single().attempt)
     }
 
-    @Test fun timetableEngineProviderAndHelperKeepFailureTypeThroughTextBoundary() {
+    @Test fun timetableEngineProviderAndHelperKeepFailureTypeThroughTextBoundary() = runBlocking {
         val registry = AgentToolRegistry().apply { register(object : AgentTool<TimetableAgentInput, TimetableAgentOutput> {
             override val name = "get_local_timetable"
             override fun execute(input: TimetableAgentInput, onResult: (AgentToolResult<TimetableAgentOutput>) -> Unit): AgentCancellation {
@@ -84,7 +85,7 @@ class TypedAgentIntegrationInstrumentedTest {
         val provider = SimpleAgentProvider {
             OrchestratorAgentSession(AgentOrchestrator(TimetableAgentEngine(registry)))
         }
-        val result = ToolHelper.runTimetableToolSync(
+        val result = ToolHelper.runTimetableTool(
             TimetableAgentInput(app, TimetableAgentInput.Action.GET_LOCAL_TIMETABLE), provider, {},
         )
         assertEquals(AgentToolErrorType.TIMEOUT, result.errorType)
