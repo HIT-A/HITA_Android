@@ -67,6 +67,20 @@ import kotlinx.coroutines.flow.last
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.emitAll
+import dagger.hilt.EntryPoint
+import dagger.hilt.InstallIn
+import dagger.hilt.components.SingletonComponent
+
+@EntryPoint
+@InstallIn(SingletonComponent::class)
+internal interface EasRepositoryWiringEntryPoint {
+    fun easRepository(): EASRepository
+    fun appDatabase(): AppDatabase
+    fun eventItemDao(): EventItemDao
+    fun scoreCacheDao(): ScoreCacheDao
+    fun timetableSnapshotStore(): TimetableSnapshotStore
+    fun timetableMutationLock(): TimetableMutationLock
+}
 
 /** Source construction stays at the repository boundary, including its session-refresh callbacks. */
 internal class EasRepositoryServiceFactories(

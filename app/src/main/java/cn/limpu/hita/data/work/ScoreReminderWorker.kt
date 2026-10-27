@@ -56,6 +56,8 @@ class ScoreReminderWorker private constructor(
     ) : this(appContext, params, Dependencies(repository, notifyScores))
 
     override suspend fun doWork(): Result {
+        val fallbackStore = ScoreReminderStore(applicationContext)
+        if (!fallbackStore.isEnabled()) return Result.success()
         val entryPoint = if (dependencies.repository == null) {
             EntryPointAccessors.fromApplication(
                 applicationContext,
@@ -64,7 +66,7 @@ class ScoreReminderWorker private constructor(
         } else {
             null
         }
-        val store = entryPoint?.scoreReminderStore() ?: ScoreReminderStore(applicationContext)
+        val store = entryPoint?.scoreReminderStore() ?: fallbackStore
         if (!store.isEnabled()) return Result.success()
         val repository = dependencies.repository ?: entryPoint!!.easRepository()
         val session = repository.captureQuerySession()
