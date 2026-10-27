@@ -4,6 +4,8 @@ import android.app.Application
 import android.content.Context
 import android.content.SharedPreferences
 import android.os.Looper
+import android.os.Handler
+import androidx.lifecycle.Observer
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.room.Room
@@ -43,6 +45,8 @@ import kotlin.coroutines.Continuation
 import kotlin.coroutines.intrinsics.startCoroutineUninterceptedOrReturn
 import kotlinx.coroutines.CompletableDeferred
 import org.junit.Assert.assertTrue
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
 
 /** Real repository/Room/preferences with scripted remote results, never a campus account. */
 internal class BackgroundTermConsumerHarness : Closeable {
@@ -59,6 +63,14 @@ internal class BackgroundTermConsumerHarness : Closeable {
         { _, _, _, _ -> DataState(emptyList()) }
     var scores: (TermItem, EASToken, EASService.TestType) -> LiveData<DataState<List<CourseScoreItem>>> =
         { _, _, _ -> MutableLiveData(DataState(emptyList())) }
+    /**
+     * Once-style score seam used by background consumers.  The default bridges
+     * the legacy LiveData fixture so the existing session tests keep their
+     * request/observer identities while newer tests can provide a cancellable
+     * suspend result directly.
+     */
+    var scoresOnce: suspend (TermItem, EASToken, EASService.TestType) -> DataState<List<CourseScoreItem>> =
+        { term, token, type -> awaitScoreLiveData(scores(term, token, type)) }
     private val executor = Executors.newSingleThreadExecutor()
 
     @Suppress("UNCHECKED_CAST")
@@ -97,6 +109,16 @@ internal class BackgroundTermConsumerHarness : Closeable {
                 calls += "scores:${term.id}"; tokens += token
                 scores(term, token, args[2] as EASService.TestType)
             }
+            "getPersonalScoresOnce" -> {
+                val term = args[0] as TermItem
+                val token = args[1] as EASToken
+                calls += "scores:${term.id}"; tokens += token
+                (suspend {
+                    scoresOnce(term, token, args[2] as EASService.TestType)
+                }).startCoroutineUninterceptedOrReturn(
+                    args.last() as Continuation<DataState<List<CourseScoreItem>>>
+                )
+            }
             "toString" -> "BackgroundTermConsumerService"
             "hashCode" -> System.identityHashCode(proxy)
             "equals" -> proxy === args.single()
@@ -127,6 +149,26 @@ internal class BackgroundTermConsumerHarness : Closeable {
     )
 
     fun switchAccount() = preferences.saveEasToken(account("other-student", 802L))
+
+    private suspend fun awaitScoreLiveData(
+        liveData: LiveData<DataState<List<CourseScoreItem>>>,
+    ): DataState<List<CourseScoreItem>> = suspendCancellableCoroutine { continuation ->
+        val observer = object : Observer<DataState<List<CourseScoreItem>>> {
+            override fun onChanged(value: DataState<List<CourseScoreItem>>) {
+                val state = value
+                if (state.state == DataState.STATE.NOTHING || state.state == DataState.STATE.LOADING) {
+                    return
+                }
+                liveData.removeObserver(this)
+                if (continuation.isActive) continuation.resume(state)
+            }
+        }
+        val mainHandler = Handler(Looper.getMainLooper())
+        continuation.invokeOnCancellation {
+            mainHandler.post { liveData.removeObserver(observer) }
+        }
+        mainHandler.post { liveData.observeForever(observer) }
+    }
 
     override fun close() {
         InstrumentationRegistry.getInstrumentation().waitForIdleSync()

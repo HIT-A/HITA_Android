@@ -25,6 +25,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
 
 /**
  * 三校区教务 Web 数据源的公共基类（本部 / 威海）。
@@ -393,6 +395,66 @@ abstract class AbstractEASWebSource(
         return result
     }
 
+    override suspend fun getPersonalScoresOnce(
+        term: TermItem,
+        token: EASToken,
+        testType: EASService.TestType,
+    ): DataState<List<CourseScoreItem>> = withContext(Dispatchers.IO) {
+        try {
+            currentCoroutineContext().ensureActive()
+            val response = requestScores(term, token, testType)
+            val body = response.body()
+            if (response.statusCode() != 200) {
+                if (isAuthExpiredResponse(response, body)) {
+                    logScoreFailure("getPersonalScoresOnce", term, testType, response.statusCode(), body)
+                    return@withContext DataState(DataState.STATE.NOT_LOGGED_IN)
+                }
+                logScoreFailure("getPersonalScoresOnce", term, testType, response.statusCode(), body)
+                return@withContext DataState(DataState.STATE.FETCH_FAILED, "HTTP ${response.statusCode()}")
+            }
+            if (isAuthExpiredResponse(response, body)) {
+                logScoreFailure("getPersonalScoresOnce", term, testType, response.statusCode(), body)
+                return@withContext DataState(DataState.STATE.NOT_LOGGED_IN)
+            }
+            val parsed = BenbuScoreParser.parseGradesHtml(body)
+            val filtered = parsed.filter { item -> matchesRequestedTerm(item.termName, term) }
+            val scores = if (filtered.isNotEmpty() || parsed.isEmpty()) filtered else parsed
+            logScoreDebug("getPersonalScoresOnce", term, testType, response.statusCode(), body, parsed, filtered)
+            DataState(scores, DataState.STATE.SUCCESS)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            LogUtils.e("getPersonalScoresOnce: failed, error=${error.message}", error)
+            DataState(DataState.STATE.FETCH_FAILED, error.message)
+        }
+    }
+
+
+    override fun getPersonalScoresWithSummaryFlow(
+        term: TermItem,
+        token: EASToken,
+        testType: EASService.TestType,
+    ): Flow<DataState<ScoreQueryResult>> = flow {
+        try {
+            val itemsState = getPersonalScoresOnce(term, token, testType)
+            if (itemsState.state != DataState.STATE.SUCCESS || itemsState.data == null) {
+                emit(DataState<ScoreQueryResult>(itemsState.state, itemsState.message))
+                return@flow
+            }
+            val items = itemsState.data.orEmpty()
+            emit(DataState(ScoreQueryResult(items = items), DataState.STATE.SUCCESS))
+            currentCoroutineContext().ensureActive()
+            val summary = withContext(Dispatchers.IO) { fetchScoreSummary(token) }
+            currentCoroutineContext().ensureActive()
+            if (summary != null) {
+                emit(DataState(ScoreQueryResult(items = items, summary = summary), DataState.STATE.SUCCESS))
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            emit(DataState(DataState.STATE.FETCH_FAILED, error.message))
+        }
+    }
 
     override fun getPersonalScoresWithSummary(
         term: TermItem,

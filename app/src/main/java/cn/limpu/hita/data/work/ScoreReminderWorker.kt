@@ -14,7 +14,6 @@ import cn.limpu.hita.R
 import cn.limpu.hita.data.model.eas.CourseScoreItem
 import cn.limpu.hita.data.repository.EASRepository
 import cn.limpu.hita.data.repository.EasQuerySession
-import cn.limpu.hita.data.repository.awaitEasDataState
 import cn.limpu.hita.data.source.preference.ScoreReminderStore
 import cn.limpu.hita.data.source.web.service.EASService
 import cn.limpu.hita.ui.eas.score.ScoreInquiryActivity
@@ -93,9 +92,7 @@ class ScoreReminderWorker private constructor(
             currentCoroutineContext().ensureActive()
             session.ensureCurrent()
             val scoresState = withTimeoutOrNull(12_000L) {
-                awaitEasDataState {
-                    repository.getPersonalScoresWithSummary(session, term, EASService.TestType.NORMAL)
-                }
+                repository.getPersonalScoresOnce(session, term, EASService.TestType.NORMAL)
             }
             if (scoresState == null) {
                 queryFailed = true
@@ -105,7 +102,7 @@ class ScoreReminderWorker private constructor(
                 queryFailed = true
                 continue
             }
-            val items = scoresState.data?.items ?: emptyList()
+            val items = scoresState.data.orEmpty()
             val currentKeys = items.map(ScoreReminderPolicy::scoreKey).toSet()
             val scopeKey = ScoreReminderPolicy.baselineKey(ownerKey, term.id)
             val known = store.getKnownScores(scopeKey)

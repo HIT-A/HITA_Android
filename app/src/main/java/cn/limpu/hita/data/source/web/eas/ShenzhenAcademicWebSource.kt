@@ -48,6 +48,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
 
 internal object ShenzhenSelectedCourseIdentityParser {
     private val rawIdentityKeys = setOf("id", "rwid", "rwh", "selectionrequestid", "taskid")
@@ -1664,6 +1666,158 @@ internal class ShenzhenAcademicWebSource(
         return res
     }
 
+    suspend fun getPersonalScoresOnce(
+        term: TermItem,
+        token: EASToken,
+        testType: EASService.TestType,
+    ): DataState<List<CourseScoreItem>> = withContext(Dispatchers.IO) {
+        try {
+            currentCoroutineContext().ensureActive()
+            if (token.accessToken.isNullOrBlank() && token.hasShenzhenWebSession()) {
+                val fetched = fetchShenzhenWebScoreItems(term, token, testType)
+                if (fetched.authExpired) {
+                    DataState(DataState.STATE.NOT_LOGGED_IN, "深圳 Web 会话已失效")
+                } else {
+                    DataState(fetched.items, DataState.STATE.SUCCESS)
+                }
+            } else {
+                val qzqmFlag = when (testType) {
+                    EASService.TestType.NORMAL -> "qm"
+                    EASService.TestType.RESIT -> "qz"
+                    else -> "qm"
+                }
+                val body = """{"xn":"${term.yearCode}","xq":"${term.termCode}","qzqmFlag":"$qzqmFlag","type":"json"}"""
+                val response = jsonPost(token, "/app/cjgl/xscjList?_lang=zh_CN", body, "06")
+                val json = JsonUtils.getJsonObject(response.body())
+                if (isAuthExpiredResponse(response) || isAuthExpiredJson(json)) {
+                    DataState(DataState.STATE.NOT_LOGGED_IN)
+                } else if (response.statusCode() != 200) {
+                    DataState(DataState.STATE.FETCH_FAILED, "HTTP ${response.statusCode()}")
+                } else {
+                    val content = json?.optJSONArray("content")
+                    if (content == null) {
+                        DataState(DataState.STATE.FETCH_FAILED)
+                    } else {
+                        val items = buildList {
+                            for (i in 0 until content.length()) {
+                                val row = content.optJSONObject(i) ?: continue
+                                add(CourseScoreItem().apply {
+                                    courseCode = row.optString("kcdm")
+                                    courseName = row.optString("kcmc")
+                                    credits = row.optString("xf").toFloatOrNull() ?: 0f
+                                    finalScoresText = row.optString("zf").trim().ifBlank { null }
+                                    finalScores = finalScoresText?.toIntOrNull() ?: -1
+                                    courseProperty = row.optString("kcxz")
+                                    courseCategory = row.optString("kclb", row.optString("kclbmc", ""))
+                                    termName = row.optString("xnxq", term.yearCode + term.termCode)
+                                    assessMethod = row.optString("khfs", "")
+                                })
+                            }
+                        }
+                        DataState(items, DataState.STATE.SUCCESS)
+                    }
+                }
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            LogUtils.e("getPersonalScoresOnce: failed, error=${error.message}", error)
+            DataState(DataState.STATE.FETCH_FAILED, error.message)
+        }
+    }
+
+    fun getPersonalScoresWithSummaryFlow(
+        term: TermItem,
+        token: EASToken,
+        testType: EASService.TestType,
+    ): Flow<DataState<ScoreQueryResult>> = flow {
+        try {
+            if (token.accessToken.isNullOrBlank() && token.hasShenzhenWebSession()) {
+                val itemsState = getPersonalScoresOnce(term, token, testType)
+                if (itemsState.state != DataState.STATE.SUCCESS || itemsState.data == null) {
+                    emit(DataState<ScoreQueryResult>(itemsState.state, itemsState.message))
+                    return@flow
+                }
+                val items = itemsState.data.orEmpty()
+                var latest = ScoreQueryResult(items)
+                emit(DataState(latest, DataState.STATE.SUCCESS))
+                currentCoroutineContext().ensureActive()
+                when (val official = withContext(Dispatchers.IO) { fetchOfficialWebScoreSummary(term, token) }) {
+                    is OfficialWebScoreSummaryResult.Available -> {
+                        latest = ScoreQueryResult(items, official.summary)
+                        emit(DataState(latest, DataState.STATE.SUCCESS))
+                    }
+                    OfficialWebScoreSummaryResult.AuthExpired -> emit(ScoreQueryStatePolicy.sessionExpired(latest))
+                    OfficialWebScoreSummaryResult.Unavailable -> Unit
+                }
+                return@flow
+            }
+
+        val qzqmFlag = when (testType) {
+            EASService.TestType.NORMAL -> "qm"
+            EASService.TestType.RESIT -> "qz"
+            else -> "qm"
+        }
+        val body = """{"xn":"${term.yearCode}","xq":"${term.termCode}","qzqmFlag":"$qzqmFlag","type":"json"}"""
+        val response = withContext(Dispatchers.IO) {
+            currentCoroutineContext().ensureActive()
+            jsonPost(token, "/app/cjgl/xscjList?_lang=zh_CN", body, "06")
+        }
+        val json = JsonUtils.getJsonObject(response.body())
+        if (isAuthExpiredResponse(response) || isAuthExpiredJson(json)) {
+            emit(DataState(DataState.STATE.NOT_LOGGED_IN))
+            return@flow
+        }
+        if (response.statusCode() != 200) {
+            emit(DataState(DataState.STATE.FETCH_FAILED, "HTTP ${response.statusCode()}"))
+            return@flow
+        }
+        val content = json?.optJSONArray("content")
+        if (content == null) {
+            emit(DataState(DataState.STATE.FETCH_FAILED))
+            return@flow
+        }
+        val items = buildList {
+            for (i in 0 until content.length()) {
+                val row = content.optJSONObject(i) ?: continue
+                add(CourseScoreItem().apply {
+                    courseCode = row.optString("kcdm")
+                    courseName = row.optString("kcmc")
+                    credits = row.optString("xf").toFloatOrNull() ?: 0f
+                    finalScoresText = row.optString("zf").trim().ifBlank { null }
+                    finalScores = finalScoresText?.toIntOrNull() ?: -1
+                    courseProperty = row.optString("kcxz")
+                    courseCategory = row.optString("kclb", row.optString("kclbmc", ""))
+                    termName = row.optString("xnxq", term.yearCode + term.termCode)
+                    assessMethod = row.optString("khfs", "")
+                })
+            }
+        }
+        var latest = ScoreQueryResult(items, extractScoreSummary(json))
+        emit(DataState(latest, DataState.STATE.SUCCESS))
+        currentCoroutineContext().ensureActive()
+        withContext(Dispatchers.IO) { fetchLegacyCumulativeScoreSummary(token) }
+            ?.let { cumulative ->
+                currentCoroutineContext().ensureActive()
+                latest = ScoreQueryResult(items, cumulative)
+                emit(DataState(latest, DataState.STATE.SUCCESS))
+            }
+        currentCoroutineContext().ensureActive()
+        when (val official = withContext(Dispatchers.IO) { fetchOfficialWebScoreSummary(term, token) }) {
+            is OfficialWebScoreSummaryResult.Available -> {
+                latest = ScoreQueryResult(items, official.summary)
+                emit(DataState(latest, DataState.STATE.SUCCESS))
+            }
+            OfficialWebScoreSummaryResult.AuthExpired -> emit(ScoreQueryStatePolicy.sessionExpired(latest))
+            OfficialWebScoreSummaryResult.Unavailable -> Unit
+        }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            emit(DataState(DataState.STATE.FETCH_FAILED, error.message))
+        }
+    }
+
     fun getPersonalScoresWithSummary(
         term: TermItem,
         token: EASToken,
@@ -1877,6 +2031,8 @@ internal class ShenzhenAcademicWebSource(
             ScoreSummaryParser.fromShenzhenGpa(values)
                 ?.let(OfficialWebScoreSummaryResult::Available)
                 ?: OfficialWebScoreSummaryResult.Unavailable
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (_: Exception) {
             OfficialWebScoreSummaryResult.Unavailable
         }
@@ -1902,6 +2058,8 @@ internal class ShenzhenAcademicWebSource(
                 total = total,
                 scope = ScoreSummaryScope.CUMULATIVE
             )
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (_: Exception) {
             null
         }
