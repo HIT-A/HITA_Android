@@ -41,7 +41,10 @@ class TimetableImportBoundaryInstrumentedTest {
             val table = fixture.tables().single()
             assertEquals(originalCode, table.code)
             assertEquals(firstHour, table.scheduleStructure.first().from.hour)
-            val expected = cn.limpu.hita.utils.TimeTools.getMonday(requestedMillis).timeInMillis
+            val expected = cn.limpu.hita.utils.TimeTools.getMonday(requestedMillis).apply {
+                set(java.util.Calendar.SECOND, 0)
+                set(java.util.Calendar.MILLISECOND, 0)
+            }.timeInMillis
             assertEquals(expected, table.startTime.time)
         }
     }
