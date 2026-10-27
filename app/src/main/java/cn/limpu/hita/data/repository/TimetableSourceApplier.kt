@@ -46,15 +46,18 @@ class TimetableSourceApplier internal constructor(
     private val timetableDao = database.timetableDao()
     private val subjectDao = database.subjectDao()
     private val snapshotStore = TimetableSnapshotStore(appContext, database)
+    private val recovery = TimetableChangeRecovery(
+        application, database, changeStore, snapshotStore, timetableMutationLock
+    )
 
     /** 采用某门待确认课程的源端版本（源端整门缺失时即删除本地该课）。 */
     fun adoptCourse(termId: String, courseKey: String) {
-        timetableMutationLock.exclusive {
+        recovery.commit {
             // 在锁内重读。刷新若已确认该课回归并清掉决策，这里必须放弃删除。
             val item = changeStore.currentState().decisions.firstOrNull {
                 it.termId == termId && it.courseKey == courseKey
             } ?: error("待确认项不存在或已处理")
-            database.runInTransaction { applyCourseDecision(item) }
+            applyCourseDecision(item)
             changeStore.consumeDecision(termId, courseKey)
         }
     }
@@ -62,16 +65,18 @@ class TimetableSourceApplier internal constructor(
     /** 继续保留某门待确认课程：保留本地，并重置观察窗口。 */
     fun dismissCourse(termId: String, courseKey: String) {
         timetableMutationLock.exclusive {
-            changeStore.consumeDecision(termId, courseKey)
-            changeStore.resetVeto(termId, courseKey)
+            changeStore.edit {
+                changeStore.consumeDecision(termId, courseKey)
+                changeStore.resetVeto(termId, courseKey)
+            }
         }
     }
 
     /** 采用整批挂起的源端数据：全量替换当前课表。 */
     fun adoptHeldBatch() {
-        timetableMutationLock.exclusive {
+        recovery.commit {
             val batch = changeStore.currentState().heldBatch ?: error("没有待处理的课表源数据")
-            database.runInTransaction { applyHeldBatch(batch) }
+            applyHeldBatch(batch)
             changeStore.consumeHeldBatch()
         }
     }
@@ -79,12 +84,14 @@ class TimetableSourceApplier internal constructor(
     /** 保留当前课表：丢弃整批挂起的源端数据，并为缺失课建立 veto 追踪避免反复询问。 */
     fun dismissHeldBatch() {
         timetableMutationLock.exclusive {
-            val batch = changeStore.consumeHeldBatch() ?: return
-            changeStore.trackHeldBatchMissing(
-                batch.termId,
-                batch.unmatchedLocal,
-                System.currentTimeMillis()
-            )
+            changeStore.edit {
+                val batch = changeStore.consumeHeldBatch() ?: return@edit
+                changeStore.trackHeldBatchMissing(
+                    batch.termId,
+                    batch.unmatchedLocal,
+                    System.currentTimeMillis()
+                )
+            }
         }
     }
 
@@ -94,13 +101,11 @@ class TimetableSourceApplier internal constructor(
      * 所有课表同一事务落库，提交成功后才清除待确认项、记住忽略；失败时两者原样保留可重试。
      */
     fun applyPendingConfirmations(adopted: Set<String>, remember: Collection<String>) {
-        timetableMutationLock.exclusive {
+        recovery.commit {
             val state = changeStore.currentState()
             if (state.pendingUpdates.isNotEmpty()) {
-                database.runInTransaction {
-                    for ((timetableId, group) in state.pendingUpdates.groupBy { it.timetableId }) {
-                        applyPendingGroup(timetableId, group, adopted)
-                    }
+                for ((timetableId, group) in state.pendingUpdates.groupBy { it.timetableId }) {
+                    applyPendingGroup(timetableId, group, adopted)
                 }
                 changeStore.clearPendingUpdates(state.pendingRevision)
             }

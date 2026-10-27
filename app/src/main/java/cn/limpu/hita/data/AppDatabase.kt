@@ -19,6 +19,8 @@ import cn.limpu.hita.data.model.timetable.EventItem
 import cn.limpu.hita.data.model.timetable.TermSubject
 import cn.limpu.hita.data.model.timetable.Timetable
 import cn.limpu.hita.data.model.timetable.TimetableGroupEntity
+import cn.limpu.hita.data.model.timetable.TimetableChangeOutboxEntity
+import cn.limpu.hita.data.source.dao.TimetableChangeOutboxDao
 import cn.limpu.hita.data.model.timetable.share.ShareIdentityEntity
 import cn.limpu.hita.data.model.timetable.share.FriendTimetableEntity
 import cn.limpu.hita.data.source.dao.TimetableShareDao
@@ -40,13 +42,14 @@ import cn.limpu.hita.utils.ColorTools
 import java.util.UUID
 
 @Database(
-    entities = [EventItem::class, TermSubject::class, Timetable::class, ChatSession::class, ChatMessageEntity::class, ClassroomCacheEntity::class, ScoreCacheEntity::class, ScoreTermCacheEntity::class, ScoreDetailCacheEntity::class, BlogArticle::class, CampusNotice::class, ShareIdentityEntity::class, FriendTimetableEntity::class, TimetableGroupEntity::class],
+    entities = [EventItem::class, TermSubject::class, Timetable::class, ChatSession::class, ChatMessageEntity::class, ClassroomCacheEntity::class, ScoreCacheEntity::class, ScoreTermCacheEntity::class, ScoreDetailCacheEntity::class, BlogArticle::class, CampusNotice::class, ShareIdentityEntity::class, FriendTimetableEntity::class, TimetableGroupEntity::class, TimetableChangeOutboxEntity::class],
     version = AppDatabase.VERSION
 )
 @androidx.room.TypeConverters(TypeConverters::class)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun timetableShareDao(): TimetableShareDao
     abstract fun friendTimetableDao(): FriendTimetableDao
+    abstract fun timetableChangeOutboxDao(): TimetableChangeOutboxDao
     abstract fun timetableGroupDao(): TimetableGroupDao
     abstract fun eventItemDao(): EventItemDao
     abstract fun subjectDao(): SubjectDao
@@ -65,7 +68,7 @@ abstract class AppDatabase : RoomDatabase() {
         private const val DB_NAME = "hita"
 
         /** 当前 schema 版本；升级时同步新增迁移并导出 schema JSON。 */
-        const val VERSION = 17
+        const val VERSION = 18
 
         /** 完整迁移链（1 → [VERSION]），应用与升级测试共用同一份。 */
         internal val ALL_MIGRATIONS: Array<Migration>
@@ -86,6 +89,7 @@ abstract class AppDatabase : RoomDatabase() {
                 MIGRATION_14_15,
                 MIGRATION_15_16,
                 MIGRATION_16_17,
+                MIGRATION_17_18,
             )
 
         @JvmStatic
@@ -101,6 +105,12 @@ abstract class AppDatabase : RoomDatabase() {
                     .build()
                 INSTANCE = opened
                 return opened
+            }
+        }
+
+        private val MIGRATION_17_18 = object : Migration(17, 18) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("CREATE TABLE IF NOT EXISTS timetable_change_outbox (operationId TEXT NOT NULL, payload TEXT NOT NULL, createdAtMillis INTEGER NOT NULL, PRIMARY KEY(operationId))")
             }
         }
 

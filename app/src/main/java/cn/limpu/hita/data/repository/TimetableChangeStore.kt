@@ -1,11 +1,14 @@
 package cn.limpu.hita.data.repository
 
 import android.app.Application
+import android.util.Log
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import cn.limpu.hita.data.model.timetable.TimePeriodInDay
 import com.google.gson.Gson
 import java.io.File
+import java.io.IOException
+import java.lang.ref.WeakReference
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -83,7 +86,9 @@ class TimetableChangeStore @Inject constructor(application: Application) {
         val vetoes: Map<String, Map<String, CourseVetoRecord>> = emptyMap(),
         val pendingUpdates: List<PendingCourseUpdate> = emptyList(),
         val ignoredFingerprints: List<String> = emptyList(),
+        val ignoredRevision: Long = 0L,
         val pendingRevision: Long = 0L,
+        val appliedOperations: Set<String> = emptySet(),
     ) {
         fun toChangeState(): TimetableChangeState = TimetableChangeState(
             info = info?.let {
@@ -103,17 +108,120 @@ class TimetableChangeStore @Inject constructor(application: Application) {
         )
     }
 
-    private val appContext = application.applicationContext
+    internal data class Delta(val before: String, val after: String)
+
+    private class Draft(val before: PersistedState, var current: PersistedState = before)
+
+    private class SharedState(initial: PersistedState, var loadFailure: Exception? = null) {
+        var cached = initial
+        val draft = ThreadLocal<Draft>()
+        val liveData = MutableLiveData(initial.toChangeState())
+    }
+
     private val gson = Gson()
-    private val directory = File(appContext.filesDir, "timetable_change")
-    private val stateFile = File(directory, "state.json")
-    private val lock = Any()
-    private var cached: PersistedState = load()
-    private val stateLiveData = MutableLiveData(cached.toChangeState())
+    private val stateFile = File(application.filesDir, "timetable_change/state.json")
+    private val atomicFile = TimetableAtomicFile(stateFile)
+    // Manually constructed and injected facades must observe the same successful file publication.
+    private val shared = synchronized(instances) {
+        val path = stateFile.canonicalPath
+        instances[path]?.get() ?: loadShared().also {
+            instances[path] = WeakReference(it)
+        }
+    }
+    private val lock get() = shared
+    private val cached get() = shared.draft.get()?.current ?: shared.cached
 
-    fun observeState(): LiveData<TimetableChangeState> = stateLiveData
+    fun observeState(): LiveData<TimetableChangeState> = shared.liveData
 
-    fun currentState(): TimetableChangeState = cached.toChangeState()
+    fun currentState(): TimetableChangeState = synchronized(lock) { cached.toChangeState() }
+
+    /** File-only compound decisions publish once; failure leaves cache and observers unchanged. */
+    internal fun <T> edit(block: () -> T): T = synchronized(lock) {
+        if (shared.draft.get() != null) return@synchronized block()
+        stage {
+            val result = block()
+            publish(cached)
+            result
+        }
+    }
+
+    /** Keep a draft until the caller has crossed the real outer Room COMMIT boundary. */
+    internal fun <T> stage(block: () -> T): T = synchronized(lock) {
+        check(shared.draft.get() == null) { "Nested timetable change staging" }
+        ensureReadable()
+        shared.draft.set(Draft(shared.cached))
+        try {
+            block()
+        } finally {
+            shared.draft.remove()
+        }
+    }
+
+    internal fun stagedDelta(): Delta {
+        val draft = checkNotNull(shared.draft.get()) { "Timetable changes are not staged" }
+        return Delta(gson.toJson(draft.before), gson.toJson(draft.current))
+    }
+
+    /**
+     * Apply only values that still match this transaction's before-image. A later refresh or
+     * account-login reset must survive delayed recovery. The marker shares the same atomic write.
+     */
+    internal fun applyCommitted(operationId: String, delta: Delta) = synchronized(lock) {
+        check(shared.draft.get() == null)
+        ensureReadable()
+        if (operationId in cached.appliedOperations) return@synchronized
+        val before = decode(delta.before)
+        val after = decode(delta.after)
+        val current = cached
+        val decisionBefore = before.decisions.associateBy { it.termId to it.courseKey }
+        val decisionAfter = after.decisions.associateBy { it.termId to it.courseKey }
+        val decisions = mergeUnchanged(
+            current.decisions.associateBy { it.termId to it.courseKey }, decisionBefore, decisionAfter
+        ).values.toList()
+        val vetoes = current.vetoes.toMutableMap()
+        (before.vetoes.keys + after.vetoes.keys).forEach { termId ->
+            val merged = mergeUnchanged(
+                current.vetoes[termId].orEmpty(), before.vetoes[termId].orEmpty(), after.vetoes[termId].orEmpty()
+            )
+            if (merged.isEmpty()) vetoes.remove(termId) else vetoes[termId] = merged
+        }
+        val ignoredUnchanged = current.ignoredRevision == before.ignoredRevision &&
+            same(current.ignoredFingerprints, before.ignoredFingerprints)
+        val pendingUnchanged = current.pendingRevision == before.pendingRevision &&
+            same(current.pendingUpdates, before.pendingUpdates)
+        publish(current.copy(
+            info = if (same(current.info, before.info)) after.info else current.info,
+            decisions = decisions,
+            heldBatch = if (same(current.heldBatch, before.heldBatch)) after.heldBatch else current.heldBatch,
+            vetoes = vetoes,
+            pendingUpdates = if (pendingUnchanged) after.pendingUpdates else current.pendingUpdates,
+            pendingRevision = if (pendingUnchanged) after.pendingRevision else current.pendingRevision,
+            ignoredFingerprints = if (ignoredUnchanged) {
+                after.ignoredFingerprints
+            } else current.ignoredFingerprints,
+            ignoredRevision = if (ignoredUnchanged) after.ignoredRevision else current.ignoredRevision,
+            appliedOperations = current.appliedOperations + operationId,
+        ))
+    }
+
+    /** Only call after Room has durably deleted every ID absent from [pendingIds]. */
+    internal fun pruneAppliedOperations(pendingIds: Set<String>) = synchronized(lock) {
+        val retained = cached.appliedOperations.intersect(pendingIds)
+        if (retained != cached.appliedOperations) mutate { it.copy(appliedOperations = retained) }
+    }
+
+    private fun same(first: Any?, second: Any?): Boolean = gson.toJsonTree(first) == gson.toJsonTree(second)
+
+    private fun <K, V> mergeUnchanged(current: Map<K, V>, before: Map<K, V>, after: Map<K, V>): Map<K, V> {
+        val result = current.toMutableMap()
+        (before.keys + after.keys).forEach { key ->
+            if (!same(before[key], after[key]) && same(current[key], before[key])) {
+                val replacement = after[key]
+                if (replacement == null) result.remove(key) else result[key] = replacement
+            }
+        }
+        return result
+    }
 
     // ---------- veto 记忆 ----------
 
@@ -175,7 +283,8 @@ class TimetableChangeStore @Inject constructor(application: Application) {
         if (fingerprints.isEmpty()) return@synchronized
         mutate { state ->
             state.copy(
-                ignoredFingerprints = (state.ignoredFingerprints + fingerprints).distinct()
+                ignoredFingerprints = (state.ignoredFingerprints + fingerprints).distinct(),
+                ignoredRevision = state.ignoredRevision + 1,
             )
         }
     }
@@ -185,8 +294,8 @@ class TimetableChangeStore @Inject constructor(application: Application) {
      * 避免用户曾忽略的变更永远不再出现。vetoes/挂起批/待确认不受影响。
      */
     fun clearIgnoredFingerprints() = synchronized(lock) {
-        if (cached.ignoredFingerprints.isEmpty()) return@synchronized
-        mutate { state -> state.copy(ignoredFingerprints = emptyList()) }
+        // Even an empty reset is a newer login decision than an unpublished outbox addition.
+        mutate { state -> state.copy(ignoredFingerprints = emptyList(), ignoredRevision = state.ignoredRevision + 1) }
     }
 
     fun markInfoViewed() = synchronized(lock) {
@@ -299,42 +408,64 @@ class TimetableChangeStore @Inject constructor(application: Application) {
     }
 
     private fun mutate(transform: (PersistedState) -> PersistedState) {
-        cached = transform(cached)
-        persist(cached)
-        stateLiveData.postValue(cached.toChangeState())
+        ensureReadable()
+        val next = transform(cached)
+        val draft = shared.draft.get()
+        if (draft != null) draft.current = next else publish(next)
     }
 
-    private fun load(): PersistedState {
-        if (!stateFile.isFile) return PersistedState()
-        val parsed = runCatching {
-            gson.fromJson(stateFile.readText(), PersistedState::class.java)
-        }.getOrNull() ?: return PersistedState()
-        // 旧版落盘的 info/decisions/heldBatch 字段结构与新版不兼容（Gson 会填出 null 列表），
-        // 直接丢弃这些瞬时数据；vetoes 结构未变，保留防骚扰记忆。
-        if (parsed.schemaVersion != CURRENT_SCHEMA_VERSION) {
-            return parsed.copy(
-                schemaVersion = CURRENT_SCHEMA_VERSION,
-                info = null,
-                decisions = emptyList(),
-                heldBatch = null,
-                pendingUpdates = emptyList(),
-            )
-        }
-        return parsed
+    private fun publish(state: PersistedState) {
+        atomicFile.write(gson.toJson(state))
+        shared.cached = state
+        shared.liveData.postValue(state.toChangeState())
     }
 
-    private fun persist(state: PersistedState) {
-        directory.mkdirs()
-        val temporary = File(directory, "state.json.tmp")
-        temporary.writeText(gson.toJson(state))
-        if (!temporary.renameTo(stateFile)) {
-            stateFile.writeText(temporary.readText())
-            temporary.delete()
+    private fun loadShared(): SharedState = try {
+        SharedState(load())
+    } catch (failure: Exception) {
+        // Keep the UI constructible, but never let an empty fallback replace unreadable decisions.
+        Log.e("TimetableChangeStore", "Pending timetable state could not be read", failure)
+        SharedState(PersistedState(), failure)
+    }
+
+    private fun ensureReadable() {
+        if (shared.loadFailure == null) return
+        try {
+            shared.cached = load()
+            shared.loadFailure = null
+            shared.liveData.postValue(shared.cached.toChangeState())
+        } catch (failure: Exception) {
+            shared.loadFailure = failure
+            throw IOException("Pending timetable state is unavailable; original file retained", failure)
         }
+    }
+
+    private fun load(): PersistedState = atomicFile.readOrNull()?.let(::decode) ?: PersistedState()
+
+    private fun decode(json: String): PersistedState {
+        // Never replace unreadable pending data with an empty state on a later write.
+        val parsed = gson.fromJson(json, PersistedState::class.java)
+            ?: throw IOException("Invalid timetable change state")
+        val normalized = parsed.copy(
+            decisions = parsed.decisions.orEmpty(),
+            vetoes = parsed.vetoes.orEmpty(),
+            pendingUpdates = parsed.pendingUpdates.orEmpty(),
+            ignoredFingerprints = parsed.ignoredFingerprints.orEmpty(),
+            appliedOperations = parsed.appliedOperations.orEmpty(),
+        )
+        // Historical schemas have incompatible transient rows; their veto memory remains valid.
+        return if (normalized.schemaVersion == CURRENT_SCHEMA_VERSION) normalized else normalized.copy(
+            schemaVersion = CURRENT_SCHEMA_VERSION,
+            info = null,
+            decisions = emptyList(),
+            heldBatch = null,
+            pendingUpdates = emptyList(),
+        )
     }
 
     companion object {
-        /** 落盘结构版本：info/decisions/heldBatch/pending 的形状变更后 +1，旧数据整体作废。 */
+        /** Additive outbox markers do not change existing schema-3 pending rows. */
         private const val CURRENT_SCHEMA_VERSION = 3
+        private val instances = mutableMapOf<String, WeakReference<SharedState>>()
     }
 }
