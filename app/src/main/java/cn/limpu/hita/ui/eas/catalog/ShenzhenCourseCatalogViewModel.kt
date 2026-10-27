@@ -30,6 +30,7 @@ import cn.limpu.hita.ui.eas.EASViewModel
 import cn.limpu.hita.ui.eas.TermQueryLiveData
 import cn.limpu.hita.ui.eas.mapTerms
 import cn.limpu.hita.ui.eas.sessionBoundData
+import cn.limpu.hita.ui.eas.FiniteEasQueryLiveData
 import cn.limpu.hita.ui.eas.TermSelectionDisplaySource
 import cn.limpu.hita.ui.eas.sameTermKey
 import cn.limpu.hita.data.repository.TermQueryKind
@@ -211,11 +212,17 @@ class ShenzhenCourseCatalogViewModel @Inject constructor(
     val followedSectionIdsLiveData = MutableLiveData<Set<String>>(emptySet())
     val startDateLiveData: LiveData<DataState<java.util.Calendar>> = selectedTermLiveData.switchMap { term ->
         if (term == null) MutableLiveData(DataState(DataState.STATE.NOTHING))
-        else easRepo.sessionBoundData { easRepo.getShenzhenCoursePlanningStartDate(term) }
+        else {
+            val session = easRepo.captureQuerySession()
+            FiniteEasQueryLiveData(viewModelScope, session) { easRepo.getShenzhenCoursePlanningStartDateOnce(session, term) }
+        }
     }
     val scheduleStructureLiveData: LiveData<DataState<MutableList<TimePeriodInDay>>> = selectedTermLiveData.switchMap { term ->
         if (term == null) MutableLiveData(DataState(DataState.STATE.NOTHING))
-        else easRepo.sessionBoundData { easRepo.getShenzhenCoursePlanningScheduleStructure(term) }
+        else {
+            val session = easRepo.captureQuerySession()
+            FiniteEasQueryLiveData(viewModelScope, session) { easRepo.getShenzhenCoursePlanningScheduleStructureOnce(session, term) }
+        }
     }
     val selectedCoursesLiveData: LiveData<DataState<List<ShenzhenCourseCatalogItem>>> = selectedTermLiveData.switchMap { term ->
         if (term == null) MutableLiveData(DataState(DataState.STATE.NOTHING))

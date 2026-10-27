@@ -265,6 +265,16 @@ class ImportTimetableActivity :
             recoverImportSessionIfNeeded(it)
         }
         viewModel.importTimetableResultLiveData.observe(this) {
+            if (it.state == DataState.STATE.LOADING) {
+                importing = true
+                importSuccess = false
+                return@observe
+            }
+            if (it.state == DataState.STATE.NOTHING) {
+                importing = false
+                importActionInFlight = false
+                return@observe
+            }
             importing = false
             importSuccess = it.state == DataState.STATE.SUCCESS
             when {
@@ -272,7 +282,6 @@ class ImportTimetableActivity :
                     importActionInFlight = false
                     resetSessionRetryState()
                     Toast.makeText(this, R.string.import_success, Toast.LENGTH_SHORT).show()
-                    viewModel.refreshSnapshots()
                 }
 
                 it.state == DataState.STATE.NOT_LOGGED_IN -> {

@@ -83,6 +83,12 @@ interface EASService {
     fun getScheduleStructure(term: TermItem,isUndergraduate:Boolean?, token: EASToken):LiveData<DataState<MutableList<TimePeriodInDay>>>
 
 
+    /** One terminal result; inputs are captured before IO and cancellation is never a fallback value. */
+    suspend fun getStartDateOnce(token: EASToken, term: TermItem): DataState<Calendar>
+    suspend fun getScheduleStructureOnce(term: TermItem, isUndergraduate: Boolean?, token: EASToken): DataState<MutableList<TimePeriodInDay>>
+    suspend fun getSubjectsOfTermOnce(token: EASToken, term: TermItem): DataState<MutableList<TermSubject>>
+    suspend fun getTimetableOfTermOnce(term: TermItem, token: EASToken): DataState<List<CourseItem>>
+
     /**
      * 获取教学楼列表
      */

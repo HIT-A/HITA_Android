@@ -198,20 +198,6 @@ internal class EASShenzhenRepository(
     ): LiveData<DataState<List<ShenzhenCourseCatalogItem>>> =
         shenzhenService.getShenzhenSelectedCourses(easPreferenceSource.getEasToken(), term)
 
-    fun getShenzhenCoursePlanningStartDate(term: TermItem): LiveData<DataState<Calendar>> =
-        shenzhenService.getShenzhenCoursePlanningStartDate(
-            easPreferenceSource.getEasToken(),
-            term
-        )
-
-    fun getShenzhenCoursePlanningScheduleStructure(
-        term: TermItem
-    ): LiveData<DataState<MutableList<TimePeriodInDay>>> =
-        shenzhenService.getShenzhenCoursePlanningScheduleStructure(
-            easPreferenceSource.getEasToken(),
-            term
-        )
-
     fun getShenzhenRecommendationTracks(): LiveData<DataState<List<ShenzhenRecommendationTrack>>> {
         return shenzhenService.getShenzhenCreditProgress(
             easPreferenceSource.getEasToken(),

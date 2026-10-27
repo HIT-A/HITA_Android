@@ -97,7 +97,7 @@ internal class EmptyClassroomViewModelContractHarness {
                     weeks += this
                 }
             },
-            getScheduleStructure = { term ->
+            getScheduleStructure = { term, _ ->
                 MutableLiveData<DataState<MutableList<TimePeriodInDay>>>().also { structures += term to it }
             },
             createClassroomQueryRequest = { term, building, week ->

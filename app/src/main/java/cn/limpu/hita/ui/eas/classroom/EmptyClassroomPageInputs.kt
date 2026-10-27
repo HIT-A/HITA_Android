@@ -16,7 +16,7 @@ internal class EmptyClassroomPageInputs(
     val getTerms: () -> TermQueryRequest,
     val createTeachingBuildingsRequest: () -> TeachingBuildingsRequest,
     val getCurrentWeek: (TermItem?) -> LiveData<Int>,
-    val getScheduleStructure: (TermItem) -> LiveData<DataState<MutableList<TimePeriodInDay>>>,
+    val getScheduleStructure: (TermItem, kotlinx.coroutines.CoroutineScope) -> LiveData<DataState<MutableList<TimePeriodInDay>>>,
     val createClassroomQueryRequest: (TermItem, BuildingItem, Int) -> EmptyClassroomQueryRequest,
     val beginOperation: (UsageAnalyticsEvent) -> UsageAnalyticsClient.Operation? = {
         UsageAnalyticsClient.begin(it)

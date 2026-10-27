@@ -24,6 +24,7 @@ internal class EasQueryCoordinator private constructor(private val sessionState:
 
     private val owners = ConcurrentHashMap<String, OwnerLane>()
     private val markerLock = Any()
+    val autoImportInProgress = java.util.concurrent.atomic.AtomicBoolean(false)
     val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     private fun lane(owner: String): OwnerLane = owners.computeIfAbsent(owner) {

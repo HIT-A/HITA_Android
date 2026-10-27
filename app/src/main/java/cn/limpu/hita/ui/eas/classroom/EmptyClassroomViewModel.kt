@@ -14,7 +14,7 @@ import cn.limpu.hita.ui.eas.EASViewModel
 import cn.limpu.hita.ui.eas.TermQueryLiveData
 import cn.limpu.hita.ui.eas.mapTerms
 import cn.limpu.hita.ui.eas.reconcileSelectedTerm
-import cn.limpu.hita.ui.eas.sessionBoundData
+import cn.limpu.hita.ui.eas.FiniteEasQueryLiveData
 import cn.limpu.hita.ui.eas.TermSelectionDisplaySource
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -33,10 +33,13 @@ class EmptyClassroomViewModel internal constructor(
             getTerms = { easRepo.createTermQueryRequest() },
             createTeachingBuildingsRequest = easRepo::createTeachingBuildingsRequest,
             getCurrentWeek = timetableRepository::getCurrentWeekOfTimetable,
-            getScheduleStructure = { term -> easRepo.sessionBoundData { session ->
-                easRepo.getScheduleStructure(session, term,
-                    session.studentType == cn.limpu.hita.data.model.eas.EASToken.TYPE.UNDERGRAD)
-            } },
+            getScheduleStructure = { term, scope ->
+                val session = easRepo.captureQuerySession()
+                FiniteEasQueryLiveData(scope, session) {
+                    easRepo.getScheduleStructureOnce(session, term,
+                        session.studentType == cn.limpu.hita.data.model.eas.EASToken.TYPE.UNDERGRAD)
+                }
+            },
             createClassroomQueryRequest = { term, building, week ->
                 easRepo.createEmptyClassroomQueryRequest(term, building, week)
             },
@@ -96,7 +99,7 @@ class EmptyClassroomViewModel internal constructor(
     val selectedBuildingLiveData: LiveData<BuildingItem> = selectedBuilding
     val selectedWeekLiveData: LiveData<Int> = selectedWeek
     val timetableStructureLiveData: LiveData<DataState<MutableList<TimePeriodInDay>>> = selectedTermLiveData.switchMap {
-        if (it == null) MutableLiveData(DataState(DataState.STATE.NOTHING)) else inputs.getScheduleStructure(it)
+        if (it == null) MutableLiveData(DataState(DataState.STATE.NOTHING)) else inputs.getScheduleStructure(it, viewModelScope)
     }
     private val classroomResults = object : MediatorLiveData<DataState<List<ClassroomItem>>>() {
         override fun onActive() {

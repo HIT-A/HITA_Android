@@ -810,6 +810,31 @@ class EASWebSource internal constructor(
     ): LiveData<DataState<MutableList<TimePeriodInDay>>> =
         timetableSource.getScheduleStructure(term, isUndergraduate, token)
 
+    override suspend fun getStartDateOnce(token: EASToken, term: TermItem): DataState<Calendar> =
+        timetableSource.getStartDateOnce(token, term)
+
+    override suspend fun getScheduleStructureOnce(
+        term: TermItem,
+        isUndergraduate: Boolean?,
+        token: EASToken,
+    ): DataState<MutableList<TimePeriodInDay>> =
+        timetableSource.getScheduleStructureOnce(term, isUndergraduate, token)
+
+    override suspend fun getSubjectsOfTermOnce(token: EASToken, term: TermItem): DataState<MutableList<TermSubject>> =
+        timetableSource.getSubjectsOfTermOnce(token, term)
+
+    override suspend fun getTimetableOfTermOnce(term: TermItem, token: EASToken): DataState<List<CourseItem>> =
+        timetableSource.getTimetableOfTermOnce(term, token)
+
+    suspend fun getShenzhenCoursePlanningStartDateOnce(token: EASToken, term: TermItem): DataState<Calendar> =
+        timetableSource.getShenzhenCoursePlanningStartDateOnce(token, term)
+
+    suspend fun getShenzhenCoursePlanningScheduleStructureOnce(
+        token: EASToken,
+        term: TermItem,
+    ): DataState<MutableList<TimePeriodInDay>> =
+        timetableSource.getShenzhenCoursePlanningScheduleStructureOnce(token, term)
+
     // ================================================================ 成绩入口
     override fun getPersonalScores(
         term: TermItem,

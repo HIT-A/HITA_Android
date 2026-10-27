@@ -464,6 +464,14 @@ abstract class TermRepositoryContractHarness : TermQueryContractHarness() {
                     val continuation = arguments[1] as Continuation<DataState<List<TermItem>>>
                     (suspend { call.once.await() }).startCoroutineUninterceptedOrReturn(continuation)
                 }
+                "getStartDateOnce" -> {
+                    metadataCalls += method.name
+                    DataState(Calendar.getInstance(), DataState.STATE.SUCCESS)
+                }
+                "getScheduleStructureOnce" -> {
+                    metadataCalls += method.name
+                    DataState(mutableListOf<TimePeriodInDay>(), DataState.STATE.SUCCESS)
+                }
                 "getStartDate" -> {
                     metadataCalls += method.name
                     MutableLiveData(DataState(Calendar.getInstance(), DataState.STATE.SUCCESS))
