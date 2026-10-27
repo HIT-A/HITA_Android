@@ -9,9 +9,9 @@ import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.util.Locale
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
 import kotlinx.coroutines.runBlocking
-import org.apache.poi.xslf.usermodel.XMLSlideShow
-import org.apache.poi.xssf.usermodel.XSSFWorkbook
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
@@ -49,20 +49,7 @@ class ChatDocumentProcessorInstrumentedTest {
     }
 
     @Test fun excelPreservesCellKindsAndFirstSheetRowColumnLimits() = runBlocking {
-        val bytes = ByteArrayOutputStream().use { output ->
-            XSSFWorkbook().use { workbook ->
-                val sheet = workbook.createSheet("Sheet One")
-                repeat(101) { sheet.createRow(it).createCell(0).setCellValue("x") }
-                val first = sheet.getRow(0)
-                first.getCell(0).setCellValue(1.0)
-                first.createCell(1).setCellValue(true)
-                first.createCell(2).cellFormula = "A1+1"
-                for (column in 3..20) first.createCell(column).setCellValue("value")
-                workbook.createSheet("Ignored")
-                workbook.write(output)
-            }
-            output.toByteArray()
-        }
+        val bytes = makeExcelFixture()
         val result = process("sheet.xlsx", bytes) as ChatAttachmentResult.Text
         assertTrue(result.content.startsWith("【Excel表格】\n工作表数量：2\n\n工作表1：Sheet One\n"))
         assertTrue(result.content.contains("[1.0] [true] [A1+1]"))
@@ -72,14 +59,7 @@ class ChatDocumentProcessorInstrumentedTest {
     }
 
     @Test fun powerpointKeepsSlideOrderAndBoundsTextDuringExtraction() = runBlocking {
-        val bytes = ByteArrayOutputStream().use { output ->
-            XMLSlideShow().use { slides ->
-                slides.createSlide().createTextBox().text = "first slide"
-                slides.createSlide().createTextBox().text = "x".repeat(6000)
-                slides.write(output)
-            }
-            output.toByteArray()
-        }
+        val bytes = makePowerPointFixture()
         val result = process("slides.pptx", bytes) as ChatAttachmentResult.Text
         assertTrue(result.content.startsWith("【PowerPoint演示文稿】\n幻灯片数量：2\n\n幻灯片1：\nfirst slide"))
         assertTrue(result.content.contains("幻灯片2：\n"))
@@ -128,5 +108,67 @@ class ChatDocumentProcessorInstrumentedTest {
         offsets.forEach { write(String.format(Locale.ROOT, "%010d 00000 n \n", it)) }
         write("trailer\n<< /Size ${objects.size + 1} /Root 1 0 R >>\nstartxref\n$xref\n%%EOF\n")
         return output.toByteArray()
+    }
+
+    private fun makeExcelFixture(): ByteArray {
+        val firstRow = buildString {
+            append("<row r=\"1\">")
+            append("<c r=\"A1\"><v>1.0</v></c>")
+            append("<c r=\"B1\" t=\"b\"><v>1</v></c>")
+            append("<c r=\"C1\"><f>A1+1</f><v>2.0</v></c>")
+            for (column in 'D'..'U') append("<c r=\"${column}1\" t=\"inlineStr\"><is><t>value</t></is></c>")
+            append("</row>")
+        }
+        val rows = buildString {
+            append(firstRow)
+            for (row in 2..101) append("<row r=\"$row\"><c r=\"A$row\" t=\"inlineStr\"><is><t>x</t></is></c></row>")
+        }
+        val workbook = """
+            <?xml version="1.0" encoding="UTF-8"?>
+            <workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+              <sheets>
+                <sheet name="Sheet One" sheetId="1" r:id="rId1"/>
+                <sheet name="Ignored" sheetId="2" r:id="rId2"/>
+              </sheets>
+            </workbook>
+        """.trimIndent()
+        val relationships = """
+            <?xml version="1.0" encoding="UTF-8"?>
+            <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+              <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+              <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet2.xml"/>
+            </Relationships>
+        """.trimIndent()
+        val sheet = """
+            <?xml version="1.0" encoding="UTF-8"?>
+            <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>$rows</sheetData></worksheet>
+        """.trimIndent()
+        return makeZip(
+            "xl/workbook.xml" to workbook,
+            "xl/_rels/workbook.xml.rels" to relationships,
+            "xl/worksheets/sheet1.xml" to sheet,
+        )
+    }
+
+    private fun makePowerPointFixture(): ByteArray = makeZip(
+        "ppt/slides/slide1.xml" to """
+            <?xml version="1.0" encoding="UTF-8"?>
+            <p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:t>first slide</a:t></p:sld>
+        """.trimIndent(),
+        "ppt/slides/slide2.xml" to """
+            <?xml version="1.0" encoding="UTF-8"?>
+            <p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:t>${"x".repeat(6000)}</a:t></p:sld>
+        """.trimIndent(),
+    )
+
+    private fun makeZip(vararg entries: Pair<String, String>): ByteArray = ByteArrayOutputStream().use { output ->
+        ZipOutputStream(output).use { zip ->
+            for ((name, content) in entries) {
+                zip.putNextEntry(ZipEntry(name))
+                zip.write(content.toByteArray(Charsets.UTF_8))
+                zip.closeEntry()
+            }
+        }
+        output.toByteArray()
     }
 }

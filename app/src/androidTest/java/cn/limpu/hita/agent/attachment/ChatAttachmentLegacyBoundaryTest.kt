@@ -69,7 +69,12 @@ class ChatAttachmentLegacyBoundaryTest {
             try {
                 val parserClass = try { Class.forName("cn.limpu.hita.agent.attachment.DocumentTextParser") } catch (_: ClassNotFoundException) { null }
                 if (parserClass != null) {
-                    val method = parserClass.getDeclaredMethod("parseDocx", File::class.java, Function0::class.java)
+                    val method = parserClass.declaredMethods.single {
+                        it.name.startsWith("parseDocx") &&
+                            !it.name.contains("default") &&
+                            !it.isSynthetic &&
+                            it.parameterTypes.contentEquals(arrayOf(File::class.java, Function0::class.java))
+                    }
                     method.isAccessible = true
                     method.invoke(parserClass.getDeclaredConstructor().newInstance(), file, {})
                 } else {
