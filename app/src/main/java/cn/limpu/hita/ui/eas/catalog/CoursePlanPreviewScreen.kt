@@ -57,9 +57,12 @@ import androidx.compose.ui.unit.sp
 import cn.limpu.hita.R
 import cn.limpu.hita.BuildConfig
 import cn.limpu.hita.data.model.eas.ShenzhenCourseCatalogItem
+import cn.limpu.hita.data.model.eas.TermItem
 import cn.limpu.hita.data.model.timetable.EventItem
+import cn.limpu.hita.data.model.timetable.TimePeriodInDay
 import cn.limpu.hita.data.repository.CoursePlanPreviewMapper
 import cn.limpu.hita.data.repository.CoursePlanPreviewDiagnostics
+import cn.limpu.hita.data.repository.CourseSelectionDraft
 import cn.limpu.hita.ui.design.HitaTheme
 import cn.limpu.hita.ui.design.hitaGlassCardBorder
 import cn.limpu.hita.ui.design.hitaGlassCardColors
@@ -77,14 +80,43 @@ internal fun CoursePlanPreviewScreen(
     onHideFromTimetable: () -> Unit,
     onClearDraft: () -> Unit
 ) {
-    BackHandler(onBack = onBack)
     val termDisplay by viewModel.selectedTermDisplay.observeAsState()
     val term = termDisplay?.toTermItem()
-    val context = LocalContext.current
     val selectedState by viewModel.selectedCoursesLiveData.observeAsState()
     val startDateState by viewModel.startDateLiveData.observeAsState()
     val scheduleState by viewModel.scheduleStructureLiveData.observeAsState()
     val draft by viewModel.courseSelectionDraftLiveData.observeAsState()
+
+    CoursePlanPreviewContent(
+        term = term,
+        selectedState = selectedState,
+        startDateState = startDateState,
+        scheduleState = scheduleState,
+        draft = draft,
+        onBack = onBack,
+        onShowInTimetable = onShowInTimetable,
+        onHideFromTimetable = onHideFromTimetable,
+        onClearDraft = onClearDraft,
+        onRetryDependencies = viewModel::retryCoursePlanPreviewDependencies,
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun CoursePlanPreviewContent(
+    term: TermItem?,
+    selectedState: DataState<List<ShenzhenCourseCatalogItem>>?,
+    startDateState: DataState<java.util.Calendar>?,
+    scheduleState: DataState<MutableList<TimePeriodInDay>>?,
+    draft: CourseSelectionDraft?,
+    onBack: () -> Unit,
+    onShowInTimetable: () -> Unit,
+    onHideFromTimetable: () -> Unit,
+    onClearDraft: () -> Unit,
+    onRetryDependencies: () -> Unit,
+) {
+    BackHandler(onBack = onBack)
+    val context = LocalContext.current
 
     val selectedCourses = selectedState?.data.orEmpty()
         .distinctBy { course -> course.taskId.ifBlank { course.id } }
@@ -206,17 +238,17 @@ internal fun CoursePlanPreviewScreen(
                 metadataError != null -> CoursePlanPreviewError(
                     message = metadataError,
                     courses = selectedCourses + manualCourses,
-                    onRetry = viewModel::retryCoursePlanPreviewDependencies
+                    onRetry = onRetryDependencies
                 )
                 projection == null -> CoursePlanPreviewError(
                     message = "本学期日期或作息为空，暂时无法绘制周课表。",
                     courses = selectedCourses + manualCourses,
-                    onRetry = viewModel::retryCoursePlanPreviewDependencies
+                    onRetry = onRetryDependencies
                 )
                 projection.courses.isEmpty() -> CoursePlanPreviewError(
                     message = "课程没有可解析的上课时间。课程仍保留在预览清单中。",
                     courses = selectedCourses + manualCourses,
-                    onRetry = viewModel::retryCoursePlanPreviewDependencies
+                    onRetry = onRetryDependencies
                 )
                 else -> {
                     WeekSelector(

@@ -13,8 +13,6 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.ViewCompositionStrategy
-import androidx.lifecycle.MutableLiveData
-import androidx.lifecycle.ViewModelProvider
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -31,8 +29,7 @@ import cn.limpu.hita.data.model.timetable.TimePeriodInDay
 import cn.limpu.hita.data.model.timetable.share.FriendTimetableEntity
 import cn.limpu.hita.feature.timetableshare.protocol.*
 import cn.limpu.hita.ui.design.HitaComposeTheme
-import cn.limpu.hita.ui.eas.catalog.CoursePlanPreviewScreen
-import cn.limpu.hita.ui.eas.catalog.ShenzhenCourseCatalogViewModel
+import cn.limpu.hita.ui.eas.catalog.CoursePlanPreviewContent
 import cn.limpu.hita.ui.subject.SubjectActivity
 import cn.limpu.hita.ui.timetable.friend.FriendDetailState
 import cn.limpu.hita.ui.timetable.friend.FriendTimetableDetailScreen
@@ -116,26 +113,31 @@ class TimetableComponentInstrumentedTest {
     }
 
     @Test fun coursePlanningPreviewActuallyUsesSharedWeekAndOpensItsEventDialog() = host { scenario ->
-        lateinit var model: ShenzhenCourseCatalogViewModel
         scenario.onActivity { activity ->
-            model = ViewModelProvider(activity)[ShenzhenCourseCatalogViewModel::class.java]
-            render(activity) { CoursePlanPreviewScreen(model, {}, {}, {}, {}) }
+            render(activity) {
+                CoursePlanPreviewContent(
+                    term = null,
+                    selectedState = DataState(
+                        listOf(ShenzhenCourseCatalogItem("planning", courseCode = "TEST", courseName = "规划课程",
+                            meetings = listOf(ShenzhenCourseMeeting(listOf(1), 1, 1, 1, location = "planning room")),
+                            source = ShenzhenCourseCatalogSource.AVAILABLE)),
+                        DataState.STATE.SUCCESS
+                    ),
+                    startDateState = DataState(
+                        Calendar.getInstance().apply { timeInMillis = monday },
+                        DataState.STATE.SUCCESS
+                    ),
+                    scheduleState = DataState(schedule.toMutableList(), DataState.STATE.SUCCESS),
+                    draft = null,
+                    onBack = {},
+                    onShowInTimetable = {},
+                    onHideFromTimetable = {},
+                    onClearDraft = {},
+                    onRetryDependencies = {},
+                )
+            }
         }
         instrumentation.waitForIdleSync()
-        // Inject synthetic terminal observations into the real VM's UI boundary. No term is selected,
-        // so neither a live account request nor a course-selection command is started by this fixture.
-        scenario.onActivity {
-            @Suppress("UNCHECKED_CAST")
-            (model.startDateLiveData as MutableLiveData<DataState<Calendar>>).value = DataState(
-                Calendar.getInstance().apply { timeInMillis = monday }, DataState.STATE.SUCCESS)
-            @Suppress("UNCHECKED_CAST")
-            (model.scheduleStructureLiveData as MutableLiveData<DataState<List<TimePeriodInDay>>>).value = DataState(schedule, DataState.STATE.SUCCESS)
-            @Suppress("UNCHECKED_CAST")
-            (model.selectedCoursesLiveData as MutableLiveData<DataState<List<ShenzhenCourseCatalogItem>>>).value = DataState(
-                listOf(ShenzhenCourseCatalogItem("planning", courseCode = "TEST", courseName = "规划课程",
-                    meetings = listOf(ShenzhenCourseMeeting(listOf(1), 1, 1, 1, location = "planning room")),
-                    source = ShenzhenCourseCatalogSource.AVAILABLE)), DataState.STATE.SUCCESS)
-        }
         tapText("规划课程")
         waitUntil { findText("地点：planning room") != null }
         assertNotNull(findText("完成"))
