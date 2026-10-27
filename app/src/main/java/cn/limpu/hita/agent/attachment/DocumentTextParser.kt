@@ -6,14 +6,11 @@ import com.tom_roush.pdfbox.text.PDFTextStripper
 import java.io.File
 import java.io.IOException
 import java.io.Writer
+import java.util.Collections
 import java.util.zip.ZipFile
 import java.util.zip.ZipInputStream
 import javax.xml.parsers.SAXParserFactory
 import kotlinx.coroutines.CancellationException
-import org.apache.poi.ss.usermodel.CellType
-import org.apache.poi.xslf.usermodel.XMLSlideShow
-import org.apache.poi.xslf.usermodel.XSLFTextShape
-import org.apache.poi.xssf.usermodel.XSSFWorkbook
 import org.xml.sax.Attributes
 import org.xml.sax.InputSource
 import org.xml.sax.SAXException
@@ -152,63 +149,227 @@ class DocumentTextParser {
 
     private fun parseExcel(file: File, output: BoundedDocumentText, checkCancelled: () -> Unit) {
         validateOfficeArchive(file, checkCancelled)
-        file.inputStream().use { input ->
-            XSSFWorkbook(input).use { workbook ->
-                checkCancelled()
-                output.append("【Excel表格】\n工作表数量：${workbook.numberOfSheets}\n\n")
-                val sheet = workbook.getSheetAt(0)
-                output.append("工作表1：${sheet.sheetName}\n")
-                var rows = 0
-                for (row in sheet) {
-                    checkCancelled()
-                    if (rows >= 100) { output.append("\n...(行数过多，仅显示前100行)"); break }
-                    val cells = StringBuilder()
-                    var columns = 0
-                    for (cell in row) {
-                        checkCancelled()
-                        if (columns++ >= 20) { cells.append(" ...(列数过多)"); break }
-                        val value = when (cell.cellType) {
-                            CellType.STRING -> cell.stringCellValue
-                            CellType.NUMERIC -> cell.numericCellValue.toString()
-                            CellType.BOOLEAN -> cell.booleanCellValue.toString()
-                            CellType.FORMULA -> cell.cellFormula
-                            else -> ""
-                        }
-                        if (value.isNotEmpty()) cells.append("[").append(value.take(MAX_TEXT + 1)).append("] ")
-                        if (cells.length > MAX_TEXT) break
-                    }
-                    if (cells.isNotEmpty()) output.append("第${rows + 1}行：$cells\n")
-                    rows++
-                    if (output.truncated) break
-                }
-            }
+        ZipFile(file).use { zip ->
+            val workbook = zip.getEntry("xl/workbook.xml") ?: throw IOException("Excel文件缺少工作簿")
+            val sheets = readWorkbookSheets(zip, workbook, checkCancelled)
+            val sharedStrings = readSharedStrings(zip, checkCancelled)
+            checkCancelled()
+            output.append("【Excel表格】\n工作表数量：${sheets.size}\n\n")
+            val first = sheets.firstOrNull() ?: throw IOException("Excel文件没有工作表")
+            output.append("工作表1：${first.name}\n")
+            val relationships = readWorkbookRelationships(zip, checkCancelled)
+            val sheetPath = resolveOfficeTarget(relationships[first.relationshipId])
+                ?: "xl/worksheets/sheet1.xml"
+            val sheet = zip.getEntry(sheetPath) ?: throw IOException("Excel文件缺少首个工作表")
+            readWorksheet(zip, sheet, sharedStrings, output, checkCancelled)
         }
     }
 
     private fun parsePowerPoint(file: File, output: BoundedDocumentText, checkCancelled: () -> Unit) {
         validateOfficeArchive(file, checkCancelled)
-        file.inputStream().use { input ->
-            XMLSlideShow(input).use { slides ->
+        ZipFile(file).use { zip ->
+            val slides = Collections.list(zip.entries())
+                .mapNotNull { entry ->
+                    val match = PPT_SLIDE_ENTRY.matchEntire(entry.name) ?: return@mapNotNull null
+                    match.groupValues[1].toIntOrNull()?.let { it to entry }
+                }
+                .sortedBy { it.first }
+            checkCancelled()
+            output.append("【PowerPoint演示文稿】\n幻灯片数量：${slides.size}\n\n")
+            for ((index, slide) in slides.withIndex()) {
                 checkCancelled()
-                output.append("【PowerPoint演示文稿】\n幻灯片数量：${slides.slides.size}\n\n")
-                for ((index, slide) in slides.slides.withIndex()) {
-                    checkCancelled()
-                    output.append("幻灯片${index + 1}：\n")
-                    var hasText = false
-                    for (shape in slide.shapes) {
+                output.append("幻灯片${index + 1}：\n")
+                val text = StringBuilder()
+                val handler = object : SecureXmlHandler(checkCancelled) {
+                    var insideText = false
+                    override fun startElement(uri: String?, localName: String?, qName: String?, attributes: Attributes?) {
                         checkCancelled()
-                        if (shape is XSLFTextShape && shape.text.isNotEmpty()) {
-                            output.append(shape.text)
-                            output.append("\n")
-                            hasText = true
-                        }
-                        if (output.truncated) break
+                        insideText = xmlName(localName, qName) == "t"
                     }
-                    if (hasText) output.append("\n")
-                    if (output.truncated) break
+                    override fun characters(ch: CharArray, start: Int, length: Int) {
+                        checkCancelled()
+                        if (!insideText) return
+                        val remaining = MAX_TEXT + 1 - text.length
+                        if (remaining > 0) text.append(ch, start, minOf(length, remaining))
+                        if (length > remaining) throw TextLimitReached()
+                    }
+                    override fun endElement(uri: String?, localName: String?, qName: String?) {
+                        insideText = false
+                    }
+                }
+                var stopped = false
+                try {
+                    zip.getInputStream(slide.second).use { input -> parseXml(input, handler) }
+                } catch (_: TextLimitReached) {
+                    stopped = true
+                }
+                if (text.isNotEmpty()) output.append(text.toString())
+                if (text.isNotEmpty()) output.append("\n\n")
+                if (stopped || output.truncated) break
+            }
+        }
+    }
+
+    private fun readWorkbookSheets(zip: ZipFile, entry: java.util.zip.ZipEntry, checkCancelled: () -> Unit): List<WorkbookSheet> {
+        val result = ArrayList<WorkbookSheet>()
+        val handler = object : SecureXmlHandler(checkCancelled) {
+            override fun startElement(uri: String?, localName: String?, qName: String?, attributes: Attributes?) {
+                checkCancelled()
+                if (xmlName(localName, qName) == "sheet") {
+                    result += WorkbookSheet(attribute(attributes, "name").orEmpty(), attribute(attributes, "id").orEmpty())
                 }
             }
         }
+        zip.getInputStream(entry).use { parseXml(it, handler) }
+        return result
+    }
+
+    private fun readWorkbookRelationships(zip: ZipFile, checkCancelled: () -> Unit): Map<String, String> {
+        val entry = zip.getEntry("xl/_rels/workbook.xml.rels") ?: return emptyMap()
+        val result = LinkedHashMap<String, String>()
+        val handler = object : SecureXmlHandler(checkCancelled) {
+            override fun startElement(uri: String?, localName: String?, qName: String?, attributes: Attributes?) {
+                checkCancelled()
+                if (xmlName(localName, qName) == "Relationship") {
+                    val id = attribute(attributes, "Id") ?: attribute(attributes, "id")
+                    val target = attribute(attributes, "Target") ?: attribute(attributes, "target")
+                    if (!id.isNullOrEmpty() && !target.isNullOrEmpty()) result[id] = target
+                }
+            }
+        }
+        zip.getInputStream(entry).use { parseXml(it, handler) }
+        return result
+    }
+
+    private fun readSharedStrings(zip: ZipFile, checkCancelled: () -> Unit): List<String> {
+        val entry = zip.getEntry("xl/sharedStrings.xml") ?: return emptyList()
+        val result = ArrayList<String>()
+        var current: StringBuilder? = null
+        var insideText = false
+        val handler = object : SecureXmlHandler(checkCancelled) {
+            override fun startElement(uri: String?, localName: String?, qName: String?, attributes: Attributes?) {
+                checkCancelled()
+                when (xmlName(localName, qName)) {
+                    "si" -> current = StringBuilder()
+                    "t" -> if (current != null) insideText = true
+                }
+            }
+            override fun characters(ch: CharArray, start: Int, length: Int) {
+                checkCancelled()
+                if (!insideText) return
+                val value = current ?: return
+                val remaining = MAX_TEXT + 1 - value.length
+                if (remaining > 0) value.append(ch, start, minOf(length, remaining))
+            }
+            override fun endElement(uri: String?, localName: String?, qName: String?) {
+                when (xmlName(localName, qName)) {
+                    "t" -> insideText = false
+                    "si" -> current?.let { result += it.toString(); current = null }
+                }
+            }
+        }
+        zip.getInputStream(entry).use { parseXml(it, handler) }
+        return result
+    }
+
+    private fun readWorksheet(
+        zip: ZipFile,
+        entry: java.util.zip.ZipEntry,
+        sharedStrings: List<String>,
+        output: BoundedDocumentText,
+        checkCancelled: () -> Unit,
+    ) {
+        var rowNumber = 0
+        var currentCell: ExcelCellCapture? = null
+        var currentRow: ArrayList<ExcelCell>? = null
+        var inValue = false
+        var inFormula = false
+        var inInlineText = false
+        val handler = object : SecureXmlHandler(checkCancelled) {
+            override fun startElement(uri: String?, localName: String?, qName: String?, attributes: Attributes?) {
+                checkCancelled()
+                when (xmlName(localName, qName)) {
+                    "row" -> {
+                        if (rowNumber >= 100) {
+                            output.append("\n...(行数过多，仅显示前100行)")
+                            throw WorksheetLimitReached()
+                        }
+                        rowNumber++
+                        currentRow = ArrayList()
+                    }
+                    "c" -> {
+                        currentCell = ExcelCellCapture(attribute(attributes, "t"), StringBuilder(), StringBuilder())
+                        inValue = false
+                        inFormula = false
+                        inInlineText = false
+                    }
+                    "v" -> if (currentCell != null) inValue = true
+                    "f" -> if (currentCell != null) inFormula = true
+                    "is" -> if (currentCell != null) inInlineText = true
+                    "t" -> if (inInlineText) inValue = true
+                }
+            }
+            override fun characters(ch: CharArray, start: Int, length: Int) {
+                checkCancelled()
+                val cell = currentCell ?: return
+                val target = when {
+                    inFormula -> cell.formula
+                    inValue -> cell.value
+                    else -> null
+                } ?: return
+                val remaining = MAX_TEXT + 1 - target.length
+                if (remaining > 0) target.append(ch, start, minOf(length, remaining))
+            }
+            override fun endElement(uri: String?, localName: String?, qName: String?) {
+                when (xmlName(localName, qName)) {
+                    "v" -> inValue = false
+                    "f" -> inFormula = false
+                    "t" -> if (inInlineText) inValue = false
+                    "is" -> inInlineText = false
+                    "c" -> {
+                        val cell = currentCell ?: return
+                        currentRow?.add(cell.toCell(sharedStrings))
+                        currentCell = null
+                    }
+                    "row" -> {
+                        val row = currentRow.orEmpty()
+                        val rendered = StringBuilder()
+                        var columns = 0
+                        for (cell in row) {
+                            checkCancelled()
+                            if (columns++ >= 20) {
+                                rendered.append(" ...(列数过多)")
+                                break
+                            }
+                            if (cell.value.isNotEmpty()) rendered.append("[").append(cell.value.take(MAX_TEXT + 1)).append("] ")
+                        }
+                        if (rendered.isNotEmpty()) output.append("第${rowNumber}行：$rendered\n")
+                        currentRow = null
+                    }
+                }
+            }
+        }
+        try {
+            zip.getInputStream(entry).use { parseXml(it, handler) }
+        } catch (_: WorksheetLimitReached) {
+            // The bounded row marker has already been emitted.
+        }
+    }
+
+    private fun parseXml(input: java.io.InputStream, handler: SecureXmlHandler) {
+        val factory = SAXParserFactory.newInstance().apply {
+            isNamespaceAware = true
+            setFeatureIfSupported("http://apache.org/xml/features/disallow-doctype-decl", true)
+            setFeatureIfSupported("http://xml.org/sax/features/external-general-entities", false)
+            setFeatureIfSupported("http://xml.org/sax/features/external-parameter-entities", false)
+            setFeatureIfSupported("http://apache.org/xml/features/nonvalidating/load-external-dtd", false)
+        }
+        val reader = factory.newSAXParser().xmlReader
+        reader.contentHandler = handler
+        reader.entityResolver = handler
+        reader.errorHandler = handler
+        try { reader.setProperty("http://xml.org/sax/properties/lexical-handler", handler) } catch (_: SAXException) { }
+        reader.parse(InputSource(input))
     }
 
     companion object {
@@ -217,10 +378,84 @@ class DocumentTextParser {
         internal const val MAX_ZIP_ENTRIES = 1000
         internal const val MAX_TEXT = 5000
         internal const val TRUNCATION = "\n\n...(内容过长，仅显示前5000字)"
+        private val PPT_SLIDE_ENTRY = Regex("ppt/slides/slide(\\d+)\\.xml")
     }
 }
 
 private class TextLimitReached : SAXException()
+private class WorksheetLimitReached : SAXException()
+
+private data class WorkbookSheet(val name: String, val relationshipId: String)
+
+private data class ExcelCell(val value: String)
+
+private class ExcelCellCapture(
+    private val type: String?,
+    val value: StringBuilder,
+    val formula: StringBuilder,
+) {
+    fun toCell(sharedStrings: List<String>): ExcelCell {
+        val raw = value.toString()
+        val resolved = when (type) {
+            "s" -> raw.toIntOrNull()?.let { sharedStrings.getOrNull(it).orEmpty() }.orEmpty()
+            "b" -> if (raw == "1") "true" else "false"
+            "inlineStr", "str" -> raw
+            else -> if (formula.isNotEmpty()) formula.toString() else raw
+        }
+        return ExcelCell(resolved)
+    }
+}
+
+private abstract class SecureXmlHandler(protected val checkCancelled: () -> Unit) : DefaultHandler2() {
+    override fun startDTD(name: String?, publicId: String?, systemId: String?) {
+        throw SAXException("不支持包含DTD的文档")
+    }
+
+    override fun resolveEntity(publicId: String?, systemId: String?): InputSource {
+        throw SAXException("不支持外部实体")
+    }
+
+    override fun characters(ch: CharArray, start: Int, length: Int) {
+        checkCancelled()
+    }
+}
+
+private fun xmlName(localName: String?, qName: String?): String =
+    localName?.takeIf { it.isNotEmpty() } ?: qName.orEmpty().substringAfter(':')
+
+private fun attribute(attributes: Attributes?, name: String): String? {
+    if (attributes == null) return null
+    for (index in 0 until attributes.length) {
+        val local = attributes.getLocalName(index)
+        val qualified = attributes.getQName(index)
+        if (local == name || qualified == name || qualified.substringAfter(':') == name) {
+            return attributes.getValue(index)
+        }
+    }
+    return null
+}
+
+private fun resolveOfficeTarget(target: String?): String? {
+    if (target.isNullOrBlank()) return null
+    val initial = if (target.startsWith('/')) target.drop(1) else "xl/$target"
+    val path = java.util.ArrayDeque<String>()
+    initial.split('/').forEach { part ->
+        when (part) {
+            "", "." -> Unit
+            ".." -> if (path.isNotEmpty()) path.removeLast()
+            else -> path.addLast(part)
+        }
+    }
+    return path.joinToString("/")
+}
+
+private fun SAXParserFactory.setFeatureIfSupported(name: String, value: Boolean) {
+    try {
+        setFeature(name, value)
+    } catch (_: Exception) {
+        // Android XML parser implementations differ in the optional feature set.
+    }
+}
 
 private class BoundedDocumentText(private val checkCancelled: () -> Unit) {
     private val value = StringBuilder()

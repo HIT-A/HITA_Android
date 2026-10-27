@@ -12,6 +12,7 @@ import cn.limpu.hita.data.source.preference.TimetablePreferenceSource
 import cn.limpu.hita.ui.main.agent.AgentChatViewModel
 import java.io.File
 import java.lang.reflect.InvocationTargetException
+import kotlin.jvm.functions.Function0
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 import org.junit.Assert.assertEquals
@@ -68,7 +69,7 @@ class ChatAttachmentLegacyBoundaryTest {
             try {
                 val parserClass = try { Class.forName("cn.limpu.hita.agent.attachment.DocumentTextParser") } catch (_: ClassNotFoundException) { null }
                 if (parserClass != null) {
-                    val method = parserClass.declaredMethods.single { it.name.startsWith("parseDocx") && !it.name.contains("default") && it.parameterCount == 2 }
+                    val method = parserClass.getDeclaredMethod("parseDocx", File::class.java, Function0::class.java)
                     method.isAccessible = true
                     method.invoke(parserClass.getDeclaredConstructor().newInstance(), file, {})
                 } else {
