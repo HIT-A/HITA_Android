@@ -71,6 +71,9 @@ import cn.limpu.hita.ui.design.hitaGlassCardModifier
 import cn.limpu.hita.ui.main.timetable.ReadOnlyTimetableWeek
 import cn.limpu.hita.utils.TermNameFormatter
 import com.limpu.component.data.DataState
+import java.time.ZoneId
+
+private val COURSE_PLAN_PREVIEW_ZONE = ZoneId.of("Asia/Shanghai")
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -273,7 +276,8 @@ internal fun CoursePlanPreviewContent(
                             onNextWeek = {
                                 selectedWeek = (selectedWeek + 1).coerceAtMost(projection.maxWeek)
                             },
-                            onEventClick = { selectedEvent = it }
+                            onEventClick = { selectedEvent = it },
+                            displayTimeZone = COURSE_PLAN_PREVIEW_ZONE,
                         )
                     }
                 }
