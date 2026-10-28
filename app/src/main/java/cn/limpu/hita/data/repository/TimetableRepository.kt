@@ -365,6 +365,24 @@ class TimetableRepository @Inject internal constructor(
         }
     }
 
+    /**
+     * One-shot current-week lookup for finite consumers such as ReAct tools.
+     * Pages continue using [getCurrentWeekOfTimetable] so their Room
+     * observation and refresh behavior stays unchanged.
+     */
+    @WorkerThread
+    fun getCurrentWeekOfTimetableOnce(termItem: TermItem?): Int {
+        if (termItem == null) return 1
+        val campus = easPreferenceSource.getEasToken().campus
+        val preferredCode = EASTimetableCode.of(campus, termItem)
+        val legacyCode = termItem.getCode()
+        return timetableDao.getTimetableByEASCodeCandidatesSync(
+            EASTimetableCode.candidates(termItem, campus),
+            preferredCode,
+            legacyCode,
+        )?.getWeekNumber(System.currentTimeMillis()) ?: 1
+    }
+
     fun getRecentTimetable(): LiveData<Timetable?> {
         return timetableDao.getTimetableClosestToTimestamp(System.currentTimeMillis())
     }

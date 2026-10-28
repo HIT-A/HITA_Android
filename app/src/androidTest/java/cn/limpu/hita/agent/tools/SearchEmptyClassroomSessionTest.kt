@@ -19,7 +19,6 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
@@ -84,15 +83,16 @@ class SearchEmptyClassroomSessionTest {
         }
     }
 
-    @Test fun cancellationWhileResolvingLocalWeekDetachesTheActualObserver() = runBlocking {
+    @Test fun cancellationWhileResolvingLocalWeekStopsTheOneShotRead() = runBlocking {
         BackgroundTermConsumerHarness().use { h ->
-            val week = BackgroundTermConsumerHarness.ObservedValue<Int>()
-            val tool = SearchEmptyClassroomTool(weekSource = { _, _ -> week })
+            val entered = CompletableDeferred<Unit>()
+            val tool = SearchEmptyClassroomTool(weekSource = { _, _ ->
+                entered.complete(Unit)
+                awaitCancellation()
+            })
             val query = launch { tool.execute(h.input("{}")) }
-            withTimeout(10_000) { week.active.await() }
+            withTimeout(10_000) { entered.await() }
             query.cancelAndJoin()
-            withTimeout(10_000) { week.inactive.await() }
-            BackgroundTermConsumerHarness.main { assertFalse(week.hasObservers()) }
             assertEquals(listOf("terms"), h.calls.toList())
         }
     }

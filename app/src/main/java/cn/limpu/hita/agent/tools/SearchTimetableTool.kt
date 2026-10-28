@@ -2,8 +2,8 @@ package cn.limpu.hita.agent.tools
 
 import cn.limpu.hita.agent.timetable.TimetableAgentInput
 
-class SearchTimetableTool : ReActTool {
-    override fun execute(input: ReActToolInput): String {
+class SearchTimetableTool : SuspendingReActTool {
+    override suspend fun execute(input: ReActToolInput): String {
         val keyword = extractKeyword(input.actionInput)
         if (keyword.isBlank()) {
             return "搜索失败: 无法解析关键词"
@@ -16,7 +16,7 @@ class SearchTimetableTool : ReActTool {
             keyword = keyword,
         )
 
-        return ToolHelper.formatTimetableResult(ToolHelper.runTimetableToolSync(agentInput, input.agentProvider, input.onTrace))
+        return ToolHelper.formatTimetableResult(ToolHelper.runTimetableTool(agentInput, input.agentProvider, input.onTrace))
     }
 
     private fun extractKeyword(actionInput: String): String {

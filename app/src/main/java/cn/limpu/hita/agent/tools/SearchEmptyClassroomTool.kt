@@ -1,8 +1,6 @@
 package cn.limpu.hita.agent.tools
 
 import android.app.Application
-import androidx.lifecycle.LiveData
-import androidx.lifecycle.Observer
 import cn.limpu.hita.data.model.eas.TermItem
 import cn.limpu.hita.data.repository.EasQuerySession
 import cn.limpu.hita.data.repository.TimetableRepository
@@ -12,16 +10,18 @@ import org.json.JSONObject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.last
-import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
-import kotlin.coroutines.resume
 
 class SearchEmptyClassroomTool internal constructor(
-    private val weekSource: (Application, TermItem) -> LiveData<Int>,
+    private val weekSource: suspend (Application, TermItem) -> Int?,
     private val queryTimeoutMs: Long = QUERY_TIMEOUT_MS,
 ) : SuspendingReActTool {
-    constructor() : this({ app, term -> TimetableRepository(app).getCurrentWeekOfTimetable(term) })
+    constructor() : this({ app, term ->
+        withContext(Dispatchers.IO) {
+            TimetableRepository(app).getCurrentWeekOfTimetableOnce(term)
+        }
+    })
 
     override suspend fun execute(input: ReActToolInput): String {
         val session = input.easRepository.captureQuerySession()
@@ -250,26 +250,10 @@ class SearchEmptyClassroomTool internal constructor(
         withTimeoutOrNull(queryTimeoutMs) { query() }
             ?: DataState(DataState.STATE.FETCH_FAILED, "等待教务系统响应超时")
 
-    // The local week remains observable for pages. This finite consumer always detaches,
-    // including when its parent tool is cancelled or the account changes.
+    // Pages keep their Room observation; this finite consumer performs one
+    // bounded DAO read so a tool never owns an observeForever callback.
     private suspend fun awaitWeek(application: Application, term: TermItem): Int? =
-        withTimeoutOrNull(queryTimeoutMs) {
-            withContext(Dispatchers.Main.immediate) {
-                val live = weekSource(application, term)
-                var observer: Observer<Int>? = null
-                try {
-                    suspendCancellableCoroutine<Int?> { continuation ->
-                        val listener = Observer<Int> { value ->
-                            if (continuation.isActive) continuation.resume(value)
-                        }
-                        observer = listener
-                        live.observeForever(listener)
-                    }
-                } finally {
-                    observer?.let(live::removeObserver)
-                }
-            }
-        }
+        withTimeoutOrNull(queryTimeoutMs) { weekSource(application, term) }
 
     private companion object {
         const val QUERY_TIMEOUT_MS = 30_000L
