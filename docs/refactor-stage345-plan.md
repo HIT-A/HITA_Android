@@ -1,6 +1,6 @@
 # 阶段 3、4、5 执行与验收台账
 
-初始基线：2026-10-26，`origin/main = fd17e5e773b1ad6f16cd9a267227c595d34c73fa`（#68）。后续 #70 已合并为 `b8a4cea55faab714baccceb1586ecc652cb3f46f`，#71 构建改造已合并为 `f4e809d1458c52cd5f8b43f317f8f643def9f306`；当前远端 main 已包含 #83，合并提交为 `ecdd736cc027855b1cf461d72d9e28f29b110e64`。本文件是当前长期目标的完整完成条件，每个实现批次更新实际证据。项目进度与历史 PR 见 [交接文档](refactor-handoff.md)。
+初始基线：2026-10-26，`origin/main = fd17e5e773b1ad6f16cd9a267227c595d34c73fa`（#68）。后续 #70 已合并为 `b8a4cea55faab714baccceb1586ecc652cb3f46f`，#71 构建改造已合并为 `f4e809d1458c52cd5f8b43f317f8f643def9f306`；当前远端 main 已包含 #84，合并提交为 `3fa770782c42db9e5caec553702fe4a3f043d439`。本文件是当前长期目标的完整完成条件，每个实现批次更新实际证据。项目进度与历史 PR 见 [交接文档](refactor-handoff.md)。
 
 ## 1. 授权、范围与完成规则
 
@@ -57,7 +57,7 @@
 | 3.D1 | EASRepository 内部依赖注入 | 服务选择器、DAO/事务、缓存/快照等明确注入；主类不 new WebSource 或直接取全局 DB；测试可用替身而不建真实网络源 | 已合并：PR #82 / merge `1477dcea`；`EASRepository` 接收数据库、DAO、快照、Gson、考试导入和课表分组能力，服务由 `EasRepositoryServiceFactories` 装配；`EasRepositoryWiringInstrumentedTest` 与 legacy seam 已通过。CI 40497758753 设备 XML 846 项全部通过；本地编译、Debug/AndroidTest APK、仓库检查通过。 |
 | 3.D2 | 会话与注入调用者收尾 | token callback 循环由明确 session coordinator/factory 处理；EventItemFragment/Worker 不手工创建 Repository/锁；通用能力无具体源类型判断 | 已合并：PR #82 / merge `1477dcea`；`EventItemFragment` 改为 Hilt 注入，`ScoreReminderWorker` 通过 Hilt EntryPoint 获取生产 Repository/Store 并保留测试替身，导入链显式接收分组/考试依赖，成绩摘要改用能力接口而非具体源类型判断。CI 40497758753 的 `ScoreReminderSessionTest` 与完整设备套件通过；真实账号/真机仍未验证。 |
 | 3.A1 | Typed AgentToolExecutor 结果与取消 | success/failure/timeout/cancelled 可区分；同步异常、双/迟到回调、重试、clear/dispose 只一次终态；幂等约束和添加活动零重试保护实测 | 已合并且验证：[#81](https://github.com/HIT-A/HITA_Android/pull/81)，merge `de4306a`；CI 40460133789 两个 job 成功，typed executor/engine/session、写入提交边界和 32 项设备用例已纳入验证；真实账号/物理真机未验证 |
-| 3.A2 | ReAct 工具与 AI 空教室完整链 | suspend 分发直接连接新能力；学期→本地周→教学楼→逐楼查询及 typed 工具桥无 latch；取消/超时传播，analytics 上下文与原输出保留 | 实施完成，本地通过，待 PR CI：`GetTimetableTool`、`SearchTimetableTool`、`AddActivityTool` 和 `SearchEmptyClassroomTool` 已接入 `SuspendingReActTool`；typed bridge 改为可取消挂起适配器，空教室本地周改为一次性 Room 读取；7 项 adapter JVM、完整 app JVM、Debug/AndroidTest Kotlin 编译及 APK 构建通过，设备/CI 尚未运行 |
+| 3.A2 | ReAct 工具与 AI 空教室完整链 | suspend 分发直接连接新能力；学期→本地周→教学楼→逐楼查询及 typed 工具桥无 latch；取消/超时传播，analytics 上下文与原输出保留 | 已合并且验证：[#84](https://github.com/HIT-A/HITA_Android/pull/84)，merge `3fa7707`；`GetTimetableTool`、`SearchTimetableTool`、`AddActivityTool` 和 `SearchEmptyClassroomTool` 已接入 `SuspendingReActTool`，typed bridge 改为可取消挂起适配器，空教室本地周改为一次性 Room 读取；CI 40517300664 设备 851 项全通过，JVM 940 项中 939 通过、1 个既有可选联网跳过，测试身份无重复 |
 | 3.C1 | ChatSessionRepository 与页面协调 | DB 与会话写入移出 VM；创建/消息/删除事务及顺序、切会话归属/恢复/迟到结果实测；无未管理 Executor，持久化与 UI Job 责任明确 | 已合并且验证：与 C2 同批 [#79](https://github.com/HIT-A/HITA_Android/pull/79)，merge `1776ee4`；CI 40468971225 两个 job 成功，会话生命周期/迟到结果设备用例已通过；真实账号/物理真机未验证 |
 | 3.C2 | 独立附件处理器与资源边界 | Android URI 适配、缓存/元信息、各格式解析分离；实际字节/展开资源上限、异常/取消关闭清理、截断与图片视频路由保留；PDF CMap 回归通过 | 已合并且验证：与 C1 同批 [#79](https://github.com/HIT-A/HITA_Android/pull/79)，merge `1776ee4`；CI 40468971225 两个 job 成功，附件格式/资源边界、URI 适配和 PDF 回归已通过；真实账号/物理真机未验证 |
 | 3.F | 阶段 3 完成审计 | 按 EASService + 深圳全部公开能力及实际调用者逐项核实；残留 LiveData/thread/latch 有正当用途和证据；全链迁移而非仅新增 API | 待做 |
@@ -138,6 +138,6 @@
 | 4.T1/T2 页面整链 | #77 已合并，课表批次、页面状态与周组件/预览拆分完成 | merge `59b6cc1`；CI 40480112502 实际设备 XML 845 项全通过，原有断言和新增页面/组件用例均在同一报告核验；未做真实账号或物理真机验证 |
 | 3.D1/D2 EASRepository 装配 | PR #82 已合并，CI 已通过 | merge `1477dcea`；分支 `codex/eas-repository-injection`；修复提交 `10e4f94`；本地编译、`assembleDebug`、`assembleDebugAndroidTest` 与仓库检查通过；CI 40497758753 设备 XML app 820、component 7、hitauser 11、style 8，共 846 项全部通过，JVM XML 937 通过 + 1 个既有可选联网跳过；真实账号/真机未验证 |
 | 3.Q4/I2 成绩查询与通知整链 | PR #83 已合并，merge `ecdd736` | CI 40509648499 两个 job 成功；设备 XML 851 项全部通过，JVM XML 938 项中 937 通过、1 个既有可选 HOA 联网跳过，测试身份无重复；无 adb 设备，真实账号/WebVPN/物理真机未验证 |
-| 3.A2 ReAct 工具与 AI 空教室整链 | 当前分支 `codex/react-empty-classroom-flow`，基线 `ecdd736` | `:app:testDebugUnitTest --tests cn.limpu.hita.agent.tools.TypedAgentSuspendingAdapterTest` 7 项、完整 `:app:testDebugUnitTest`、`:app:compileDebugKotlin`、`:app:compileDebugAndroidTestKotlin` 通过；无 adb 设备，instrumentation/CI/真实账号未验证 |
+| 3.A2 ReAct 工具与 AI 空教室整链 | PR #84 已合并，merge `3fa7707` | CI 40517300664 两个 job 成功；设备 XML 851 项全部通过，JVM XML 940 项中 939 通过、1 个既有可选 HOA 联网跳过，测试身份无重复；真实账号/WebVPN/物理真机未验证 |
 
 Main 最终主题 smoke：`main/theme-cache-run.log` 的一次实际 instrumentation 方法覆盖全部七种主题并通过，`main/screenshots-final/main-theme-smoke/` 的七张截图已逐张审阅；这是实际渲染 smoke，不是像素等价或真实账号验证。最后夹具改动只涉及 accessibility 虚节点遍历与缓存刷新，生产/JVM 输入未变，复用上述 app JVM 与构建结果；最终完整 CI 仍待验。
