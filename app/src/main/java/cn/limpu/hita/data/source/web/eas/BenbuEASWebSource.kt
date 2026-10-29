@@ -40,7 +40,7 @@ class BenbuEASWebSource internal constructor(
 ) : AbstractEASWebSource(onCookiesUpdated) {
     constructor(onCookiesUpdated: ((EASToken) -> Unit)? = null) : this(null, onCookiesUpdated)
 
-    override val hostName = "http://jwts-hit-edu-cn.ivpn.hit.edu.cn:1080"
+    override val hostName = "http://jwts-hit-edu-cn.vpn.hit.edu.cn:1080"
     override val teachingBuildingsHostName: String
         get() = teachingBuildingsHostOverride?.trimEnd('/') ?: hostName
     override val termsHostName: String
@@ -58,10 +58,11 @@ class BenbuEASWebSource internal constructor(
         getCachedOrFetchCourses(term, token, account, checkCancelled)
 
 
-    private val experimentHostName = "http://sjjx-hit-edu-cn.ivpn.hit.edu.cn:1080"
-    private val electronicExpHostName = "http://eelabinfo-hit-edu-cn.ivpn.hit.edu.cn:1080"
-    private val graduateHostName = "http://yjsgl-hit-edu-cn.ivpn.hit.edu.cn:1080"
-    private val graduateCourseHostName = "http://gcourse-hit-edu-cn.ivpn.hit.edu.cn:1080"
+    // 2026-10 学校把零信任网关的应用域名从 ivpn.hit.edu.cn 换成了 vpn.hit.edu.cn，别名与端口不变
+    private val experimentHostName = "http://sjjx-hit-edu-cn.vpn.hit.edu.cn:1080"
+    private val electronicExpHostName = "http://eelabinfo-hit-edu-cn.vpn.hit.edu.cn:1080"
+    private val graduateHostName = "http://yjsgl-hit-edu-cn.vpn.hit.edu.cn:1080"
+    private val graduateCourseHostName = "http://gcourse-hit-edu-cn.vpn.hit.edu.cn:1080"
 
     // Cache to avoid double-fetching in import flow (getScheduleStructure + getTimetableOfTerm)
     private data class CourseCacheKey(val term: String, val current: Boolean, val account: TimetableCourseAccount)
@@ -911,7 +912,7 @@ class BenbuEASWebSource internal constructor(
         if (hasLoginForm && !hasScoreTable) return true
         val hasExamTable = BenbuExamParser.hasExamTable(doc)
         if (!hasScoreTable && (
-                title.contains("登录") || title.contains("统一身份认证") || title.contains("ivpn") ||
+                title.contains("登录") || title.contains("统一身份认证") || title.contains("vpn") ||
                 (!hasExamTable && (text.contains("登录") || text.contains("未登录") || text.contains("认证")))
             )) {
             return true

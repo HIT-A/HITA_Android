@@ -36,7 +36,7 @@ class EASToken {
     // Repository-managed generation used to reject responses from requests started before logout.
     var sessionGeneration: Long = 0L
 
-    // --- 本部电子实验中心 JWT token (用于 eelabinfo-hit-edu-cn.ivpn.hit.edu.cn) ---
+    // --- 本部电子实验中心 JWT token (用于 eelabinfo-hit-edu-cn.vpn.hit.edu.cn) ---
     var electronicExpToken: String? = null
 
     var campus: Campus = Campus.SHENZHEN
