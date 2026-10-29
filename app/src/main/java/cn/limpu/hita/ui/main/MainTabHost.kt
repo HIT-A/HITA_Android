@@ -5,12 +5,7 @@ import android.os.Bundle
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.snap
-import androidx.compose.animation.core.spring
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.SideEffect
-import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.fragment.app.Fragment
@@ -59,10 +54,18 @@ internal class MainTabHost(
         visible = visibleTabs.toList()
         selected = selectedTab.takeIf { it in visible } ?: visible.first()
         applySelection()
+        // 首帧时 View 往往还没 attach，applySelection 会提前返回；等这一帧布局完成再补一次，
+        // 否则冷启动会停在"容器存在但全部 INVISIBLE"的空白状态，直到用户切换 Tab 才恢复。
+        root?.post { applySelection() }
     }
 
     /** State-saved changes are applied after FragmentActivity clears its saved-state barrier. */
-    fun resume() { applySelection() }
+    fun resume() {
+        // 系统重建或返回前台后，容器的可见性/`show`-`hide` 可能已被打乱，
+        // 而 `lastRendered` 还是旧值会让 applySelection 直接返回，页面就一直是空白。
+        lastRendered = null
+        applySelection()
+    }
 
     private fun applySelection() {
         if (closed || root?.isAttachedToWindow != true || manager.isDestroyed || manager.isStateSaved) return
@@ -107,8 +110,6 @@ internal class MainTabHost(
 
     fun find(tab: MainTab): Fragment? = manager.findFragmentByTag(tag(tab))
 
-    fun setTabAlpha(tab: MainTab, alpha: Float) { containers[tab]?.alpha = alpha }
-
     override fun close() { closed = true; containers.clear(); root = null }
 
     companion object {
@@ -123,16 +124,10 @@ internal fun MainFragmentPager(
     visibleTabs: List<MainTab>,
     modifier: Modifier = Modifier,
 ) {
-    MainTab.entries.forEach { tab ->
-        val selected = tab == selectedTab && tab in visibleTabs
-        val alpha by animateFloatAsState(
-            targetValue = if (selected) 1f else 0f,
-            animationSpec = if (selected) spring(dampingRatio = 0.9f, stiffness = 300f) else snap(),
-            label = "tab_alpha_${tab.name}",
-        )
-        // Drawing updates cannot create fragments or trigger tab activation.
-        SideEffect { host.setTabAlpha(tab, alpha) }
-    }
+    // Tab 显隐完全由 MainTabHost 的容器 visibility 决定。
+    // 之前这里还叠了一层 animateFloatAsState → containers[tab].alpha，
+    // 一旦动画停在 0（切 Tab/登录返回/首帧竞态都可能），容器仍 VISIBLE 但内容全透明：
+    // 表现为“整页空白，但点击还能触发功能”，而且只能靠切换 Tab 或旋转屏幕恢复。
     AndroidView(
         modifier = modifier,
         factory = { context ->
