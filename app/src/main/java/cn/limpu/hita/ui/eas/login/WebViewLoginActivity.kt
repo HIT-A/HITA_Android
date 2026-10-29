@@ -110,9 +110,12 @@ class WebViewLoginActivity : AppCompatActivity() {
 
         // 校园网络URL常量
         private object CampusUrls {
+            // 2026-10 起本部零信任网关应用域名由 ivpn.hit.edu.cn 改为 vpn.hit.edu.cn（别名、端口不变）
+            private const val BENBU_VPN_DOMAIN = "vpn.hit.edu.cn"
+
             // 本部校区URL
-            private const val BENBU_BASE = "http://i-hit-edu-cn.ivpn.hit.edu.cn:1080"
-            private const val JWTS_BASE = "http://jwts-hit-edu-cn.ivpn.hit.edu.cn:1080"
+            private const val BENBU_BASE = "http://i-hit-edu-cn.$BENBU_VPN_DOMAIN:1080"
+            private const val JWTS_BASE = "http://jwts-hit-edu-cn.$BENBU_VPN_DOMAIN:1080"
 
             // 威海校区URL
             private const val WEIHAI_BASE = "https://webvpn.hitwh.edu.cn"
@@ -144,7 +147,7 @@ class WebViewLoginActivity : AppCompatActivity() {
                 directBaseUrl = SHENZHEN_DIRECT_BASE
             )
 
-            const val EELABINFO_URL = "http://eelabinfo-hit-edu-cn.ivpn.hit.edu.cn:1080"
+            const val EELABINFO_URL = "http://eelabinfo-hit-edu-cn.$BENBU_VPN_DOMAIN:1080"
         }
 
         private const val COOKIE_RETRY_COUNT = 30
@@ -164,6 +167,10 @@ class WebViewLoginActivity : AppCompatActivity() {
                 "AppleWebKit/537.36 (KHTML, like Gecko) " +
                 "Chrome/134.0.0.0 Safari/537.36"
         private val BENBU_REQUIRED_COOKIES = setOf("JSESSIONID", "HIT")
+        private val BENBU_PORTAL_HOSTS = setOf(
+            "i-hit-edu-cn.vpn.hit.edu.cn",
+            "i-hit-edu-cn.ivpn.hit.edu.cn"
+        )
         private val SHENZHEN_DIRECT_SESSION_COOKIES = setOf("JSESSIONID", "route")
         private const val SHENZHEN_PROXY_SESSION_COOKIE = "SESSION"
         private const val WEIHAI_TICKET_COOKIE_PREFIX = "wengine_vpn_ticket"
@@ -1390,7 +1397,7 @@ class WebViewLoginActivity : AppCompatActivity() {
         if (silentMode) return
         val host = Uri.parse(url).host.orEmpty()
         val path = Uri.parse(url).path.orEmpty()
-        val shouldProbe = host.contains("ivpn.hit.edu.cn") ||
+        val shouldProbe = host.contains("vpn.hit.edu.cn") ||
             host.contains("ids") ||
             path.contains("authserver") ||
             (config.campus == EASToken.Campus.SHENZHEN && isShenzhenProxyJwPage(url))
@@ -1606,7 +1613,7 @@ class WebViewLoginActivity : AppCompatActivity() {
         val uri = Uri.parse(url)
         val normalizedPath = uri.path?.trimEnd('/') ?: ""
         return when (config.campus) {
-            EASToken.Campus.BENBU -> uri.host == "i-hit-edu-cn.ivpn.hit.edu.cn" &&
+            EASToken.Campus.BENBU -> uri.host in BENBU_PORTAL_HOSTS &&
                 (normalizedPath == "/portal/home" || normalizedPath == "/portal")
             EASToken.Campus.WEIHAI -> WebLoginSuccessPolicy.shouldOpenWeihaiTeachingEntry(
                 url,
@@ -1622,7 +1629,7 @@ class WebViewLoginActivity : AppCompatActivity() {
     private fun isIvpnRedirectPage(url: String): Boolean {
         if (config.campus != EASToken.Campus.BENBU) return false
         val uri = Uri.parse(url)
-        return uri.host == "ivpn.hit.edu.cn"
+        return uri.host == "vpn.hit.edu.cn" || uri.host == "ivpn.hit.edu.cn"
     }
 
     private fun isAuthenticationPage(url: String): Boolean {
@@ -1939,6 +1946,7 @@ class WebViewLoginActivity : AppCompatActivity() {
 
     private fun approvedCredentialOrigins(): Set<String> = when (config.campus) {
         EASToken.Campus.BENBU -> setOf(
+            "http://ids-hit-edu-cn-s.vpn.hit.edu.cn",
             "http://ids-hit-edu-cn-s.ivpn.hit.edu.cn",
             "https://ids.hit.edu.cn"
         )

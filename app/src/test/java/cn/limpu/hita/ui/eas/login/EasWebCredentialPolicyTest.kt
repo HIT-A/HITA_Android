@@ -13,6 +13,11 @@ class EasWebCredentialPolicyTest {
     fun `allows only campus login origins and main frame`() {
         assertTrue(EasWebCredentialPolicy.matchesLoginPage(
             EASToken.Campus.BENBU,
+            "http://ids-hit-edu-cn-s.vpn.hit.edu.cn/authserver/login",
+            true
+        ))
+        assertTrue(EasWebCredentialPolicy.matchesLoginPage(
+            EASToken.Campus.BENBU,
             "http://ids-hit-edu-cn-s.ivpn.hit.edu.cn/authserver/login",
             true
         ))

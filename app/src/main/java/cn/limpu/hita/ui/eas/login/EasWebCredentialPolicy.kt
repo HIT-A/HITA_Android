@@ -5,8 +5,14 @@ import cn.limpu.hita.data.source.preference.EasCredential
 import java.net.URI
 
 internal object EasWebCredentialPolicy {
+    /** 本部 CAS 网关主机：2026-10 起网关域名由 ivpn.hit.edu.cn 改为 vpn.hit.edu.cn，旧域名保留兼容。 */
+    private val benbuIdsGatewayHosts = setOf(
+        "ids-hit-edu-cn-s.vpn.hit.edu.cn",
+        "ids-hit-edu-cn-s.ivpn.hit.edu.cn"
+    )
+
     private val approvedHosts = mapOf(
-        EASToken.Campus.BENBU to setOf("ids-hit-edu-cn-s.ivpn.hit.edu.cn", "ids.hit.edu.cn"),
+        EASToken.Campus.BENBU to (benbuIdsGatewayHosts + setOf("ids.hit.edu.cn")),
         EASToken.Campus.WEIHAI to setOf("webvpn.hitwh.edu.cn", "ids.hit.edu.cn")
     )
 
@@ -103,7 +109,7 @@ internal object EasWebCredentialPolicy {
         val scheme = uri.scheme?.lowercase() ?: return false
         val host = uri.host?.lowercase() ?: return false
         val approvedScheme = when {
-            campus == EASToken.Campus.BENBU && host == "ids-hit-edu-cn-s.ivpn.hit.edu.cn" -> scheme == "http"
+            campus == EASToken.Campus.BENBU && host in benbuIdsGatewayHosts -> scheme == "http"
             else -> scheme == "https"
         }
         return approvedScheme && host in approvedHosts[campus].orEmpty()
