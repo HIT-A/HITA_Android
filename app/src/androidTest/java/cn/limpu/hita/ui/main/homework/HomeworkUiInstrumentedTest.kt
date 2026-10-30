@@ -3,6 +3,7 @@ package cn.limpu.hita.ui.main.homework
 import android.app.Application
 import android.content.Context
 import android.content.SharedPreferences
+import android.os.Build
 import android.os.Bundle
 import android.view.accessibility.AccessibilityNodeInfo
 import androidx.compose.ui.platform.ComposeView
@@ -58,10 +59,13 @@ class HomeworkUiInstrumentedTest {
                 assertFalse(hasText("fixture-tomorrow"))
                 assertFalse(hasText("fixture-undated"))
 
-                val quickInput = awaitNode { it.className?.toString() == "android.widget.EditText" }
+                val quickInput = awaitNode { it.isEnabled && it.isVisibleToUser && it.className?.toString() == "android.widget.EditText" }
                 assertTrue(quickInput.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, Bundle().apply {
                     putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, "fixture-quick")
                 }))
+                awaitNode("quick input contains the entered title") {
+                    it.className?.toString() == "android.widget.EditText" && it.text?.toString() == "fixture-quick"
+                }
                 clickText(base.getString(R.string.homework_add))
                 awaitText("fixture-quick")
                 clickText(base.getString(R.string.homework_next))
@@ -111,8 +115,16 @@ class HomeworkUiInstrumentedTest {
         }
     }
 
+    private fun freshRoot(): AccessibilityNodeInfo? {
+        instrumentation.waitForIdleSync()
+        // Compose updates virtual nodes asynchronously; cached enabled/text values can
+        // still describe the empty input after ACTION_SET_TEXT has already succeeded.
+        if (Build.VERSION.SDK_INT >= 33) automation.clearCache()
+        return automation.rootInActiveWindow
+    }
+
     private fun hasText(text: String): Boolean =
-        automation.rootInActiveWindow?.findAccessibilityNodeInfosByText(text)?.any {
+        freshRoot()?.findAccessibilityNodeInfosByText(text)?.any {
             it.isVisibleToUser && it.text?.toString() == text
         } == true
 
@@ -120,17 +132,34 @@ class HomeworkUiInstrumentedTest {
         it.isVisibleToUser && (it.text?.toString() == text || it.contentDescription?.toString() == text)
     }
 
+    private fun clickableAncestor(node: AccessibilityNodeInfo): AccessibilityNodeInfo? {
+        var target: AccessibilityNodeInfo? = node
+        while (target != null && !target.isClickable) target = target.parent
+        return target?.takeIf { it.isEnabled }
+    }
+
     private fun clickText(text: String, matchDescription: Boolean = true) {
-        awaitNode("click: $text", scroll = true) { candidate ->
-            if (!candidate.isVisibleToUser ||
-                (candidate.text?.toString() != text && (!matchDescription || candidate.contentDescription?.toString() != text))) false
-            else {
-                var target: AccessibilityNodeInfo? = candidate
-                while (target != null && !target.isClickable) target = target.parent
-                target?.isEnabled == true && target.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-            }
+        val node = awaitNode("enabled click target: $text", scroll = true) { candidate ->
+            candidate.isVisibleToUser &&
+                (candidate.text?.toString() == text ||
+                    (matchDescription && candidate.contentDescription?.toString() == text)) &&
+                clickableAncestor(candidate) != null
         }
+        // Finding a node must not click it: polling used to conflate missing, disabled
+        // and rejected actions, and could retry an action without reporting which failed.
+        val target = requireNotNull(clickableAncestor(node))
+        assertTrue("Accessibility click was rejected: $text", target.performAction(AccessibilityNodeInfo.ACTION_CLICK))
         instrumentation.waitForIdleSync()
+    }
+
+    private fun describeTree(node: AccessibilityNodeInfo?, depth: Int = 0): String {
+        if (node == null) return "<no active window>"
+        return buildString {
+            append("  ".repeat(depth))
+            append("${node.className} text=${node.text} description=${node.contentDescription}")
+            append(" visible=${node.isVisibleToUser} enabled=${node.isEnabled} clickable=${node.isClickable}\n")
+            for (index in 0 until node.childCount) append(describeTree(node.getChild(index), depth + 1))
+        }
     }
 
     private fun awaitNode(
@@ -157,8 +186,7 @@ class HomeworkUiInstrumentedTest {
         var nextScroll = System.nanoTime() + 350_000_000L
         var forward = true
         while (System.nanoTime() < deadline) {
-            instrumentation.waitForIdleSync()
-            val root = automation.rootInActiveWindow
+            val root = freshRoot()
             find(root)?.let { return it }
             if (scroll && System.nanoTime() >= nextScroll) {
                 // LazyColumn items can be outside the viewport on CI's 320 x 640 emulator.
@@ -172,6 +200,6 @@ class HomeworkUiInstrumentedTest {
             }
             Thread.sleep(50)
         }
-        throw AssertionError("Expected $description was not visible")
+        throw AssertionError("Timed out waiting for $description\n${describeTree(freshRoot())}")
     }
 }
