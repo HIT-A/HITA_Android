@@ -15,7 +15,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import cn.limpu.hita.R
 import cn.limpu.hita.data.repository.homework.HomeworkRepository
 import cn.limpu.hita.ui.design.HitaComposeTheme
-import cn.limpu.hita.ui.main.MainActivity
+import androidx.activity.ComponentActivity
 import java.time.LocalDate
 import java.util.UUID
 import kotlinx.coroutines.runBlocking
@@ -43,7 +43,7 @@ class HomeworkUiInstrumentedTest {
         assertTrue(repository.add("fixture-yesterday", today.minusDays(1).toString()))
         assertTrue(repository.add("fixture-undated"))
         try {
-            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            ActivityScenario.launch(ComponentActivity::class.java).use { scenario ->
                 scenario.onActivity { activity ->
                     val model = ViewModelProvider(activity, object : ViewModelProvider.Factory {
                         @Suppress("UNCHECKED_CAST")
@@ -116,12 +116,12 @@ class HomeworkUiInstrumentedTest {
             it.isVisibleToUser && it.text?.toString() == text
         } == true
 
-    private fun awaitText(text: String) = awaitNode {
+    private fun awaitText(text: String) = awaitNode("text: $text", scroll = true) {
         it.isVisibleToUser && (it.text?.toString() == text || it.contentDescription?.toString() == text)
     }
 
     private fun clickText(text: String, matchDescription: Boolean = true) {
-        awaitNode { candidate ->
+        awaitNode("click: $text", scroll = true) { candidate ->
             if (!candidate.isVisibleToUser ||
                 (candidate.text?.toString() != text && (!matchDescription || candidate.contentDescription?.toString() != text))) false
             else {
@@ -133,19 +133,45 @@ class HomeworkUiInstrumentedTest {
         instrumentation.waitForIdleSync()
     }
 
-    private fun awaitNode(matches: (AccessibilityNodeInfo) -> Boolean): AccessibilityNodeInfo {
+    private fun awaitNode(
+        description: String = "homework control",
+        scroll: Boolean = false,
+        matches: (AccessibilityNodeInfo) -> Boolean,
+    ): AccessibilityNodeInfo {
         fun find(node: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
             if (node == null) return null
             if (matches(node)) return node
             for (index in 0 until node.childCount) find(node.getChild(index))?.let { return it }
             return null
         }
+        fun verticalList(node: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
+            if (node == null) return null
+            if (node.isScrollable && node.actionList.any {
+                it.id == AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_DOWN.id ||
+                    it.id == AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_UP.id
+            }) return node
+            for (index in 0 until node.childCount) verticalList(node.getChild(index))?.let { return it }
+            return null
+        }
         val deadline = System.nanoTime() + 10_000_000_000L
+        var nextScroll = System.nanoTime() + 350_000_000L
+        var forward = true
         while (System.nanoTime() < deadline) {
             instrumentation.waitForIdleSync()
-            find(automation.rootInActiveWindow)?.let { return it }
+            val root = automation.rootInActiveWindow
+            find(root)?.let { return it }
+            if (scroll && System.nanoTime() >= nextScroll) {
+                // LazyColumn items can be outside the viewport on CI's 320 x 640 emulator.
+                // Scroll only vertically so looking for an item cannot change the selected day.
+                verticalList(root)?.let { list ->
+                    val action = if (forward) AccessibilityNodeInfo.ACTION_SCROLL_FORWARD
+                        else AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD
+                    if (!list.performAction(action)) forward = !forward
+                }
+                nextScroll = System.nanoTime() + 350_000_000L
+            }
             Thread.sleep(50)
         }
-        throw AssertionError("Expected homework UI node was not visible")
+        throw AssertionError("Expected $description was not visible")
     }
 }

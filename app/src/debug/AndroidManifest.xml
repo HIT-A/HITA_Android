@@ -12,5 +12,10 @@
                 <action android:name="cn.limpu.hita.action.ENABLE_STRONG_REMINDER_DEBUG" />
             </intent-filter>
         </receiver>
+        <!-- Isolated Compose test host; excluded from release and not exported. -->
+        <activity
+            android:name="androidx.activity.ComponentActivity"
+            android:exported="false"
+            android:theme="@style/AppTheme" />
     </application>
 </manifest>
