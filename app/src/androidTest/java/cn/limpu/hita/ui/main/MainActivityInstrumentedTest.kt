@@ -123,6 +123,23 @@ class MainActivityInstrumentedTest {
         }
     }
 
+    @Test fun homeworkTabMountsAndSurvivesActivityRecreation() = launch { scenario ->
+        scenario.onActivity {
+            val model = ViewModelProvider(it)[MainViewModel::class.java]
+            model.selectTab(model.state.value.navigation.visibleTabs.indexOf(MainTab.HOMEWORK))
+        }
+        waitForTab(scenario, MainTab.HOMEWORK)
+        scenario.recreate()
+        waitForTab(scenario, MainTab.HOMEWORK)
+        scenario.onActivity {
+            val model = ViewModelProvider(it)[MainViewModel::class.java]
+            assertEquals(MainTab.HOMEWORK, model.state.value.navigation.selectedTab)
+            assertEquals(1, it.supportFragmentManager.fragments.count { fragment ->
+                fragment.tag == MainTabHost.tag(MainTab.HOMEWORK)
+            })
+        }
+    }
+
     private fun replaceHost(activity: MainActivity, activated: (Fragment) -> Unit = {}): MainTabHost {
         // Replace the owned platform adapter, keeping the real Activity/FragmentManager and fragments.
         val field = MainActivity::class.java.getDeclaredField("tabHost").apply { isAccessible = true }
@@ -139,6 +156,7 @@ class MainActivityInstrumentedTest {
         MainTab.TIMETABLE -> TimetableFragment()
         MainTab.AGENT -> AgentChatFragment()
         MainTab.BLOG -> BlogFragment()
+        MainTab.HOMEWORK -> cn.limpu.hita.ui.main.homework.HomeworkFragment()
         MainTab.NAVIGATION -> NavigationFragment()
     }
 

@@ -52,7 +52,7 @@ internal class MainTabHost(
     fun render(selectedTab: MainTab, visibleTabs: List<MainTab>) {
         if (closed) return
         visible = visibleTabs.toList()
-        selected = selectedTab.takeIf { it in visible } ?: visible.first()
+        selected = selectedTab.takeIf { it in visible } ?: visible.firstOrNull { it == MainTab.TIMELINE } ?: visible.first()
         applySelection()
         // 首帧时 View 往往还没 attach，applySelection 会提前返回；等这一帧布局完成再补一次，
         // 否则冷启动会停在"容器存在但全部 INVISIBLE"的空白状态，直到用户切换 Tab 才恢复。

@@ -124,6 +124,7 @@ internal fun MainTopBar(
                 onAddEvent = onAddEvent
             )
             MainTab.AGENT -> ToolbarTitle(stringResource(R.string.title_agent), titleColor)
+            MainTab.HOMEWORK -> ToolbarTitle(stringResource(R.string.title_homework), titleColor)
             MainTab.BLOG -> ToolbarTitle(stringResource(R.string.title_blog), titleColor)
             else -> NavigationToolbar(
                 themeIcon = themeIcon,
