@@ -3,6 +3,7 @@ package cn.limpu.hita.feature.livecourse.receiver
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import cn.limpu.hita.feature.livecourse.guard.LiveCourseGuardService
 import cn.limpu.hita.feature.livecourse.scheduler.LiveCourseScheduler
 import cn.limpu.hita.utils.LogUtils
 import kotlinx.coroutines.CoroutineScope
@@ -16,10 +17,16 @@ class LiveCourseReceiver : BroadcastReceiver() {
         when (intent.action) {
             ACTION_TRIGGER,
             Intent.ACTION_BOOT_COMPLETED,
+            Intent.ACTION_MY_PACKAGE_REPLACED,
             Intent.ACTION_TIME_CHANGED,
             Intent.ACTION_TIMEZONE_CHANGED,
             -> Unit
             else -> return
+        }
+        // These system broadcasts permit foreground-service restoration. An ordinary
+        // trigger may be an inexact fallback alarm, which does not grant that exemption.
+        if (intent.action != ACTION_TRIGGER) {
+            LiveCourseGuardService.restoreIfEnabled(context)
         }
         val pendingResult = goAsync()
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {

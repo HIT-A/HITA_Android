@@ -113,6 +113,19 @@ class LiveCourseGuardService : Service() {
             )
         }
 
+        /** Restore only an explicit opt-in; rejected background starts keep alarm/worker fallback. */
+        fun restoreIfEnabled(context: Context) {
+            val settings = LiveCourseSettings(context)
+            if (!settings.isEnabled() || !settings.isStrongReminderEnabled()) return
+            try {
+                start(context)
+            } catch (error: IllegalStateException) {
+                LogUtils.e("Live Course guard restoration deferred by system", error)
+            } catch (error: SecurityException) {
+                LogUtils.e("Live Course guard restoration denied by system", error)
+            }
+        }
+
         fun stop(context: Context) {
             context.applicationContext.stopService(
                 Intent(context.applicationContext, LiveCourseGuardService::class.java),
