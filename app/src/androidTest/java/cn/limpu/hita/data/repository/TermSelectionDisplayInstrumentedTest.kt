@@ -21,7 +21,7 @@ class TermSelectionDisplayInstrumentedTest : TermRepositoryContractHarness() {
         lateinit var model: ShenzhenGradeAnalysisViewModel
         var selections = 0
         val snapshots = mutableListOf<TermSelectionDisplay?>()
-        val selectedObserver = Observer<TermItem> { if (it != null) selections++ }
+        val selectedObserver = Observer<TermItem?> { if (it != null) selections++ }
         val displayObserver = Observer<TermSelectionDisplay?> { snapshots += it }
         main {
             model = ShenzhenGradeAnalysisViewModel(fixture.repository)

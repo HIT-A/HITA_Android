@@ -19,7 +19,7 @@ class TermRetryMetadataInstrumentedTest : TermRepositoryContractHarness() {
         val store = ViewModelStore()
         lateinit var model: ShenzhenCourseCatalogViewModel
         val submitted = mutableListOf<ShenzhenCourseCatalogQuery>()
-        val observer = Observer<ShenzhenCourseCatalogQuery> { if (it != null) submitted += it }
+        val observer = Observer<ShenzhenCourseCatalogQuery?> { if (it != null) submitted += it }
         main {
             model = fixture.catalogPage()
             store.put("catalog", model)

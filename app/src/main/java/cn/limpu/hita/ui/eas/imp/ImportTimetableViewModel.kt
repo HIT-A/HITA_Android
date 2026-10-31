@@ -56,7 +56,7 @@ class ImportTimetableViewModel @Inject constructor(
     )
     val termsLiveData: LiveData<DataState<List<TermItem>>> = termQueries
 
-    val selectedTermLiveData: MutableLiveData<TermItem?> = MutableLiveData()
+    val selectedTermLiveData: MutableLiveData<TermItem?> = MutableLiveData<TermItem?>()
     internal val selectedTermDisplay = TermSelectionDisplaySource(selectedTermLiveData)
     val startDateLiveData = MediatorLiveData<DataState<Calendar>>()
     val benbuCalibrationConfirmedLiveData = MediatorLiveData<Boolean>()

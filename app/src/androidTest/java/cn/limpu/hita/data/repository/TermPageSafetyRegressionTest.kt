@@ -37,7 +37,7 @@ class TermPageSafetyRegressionTest : TermRepositoryContractHarness() {
         val store = ViewModelStore()
         lateinit var model: ShenzhenGradeAnalysisViewModel
         val selections = mutableListOf<TermItem>()
-        val observer = Observer<TermItem> { if (it != null) selections += it }
+        val observer = Observer<TermItem?> { if (it != null) selections += it }
         main {
             model = ShenzhenGradeAnalysisViewModel(fixture.repository)
             store.put("grade", model)

@@ -199,7 +199,7 @@ class ShenzhenCourseCatalogViewModel @Inject constructor(
     )
     val termsLiveData: LiveData<DataState<List<TermItem>>> = termQueries
 
-    val selectedTermLiveData = MutableLiveData<TermItem>()
+    val selectedTermLiveData = MutableLiveData<TermItem?>()
     internal val selectedTermDisplay = TermSelectionDisplaySource(selectedTermLiveData)
     val sourceLiveData = MutableLiveData(
         savedStateHandle.get<String>(STATE_SOURCE)
@@ -214,7 +214,7 @@ class ShenzhenCourseCatalogViewModel @Inject constructor(
         savedStateHandle.get<String>(STATE_STUDENT_TYPE)
             ?: easRepo.getEasToken().getStudentType()
     )
-    val queryLiveData = MutableLiveData<ShenzhenCourseCatalogQuery>()
+    val queryLiveData = MutableLiveData<ShenzhenCourseCatalogQuery?>()
     val followedSectionIdsLiveData = MutableLiveData<Set<String>>(emptySet())
     val startDateLiveData: LiveData<DataState<java.util.Calendar>> = selectedTermLiveData.switchMap { term ->
         if (term == null) MutableLiveData(DataState(DataState.STATE.NOTHING))
@@ -234,7 +234,7 @@ class ShenzhenCourseCatalogViewModel @Inject constructor(
         if (term == null) MutableLiveData(DataState(DataState.STATE.NOTHING))
         else easRepo.sessionBoundData { easRepo.getShenzhenSelectedCourses(term) }
     }
-    val courseSelectionDraftLiveData = MutableLiveData<CourseSelectionDraft>()
+    val courseSelectionDraftLiveData = MutableLiveData<CourseSelectionDraft?>()
     val coursePlanActionLiveData = MediatorLiveData<DataState<CourseSelectionDraft>>()
     private var coursePlanActionSource: LiveData<DataState<CourseSelectionDraft>>? = null
     val coursePlanProjectionActionLiveData =
@@ -285,14 +285,14 @@ class ShenzhenCourseCatalogViewModel @Inject constructor(
     private val _selectionCommandEventLiveData = MutableLiveData<CourseSelectionCommandResult?>()
     val selectionCommandEventLiveData: LiveData<CourseSelectionCommandResult?> =
         _selectionCommandEventLiveData
-    private val attachmentCourseLiveData = MutableLiveData<ShenzhenCourseCatalogItem>()
+    private val attachmentCourseLiveData = MutableLiveData<ShenzhenCourseCatalogItem?>()
     val attachmentsLiveData: LiveData<DataState<List<ShenzhenCourseAttachment>>> =
         attachmentCourseLiveData.switchMap { course ->
             if (course == null) MutableLiveData(DataState(DataState.STATE.NOTHING))
             else easRepo.sessionBoundData { easRepo.getShenzhenCourseAttachments(course) }
         }
     private val historicalFailureRequestLiveData =
-        MutableLiveData<ShenzhenHistoricalFailureRequest>()
+        MutableLiveData<ShenzhenHistoricalFailureRequest?>()
     val historicalFailureLiveData: LiveData<DataState<ShenzhenHistoricalFailureReport>> =
         historicalFailureRequestLiveData.switchMap { request ->
             if (request == null) return@switchMap MutableLiveData(DataState(DataState.STATE.NOTHING))

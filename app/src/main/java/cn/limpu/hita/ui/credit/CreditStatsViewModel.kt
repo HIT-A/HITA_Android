@@ -56,7 +56,7 @@ class CreditStatsViewModel @Inject constructor(
         onResult = { _, state -> if (state.state == DataState.STATE.SUCCESS) reconcileTerms(state.data.orEmpty()) },
     )
     val termsLiveData: LiveData<DataState<List<TermItem>>> = termQueries
-    val selectedTermLiveData = MutableLiveData<TermItem>()
+    val selectedTermLiveData = MutableLiveData<TermItem?>()
     internal val selectedTermDisplay = TermSelectionDisplaySource(selectedTermLiveData)
 
     val shenzhenProgress: LiveData<DataState<ShenzhenCreditProgress>> =

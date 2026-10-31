@@ -59,7 +59,7 @@ class ScoreInquiryViewModel @Inject constructor(
     )
     val termsLiveData: LiveData<DataState<List<TermItem>>> = termQueries
 
-    val selectedTermLiveData: MutableLiveData<TermItem> = MutableLiveData()
+    val selectedTermLiveData: MutableLiveData<TermItem?> = MutableLiveData<TermItem?>()
     internal val selectedTermDisplay = TermSelectionDisplaySource(selectedTermLiveData)
     val selectedTestTypeLiveData: MutableLiveData<EASService.TestType> = MutableLiveData()
 
