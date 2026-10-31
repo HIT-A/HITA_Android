@@ -68,7 +68,7 @@ class ExamViewModel internal constructor(
     )
     val termsLiveData: LiveData<DataState<List<TermItem>>> = termQueries
 
-    val selectedTermLiveData: MutableLiveData<TermItem> = MutableLiveData()
+    val selectedTermLiveData: MutableLiveData<TermItem?> = MutableLiveData<TermItem?>()
     internal val selectedTermDisplay = TermSelectionDisplaySource(selectedTermLiveData)
     val selectedExamTypeLiveData: MutableLiveData<ExamType> = MutableLiveData()
     private val examMemoStore = ExamMemoStore(context)

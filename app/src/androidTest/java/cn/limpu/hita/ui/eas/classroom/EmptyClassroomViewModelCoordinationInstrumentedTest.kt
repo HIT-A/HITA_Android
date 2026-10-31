@@ -374,8 +374,8 @@ class EmptyClassroomViewModelCoordinationInstrumentedTest {
 
     @Test fun selectionObserverReentryKeepsTheLatestTermAndDefaultWeekSource() {
         val h = create()
-        val observer = Observer<TermItem> { selected ->
-            if (selected.termCode == "2") h.model.selectTerm(term("3"))
+        val observer = Observer<TermItem?> { selected ->
+            if (selected?.termCode == "2") h.model.selectTerm(term("3"))
         }
         h.main { h.model.selectedTermLiveData.observe(h.owner, observer) }
         h.start()

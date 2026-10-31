@@ -44,7 +44,7 @@ class ShenzhenGradeAnalysisViewModel @Inject constructor(
     )
     val terms: LiveData<DataState<List<TermItem>>> = termQueries
 
-    val selectedTerm = MutableLiveData<TermItem>()
+    val selectedTerm = MutableLiveData<TermItem?>()
     internal val selectedTermDisplay = TermSelectionDisplaySource(selectedTerm)
     private val courseRefresh = MutableLiveData<Trigger>()
     val courses: LiveData<DataState<List<ShenzhenGradeCourse>>> = courseRefresh.switchMap {
@@ -57,7 +57,7 @@ class ShenzhenGradeAnalysisViewModel @Inject constructor(
         course?.let { selected -> easRepo.sessionBoundData { easRepo.getShenzhenGradeAnalysis(selected) } }
             ?: MutableLiveData(DataState(DataState.STATE.NOTHING))
     }
-    private val peerTeacherRequest = MutableLiveData<Pair<TermItem, ShenzhenGradeCourse>>()
+    private val peerTeacherRequest = MutableLiveData<Pair<TermItem, ShenzhenGradeCourse>?>()
     val peerTeacherComparison: LiveData<DataState<ShenzhenHistoricalFailureReport>> =
         peerTeacherRequest.switchMap { request ->
             if (request == null) return@switchMap MutableLiveData(DataState(DataState.STATE.NOTHING))

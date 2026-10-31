@@ -86,17 +86,17 @@ class EmptyClassroomViewModel internal constructor(
             }
             state
         }
-    private val selectedTerm = MutableLiveData<TermItem>()
-    private val selectedBuilding = MutableLiveData<BuildingItem>()
+    private val selectedTerm = MutableLiveData<TermItem?>()
+    private val selectedBuilding = MutableLiveData<BuildingItem?>()
     private val selectedWeek = object : MediatorLiveData<Int>() {
         override fun onActive() {
             super.onActive()
             ensureDefaultWeekSource()
         }
     }
-    val selectedTermLiveData: LiveData<TermItem> = selectedTerm
+    val selectedTermLiveData: LiveData<TermItem?> = selectedTerm
     internal val selectedTermDisplay = TermSelectionDisplaySource(selectedTermLiveData)
-    val selectedBuildingLiveData: LiveData<BuildingItem> = selectedBuilding
+    val selectedBuildingLiveData: LiveData<BuildingItem?> = selectedBuilding
     val selectedWeekLiveData: LiveData<Int> = selectedWeek
     val timetableStructureLiveData: LiveData<DataState<MutableList<TimePeriodInDay>>> = selectedTermLiveData.switchMap {
         if (it == null) MutableLiveData(DataState(DataState.STATE.NOTHING)) else inputs.getScheduleStructure(it, viewModelScope)

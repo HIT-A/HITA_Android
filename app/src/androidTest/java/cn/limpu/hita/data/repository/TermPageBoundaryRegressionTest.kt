@@ -83,7 +83,7 @@ class TermPageBoundaryRegressionTest : TermRepositoryContractHarness() {
         val store = ViewModelStore()
         lateinit var model: ScoreInquiryViewModel
         var selections = 0
-        val observer = Observer<cn.limpu.hita.data.model.eas.TermItem> { if (it != null) selections++ }
+        val observer = Observer<cn.limpu.hita.data.model.eas.TermItem?> { if (it != null) selections++ }
         main {
             model = ScoreInquiryViewModel(fixture.repository, SavedStateHandle())
             store.put("score", model)
@@ -106,7 +106,7 @@ class TermPageBoundaryRegressionTest : TermRepositoryContractHarness() {
         val store = ViewModelStore()
         lateinit var model: ShenzhenGradeAnalysisViewModel
         var selections = 0
-        val observer = Observer<cn.limpu.hita.data.model.eas.TermItem> { if (it != null) selections++ }
+        val observer = Observer<cn.limpu.hita.data.model.eas.TermItem?> { if (it != null) selections++ }
         main {
             model = ShenzhenGradeAnalysisViewModel(fixture.repository)
             store.put("grade", model)
