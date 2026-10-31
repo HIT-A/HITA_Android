@@ -203,6 +203,7 @@ class WebViewLoginActivity : AppCompatActivity() {
     private var progressVisible by mutableStateOf(false)
     private var progressValue by mutableIntStateOf(0)
 
+    private var showBenbuMfaHint by mutableStateOf(false)
     private var mfaState by mutableStateOf(MfaOverlayState())
     private var mfaError by mutableStateOf<String?>(null)
     private var mfaInputValue by mutableStateOf("")
@@ -253,6 +254,7 @@ class WebViewLoginActivity : AppCompatActivity() {
                     silentMode = silentMode,
                     progressVisible = progressVisible,
                     progressValue = progressValue,
+                    showBenbuMfaHint = showBenbuMfaHint,
                     mfaState = mfaState,
                     mfaError = mfaError,
                     mfaInputValue = mfaInputValue,
@@ -433,7 +435,9 @@ class WebViewLoginActivity : AppCompatActivity() {
                     mfaInputValue = ""
                     progressVisible = true
                     progressValue = 0
-                    if (url != null && isAuthenticationPage(url)) {
+                    showBenbuMfaHint = config.campus == EASToken.Campus.BENBU &&
+                        url != null && WebLoginSuccessPolicy.isBenbuMfaPage(url)
+                    if (url != null && (isAuthenticationPage(url) || showBenbuMfaHint)) {
                         stopCookiePolling()
                     }
                     logWebViewRenderMarker("page-started", view, url)
@@ -514,6 +518,11 @@ class WebViewLoginActivity : AppCompatActivity() {
                         isPortalHomePage(url) -> {
                             LogUtils.d("portal home detected, auto open jwts campus=${config.campus}")
                             autoOpenJwts(view)
+                        }
+                        config.campus == EASToken.Campus.BENBU && WebLoginSuccessPolicy.isBenbuMfaPage(url) -> {
+                            autoOpeningJwts = false
+                            stopCookiePolling()
+                            if (silentMode) finishWithCancelledResult()
                         }
                         isIvpnRedirectPage(url) -> {
                             autoOpeningJwts = false
@@ -1907,26 +1916,8 @@ class WebViewLoginActivity : AppCompatActivity() {
         val host = uri.host?.lowercase().orEmpty()
 
         return when (config.campus) {
-            EASToken.Campus.BENBU -> {
-                val isLoginPage = path.contains("login")
-                val isOnJwtsDomain = host.contains("jwts")
-
-                // Only check cookies on JWTS domain — IVPN portal pages can have
-                // IVPN session cookies that don't represent an authenticated JWTS session
-                if (isOnJwtsDomain && !isLoginPage) {
-                    val cookies = collectCookies()
-                    val hasRequiredCookies = cookies.containsKey("JSESSIONID") &&
-                                             cookies.containsKey("HIT")
-
-                    if (hasRequiredCookies) {
-                        return true
-                    }
-                }
-
-                (host.contains("jwts") || host.contains("hit.edu.cn")) &&
-                (path.contains("kbcx") || path.contains("cjcx") || path.contains("kjscx") ||
-                 path.contains("xswh") || path.contains("query") || path.contains("index"))
-            }
+            EASToken.Campus.BENBU ->
+                WebLoginSuccessPolicy.isBenbuAuthenticatedPage(url, collectCookies())
             EASToken.Campus.WEIHAI -> {
                 val cookies = collectCookies()
                 val authenticated = WebLoginSuccessPolicy.isWeihaiAuthenticatedPage(url, cookies)
@@ -2045,6 +2036,7 @@ class WebViewLoginActivity : AppCompatActivity() {
         }
 
         if (config.campus == EASToken.Campus.BENBU
+            && WebLoginSuccessPolicy.canCollectBenbuSession(currentUrl)
             && hasRequiredCookies(cookies, currentUrl)) {
             handleSuccessPage()
             return
@@ -2500,6 +2492,7 @@ private fun WebViewLoginScreen(
     silentMode: Boolean,
     progressVisible: Boolean,
     progressValue: Int,
+    showBenbuMfaHint: Boolean,
     mfaState: MfaOverlayState,
     mfaError: String?,
     mfaInputValue: String,
@@ -2548,6 +2541,16 @@ private fun WebViewLoginScreen(
                     )
                 }
             }
+        }
+        if (!silentMode && showBenbuMfaHint) {
+            Text(
+                text = stringResource(R.string.benbu_mfa_trust_device_hint),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                modifier = Modifier.fillMaxWidth()
+                    .background(MaterialTheme.colorScheme.secondaryContainer)
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
+            )
         }
         Box(
             modifier = Modifier
