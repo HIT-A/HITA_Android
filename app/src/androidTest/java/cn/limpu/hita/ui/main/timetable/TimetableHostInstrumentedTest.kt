@@ -55,6 +55,7 @@ class TimetableHostInstrumentedTest {
             db.subjectDao().saveSubjectSync(subject)
             db.eventItemDao().insertEventSync(event)
             ActivityScenario.launch<MainActivity>(Intent(app, MainActivity::class.java)).use { scenario ->
+                isolateStartupPopups(scenario)
                 tapTab(app.getString(R.string.title_timetable))
                 lateinit var fragment: TimetableFragment
                 lateinit var model: TimetableViewModel
@@ -92,6 +93,7 @@ class TimetableHostInstrumentedTest {
                 }
                 // Full Activity reconstruction still resolves the external Main -> timetable entry point.
                 scenario.recreate()
+                isolateStartupPopups(scenario)
                 waitUntil {
                     var mounted = false
                     scenario.onActivity { activity ->
@@ -105,6 +107,20 @@ class TimetableHostInstrumentedTest {
             db.eventItemDao().deleteEventsInIdsSync(listOf(event.id))
             db.subjectDao().deleteSubjectsInIdsSync(listOf(subject.id))
             db.timetableDao().deleteTimetablesInIdsSync(listOf(table.id))
+        }
+    }
+
+    private fun isolateStartupPopups(scenario: ActivityScenario<MainActivity>) {
+        scenario.onActivity { activity ->
+            // This test checks real tab navigation and Fragment lifecycle. Live notices
+            // and update responses must not replace its active accessibility window.
+            listOf("noticePresenter", "updatePresenter").forEach { name ->
+                val field = MainActivity::class.java.getDeclaredField(name).apply { isAccessible = true }
+                (field.get(activity) as AutoCloseable).close()
+            }
+            // close() prevents late responses; also dismiss an already-restored update.
+            (activity.supportFragmentManager.findFragmentByTag("update") as? androidx.fragment.app.DialogFragment)
+                ?.dismissNow()
         }
     }
 

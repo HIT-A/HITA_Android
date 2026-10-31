@@ -7,6 +7,7 @@ enum class MainTab(
     val titleRes: Int,
     val iconRes: Int,
 ) {
+    HOMEWORK(R.string.title_homework, R.drawable.ic_baseline_check_24),
     TIMELINE(R.string.title_timeline, R.drawable.ic_nav_today),
     TIMETABLE(R.string.title_timetable, R.drawable.ic_nav_timetable),
     AGENT(R.string.title_agent, R.drawable.ic_baseline_toys_24),

@@ -80,7 +80,8 @@ internal fun MainPillTabBar(
     val tabs = visibleTabs
     val view = LocalView.current
     val density = LocalDensity.current
-    val tabWidth = if (tabs.size >= 5) 56.dp else CapsuleTabWidth
+    val availableWidth = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp.dp - 32.dp
+    val tabWidth = minOf(if (tabs.size >= 5) 56.dp else CapsuleTabWidth, availableWidth / tabs.size.coerceAtLeast(1))
     val tabWidthPx = with(density) { tabWidth.toPx() }
 
     val indicatorOffsetPx by animateFloatAsState(

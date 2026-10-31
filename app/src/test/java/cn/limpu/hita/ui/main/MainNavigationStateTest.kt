@@ -10,14 +10,14 @@ class MainNavigationStateTest {
     @Test fun restoredNameTakesPriorityOverLegacyPosition() {
         val state = MainNavigationState.restore(signedInTabs, "BLOG", 0)
         assertEquals(MainTab.BLOG, state.selectedTab)
-        assertEquals(3, state.selectedIndex)
+        assertEquals(4, state.selectedIndex)
     }
 
     @Test fun legacyIndexKeepsTheOriginalPreLoginInterpretation() {
         assertEquals(MainTab.NAVIGATION, MainNavigationState.restore(signedOutTabs, legacySelectedIndex = 3).selectedTab)
         val signedIn = MainNavigationState.restore(signedInTabs, legacySelectedIndex = 3)
         assertEquals(MainTab.NAVIGATION, signedIn.selectedTab)
-        assertEquals(4, signedIn.selectedIndex)
+        assertEquals(5, signedIn.selectedIndex)
         assertEquals(MainTab.TIMELINE, MainNavigationState.restore(signedInTabs, legacySelectedIndex = 4).selectedTab)
     }
 
@@ -28,13 +28,13 @@ class MainNavigationStateTest {
     }
 
     @Test fun appearingBlogPreservesNavigationIdentityInsteadOfItsOldPosition() {
-        val state = MainNavigationState.restore(signedOutTabs).selectIndex(3).withVisibleTabs(signedInTabs)
+        val state = MainNavigationState.restore(signedOutTabs).selectIndex(4).withVisibleTabs(signedInTabs)
         assertEquals(MainTab.NAVIGATION, state.selectedTab)
-        assertEquals(4, state.selectedIndex)
+        assertEquals(5, state.selectedIndex)
         assertEquals(MainTab.NAVIGATION, state.withVisibleTabs(signedOutTabs).selectedTab)
     }
 
-    @Test fun disappearingSelectedTabReturnsToFirstVisibleTab() {
+    @Test fun disappearingSelectedTabReturnsToToday() {
         val state = MainNavigationState.restore(signedInTabs, "BLOG").withVisibleTabs(signedOutTabs)
         assertEquals(MainTab.TIMELINE, state.selectedTab)
         assertEquals(MainTab.TIMELINE, state.withVisibleTabs(signedInTabs).selectedTab)
@@ -51,6 +51,15 @@ class MainNavigationStateTest {
         val updated = state.withVisibleTabs(next)
         next.clear()
         assertEquals(signedOutTabs, updated.visibleTabs)
-        assertEquals(3, updated.selectedIndex)
+        assertEquals(4, updated.selectedIndex)
     }
+    @Test fun homeworkRemainsSelectedAcrossLoginAndSavedStateRestoration() {
+        val original = MainNavigationState.restore(signedOutTabs, "HOMEWORK")
+        assertEquals(MainTab.HOMEWORK, original.selectedTab)
+        val loggedIn = original.withVisibleTabs(signedInTabs)
+        assertEquals(MainTab.HOMEWORK, loggedIn.selectedTab)
+        assertEquals(original, loggedIn.withVisibleTabs(signedOutTabs))
+        assertEquals(MainTab.HOMEWORK, MainNavigationState.restore(signedInTabs, loggedIn.selectedTab.name).selectedTab)
+    }
+
 }

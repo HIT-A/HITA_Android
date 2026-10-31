@@ -19,9 +19,9 @@ class AppDatabaseUpgradePathTest {
     companion object {
         /**
          * cn.limpu.hita 包名发布过的数据库版本（v2.4.1 起；更早的包名是另一个应用，不会升级到本包）：
-         * 9 = v2.4.1–v2.5.3，11 = v2.5.4–2.8.0，14 = v3.0.0–v3.0.3，17 = v3.1.0 起。
+         * 9 = v2.4.1–v2.5.3，11 = v2.5.4–2.8.0，14 = v3.0.0–v3.0.3，17 = v3.1.0–v3.1.1，18 = v3.1.2 起。
          */
-        private val SHIPPED_VERSIONS = listOf(9, 11, 14, 17)
+        private val SHIPPED_VERSIONS = listOf(9, 11, 14, 17, 18)
         private const val DB_NAME = "upgrade-path-test"
         private const val START = 1788105600000L
         private const val STRUCTURE = """[{"from":{"hour":8,"minute":30},"to":{"hour":10,"minute":15}}]"""

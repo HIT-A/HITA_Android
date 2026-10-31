@@ -103,6 +103,7 @@ class MainActivity : HiltBaseActivity<MainViewBinding>(),
                 MainTab.TIMETABLE -> TimetableFragment()
                 MainTab.AGENT -> AgentChatFragment()
                 MainTab.BLOG -> BlogFragment()
+                MainTab.HOMEWORK -> cn.limpu.hita.ui.main.homework.HomeworkFragment()
                 MainTab.NAVIGATION -> NavigationFragment()
             }
         })

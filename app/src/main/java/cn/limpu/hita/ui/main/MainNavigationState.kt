@@ -16,7 +16,7 @@ data class MainNavigationState private constructor(
     fun withVisibleTabs(next: List<MainTab>): MainNavigationState {
         require(next.isNotEmpty())
         val snapshot = next.toList()
-        return MainNavigationState(snapshot, selectedTab.takeIf { it in snapshot } ?: snapshot.first())
+        return MainNavigationState(snapshot, selectedTab.takeIf { it in snapshot } ?: snapshot.firstOrNull { it == MainTab.TIMELINE } ?: snapshot.first())
     }
 
     companion object {
@@ -29,8 +29,9 @@ data class MainNavigationState private constructor(
             val snapshot = visibleTabs.toList()
             val named = MainTab.fromName(restoredTabName)?.takeIf { it in snapshot }
             // MainActivity read the old index before applying the authenticated tab list.
-            val legacy = MainTab.visibleFor(null).getOrNull(legacySelectedIndex)?.takeIf { it in snapshot }
-            return MainNavigationState(snapshot, named ?: legacy ?: snapshot.first())
+            val legacy = listOf(MainTab.TIMELINE, MainTab.TIMETABLE, MainTab.AGENT, MainTab.NAVIGATION)
+                .getOrNull(legacySelectedIndex)?.takeIf { it in snapshot }
+            return MainNavigationState(snapshot, named ?: legacy ?: snapshot.firstOrNull { it == MainTab.TIMELINE } ?: snapshot.first())
         }
     }
 }
