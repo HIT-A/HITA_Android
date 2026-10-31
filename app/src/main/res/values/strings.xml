@@ -1807,4 +1807,5 @@
     <string name="homework_discard_message">关闭后，本次编辑的内容不会保存。</string>
     <string name="homework_discard">放弃修改</string>
     <string name="homework_keep_editing">继续编辑</string>
+    <string name="benbu_mfa_trust_device_hint">若选择“记住／信任设备”后反复返回认证页，请在 HITAPP 中选择“仅本次登录”后继续。</string>
 </resources>

@@ -37,6 +37,7 @@ class BenbuEASWebSource internal constructor(
     private val electronicExperimentHostOverride: String? = null,
     private val graduateTimetableHostOverride: String? = null,
     private val graduateBridgeHostOverride: String? = null,
+    private val loginHostOverride: String? = null,
 ) : AbstractEASWebSource(onCookiesUpdated) {
     constructor(onCookiesUpdated: ((EASToken) -> Unit)? = null) : this(null, onCookiesUpdated)
 
@@ -97,7 +98,7 @@ class BenbuEASWebSource internal constructor(
                 }
 
                 val url = if (isGraduate) "$graduateHostName/yjsgl/common/getXsJbxx?sf_request_type=ajax"
-                    else "$hostName/kjscx/queryJxlListBySjid?sf_request_type=ajax"
+                    else "${loginHostOverride?.trimEnd('/') ?: hostName}/kjscx/queryJxlListBySjid?sf_request_type=ajax"
 
                 val response = Jsoup.connect(url)
                     .cookies(cookiesMap)
@@ -115,9 +116,14 @@ class BenbuEASWebSource internal constructor(
                 val graduateLoginValid = !isGraduate || runCatching {
                     JSONObject(response.body()).optBoolean("isSuccess", false)
                 }.getOrDefault(false)
-                if (response.statusCode() == 200 && graduateLoginValid) {
+                // A CAS/VPN login page may also return HTTP 200 after redirects.
+                // Do not persist stale cookies as a successful undergraduate login.
+                val undergraduateLoginValid = isGraduate ||
+                    !isAuthExpiredResponse(response, response.body())
+                if (response.statusCode() == 200 && graduateLoginValid && undergraduateLoginValid) {
                     val token = EASToken().apply {
                         cookies.putAll(cookiesMap)
+                        cookies.putAll(response.cookies())
                         campus = EASToken.Campus.BENBU
                         stutype = if (isGraduate) EASToken.TYPE.GRAD else EASToken.TYPE.UNDERGRAD
                         if (isGraduate) {

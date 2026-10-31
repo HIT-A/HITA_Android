@@ -5,6 +5,35 @@ import java.net.URI
 
 /** Pure URL and cookie rules shared by the WebView login flow and its tests. */
 internal object WebLoginSuccessPolicy {
+
+    private val benbuTeachingHosts = setOf(
+        "jwts.hit.edu.cn", "jwts-hit-edu-cn.vpn.hit.edu.cn", "jwts-hit-edu-cn.ivpn.hit.edu.cn",
+    )
+    private val benbuIdentityHosts = setOf(
+        "ids.hit.edu.cn", "ids-hit-edu-cn-s.vpn.hit.edu.cn", "ids-hit-edu-cn-s.ivpn.hit.edu.cn",
+    )
+
+    fun isBenbuMfaPage(url: String): Boolean {
+        val uri = runCatching { URI(url) }.getOrNull() ?: return false
+        return uri.host?.lowercase() in benbuIdentityHosts &&
+            uri.path.orEmpty().lowercase().startsWith("/authserver/reauthcheck/")
+    }
+
+    /** Never collect a teaching session from an identity/MFA or VPN portal page. */
+    fun canCollectBenbuSession(url: String): Boolean {
+        val uri = runCatching { URI(url) }.getOrNull() ?: return false
+        return uri.scheme?.lowercase() in setOf("http", "https") &&
+            uri.userInfo == null && uri.host?.lowercase() in benbuTeachingHosts &&
+            !uri.path.orEmpty().contains("authserver", ignoreCase = true)
+    }
+
+    fun isBenbuAuthenticatedPage(url: String, cookies: Map<String, String>): Boolean {
+        if (!canCollectBenbuSession(url)) return false
+        val path = runCatching { URI(url).path }.getOrNull().orEmpty()
+        return !path.contains("login", ignoreCase = true) &&
+            !cookies["JSESSIONID"].isNullOrBlank() && !cookies["HIT"].isNullOrBlank()
+    }
+
     private const val WEIHAI_TICKET_COOKIE_PREFIX = "wengine_vpn_ticket"
 
     fun shouldOpenWeihaiTeachingEntry(url: String, teachingBaseUrl: String): Boolean {

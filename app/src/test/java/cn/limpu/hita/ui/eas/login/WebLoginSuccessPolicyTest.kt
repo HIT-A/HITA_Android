@@ -174,4 +174,33 @@ class WebLoginSuccessPolicyTest {
             )
         )
     }
+    @Test fun benbuMfaAndIdentityIndexesNeverCompleteLoginEvenWithStaleCookies() {
+        val cookies = mapOf("JSESSIONID" to "stale", "HIT" to "stale")
+        for (host in listOf("ids.hit.edu.cn", "ids-hit-edu-cn-s.vpn.hit.edu.cn", "ids-hit-edu-cn-s.ivpn.hit.edu.cn")) {
+            val mfa = "https://$host/authserver/reAuthCheck/reAuthIndex.do"
+            assertTrue(WebLoginSuccessPolicy.isBenbuMfaPage(mfa))
+            assertFalse(WebLoginSuccessPolicy.isBenbuAuthenticatedPage(mfa, cookies))
+            assertFalse(WebLoginSuccessPolicy.canCollectBenbuSession(mfa))
+            assertFalse(WebLoginSuccessPolicy.isBenbuAuthenticatedPage("https://$host/authserver/index", cookies))
+        }
+    }
+
+    @Test fun benbuSessionRequiresExactTeachingHostAndBothCookies() {
+        val cookies = mapOf("JSESSIONID" to "session", "HIT" to "hit")
+        for (host in listOf("jwts.hit.edu.cn", "jwts-hit-edu-cn.vpn.hit.edu.cn", "jwts-hit-edu-cn.ivpn.hit.edu.cn")) {
+            val teaching = "http://$host:1080/index"
+            assertTrue(WebLoginSuccessPolicy.isBenbuAuthenticatedPage(teaching, cookies))
+            assertFalse(WebLoginSuccessPolicy.isBenbuAuthenticatedPage(teaching, emptyMap()))
+            assertFalse(WebLoginSuccessPolicy.isBenbuAuthenticatedPage(teaching, cookies + ("HIT" to "")))
+            assertFalse(WebLoginSuccessPolicy.isBenbuAuthenticatedPage("http://$host:1080/loginCAS", cookies))
+            // loginCAS callback may still be checked by polling; the native probe validates it.
+            assertTrue(WebLoginSuccessPolicy.canCollectBenbuSession("http://$host:1080/loginCAS"))
+        }
+        for (url in listOf(
+            "https://ivpn.hit.edu.cn/index", "https://i-hit-edu-cn.vpn.hit.edu.cn:1080/portal/index",
+            "https://jwts-hit-edu-cn.vpn.hit.edu.cn.evil.example/index",
+            "https://ids.hit.edu.cn/cjcx/query", "https://user@jwts.hit.edu.cn/index",
+        )) assertFalse(WebLoginSuccessPolicy.isBenbuAuthenticatedPage(url, cookies))
+    }
+
 }
