@@ -212,6 +212,9 @@ class WebViewLoginActivity : AppCompatActivity() {
     private var shenzhenDesktopUserAgentApplied = false
     private var shenzhenForceWebModeApplied = false
     private var shenzhenPreferredStudentType = ShenzhenWebAutoLogin.UNDERGRAD
+    private val isWeihaiGraduate: Boolean
+        get() = config.campus == EASToken.Campus.WEIHAI &&
+            shenzhenPreferredStudentType == ShenzhenWebAutoLogin.POSTGRAD
     private var shenzhenAutoAdvanceGeneration = 0
     private var shenzhenAutoAdvanceScheduledGeneration = -1
     private var shenzhenUnifiedLoginClicked = false
@@ -226,11 +229,11 @@ class WebViewLoginActivity : AppCompatActivity() {
                 intent?.getStringExtra(EXTRA_CAMPUS) ?: EASToken.Campus.BENBU.name
             )
         }.getOrDefault(EASToken.Campus.BENBU)
-        config = configFor(campus)
         silentMode = intent?.getBooleanExtra(EXTRA_SILENT_MODE, false) == true
         shenzhenPreferredStudentType = ShenzhenWebAutoLogin.normalizeStudentType(
             intent?.getStringExtra(EXTRA_STUDENT_TYPE)
         )
+        config = configFor(campus)
 
         setTheme(
             if (silentMode) {
@@ -306,9 +309,17 @@ class WebViewLoginActivity : AppCompatActivity() {
             )
             EASToken.Campus.WEIHAI -> CampusWebConfig(
                 campus = campus,
-                loginUrl = CampusUrls.WEIHAI_LOGIN,
-                jwtsUrl = CampusUrls.WEIHAI_JWTS,
-                cookieProbeUrls = CampusUrls.WEIHAI_PROBE_URLS
+                loginUrl = if (shenzhenPreferredStudentType == ShenzhenWebAutoLogin.POSTGRAD)
+                    cn.limpu.hita.data.source.web.eas.WeihaiGraduateSessionPolicy.BASE_URL + "/cas"
+                    else CampusUrls.WEIHAI_LOGIN,
+                jwtsUrl = if (shenzhenPreferredStudentType == ShenzhenWebAutoLogin.POSTGRAD)
+                    cn.limpu.hita.data.source.web.eas.WeihaiGraduateSessionPolicy.BASE_URL + "/cas"
+                    else CampusUrls.WEIHAI_JWTS,
+                cookieProbeUrls = if (shenzhenPreferredStudentType == ShenzhenWebAutoLogin.POSTGRAD)
+                    listOf(cn.limpu.hita.data.source.web.eas.WeihaiGraduateSessionPolicy.BASE_URL,
+                        cn.limpu.hita.data.source.web.eas.WeihaiGraduateSessionPolicy.BASE_URL + "/authentication/main",
+                        "https://webvpn.hitwh.edu.cn/")
+                    else CampusUrls.WEIHAI_PROBE_URLS
             )
             EASToken.Campus.SHENZHEN -> CampusWebConfig(
                 campus = campus,
@@ -1626,7 +1637,8 @@ class WebViewLoginActivity : AppCompatActivity() {
                 (normalizedPath == "/portal/home" || normalizedPath == "/portal")
             EASToken.Campus.WEIHAI -> WebLoginSuccessPolicy.shouldOpenWeihaiTeachingEntry(
                 url,
-                CampusUrls.WEIHAI_EAS_PREFIX
+                if (isWeihaiGraduate) cn.limpu.hita.data.source.web.eas.WeihaiGraduateSessionPolicy.BASE_URL
+                else CampusUrls.WEIHAI_EAS_PREFIX
             )
             EASToken.Campus.SHENZHEN -> ShenzhenWebAutoLogin.isProxyRoot(
                 url,
@@ -1920,7 +1932,9 @@ class WebViewLoginActivity : AppCompatActivity() {
                 WebLoginSuccessPolicy.isBenbuAuthenticatedPage(url, collectCookies())
             EASToken.Campus.WEIHAI -> {
                 val cookies = collectCookies()
-                val authenticated = WebLoginSuccessPolicy.isWeihaiAuthenticatedPage(url, cookies)
+                val authenticated = if (isWeihaiGraduate)
+                    cn.limpu.hita.data.source.web.eas.WeihaiGraduateSessionPolicy.isAuthenticatedLanding(url, cookies)
+                    else WebLoginSuccessPolicy.isWeihaiAuthenticatedPage(url, cookies)
                 LogUtils.d(
                     "isSuccessPage(weihai): path=$path authenticated=$authenticated " +
                         "hasVpnTicket=${hasWeihaiVpnTicket(cookies)} " +
@@ -2026,7 +2040,12 @@ class WebViewLoginActivity : AppCompatActivity() {
             LogUtils.d("checkCookies: retry=$cookieRetryCount keys=${cookies.keys.sorted()} host=${Uri.parse(currentUrl).host}")
         }
 
-        if (config.campus == EASToken.Campus.WEIHAI && hasVpnTicket && hasJsessionid) {
+        if (isWeihaiGraduate &&
+            cn.limpu.hita.data.source.web.eas.WeihaiGraduateSessionPolicy.isAuthenticatedLanding(currentUrl, cookies)) {
+            finishWithCookies(cookies)
+            return
+        }
+        if (config.campus == EASToken.Campus.WEIHAI && !isWeihaiGraduate && hasVpnTicket && hasJsessionid) {
             fetchVpnEasCookies { vpnCookies ->
                 val mergedCookies = LinkedHashMap(cookies)
                 vpnCookies.forEach { (key, value) -> mergedCookies.putIfAbsent(key, value) }
@@ -2096,6 +2115,10 @@ class WebViewLoginActivity : AppCompatActivity() {
 
     private fun handleSuccessPage() {
         if (finished) return
+        if (isWeihaiGraduate) {
+            finishWithCookies(collectCookies())
+            return
+        }
 
         credentialCaptureState.commitOnSuccess { credential ->
             runCatching {
@@ -2226,6 +2249,8 @@ class WebViewLoginActivity : AppCompatActivity() {
             EASToken.Campus.SHENZHEN ->
                 EASToken.hasShenzhenWebSessionCookies(cookies)
             EASToken.Campus.WEIHAI -> {
+                if (isWeihaiGraduate) return cn.limpu.hita.data.source.web.eas.WeihaiGraduateSessionPolicy
+                    .isAuthenticatedLanding(currentUrl, cookies)
                 // 威海校区：需要 VPN ticket + JSESSIONID
                 val hasVpnTicket = hasWeihaiVpnTicket(cookies)
                 val hasJsession = cookies.containsKey("JSESSIONID")
@@ -2375,6 +2400,7 @@ class WebViewLoginActivity : AppCompatActivity() {
     }
 
     private fun fingerprintSummary(cookies: Map<String, String>): String {
+        if (isWeihaiGraduate) return "[graduate session redacted]"
         return when (config.campus) {
             EASToken.Campus.BENBU -> {
                 BENBU_REQUIRED_COOKIES.sorted().joinToString(prefix = "[", postfix = "]") { key ->
@@ -2403,12 +2429,17 @@ class WebViewLoginActivity : AppCompatActivity() {
 
     private fun finishWithCookies(cookies: Map<String, String>, eelabToken: String? = null) {
         if (finished) return
+        if (isWeihaiGraduate &&
+            !cn.limpu.hita.data.source.web.eas.WeihaiGraduateSessionPolicy
+                .isAuthenticatedLanding(webView.url.orEmpty(), cookies)) return
         finished = true
         stopCookiePolling()
 
         val cookiesJson = JSONObject(cookies as Map<*, *>).toString()
         val intent = Intent().apply {
             putExtra("cookies", cookiesJson)
+            putExtra(EXTRA_STUDENT_TYPE, shenzhenPreferredStudentType)
+            if (isWeihaiGraduate) putExtra("web_base_url", webView.url.orEmpty())
             if (config.campus == EASToken.Campus.SHENZHEN) {
                 putExtra(
                     "web_base_url",

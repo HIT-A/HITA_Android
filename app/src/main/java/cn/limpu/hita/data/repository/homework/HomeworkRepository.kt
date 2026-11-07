@@ -36,8 +36,10 @@ class HomeworkRepository @Inject constructor(application: Application) {
     val state: LiveData<HomeworkState> = mutableState
 
     suspend fun reload(): Boolean = execute { store.load() }
-    suspend fun add(title: String, date: String? = null): Boolean = execute { store.add(title, plannedDate = date) }
-    suspend fun edit(id: String, title: String, date: String): Boolean = execute { store.edit(id, title, date) }
+    suspend fun add(title: String, date: String? = null, time: String? = null): Boolean =
+        execute { store.add(title, plannedDate = date, plannedTime = time) }
+    suspend fun edit(id: String, title: String, date: String, time: String? = null): Boolean =
+        execute { store.edit(id, title, date, time) }
     suspend fun delete(id: String): Boolean = execute { store.delete(id) }
     suspend fun setCompleted(id: String, completed: Boolean): Boolean =
         execute { store.setCompleted(id, completed) }

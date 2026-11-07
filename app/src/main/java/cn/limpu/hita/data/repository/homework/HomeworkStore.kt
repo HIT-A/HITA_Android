@@ -5,6 +5,7 @@ import com.google.gson.Gson
 import java.io.IOException
 import java.util.UUID
 import java.time.LocalDate
+import java.time.LocalTime
 
 /** The snapshot is replaced only after durable persistence succeeds. */
 internal class HomeworkStore(
@@ -28,6 +29,7 @@ internal class HomeworkStore(
                 require(!item.id.isNullOrBlank() && !item.title.isNullOrBlank()) { "Invalid homework item" }
                 require(item.title.length <= MAX_TITLE_LENGTH && item.createdAt >= 0L) { "Invalid homework content" }
                 validateDate(item.plannedDate)
+                validateTime(item.plannedDate, item.plannedTime)
                 item
             }.also { list ->
                 require(list.map { it.id }.distinct().size == list.size) { "Duplicate homework ids" }
@@ -38,14 +40,15 @@ internal class HomeworkStore(
     }
 
     @Synchronized
-    fun add(title: String, now: Long = System.currentTimeMillis(), plannedDate: String? = null): List<HomeworkItem> {
+    fun add(title: String, now: Long = System.currentTimeMillis(), plannedDate: String? = null, plannedTime: String? = null): List<HomeworkItem> {
         val normalized = title.trim()
         require(normalized.isNotEmpty() && normalized.length <= MAX_TITLE_LENGTH) { "Invalid homework title" }
         require(now >= 0L)
         validateDate(plannedDate)
+        validateTime(plannedDate, plannedTime)
         val current = load()
         require(current.size < MAX_ITEMS) { "Homework storage is full" }
-        return save(current + HomeworkItem(UUID.randomUUID().toString(), normalized, now, plannedDate = plannedDate))
+        return save(current + HomeworkItem(UUID.randomUUID().toString(), normalized, now, plannedDate = plannedDate, plannedTime = plannedTime))
     }
 
     @Synchronized
@@ -59,14 +62,15 @@ internal class HomeworkStore(
     fun clearCompleted(): List<HomeworkItem> = save(load().filterNot { it.completed })
 
     @Synchronized
-    fun edit(id: String, title: String, plannedDate: String?): List<HomeworkItem> {
+    fun edit(id: String, title: String, plannedDate: String?, plannedTime: String? = null): List<HomeworkItem> {
         val normalized = title.trim()
         require(normalized.isNotEmpty() && normalized.length <= MAX_TITLE_LENGTH)
         validateDate(plannedDate)
+        validateTime(plannedDate, plannedTime)
         val current = load()
         require(current.any { it.id == id }) { "Homework no longer exists" }
         return save(current.map {
-            if (it.id == id) it.copy(title = normalized, plannedDate = plannedDate) else it
+            if (it.id == id) it.copy(title = normalized, plannedDate = plannedDate, plannedTime = plannedTime) else it
         })
     }
 
@@ -81,6 +85,13 @@ internal class HomeworkStore(
         if (date == null) return
         val parsed = LocalDate.parse(date)
         require(parsed.year in 1..9999 && parsed.toString() == date) { "Invalid planned date" }
+    }
+
+    private fun validateTime(date: String?, time: String?) {
+        if (time == null) return
+        require(date != null) { "A deadline time requires a date" }
+        val parsed = LocalTime.parse(time)
+        require(parsed.toString() == time && time.length == 5) { "Invalid deadline time" }
     }
     private fun save(items: List<HomeworkItem>): List<HomeworkItem> {
         if (!write(gson.toJson(items))) throw IOException("Homework persistence failed")

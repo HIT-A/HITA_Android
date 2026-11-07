@@ -153,6 +153,8 @@ class EASRepository @Inject internal constructor(
     private val weihaiService: EASService = serviceFactories.weihai { token ->
         saveRefreshedEasToken(token)
     }
+    private val weihaiGraduateService: EASService =
+        cn.limpu.hita.data.source.web.eas.WeihaiGraduateEASWebSource()
     private val easTokenLiveData = MutableLiveData(easPreferenceSource.getEasToken())
     private val scoreListType = object : TypeToken<List<CourseScoreItem>>() {}.type
     private val courseSelectionExecutionTokens =
@@ -213,11 +215,11 @@ class EASRepository @Inject internal constructor(
      * UI 和导入流程只依赖 EASService 的统一模型；具体校区的登录方式、
      * HTML/JSON 字段、WebVPN 地址都应留在对应 WebSource 内部。
      */
-    private fun getService(campus: EASToken.Campus): EASService {
+    private fun getService(campus: EASToken.Campus, studentType: EASToken.TYPE): EASService {
         return when (campus) {
             EASToken.Campus.SHENZHEN -> shenzhenService
             EASToken.Campus.BENBU -> benbuService
-            EASToken.Campus.WEIHAI -> weihaiService
+            EASToken.Campus.WEIHAI -> if (studentType == EASToken.TYPE.GRAD) weihaiGraduateService else weihaiService
         }
     }
 
@@ -254,11 +256,12 @@ class EASRepository @Inject internal constructor(
     fun login(
         username: String,
         password: String,
-        campus: EASToken.Campus
+        campus: EASToken.Campus,
+        studentType: EASToken.TYPE = EASToken.TYPE.UNDERGRAD,
     ): LiveData<DataState<Boolean>> {
         val expectedEpoch = authEpoch.get()
         val result = MediatorLiveData<DataState<Boolean>>()
-        val loginSource = getService(campus).login(username, password, null)
+        val loginSource = getService(campus, studentType).login(username, password, null)
         result.addSource(loginSource) { state ->
             if (state.state == DataState.STATE.NOTHING) {
                 return@addSource
@@ -281,18 +284,24 @@ class EASRepository @Inject internal constructor(
             } else {
                 null
             }
-            if ((campus == EASToken.Campus.BENBU || campus == EASToken.Campus.WEIHAI) &&
+            if ((campus == EASToken.Campus.BENBU || campus == EASToken.Campus.WEIHAI && studentType != EASToken.TYPE.GRAD) &&
                 password.isNotBlank()
             ) {
                 token.electronicExpToken = password
             }
-            enrichLoginToken(
-                result,
-                token,
-                campus,
-                expectedEpoch = expectedEpoch,
-                credentialsToSave = credentialToSave
-            )
+            if (campus == EASToken.Campus.WEIHAI && token.stutype == EASToken.TYPE.GRAD) {
+                // Graduate login already proved identity; do not repeat it as optional enrichment.
+                val saved = saveEasToken(token, expectedEpoch)
+                result.value = DataState(saved, if (saved) DataState.STATE.SUCCESS else DataState.STATE.NOT_LOGGED_IN)
+            } else {
+                enrichLoginToken(
+                    result,
+                    token,
+                    campus,
+                    expectedEpoch = expectedEpoch,
+                    credentialsToSave = credentialToSave
+                )
+            }
             result.removeSource(loginSource)
         }
         return result
@@ -310,7 +319,7 @@ class EASRepository @Inject internal constructor(
             result.value = DataState(false, DataState.STATE.NOT_LOGGED_IN)
             return
         }
-        val enrichSource = getService(campus).getSafePersonalInfo(token)
+        val enrichSource = getService(campus, token.stutype).getSafePersonalInfo(token)
         result.addSource(enrichSource) enrichObserver@{ enrichedState ->
             if (enrichedState.state == DataState.STATE.NOTHING) {
                 return@enrichObserver
@@ -373,7 +382,7 @@ class EASRepository @Inject internal constructor(
         }
 
         val result = MediatorLiveData<DataState<Boolean>>()
-        val checkSource = getService(token.campus).loginCheck(token)
+        val checkSource = getService(token.campus, token.stutype).loginCheck(token)
         result.addSource(checkSource) { state ->
             if (state.state == DataState.STATE.NOTHING) {
                 return@addSource
@@ -393,10 +402,15 @@ class EASRepository @Inject internal constructor(
                 }
                 return@addSource
             }
+            if (token.campus == EASToken.Campus.WEIHAI && token.stutype == EASToken.TYPE.GRAD) {
+                result.value = DataState(saveEasToken(checkedToken, expectedEpoch), DataState.STATE.SUCCESS)
+                result.removeSource(checkSource)
+                return@addSource
+            }
 
             LogUtils.d("loginCheck: token valid, fetching user info")
             // 验证成功后，获取用户信息（包括姓名）
-            val enrichSource = getService(token.campus).getSafePersonalInfo(checkedToken)
+            val enrichSource = getService(token.campus, token.stutype).getSafePersonalInfo(checkedToken)
             result.addSource(enrichSource) { enrichedState ->
                 if (enrichedState.state == DataState.STATE.NOTHING) {
                     return@addSource
@@ -448,7 +462,7 @@ class EASRepository @Inject internal constructor(
 
     internal fun captureQuerySession(): EasQuerySession = synchronized(tokenStateLock) {
         val token = easPreferenceSource.getEasToken()
-        EasQuerySession(EasQueryScope.from(token), token, getService(token.campus), querySessionState::current,
+        EasQuerySession(EasQueryScope.from(token), token, getService(token.campus, token.stutype), querySessionState::current,
             scopes = querySessionState.changes)
     }
 
@@ -510,7 +524,7 @@ class EASRepository @Inject internal constructor(
             }
 
             Handler(Looper.getMainLooper()).post {
-                val remote = getService(easToken.campus).getAllTerms(easToken)
+                val remote = getService(easToken.campus, easToken.stutype).getAllTerms(easToken)
                 result.addSource(remote) { state ->
                     if (state.state == DataState.STATE.SUCCESS && state.data != null) {
                         val terms = state.data.orEmpty()
@@ -529,7 +543,7 @@ class EASRepository @Inject internal constructor(
 
     private fun getOnlineTerms(easToken: EASToken): LiveData<DataState<List<TermItem>>> {
         if (easToken.isLogin()) {
-            return getService(easToken.campus).getAllTerms(easToken)
+            return getService(easToken.campus, easToken.stutype).getAllTerms(easToken)
         }
         LogUtils.w("getAllTerms: not logged in")
         return LiveDataUtils.getMutableLiveData(DataState(DataState.STATE.NOT_LOGGED_IN))
@@ -558,7 +572,7 @@ class EASRepository @Inject internal constructor(
         val easToken = easPreferenceSource.getEasToken()
         LogUtils.d("getTeachingBuildings: isLogin=${easToken.isLogin()}")
         if (easToken.isLogin()) {
-            return getService(easToken.campus).getTeachingBuildings(easToken)
+            return getService(easToken.campus, easToken.stutype).getTeachingBuildings(easToken)
         }
         LogUtils.w("getTeachingBuildings: not logged in")
         return LiveDataUtils.getMutableLiveData(DataState(DataState.STATE.NOT_LOGGED_IN))
@@ -611,7 +625,7 @@ class EASRepository @Inject internal constructor(
             readCache = cache::readRows,
             saveCache = cache::save,
             queryRemote = { token, queryTerm, building, weeks ->
-                getService(token.campus).queryEmptyClassroom(token, queryTerm, building, weeks)
+                getService(token.campus, token.stutype).queryEmptyClassroom(token, queryTerm, building, weeks)
             },
         ).query(easToken, term, buildingItem, week, useCache)
     }
@@ -882,7 +896,7 @@ class EASRepository @Inject internal constructor(
         if (!easToken.isLogin()) {
             return LiveDataUtils.getMutableLiveData(DataState(DataState.STATE.NOT_LOGGED_IN))
         }
-        val service = getService(easToken.campus)
+        val service = getService(easToken.campus, easToken.stutype)
         val summaryService = service as? EASScoreSummaryService
         return summaryService?.getPersonalScoresWithSummary(term, easToken, testType)
             ?: service.getPersonalScores(term, easToken, testType).map { state ->
@@ -983,7 +997,7 @@ class EASRepository @Inject internal constructor(
         val easToken = easPreferenceSource.getEasToken()
         LogUtils.d("getExamInfo: term=${term?.name}, isLogin=${easToken.isLogin()}, campus=${easToken.campus}")
         if (easToken.isLogin()) {
-            return getService(easToken.campus).getExamItems(easToken, term)
+            return getService(easToken.campus, easToken.stutype).getExamItems(easToken, term)
         }
         LogUtils.w("getExamInfo: not logged in")
         return LiveDataUtils.getMutableLiveData(DataState(DataState.STATE.NOT_LOGGED_IN))
