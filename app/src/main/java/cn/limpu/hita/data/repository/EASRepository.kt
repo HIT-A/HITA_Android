@@ -154,7 +154,12 @@ class EASRepository @Inject internal constructor(
         saveRefreshedEasToken(token)
     }
     private val weihaiGraduateService: EASService =
-        cn.limpu.hita.data.source.web.eas.WeihaiGraduateEASWebSource()
+        cn.limpu.hita.data.source.web.eas.WeihaiGraduateEASWebSource { token ->
+            cn.limpu.hita.data.source.web.eas.graduate.GraduateJsoupTransport(
+                token,
+                onCookiesUpdated = ::saveRefreshedEasToken,
+            )
+        }
     private val easTokenLiveData = MutableLiveData(easPreferenceSource.getEasToken())
     private val scoreListType = object : TypeToken<List<CourseScoreItem>>() {}.type
     private val courseSelectionExecutionTokens =
@@ -174,6 +179,10 @@ class EASRepository @Inject internal constructor(
         nextCredentialScopeGeneration = ::nextCredentialScopeGeneration,
         scoreCacheOwnerKey = ::scoreCacheOwnerKey,
     )
+    /**
+     * 威海研究生只读课程目录；仅当实际会话是 WEIHAI + GRAD 且数据源实现该服务时可用。
+     * 不缓存会话：每次调用都要求调用方传入它捕获的会话，避免账号切换后串用数据。
+     */
     private val timetableImportRepository = EASTimetableImportRepository(
         easPreferenceSource = easPreferenceSource,
         eventItemDao = eventItemDao,

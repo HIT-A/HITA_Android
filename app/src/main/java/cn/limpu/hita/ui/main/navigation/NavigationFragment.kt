@@ -497,8 +497,13 @@ private fun NavigationScreen(
             )
             NavigationRow(
                 icon = R.drawable.ic_baseline_search_24,
-                title = "深圳课程浏览",
-                subtitle = "教务选课池 · 全校课表（需 Web 登录）",
+                title = if (easToken.campus == EASToken.Campus.WEIHAI &&
+                    easToken.stutype == EASToken.TYPE.GRAD
+                ) stringResource(R.string.graduate_catalog_entry_title) else "深圳课程浏览",
+                subtitle = if (easToken.campus == EASToken.Campus.WEIHAI &&
+                    easToken.stutype == EASToken.TYPE.GRAD
+                ) stringResource(R.string.graduate_catalog_entry_subtitle)
+                else "教务选课池 · 全校课表（需 Web 登录）",
                 onClick = onCourseCatalog
             )
         }

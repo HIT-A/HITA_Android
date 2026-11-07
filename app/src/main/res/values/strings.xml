@@ -1831,5 +1831,13 @@
     <string name="grader_response_error">无法识别 Grader 返回的数据，未覆盖已保存的任务。</string>
     <string name="eas_student_type_undergraduate">本科生</string>
     <string name="eas_student_type_graduate">研究生</string>
+    <string name="graduate_catalog_source_candidates">可选任务</string>
+    <string name="graduate_catalog_candidates_hint">研究生选课任务 · 只读浏览，可加入本地选课预览</string>
+    <string name="graduate_catalog_school_hint">研究生全校课表 · 只读浏览，可按校区筛选</string>
+    <string name="graduate_catalog_all_categories">全部类别</string>
+    <string name="graduate_catalog_read_only_hint">远端选课提交、培养方案与成绩明细尚未接入研究生；本页仅提供只读浏览、本地选课预览与跟课。</string>
+    <string name="graduate_catalog_remote_submission_unsupported">研究生暂不支持远端选课提交；此处仅提供只读课表与本地选课预览</string>
+    <string name="graduate_catalog_entry_title">研究生课程浏览</string>
+    <string name="graduate_catalog_entry_subtitle">研究生全校课表 · 选课预览（只读）</string>
     <string name="benbu_mfa_trust_device_hint">若选择“记住／信任设备”后反复返回认证页，请在 HITAPP 中选择“仅本次登录”后继续。</string>
 </resources>

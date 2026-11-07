@@ -7,7 +7,6 @@ import com.google.gson.JsonParser
 internal object WeihaiGraduateSessionPolicy {
     const val BASE_URL = "https://webvpn.hitwh.edu.cn/https/77726476706e69737468656265737421e9fd529b2b7e60596a1f81e29d51367b6311"
     const val TICKET_COOKIE = "wengine_vpn_ticketwebvpn_hitwh_edu_cn"
-    const val UNSUPPORTED = "暂不支持威海研究生教务查询"
     private val base = URI(BASE_URL)
     private val landingPaths = setOf(base.path + "/authentication/main", base.path + "/student_index")
 

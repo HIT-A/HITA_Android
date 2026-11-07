@@ -65,6 +65,21 @@ internal class EASTimetableImportRepository(
     private val examImportRepository: ExamImportRepository,
     private val autoGroupImportedTimetable: (String) -> Unit,
 ) {
+    private companion object {
+        /** 研究生课表链路一次导入要串行访问学期、校历、总课表、已选与作息多个页面。 */
+        private const val GRADUATE_REMOTE_TIMEOUT_MILLIS = 45_000L
+        private const val GRADUATE_META_TIMEOUT_MILLIS = 30_000L
+        private const val GRADUATE_IMPORT_BUDGET_MILLIS = 75_000L
+        private const val DEFAULT_REMOTE_TIMEOUT_MILLIS = 6_000L
+        private const val DEFAULT_EXAM_TIMEOUT_MILLIS = 8_000L
+        private const val DEFAULT_IMPORT_BUDGET_MILLIS = 25_000L
+        private const val SHENZHEN_META_TIMEOUT_MILLIS = 8_000L
+    }
+
+    /** 威海研究生的课表/作息/学期全部走独立 yjsgl 会话，作息以教务 `kbjclist` 为准。 */
+    private fun isWeihaiGraduate(session: EasQuerySession): Boolean =
+        session.campus == EASToken.Campus.WEIHAI && session.studentType == EASToken.TYPE.GRAD
+
     /** Remote work is cancellable; after the Room transaction owns commit, it finishes atomically. */
     suspend fun importTimetableOfTerm(
         session: EasQuerySession,
@@ -93,25 +108,45 @@ internal class EASTimetableImportRepository(
         val operation = importOperation ?: synchronized(tokenStateLock) {
             EasTimetableImportGuard(session.token, authEpoch.get(), deadline)
         }
+        val graduate = isWeihaiGraduate(session)
         return try {
             session.whileCurrent {
                 withContext(Dispatchers.IO) {
                     val prepared = withTimeoutOrNull(timeoutMillis) {
-                        val response = session.service.getTimetableOfTermOnce(term, session.token)
+                        // 研究生课表需要串行访问已选与校历，单次取数明显慢于老教务；
+                        // 其余校区的超时语义仍由外层 timeoutMillis 独占。
+                        val timetableState = if (graduate) {
+                            withTimeoutOrNull(GRADUATE_REMOTE_TIMEOUT_MILLIS) {
+                                session.service.getTimetableOfTermOnce(term, session.token)
+                            } ?: return@withTimeoutOrNull PreparedResult.Failed(
+                                DataState(DataState.STATE.FETCH_FAILED, "获取课表超时，请重试")
+                            )
+                        } else {
+                            session.service.getTimetableOfTermOnce(term, session.token)
+                        }
                         currentCoroutineContext().ensureActive()
                         session.ensureCurrent()
-                        if (response.state != DataState.STATE.SUCCESS) {
-                            return@withTimeoutOrNull PreparedResult.Failed(DataState(response.state, response.message))
+                        if (timetableState.state != DataState.STATE.SUCCESS) {
+                            return@withTimeoutOrNull PreparedResult.Failed(
+                                DataState(timetableState.state, timetableState.message)
+                            )
                         }
-                        val courses = response.data
+                        val courses = timetableState.data
                         if (courses.isNullOrEmpty()) {
                             return@withTimeoutOrNull PreparedResult.Failed(DataState(DataState.STATE.FETCH_FAILED, "empty timetable"))
                         }
                         check(operation.tryStartProcessing()) { "Import operation already completed" }
-                        val meta = if (session.campus == EASToken.Campus.SHENZHEN) {
-                            withTimeoutOrNull(8_000L) { fetchSelectedSubjectMeta(term, session) }
-                                ?: SelectedSubjectMeta()
-                        } else SelectedSubjectMeta()
+                        // 研究生已选课程响应同时提供 `kbjclist` 作息与学分/性质/类别元数据，
+                        // 失败只降级为无元数据，不阻断课表导入。
+                        val meta = when {
+                            graduate -> withTimeoutOrNull(GRADUATE_META_TIMEOUT_MILLIS) {
+                                fetchSelectedSubjectMeta(term, session)
+                            } ?: SelectedSubjectMeta()
+                            session.campus == EASToken.Campus.SHENZHEN -> withTimeoutOrNull(
+                                SHENZHEN_META_TIMEOUT_MILLIS
+                            ) { fetchSelectedSubjectMeta(term, session) } ?: SelectedSubjectMeta()
+                            else -> SelectedSubjectMeta()
+                        }
                         currentCoroutineContext().ensureActive()
                         session.ensureCurrent()
                         PreparedResult.Ready(courses, meta)
@@ -214,7 +249,7 @@ internal class EASTimetableImportRepository(
         courseItems: List<CourseItem>,
         meta: SelectedSubjectMeta,
     ): PreparedImport {
-        val timetableCode = EASTimetableCode.of(easToken.campus, term)
+        val timetableCode = EASTimetableCode.of(easToken.campus, term, easToken.stutype)
         val legacyTimetableCode = term.getCode()
         val teacherMap = meta.teacherMap
         val creditMap = meta.creditMap
@@ -227,7 +262,7 @@ internal class EASTimetableImportRepository(
         )
         //更新timetable信息
         var timetable = timetableDao.getTimetableByEASCodeCandidatesSync(
-            EASTimetableCode.candidates(term, easToken.campus),
+            EASTimetableCode.candidates(term, easToken.campus, easToken.stutype),
             timetableCode,
             legacyTimetableCode
         )
@@ -783,8 +818,13 @@ internal class EASTimetableImportRepository(
     ): Job? {
         val session = captureSession()
         val token = session.token
+        val graduate = isWeihaiGraduate(session)
+        val remoteTimeout = if (graduate) GRADUATE_REMOTE_TIMEOUT_MILLIS else DEFAULT_REMOTE_TIMEOUT_MILLIS
+        val importBudget = if (graduate) GRADUATE_IMPORT_BUDGET_MILLIS else DEFAULT_IMPORT_BUDGET_MILLIS
         val expectedEpoch = synchronized(tokenStateLock) { authEpoch.get() }
-        val operation = EasTimetableImportGuard(token, expectedEpoch, SystemClock.elapsedRealtime() + 90_000L)
+        // 研究生链路串行访问多个教务页，总体墙钟上限必须覆盖各阶段超时之和。
+        val guardWindow = if (graduate) 300_000L else 90_000L
+        val operation = EasTimetableImportGuard(token, expectedEpoch, SystemClock.elapsedRealtime() + guardWindow)
         if (!session.loggedIn) {
             onResult?.invoke(AutoImportResult.NOT_LOGGED_IN)
             return null
@@ -797,7 +837,7 @@ internal class EASTimetableImportRepository(
         val job = applicationScope.launch {
             try {
                 session.whileCurrent {
-                    val termsState = withTimeoutOrNull(6_000L) { queryTerms(session) }
+                    val termsState = withTimeoutOrNull(remoteTimeout) { queryTerms(session) }
                         ?: return@whileCurrent
                     if (termsState.state == DataState.STATE.NOT_LOGGED_IN) {
                         result = AutoImportResult.NOT_LOGGED_IN
@@ -805,7 +845,7 @@ internal class EASTimetableImportRepository(
                     }
                     val term = (termsState.data?.firstOrNull { it.isCurrent }
                         ?: termsState.data?.firstOrNull())?.copyForQuery() ?: return@whileCurrent
-                    val startState = withTimeoutOrNull(6_000L) {
+                    val startState = withTimeoutOrNull(remoteTimeout) {
                         session.service.getStartDateOnce(token, term)
                     } ?: DataState(DataState.STATE.FETCH_FAILED)
                     session.ensureCurrent()
@@ -818,7 +858,7 @@ internal class EASTimetableImportRepository(
                         cn.limpu.hita.data.source.preference.BenbuStartDatePreferenceSource(appContext)
                             .getStartDateMillis(term.getCode())?.let { startDate.timeInMillis = it }
                     }
-                    val scheduleState = withTimeoutOrNull(6_000L) {
+                    val scheduleState = withTimeoutOrNull(remoteTimeout) {
                         session.service.getScheduleStructureOnce(term, isUndergraduate, token)
                     } ?: DataState(DataState.STATE.FETCH_FAILED)
                     session.ensureCurrent()
@@ -826,16 +866,22 @@ internal class EASTimetableImportRepository(
                         result = AutoImportResult.NOT_LOGGED_IN
                         return@whileCurrent
                     }
-                    val schedule = if (timetablePreferenceSource.hasSavedSchedule()) {
+                    val schedule = if (graduate) {
+                        // 研究生作息必须来自教务 `kbjclist`：本科/研究生 SP 兜底表会把课次写成错误钟点。
+                        scheduleState.data.orEmpty().takeIf { it.isNotEmpty() } ?: return@whileCurrent
+                    } else if (timetablePreferenceSource.hasSavedSchedule()) {
                         timetablePreferenceSource.getSchedule(isUndergraduate)
                     } else scheduleState.data ?: timetablePreferenceSource.getSchedule(isUndergraduate)
-                    val importState = importTimetableOfTerm(session, term, startDate, schedule, TimetableImportMode.MERGE, operation, 25_000L)
+                    val importState = importTimetableOfTerm(
+                        session, term, startDate, schedule, TimetableImportMode.MERGE, operation, importBudget
+                    )
                     session.ensureCurrent()
                     if (importState.state == DataState.STATE.NOT_LOGGED_IN) {
                         result = AutoImportResult.NOT_LOGGED_IN
                         return@whileCurrent
                     }
-                    val examState = withTimeoutOrNull(8_000L) { session.service.getExamItemsOnce(token, term) }
+                    val examTimeout = if (graduate) remoteTimeout else DEFAULT_EXAM_TIMEOUT_MILLIS
+                    val examState = withTimeoutOrNull(examTimeout) { session.service.getExamItemsOnce(token, term) }
                         ?: DataState(DataState.STATE.FETCH_FAILED)
                     session.ensureCurrent()
                     if (examState.state == DataState.STATE.NOT_LOGGED_IN) {
@@ -843,7 +889,7 @@ internal class EASTimetableImportRepository(
                         return@whileCurrent
                     }
                     val coroutine = currentCoroutineContext()
-                    val timetableCode = EASTimetableCode.of(session.campus, term)
+                    val timetableCode = EASTimetableCode.of(session.campus, term, session.token.stutype)
                     val importedExamCount = synchronized(tokenStateLock) {
                         timetableMutationLock.exclusive {
                             coroutine.ensureActive()
@@ -857,7 +903,7 @@ internal class EASTimetableImportRepository(
                                     return@runInTransaction 0
                                 }
                                 val timetable = timetableDao.getTimetableByEASCodeCandidatesSync(
-                                    EASTimetableCode.candidates(term, session.campus), timetableCode, term.getCode()
+                                    EASTimetableCode.candidates(term, session.campus, session.token.stutype), timetableCode, term.getCode()
                                 ) ?: return@runInTransaction 0
                                 examImportRepository.importAutomatically(examState.data.orEmpty(), timetable).importedCount
                             }

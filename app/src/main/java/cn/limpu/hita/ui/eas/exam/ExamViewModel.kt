@@ -107,9 +107,15 @@ class ExamViewModel internal constructor(
     fun startRefresh() = refresh(refreshTerms = true)
 
     fun filterTermOptions(terms: List<TermItem>): List<TermItem> =
-        cn.limpu.hita.utils.TermUtils.filterTermsForStudent(
-            terms, termSession.grade, termSession.calendarYear, termSession.calendarMonth,
-        )
+        if (termSession.campus == EASToken.Campus.WEIHAI &&
+            termSession.studentType == EASToken.TYPE.GRAD
+        ) {
+            cn.limpu.hita.utils.TermUtils.filterTermsForGraduate(terms)
+        } else {
+            cn.limpu.hita.utils.TermUtils.filterTermsForStudent(
+                terms, termSession.grade, termSession.calendarYear, termSession.calendarMonth,
+            )
+        }
 
     private fun refresh(refreshTerms: Boolean) {
         LogUtils.d("=== 🔄 startRefresh called ===", "ExamViewModel")

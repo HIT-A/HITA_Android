@@ -351,12 +351,12 @@ class TimetableRepository @Inject internal constructor(
                 1
             }
         }
-        val campus = easPreferenceSource.getEasToken().campus
-        val preferredCode = EASTimetableCode.of(campus, termItem)
+        val token = easPreferenceSource.getEasToken()
+        val preferredCode = EASTimetableCode.of(token.campus, termItem, token.stutype)
         val legacyCode = termItem.getCode()
         return MTransformations.map(
             timetableDao.getTimetableByEASCodeCandidates(
-                EASTimetableCode.candidates(termItem, campus),
+                EASTimetableCode.candidates(termItem, token.campus, token.stutype),
                 preferredCode,
                 legacyCode
             )
@@ -373,11 +373,11 @@ class TimetableRepository @Inject internal constructor(
     @WorkerThread
     fun getCurrentWeekOfTimetableOnce(termItem: TermItem?): Int {
         if (termItem == null) return 1
-        val campus = easPreferenceSource.getEasToken().campus
-        val preferredCode = EASTimetableCode.of(campus, termItem)
+        val token = easPreferenceSource.getEasToken()
+        val preferredCode = EASTimetableCode.of(token.campus, termItem, token.stutype)
         val legacyCode = termItem.getCode()
         return timetableDao.getTimetableByEASCodeCandidatesSync(
-            EASTimetableCode.candidates(termItem, campus),
+            EASTimetableCode.candidates(termItem, token.campus, token.stutype),
             preferredCode,
             legacyCode,
         )?.getWeekNumber(System.currentTimeMillis()) ?: 1
@@ -606,7 +606,11 @@ class TimetableRepository @Inject internal constructor(
         executor.execute {
             runCatching {
                 val token = easPreferenceSource.getEasToken()
-                check(token.campus == EASToken.Campus.SHENZHEN) { "仅深圳校区支持关注全校教学班" }
+                val graduateCatalogFollow = token.campus == EASToken.Campus.WEIHAI &&
+                    token.stutype == EASToken.TYPE.GRAD
+                check(token.campus == EASToken.Campus.SHENZHEN || graduateCatalogFollow) {
+                    "仅深圳校区或威海研究生支持关注全校教学班"
+                }
                 val ownerKey = FollowedTeachingSectionStore.ownerKey(token)
                 val stableId = course.taskId.ifBlank { course.id }
                 if (followed) {

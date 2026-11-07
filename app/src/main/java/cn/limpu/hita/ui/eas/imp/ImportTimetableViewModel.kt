@@ -125,10 +125,12 @@ class ImportTimetableViewModel @Inject constructor(
                 return@addSource
             }
             val isUndergraduate = isUndergraduateStudent()
+            // 研究生作息来自教务响应 `kbjclist`，本科 SP 偏好不得覆盖。
+            val graduateCampus = termSession.campus == EASToken.Campus.WEIHAI && !isUndergraduate
             // 用户已编辑过课表结构（SP 有值）时以用户偏好为准，否则用教务接口/默认值。
             if (!termSession.loggedIn) {
                 scheduleStructureLiveData.value = DataState(DataState.STATE.NOT_LOGGED_IN)
-            } else if (timetablePreferenceSource.hasSavedSchedule()) {
+            } else if (!graduateCampus && timetablePreferenceSource.hasSavedSchedule()) {
                 scheduleStructureLiveData.value = DataState(
                     timetablePreferenceSource.getSchedule(isUndergraduate), DataState.STATE.SUCCESS
                 )
@@ -199,8 +201,15 @@ class ImportTimetableViewModel @Inject constructor(
         restoreJob = null
     }
 
-    fun filterTermOptions(terms: List<TermItem>): List<TermItem> =
-        cn.limpu.hita.utils.TermUtils.filterTermsForTimetableImport(terms, termSession.grade)
+    fun filterTermOptions(terms: List<TermItem>): List<TermItem> {
+        // 研究生没有本科年级字段，不能套用“最近 4 年”截断；直接采用教务学期列表。
+        if (termSession.campus == EASToken.Campus.WEIHAI &&
+            termSession.studentType == EASToken.TYPE.GRAD
+        ) {
+            return cn.limpu.hita.utils.TermUtils.filterTermsForGraduate(terms)
+        }
+        return cn.limpu.hita.utils.TermUtils.filterTermsForTimetableImport(terms, termSession.grade)
+    }
 
     fun startGetAllTerms(): List<TermItem> {
         return termsLiveData.value?.data ?: listOf()
