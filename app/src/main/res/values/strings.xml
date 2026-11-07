@@ -1357,6 +1357,11 @@
     <string name="notice_local_group_body">用户群号：1093659013\n\n新版本与测试版会首先在用户群发布，欢迎加入，反馈问题与建议。</string>
     <string name="notice_optional_tabs_title">待办已默认显示</string>
     <string name="notice_optional_tabs_body">知道大家不看更新说明，特此发公告说明：待办已默认在底栏显示；资讯和助手仍默认收起，可在更多-设置-更多功能中分别开启。不需要待办的也可以在同一个地方关掉。</string>
+    <string name="more_features_title">更多功能</string>
+    <string name="more_features_group_tabs">底部导航</string>
+    <string name="more_features_homework_hint">关闭后隐藏待办页</string>
+    <string name="more_features_info_hint">开启后，登录教务才显示资讯页</string>
+    <string name="more_features_agent_hint">开启后显示助手页</string>
     <string name="notice_copy_group">复制群号：%1$s</string>
     <string name="notice_group_copied">已复制群号</string>
     <string name="notices_title">公告</string>
@@ -1823,10 +1828,8 @@
     <string name="grader_relogin">重新登录 Grader</string>
     <string name="grader_empty">暂无未过截止时间的实验或作业。</string>
     <string name="grader_pending_count">Grader 待完成（%1$d）</string>
-    <string name="grader_completed_count">Grader 已完成（%1$d 项，可撤销）</string>
-    <string name="grader_hide_completed">收起 Grader 已完成（%1$d）</string>
     <string name="grader_deadline">截止：%1$s（北京时间）</string>
-    <string name="grader_local_completion_hint">勾选仅标记本地完成，不会向 Grader 提交作业。</string>
+    <string name="grader_local_completion_hint">已在 Grader 提交过的作业会自动隐藏；勾选只记录本地完成，不会向 Grader 提交作业。</string>
     <string name="grader_authentication_error">Grader 会话已过期，请重新登录；本地完成状态仍保留。</string>
     <string name="grader_network_error">暂时无法读取 Grader，请稍后重试；已保存的任务和完成状态仍保留。</string>
     <string name="grader_storage_error">Grader 数据读取或保存失败，请重试。</string>

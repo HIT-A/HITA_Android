@@ -7,7 +7,12 @@ import java.util.concurrent.TimeUnit
 
 internal class GraderAuthenticationException : Exception("Grader authentication required")
 internal class GraderNetworkException : Exception("Grader request failed")
-internal data class GraderRemoteSnapshot(val account: GraderAccount, val assignments: List<GraderAssignment>)
+internal data class GraderRemoteSnapshot(
+    val account: GraderAccount,
+    val assignments: List<GraderAssignment>,
+    /** 远端已提交的作业 id：提交过即视为已完成。 */
+    val submittedAssignmentIds: Set<String>,
+)
 
 /** Dedicated client: no shared cookie jar, interceptors, redirects or arbitrary request URLs. */
 internal class GraderWebSource {
@@ -33,7 +38,10 @@ internal class GraderWebSource {
             assignments += GraderParser.assignments(get("/api/assignments/?course=${course.id}", cookie), course)
         }
         checkActive()
-        return GraderRemoteSnapshot(account, GraderParser.unique(assignments))
+        // 提交记录是判断“已完成”的唯一来源：assignment 的 submit_count 恒为 null。
+        val submitted = GraderParser.submittedAssignmentIds(get("/api/submissions/", cookie))
+        checkActive()
+        return GraderRemoteSnapshot(account, GraderParser.unique(assignments), submitted)
     }
 
     private fun get(path: String, cookie: String): String {

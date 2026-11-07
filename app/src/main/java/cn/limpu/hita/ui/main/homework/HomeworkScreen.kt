@@ -56,9 +56,6 @@ internal fun HomeworkScreen(viewModel: HomeworkViewModel) {
     val graderTasks = remember(grader.tasks, now) {
         grader.tasks.filter { it.dueAt >= now }.sortedBy { it.dueAt }
     }
-    val graderPending = graderTasks.filterNot { it.completed }
-    val graderCompleted = graderTasks.filter { it.completed }
-    var showGraderCompleted by rememberSaveable(grader.accountId) { mutableStateOf(false) }
     var dateOverride by rememberSaveable { mutableStateOf<String?>(null) }
     var undated by rememberSaveable { mutableStateOf(false) }
     var showCompleted by rememberSaveable { mutableStateOf(false) }
@@ -359,28 +356,13 @@ internal fun HomeworkScreen(viewModel: HomeworkViewModel) {
                         empty = graderTasks.isEmpty(),
                     )
                 }
-                if (graderPending.isNotEmpty()) {
+                if (graderTasks.isNotEmpty()) {
                     item(key = "grader-pending-heading") {
-                        Text(stringResource(R.string.grader_pending_count, graderPending.size),
+                        Text(stringResource(R.string.grader_pending_count, graderTasks.size),
                             style = MaterialTheme.typography.titleSmall)
                     }
-                    items(graderPending, key = { "grader-${it.id}" }) { task ->
+                    items(graderTasks, key = { "grader-${it.id}" }) { task ->
                         GraderTaskRow(task, grader.syncing) { viewModel.completeGrader(task.id, it) }
-                    }
-                }
-                if (graderCompleted.isNotEmpty()) {
-                    item(key = "grader-completed-heading") {
-                        TextButton(onClick = { showGraderCompleted = !showGraderCompleted }) {
-                            Text(stringResource(
-                                if (showGraderCompleted) R.string.grader_hide_completed else R.string.grader_completed_count,
-                                graderCompleted.size,
-                            ))
-                        }
-                    }
-                    if (showGraderCompleted) {
-                        items(graderCompleted, key = { "grader-${it.id}" }) { task ->
-                            GraderTaskRow(task, grader.syncing) { viewModel.completeGrader(task.id, it) }
-                        }
                     }
                 }
             }

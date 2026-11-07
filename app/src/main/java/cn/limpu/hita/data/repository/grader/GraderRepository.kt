@@ -146,7 +146,12 @@ class GraderRepository internal constructor(
                 context.ensureActive()
                 mutex.withLock {
                     if (generation != operation.generation) return@withLock false
-                    val snapshot = store.replace(remote.account, operation.cookie, remote.assignments)
+                    val snapshot = store.replace(
+                        remote.account,
+                        operation.cookie,
+                        remote.assignments,
+                        remote.submittedAssignmentIds,
+                    )
                     publish(snapshot.toState())
                     true
                 }

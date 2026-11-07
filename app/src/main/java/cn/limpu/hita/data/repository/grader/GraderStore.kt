@@ -16,11 +16,16 @@ internal data class GraderSnapshot(
     val cookie: String? = null,
     val assignmentsByAccount: Map<String, List<GraderAssignment>> = emptyMap(),
     val completedByAccount: Map<String, Set<String>> = emptyMap(),
+    /** 远端已提交的作业 id，按账号隔离；与本地手动完成取并集后过滤待办。 */
+    val submittedByAccount: Map<String, Set<String>> = emptyMap(),
 ) {
     val assignments: List<GraderAssignment> get() = account?.let { assignmentsByAccount[it.id] }.orEmpty()
 
-    fun visibleTasks(now: Long): List<GraderTask> = if (account == null) emptyList() else
-        GraderParser.visibleTasks(assignments, completedByAccount[account.id].orEmpty(), now)
+    fun visibleTasks(now: Long): List<GraderTask> {
+        val id = account?.id ?: return emptyList()
+        val completed = completedByAccount[id].orEmpty() + submittedByAccount[id].orEmpty()
+        return GraderParser.visibleTasks(assignments, completed, now)
+    }
 }
 
 /** Pure JVM persistence seam. Callers supply encrypted durable read/commit on Android. */
@@ -33,13 +38,19 @@ internal class GraderStore(private val read: () -> String?, private val write: (
     }
 
     @Synchronized
-    fun replace(account: GraderAccount, cookie: String, assignments: List<GraderAssignment>): GraderSnapshot {
+    fun replace(
+        account: GraderAccount,
+        cookie: String,
+        assignments: List<GraderAssignment>,
+        submitted: Set<String> = emptySet(),
+    ): GraderSnapshot {
         val current = load()
         if (GraderSessionPolicy.sessionCookie(cookie) != cookie) throw GraderStorageException()
         return save(current.copy(
             account = account,
             cookie = cookie,
             assignmentsByAccount = current.assignmentsByAccount + (account.id to GraderParser.unique(assignments)),
+            submittedByAccount = current.submittedByAccount + (account.id to submitted),
         ))
     }
 
@@ -94,6 +105,13 @@ internal class GraderStore(private val read: () -> String?, private val write: (
             completed.add(accountId, entries)
         }
         root.add("completed", completed)
+        val submitted = JsonObject()
+        value.submittedByAccount.forEach { (accountId, ids) ->
+            val entries = JsonArray()
+            ids.sorted().forEach { entries.add(it) }
+            submitted.add(accountId, entries)
+        }
+        root.add("submitted", submitted)
         return root.toString()
     }
 
@@ -126,7 +144,15 @@ internal class GraderStore(private val read: () -> String?, private val write: (
                 id.asString.also(::requireId)
             }.toSet()
         }
-        return GraderSnapshot(account, cookie, caches, completed)
+        // 旧版本快照没有 submitted 字段，按空集合读取。
+        val submitted = root.getAsJsonObject("submitted")?.entrySet()?.associate { (accountId, ids) ->
+            requireId(accountId)
+            accountId to ids.asJsonArray.map { id ->
+                require(id.isJsonPrimitive && id.asJsonPrimitive.isString)
+                id.asString.also(::requireId)
+            }.toSet()
+        }.orEmpty()
+        return GraderSnapshot(account, cookie, caches, completed, submitted)
     }
 
     private fun JsonObject.string(key: String): String {

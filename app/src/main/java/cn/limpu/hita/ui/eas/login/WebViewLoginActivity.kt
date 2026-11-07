@@ -528,6 +528,16 @@ class WebViewLoginActivity : AppCompatActivity() {
                     }
 
                     when {
+                        config.campus == EASToken.Campus.SHENZHEN && isTrustPortalPage(url) -> {
+                            // 深圳 aTrust 门户连上后直接进入教务网页登录，不停在 aTrust 界面。
+                            autoOpeningJwts = false
+                            stopCookiePolling()
+                            if (resumeAcademicLoginAfterVpn(view, url)) {
+                                LogUtils.success("shenzhen aTrust connected, opening academic login")
+                            } else if (shenzhenForceWebModeApplied) {
+                                LogUtils.d("shenzhen aTrust portal reached, waiting for user interaction")
+                            }
+                        }
                         isPortalHomePage(url) -> {
                             LogUtils.d("portal home detected, auto open jwts campus=${config.campus}")
                             autoOpenJwts(view)
@@ -1686,7 +1696,8 @@ class WebViewLoginActivity : AppCompatActivity() {
         val connected = when (config.campus) {
             EASToken.Campus.BENBU -> isIvpnRedirectPage(url)
             EASToken.Campus.WEIHAI -> isWeihaiVpnShell(url)
-            EASToken.Campus.SHENZHEN -> isTrustPortalPage(url) && shenzhenForceWebModeApplied
+            // 深圳的 aTrust 门户页就是“已连接”信号；forceWeb 只影响是否自动重载，不阻止续跳。
+            EASToken.Campus.SHENZHEN -> isTrustPortalPage(url)
         }
         if (!connected || url.substringBefore('?') == config.jwtsUrl.substringBefore('?')) return false
         vpnResumeAttempted = true

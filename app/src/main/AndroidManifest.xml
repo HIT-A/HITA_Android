@@ -177,6 +177,7 @@
         <activity android:name=".ui.notice.AppNoticesActivity" />
         <activity android:name=".ui.blog.BlogReaderActivity" />
         <activity android:name=".ui.links.UsefulLinksActivity" />
+        <activity android:name=".ui.main.navigation.MoreFeaturesActivity" />
         <activity android:name=".ui.news.lecture.ActivityLecture" />
         <activity android:name=".ui.news.NewsDetailActivity" />
         <activity android:name=".ui.resource.InternalWebActivity" />

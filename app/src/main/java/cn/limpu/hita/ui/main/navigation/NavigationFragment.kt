@@ -63,12 +63,10 @@ import cn.limpu.hita.data.analytics.UsageAnalyticsEvent
 import cn.limpu.hita.data.model.eas.EASToken
 import cn.limpu.hita.data.repository.EASRepository
 import cn.limpu.hita.data.source.preference.CourseReminderStore
-import cn.limpu.hita.data.source.preference.OptionalTabStore
 import cn.limpu.hita.data.work.CourseReminderScheduler
 import cn.limpu.hita.feature.livecourse.guard.LiveCourseGuardService
 import cn.limpu.hita.feature.livecourse.scheduler.LiveCourseScheduler
 import cn.limpu.hita.feature.livecourse.settings.LiveCourseSettings
-import cn.limpu.hita.ui.main.MainActivity
 import cn.limpu.hita.ui.credit.CreditStatsActivity
 import cn.limpu.hita.ui.design.HitaComposeTheme
 import cn.limpu.hita.ui.design.HitaTheme
@@ -108,10 +106,6 @@ class NavigationFragment : androidx.fragment.app.Fragment() {
     private var liveCourseStrongReminderState by mutableStateOf(false)
     private var usageAnalyticsEnabledState by mutableStateOf(true)
     private var userStateVersion by mutableStateOf(0)
-    private var showMoreFeatures by mutableStateOf(false)
-    private var homeworkEnabledState by mutableStateOf(true)
-    private var infoEnabledState by mutableStateOf(false)
-    private var agentEnabledState by mutableStateOf(false)
 
     private val pickAvatarLauncher = registerForActivityResult(
         ActivityResultContracts.GetContent()
@@ -152,11 +146,6 @@ class NavigationFragment : androidx.fragment.app.Fragment() {
             liveCourseEnabledState = settings.isEnabled()
             liveCourseStrongReminderState = settings.isStrongReminderEnabled()
         }
-        OptionalTabStore(requireContext()).features().also { features ->
-            homeworkEnabledState = features.homework
-            infoEnabledState = features.info
-            agentEnabledState = features.agent
-        }
         return ComposeView(requireContext()).apply {
             setContent {
                 HitaComposeTheme() {
@@ -177,7 +166,9 @@ class NavigationFragment : androidx.fragment.app.Fragment() {
                         },
                         usageAnalyticsEnabled = usageAnalyticsEnabledState,
                         onToggleUsageAnalytics = { toggleUsageAnalytics() },
-                        onOpenMoreFeatures = { showMoreFeatures = true },
+                        onOpenMoreFeatures = {
+                            ActivityUtils.startActivity(requireContext(), MoreFeaturesActivity::class.java)
+                        },
                         onOpenNotices = { openNotices() },
                         onAvatarClick = { showAvatarPicker() },
                         onUserClick = { openUserCard() },
@@ -202,17 +193,6 @@ class NavigationFragment : androidx.fragment.app.Fragment() {
                             ActivityUtils.startActivity(requireContext(), UsefulLinksActivity::class.java)
                         },
                     )
-                    if (showMoreFeatures) {
-                        MoreFeaturesScreen(
-                            homeworkEnabled = homeworkEnabledState,
-                            infoEnabled = infoEnabledState,
-                            agentEnabled = agentEnabledState,
-                            onHomework = { setOptionalFeature(OptionalFeature.HOMEWORK, it) },
-                            onInfo = { setOptionalFeature(OptionalFeature.INFO, it) },
-                            onAgent = { setOptionalFeature(OptionalFeature.AGENT, it) },
-                            onBack = { showMoreFeatures = false },
-                        )
-                    }
                 }
             }
         }
@@ -426,110 +406,53 @@ class NavigationFragment : androidx.fragment.app.Fragment() {
         ActivityUtils.startActivity(requireContext(), AppNoticesActivity::class.java)
     }
 
-    private fun setOptionalFeature(feature: OptionalFeature, enabled: Boolean) {
-        val store = OptionalTabStore(requireContext())
-        when (feature) {
-            OptionalFeature.HOMEWORK -> {
-                homeworkEnabledState = enabled
-                store.setHomework(enabled)
-            }
-            OptionalFeature.INFO -> {
-                infoEnabledState = enabled
-                store.setInfo(enabled)
-            }
-            OptionalFeature.AGENT -> {
-                agentEnabledState = enabled
-                store.setAgent(enabled)
-            }
-        }
-        (activity as? MainActivity)?.refreshOptionalTabs()
-    }
-}
-
-private enum class OptionalFeature { HOMEWORK, INFO, AGENT }
-
-@Composable
-private fun MoreFeaturesScreen(
-    homeworkEnabled: Boolean,
-    infoEnabled: Boolean,
-    agentEnabled: Boolean,
-    onHomework: (Boolean) -> Unit,
-    onInfo: (Boolean) -> Unit,
-    onAgent: (Boolean) -> Unit,
-    onBack: () -> Unit,
-) {
-    val tokens = HitaTheme.tokens
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(
-                if (hitaUsesMainBackdrop()) Color.Transparent else MaterialTheme.colorScheme.background
-            )
-            .verticalScroll(rememberScrollState())
-            .padding(bottom = 80.dp),
-        verticalArrangement = Arrangement.spacedBy(tokens.spacing.sm)
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = tokens.spacing.sm, vertical = tokens.spacing.md),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(
-                painter = painterResource(R.drawable.ic_baseline_keyboard_arrow_right_24),
-                contentDescription = "返回",
-                tint = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier
-                    .size(40.dp)
-                    .clickable(onClick = onBack)
-                    .padding(8.dp)
-            )
-            Text(
-                text = "更多功能",
-                color = MaterialTheme.colorScheme.onSurface,
-                fontSize = 20.sp,
-                fontWeight = FontWeight.Bold
-            )
-        }
-        NavigationGroup(title = "底部导航") {
-            featureSwitch(
-                title = stringResource(R.string.title_homework),
-                subtitle = "关闭后隐藏待办页",
-                checked = homeworkEnabled,
-                onChecked = onHomework
-            )
-            featureSwitch(
-                title = stringResource(R.string.title_blog),
-                subtitle = "开启后，登录教务才显示资讯页",
-                checked = infoEnabled,
-                onChecked = onInfo
-            )
-            featureSwitch(
-                title = stringResource(R.string.title_agent),
-                subtitle = "开启后显示助手页",
-                checked = agentEnabled,
-                onChecked = onAgent
-            )
-        }
-    }
 }
 
 @Composable
-private fun featureSwitch(
-    title: String,
-    subtitle: String,
-    checked: Boolean,
-    onChecked: (Boolean) -> Unit,
+private fun LiveCourseControl(
+    enabled: Boolean,
+    strongReminderEnabled: Boolean,
+    onToggle: () -> Unit,
+    onOpenSystemSettings: () -> Unit,
+    onToggleStrongReminder: () -> Unit,
 ) {
     NavigationRow(
-        icon = R.drawable.ic_menu_settings,
-        title = title,
-        subtitle = subtitle,
-        onClick = { onChecked(!checked) },
+        icon = R.drawable.ic_baseline_access_time_24,
+        title = stringResource(R.string.live_course_title),
+        subtitle = stringResource(
+            if (enabled) R.string.live_course_active_badge else R.string.live_course_subtitle,
+        ),
+        onClick = onToggle,
         trailing = {
-            Switch(checked = checked, onCheckedChange = onChecked)
-        }
+            Switch(
+                checked = enabled,
+                onCheckedChange = { onToggle() },
+            )
+        },
     )
+    if (enabled) {
+        NavigationRow(
+            icon = R.drawable.ic_baseline_access_alarm_24,
+            title = stringResource(R.string.live_course_strong_reminder),
+            subtitle = stringResource(
+                if (strongReminderEnabled) R.string.live_course_strong_reminder_active
+                else R.string.live_course_strong_reminder_subtitle,
+            ),
+            onClick = onToggleStrongReminder,
+            trailing = {
+                Switch(
+                    checked = strongReminderEnabled,
+                    onCheckedChange = { onToggleStrongReminder() },
+                )
+            },
+        )
+        NavigationRow(
+            icon = R.drawable.ic_menu_settings,
+            title = stringResource(R.string.live_course_system_permission),
+            subtitle = stringResource(R.string.live_course_system_permission_subtitle),
+            onClick = onOpenSystemSettings,
+        )
+    }
 }
 
 @Composable
@@ -861,163 +784,4 @@ private fun ShortcutCard(
     }
 }
 
-@Composable
-private fun NavigationGroup(
-    title: String,
-    content: @Composable () -> Unit,
-) {
-    val tokens = HitaTheme.tokens
-    Text(
-        text = title,
-        color = MaterialTheme.colorScheme.onSurface,
-        fontSize = 18.sp,
-        fontWeight = FontWeight.Bold,
-        modifier = Modifier
-            .padding(
-                start = tokens.spacing.lg,
-                top = tokens.spacing.lg,
-                end = tokens.spacing.lg,
-                bottom = tokens.spacing.xs
-            )
-            .hitaSumiBrushUnderline()
-    )
-    val cardShape = hitaStyleCardShape(tokens.radius.lg, 14.dp)
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = tokens.spacing.lg)
-            .hitaGlassCardModifier(cardShape, elevation = 12.dp),
-        shape = cardShape,
-        colors = hitaGlassCardColors(glassAlpha = 0.46f),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-        border = hitaGlassCardBorder(alpha = 0.28f)
-    ) {
-        Column(
-            modifier = Modifier.padding(vertical = tokens.spacing.xs)
-        ) {
-            content()
-        }
-    }
-}
 
-@Composable
-private fun NavigationRow(
-    icon: Int,
-    title: String,
-    subtitle: String = "",
-    onClick: () -> Unit,
-    trailing: @Composable (() -> Unit)? = null,
-) {
-    val tokens = HitaTheme.tokens
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(56.dp)
-            .clickable(onClick = onClick)
-            .padding(horizontal = tokens.spacing.lg),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        CircleIcon(icon = icon)
-        Column(
-            modifier = Modifier
-                .weight(1f)
-                .padding(start = tokens.spacing.md)
-        ) {
-            Text(
-                text = title,
-                color = MaterialTheme.colorScheme.onSurface,
-                fontSize = 14.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            if (subtitle.isNotBlank()) {
-                Text(
-                    text = subtitle,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 12.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(top = 2.dp)
-                )
-            }
-        }
-        if (trailing != null) {
-            trailing()
-        } else {
-            Icon(
-                painter = painterResource(R.drawable.ic_baseline_keyboard_arrow_right_24),
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-    }
-}
-
-@Composable
-private fun LiveCourseControl(
-    enabled: Boolean,
-    strongReminderEnabled: Boolean,
-    onToggle: () -> Unit,
-    onOpenSystemSettings: () -> Unit,
-    onToggleStrongReminder: () -> Unit,
-) {
-    NavigationRow(
-        icon = R.drawable.ic_baseline_access_time_24,
-        title = stringResource(R.string.live_course_title),
-        subtitle = stringResource(
-            if (enabled) R.string.live_course_active_badge else R.string.live_course_subtitle,
-        ),
-        onClick = onToggle,
-        trailing = {
-            Switch(
-                checked = enabled,
-                onCheckedChange = { onToggle() },
-            )
-        },
-    )
-    if (enabled) {
-        NavigationRow(
-            icon = R.drawable.ic_baseline_access_alarm_24,
-            title = stringResource(R.string.live_course_strong_reminder),
-            subtitle = stringResource(
-                if (strongReminderEnabled) R.string.live_course_strong_reminder_active
-                else R.string.live_course_strong_reminder_subtitle,
-            ),
-            onClick = onToggleStrongReminder,
-            trailing = {
-                Switch(
-                    checked = strongReminderEnabled,
-                    onCheckedChange = { onToggleStrongReminder() },
-                )
-            },
-        )
-        NavigationRow(
-            icon = R.drawable.ic_menu_settings,
-            title = stringResource(R.string.live_course_system_permission),
-            subtitle = stringResource(R.string.live_course_system_permission_subtitle),
-            onClick = onOpenSystemSettings,
-        )
-    }
-}
-
-@Composable
-private fun CircleIcon(icon: Int) {
-    val iconTint = if (HitaTheme.style == HitaThemeStyle.Persona5) {
-        Color(0xFFFF6675)
-    } else {
-        MaterialTheme.colorScheme.primary
-    }
-    Box(
-        modifier = Modifier
-            .size(40.dp)
-            .background(MaterialTheme.colorScheme.primaryContainer, CircleShape),
-        contentAlignment = Alignment.Center
-    ) {
-        Icon(
-            painter = painterResource(icon),
-            contentDescription = null,
-            tint = iconTint,
-            modifier = Modifier.size(22.dp)
-        )
-    }
-}
