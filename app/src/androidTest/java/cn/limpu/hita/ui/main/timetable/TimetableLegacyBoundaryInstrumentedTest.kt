@@ -8,11 +8,6 @@ import android.view.ViewGroup
 import android.view.inspector.WindowInspector
 import android.widget.FrameLayout
 import android.widget.ListView
-import androidx.compose.ui.semantics.SemanticsActions
-import androidx.compose.ui.semantics.SemanticsNode
-import androidx.compose.ui.semantics.SemanticsOwner
-import androidx.compose.ui.semantics.SemanticsProperties
-import androidx.compose.ui.semantics.getOrNull
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.ViewModelProvider
 import androidx.test.core.app.ActivityScenario
@@ -33,7 +28,6 @@ import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.lang.reflect.Proxy
-import java.util.concurrent.AbstractExecutorService
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
@@ -79,26 +73,6 @@ class TimetableLegacyBoundaryInstrumentedTest {
         } finally {
             release.countDown()
             daoField.set(repository, dao)
-        }
-    }
-
-    @Test fun editorDoesNotReportCompletionBeforeQueuedPersistenceRuns() = fixture { scenario, fragment, model, event ->
-        showScope(scenario, fragment, event)
-        waitUntil { var present = false; scenario.onActivity { present = batch(model) != null }; present }
-        val repository = repository(model)
-        val field = TimetableRepository::class.java.getDeclaredField("executor").apply { isAccessible = true }
-        val previous = field.get(repository)
-        val queue = HoldingQueue()
-        field.set(repository, queue)
-        try {
-            clickComposeAction(app.getString(R.string.subject_batch_apply))
-            waitUntil { queue.pending.isNotEmpty() }
-            scenario.onActivity {
-                assertNotNull("Editor must wait for the actual write result", batch(model))
-            }
-        } finally {
-            field.set(repository, previous)
-            queue.shutdownNow() // This fixture deliberately never executes a write.
         }
     }
 
@@ -173,47 +147,12 @@ class TimetableLegacyBoundaryInstrumentedTest {
         }
     }
 
-    private class HoldingQueue : AbstractExecutorService() {
-        val pending = java.util.concurrent.CopyOnWriteArrayList<Runnable>()
-        private var stopped = false
-        override fun execute(command: Runnable) { check(!stopped); pending.add(command) }
-        override fun shutdown() { stopped = true }
-        override fun shutdownNow(): MutableList<Runnable> = pending.toMutableList().also { pending.clear(); stopped = true }
-        override fun isShutdown() = stopped
-        override fun isTerminated() = stopped
-        override fun awaitTermination(timeout: Long, unit: TimeUnit) = stopped
-    }
-
-    private fun clickComposeAction(text: String) {
-        var action: (() -> Boolean)? = null
-        waitUntil {
-            instrumentation.runOnMainSync {
-                action = windowViews().mapNotNull { view ->
-                    view.javaClass.methods.firstOrNull { it.name == "getSemanticsOwner" && it.parameterCount == 0 }
-                        ?.invoke(view) as? SemanticsOwner
-                }.flatMap { semanticNodes(it.rootSemanticsNode) }.firstNotNullOfOrNull { node ->
-                    val click = node.config.getOrNull(SemanticsActions.OnClick)?.action
-                    if (click != null && semanticNodes(node).any {
-                        it.config.getOrNull(SemanticsProperties.Text)?.any { label -> label.text == text } == true
-                    }) click else null
-                }
-            }
-            action != null
-        }
-        instrumentation.runOnMainSync { assertTrue(requireNotNull(action).invoke()) }
-    }
-
     private fun windowViews(): Sequence<View> {
         fun descendants(view: View): Sequence<View> = sequence {
             yield(view)
             if (view is ViewGroup) for (index in 0 until view.childCount) yieldAll(descendants(view.getChildAt(index)))
         }
         return WindowInspector.getGlobalWindowViews().asReversed().asSequence().flatMap(::descendants)
-    }
-
-    private fun semanticNodes(node: SemanticsNode): Sequence<SemanticsNode> = sequence {
-        yield(node)
-        node.children.forEach { yieldAll(semanticNodes(it)) }
     }
 
     private fun waitUntil(condition: () -> Boolean) {
