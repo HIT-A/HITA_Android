@@ -59,6 +59,13 @@ app 通过项目依赖使用 timetable-core 产出的 JAR；分享协议与比�
 - 需要使用本机发布的插件或库时，运行 `./gradlew assembleDebug -Phita.useMavenLocal=true`。同一开关会在插件和库的两个仓库域中将 `mavenLocal()` 放在首位；未设置或设为 `false` 时均关闭。个人默认偏好可写入 `~/.gradle/gradle.properties`，不要在仓库中启用。
 - Debug 包使用独立 applicationId `cn.limpu.hita.diag`（应用名"HITA 诊断版"），可与正式版共存安装
 - Release 签名需要本地配置 `keystore.properties`（`storeFile` / `storePassword` / `keyAlias` / `keyPassword`）及对应的 `.jks` 文件，二者均被 gitignore，不要提交
+- 本机已安装一套用于仪器测试的模拟器，不随仓库分发，路径如下：
+  - Android SDK：`C:\\Users\\ming\\AppData\\Local\\Android\\Sdk`（`ANDROID_HOME`）
+  - 模拟器程序：`%ANDROID_HOME%\\emulator`（emulator 37.2.13，经 `sdkmanager` 安装）
+  - 系统镜像：`system-images;android-35;google_apis;x86_64`（Android 15，API 35）
+  - AVD 名称 `hita_test`（Pixel 6，1080x2400），配置在 `C:\\Users\\ming\\.android\\avd\\hita_test.avd`
+  - 无窗口启动：`emulator -avd hita_test -no-window -no-snapshot -no-audio -no-boot-anim -gpu swiftshader_indirect`
+  - 构建必须使用 JDK 21（`C:\\Users\\ming\\.gradle\\jdks\\eclipse_adoptium-21-amd64-windows.2`）；Android Studio 自带的 JBR 是 JDK 25，与 Gradle 8.11.1 / AGP 8.10.1 不兼容
 
 ## 关键 BuildConfig
 
