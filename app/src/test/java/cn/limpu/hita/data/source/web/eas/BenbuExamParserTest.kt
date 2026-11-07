@@ -130,4 +130,65 @@ class BenbuExamParserTest {
         assertEquals(listOf("2026-10-29", "2026-12-29"), exams.map { it.examDate })
         assertEquals(listOf("期中", "期末"), exams.map { it.examType })
     }
+    @Test fun `all exam tables are read including after an empty table`() {
+        val html = table(rows = emptyList()) + table() + table(rows = listOf(row.toMutableList().apply {
+            this[1] = "道路工程"; this[6] = "期末"
+        }))
+        assertEquals(listOf("数学分析", "道路工程"),
+            BenbuExamParser.parse(html, "期末", term).map { it.courseName })
+    }
+
+    @Test fun `merged course cell preserves following exam and its column positions`() {
+        val html = "<table><tr><th>课程名称</th><th>考试日期</th><th>考试时间</th><th>考试地点</th></tr>" +
+            "<tr><td rowspan='2'>道路工程</td><td>2026-12-01</td><td>09:00-11:00</td><td>A101</td></tr>" +
+            "<tr><td>2026-12-02</td><td>14:00-16:00</td><td>B202</td></tr></table>"
+        val exams = BenbuExamParser.parse(html, "期末", term)
+        assertEquals(listOf("道路工程", "道路工程"), exams.map { it.courseName })
+        assertEquals(listOf("2026-12-01", "2026-12-02"), exams.map { it.examDate })
+        assertEquals(listOf("09:00-11:00", "14:00-16:00"), exams.map { it.examTime })
+        assertEquals(listOf("A101", "B202"), exams.map { it.examLocation })
+    }
+
+    @Test fun `multiple independently merged columns stay aligned`() {
+        val html = "<table><tr><th>课程名称</th><th>考试日期</th><th>考试时间</th><th>考试地点</th></tr>" +
+            "<tr><td rowspan='2'>道路工程</td><td rowspan='2'>2026-12-01</td><td>09:00-11:00</td><td>A101</td></tr>" +
+            "<tr><td>14:00-16:00</td><td>B202</td></tr></table>"
+        val exams = BenbuExamParser.parse(html, "期末", term)
+        assertEquals(listOf("2026-12-01", "2026-12-01"), exams.map { it.examDate })
+        assertEquals("B202", exams.last().examLocation)
+    }
+
+    @Test fun `multiple headerless legacy tables are all read`() {
+        val first = "<table class='bot_line'><tr>" + row.joinToString("") { "<td>$it</td>" } + "</tr></table>"
+        assertEquals(2, BenbuExamParser.parse(first + first, "期末", term).size)
+    }
+
+    @Test fun `empty result words inside course names do not hide real records`() {
+        val html = table(rows = listOf(row.toMutableList().apply { this[1] = "无数据条件下的交通预测" }))
+        assertEquals("无数据条件下的交通预测", BenbuExamParser.parse(html, "期末", term).single().courseName)
+    }
+
+    @Test fun `zero seconds are accepted without matching a shifted clock substring`() {
+        val values = row.toMutableList().apply { this[5] = "2026-12-01 09:00:00-11:00:00" }
+        assertEquals("09:00-11:00", BenbuExamParser.parse(table(rows = listOf(values)), "期末", term).single().examTime)
+    }
+
+    @Test fun `nonzero seconds and malformed or reversed clocks are not silently shifted`() {
+        for (clock in listOf("09:00:30-11:00:00", "09:00:00-11:00:30", "09:00-11:000", "10:00-09:00", "09:00-09:00")) {
+            val values = row.toMutableList().apply { this[5] = "2026-12-01 $clock" }
+            assertEquals(clock, "", BenbuExamParser.parse(table(rows = listOf(values)), "期末", term).single().examTime)
+        }
+    }
+
+    @Test fun `date with an extra day digit is not truncated into a valid date`() {
+        val values = row.toMutableList().apply { this[5] = "2026-12-011 09:00-11:00" }
+        assertEquals("", BenbuExamParser.parse(table(rows = listOf(values)), "期末", term).single().examDate)
+    }
+
+    @Test fun `headered and headerless tables can coexist in either order`() {
+        val legacy = "<table class='bot_line'><tr>" + row.joinToString("") { "<td>$it</td>" } + "</tr></table>"
+        assertEquals(2, BenbuExamParser.parse(table() + legacy, "期末", term).size)
+        assertEquals(2, BenbuExamParser.parse(legacy + table(), "期末", term).size)
+    }
+
 }
