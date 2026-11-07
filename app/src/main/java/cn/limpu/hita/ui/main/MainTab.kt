@@ -7,8 +7,8 @@ enum class MainTab(
     val titleRes: Int,
     val iconRes: Int,
 ) {
-    HOMEWORK(R.string.title_homework, R.drawable.ic_baseline_check_24),
     TIMELINE(R.string.title_timeline, R.drawable.ic_nav_today),
+    HOMEWORK(R.string.title_homework, R.drawable.ic_baseline_check_24),
     TIMETABLE(R.string.title_timetable, R.drawable.ic_nav_timetable),
     AGENT(R.string.title_agent, R.drawable.ic_baseline_toys_24),
     BLOG(R.string.title_blog, R.drawable.ic_nav_blog),
@@ -31,11 +31,33 @@ enum class MainTab(
             return showsInfo(token) && token?.campus == EASToken.Campus.SHENZHEN
         }
 
-        fun visibleFor(token: EASToken?): List<MainTab> {
-            return if (showsInfo(token)) entries.toList() else entries.filter { it != BLOG }
+        /**
+         * 今日、时间表、更多始终显示。
+         * 待办、资讯、助手默认关闭，只在更多-设置-更多功能里分别开启后出现。
+         * 资讯还要求已登录。
+         */
+        fun visibleFor(
+            token: EASToken?,
+            features: OptionalTabFeatures = OptionalTabFeatures(),
+        ): List<MainTab> {
+            return entries.filter { tab ->
+                when (tab) {
+                    HOMEWORK -> features.homework
+                    AGENT -> features.agent
+                    BLOG -> features.info && showsInfo(token)
+                    else -> true
+                }
+            }
         }
 
         fun fromName(raw: String?): MainTab? =
             raw?.let { name -> entries.firstOrNull { it.name == name } }
     }
 }
+
+/** 待办、资讯、助手三个底栏模块的独立开关，缺省全部关闭。 */
+data class OptionalTabFeatures(
+    val homework: Boolean = false,
+    val info: Boolean = false,
+    val agent: Boolean = false,
+)

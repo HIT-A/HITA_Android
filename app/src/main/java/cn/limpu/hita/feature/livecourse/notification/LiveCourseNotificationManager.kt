@@ -5,6 +5,7 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
@@ -21,7 +22,15 @@ class LiveCourseNotificationManager(context: Context) {
     private val appContext = context.applicationContext
     private val platformManager = appContext.getSystemService(NotificationManager::class.java)
 
-    fun canPostNotifications(): Boolean = NotificationManagerCompat.from(appContext).areNotificationsEnabled()
+    fun canPostNotifications(): Boolean {
+        val runtimePermissionGranted = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+            ContextCompat.checkSelfPermission(
+                appContext,
+                android.Manifest.permission.POST_NOTIFICATIONS,
+            ) == PackageManager.PERMISSION_GRANTED
+        return runtimePermissionGranted &&
+            NotificationManagerCompat.from(appContext).areNotificationsEnabled()
+    }
 
     fun show(state: LiveCourseState) {
         if (state is LiveCourseState.Inactive || state is LiveCourseState.Ended || !canPostNotifications()) {
@@ -86,7 +95,14 @@ class LiveCourseNotificationManager(context: Context) {
             }
             else -> Unit
         }
-        NotificationManagerCompat.from(appContext).notify(NOTIFICATION_ID, builder.build())
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+            ContextCompat.checkSelfPermission(
+                appContext,
+                android.Manifest.permission.POST_NOTIFICATIONS,
+            ) == PackageManager.PERMISSION_GRANTED
+        ) {
+            NotificationManagerCompat.from(appContext).notify(NOTIFICATION_ID, builder.build())
+        }
     }
 
     fun cancel() {

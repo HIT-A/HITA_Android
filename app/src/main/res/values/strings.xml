@@ -1355,6 +1355,8 @@
     <!-- 公告中心 -->
     <string name="notice_local_group_title">用户群</string>
     <string name="notice_local_group_body">用户群号：1093659013\n\n新版本与测试版会首先在用户群发布，欢迎加入，反馈问题与建议。</string>
+    <string name="notice_optional_tabs_title">功能已收起</string>
+    <string name="notice_optional_tabs_body">知道大家不看更新说明，特此发公告说明：待办、咨询和助手界面已默认收起，在更多-设置-更多功能中可以选择性启用。</string>
     <string name="notice_copy_group">复制群号：%1$s</string>
     <string name="notice_group_copied">已复制群号</string>
     <string name="notices_title">公告</string>

@@ -15,6 +15,7 @@ import cn.limpu.hita.data.repository.DisplayScopeResolver
 import cn.limpu.hita.data.repository.DisplayScopeSelector
 import cn.limpu.hita.data.repository.EASRepository
 import cn.limpu.hita.data.repository.EasSettingsRepository
+import cn.limpu.hita.data.source.preference.OptionalTabStore
 import com.limpu.hitauser.data.model.CheckUpdateResult
 import com.limpu.hitauser.data.repository.LocalUserRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -74,7 +75,7 @@ internal class MainViewModel @Inject constructor(
         if (initialized) return
         initialized = true
         mutableState.value = state.value.copy(
-            navigation = MainNavigationState.restore(MainTab.visibleFor(eas.getEasToken()), name, index),
+            navigation = MainNavigationState.restore(visibleTabs(), name, index),
             todayTitle = application.getString(R.string.maintab_today),
         )
     }
@@ -113,10 +114,19 @@ internal class MainViewModel @Inject constructor(
     }
 
     fun accountChanged(token: EASToken) {
-        mutableState.value = state.value.copy(navigation = state.value.navigation.withVisibleTabs(MainTab.visibleFor(token)))
+        refreshVisibleTabs()
         refreshUser()
         execute(startup.accountChanged(MainSession.from(token), MainTab.BLOG in state.value.navigation.visibleTabs))
     }
+
+    /** 更多功能开关变化后立刻重算底栏。今日、时间表、更多始终保留。 */
+    fun refreshVisibleTabs() {
+        mutableState.value = state.value.copy(
+            navigation = state.value.navigation.withVisibleTabs(visibleTabs())
+        )
+    }
+
+    private fun visibleTabs() = MainTab.visibleFor(eas.getEasToken(), OptionalTabStore(application).features())
 
     fun refreshUser() {
         mutableState.value = state.value.copy(drawer = MainDrawerMapper.map(

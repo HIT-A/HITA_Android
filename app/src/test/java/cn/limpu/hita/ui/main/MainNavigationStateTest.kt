@@ -5,7 +5,7 @@ import org.junit.Test
 
 class MainNavigationStateTest {
     private val signedOutTabs = MainTab.visibleFor(null)
-    private val signedInTabs = MainTab.entries.toList()
+    private val signedInTabs = MainTab.visibleFor(loggedIn(), OptionalTabFeatures(homework = true, info = true, agent = true))
 
     @Test fun restoredNameTakesPriorityOverLegacyPosition() {
         val state = MainNavigationState.restore(signedInTabs, "BLOG", 0)
@@ -28,7 +28,7 @@ class MainNavigationStateTest {
     }
 
     @Test fun appearingBlogPreservesNavigationIdentityInsteadOfItsOldPosition() {
-        val state = MainNavigationState.restore(signedOutTabs).selectIndex(4).withVisibleTabs(signedInTabs)
+        val state = MainNavigationState.restore(signedOutTabs).selectIndex(2).withVisibleTabs(signedInTabs)
         assertEquals(MainTab.NAVIGATION, state.selectedTab)
         assertEquals(5, state.selectedIndex)
         assertEquals(MainTab.NAVIGATION, state.withVisibleTabs(signedOutTabs).selectedTab)
@@ -51,15 +51,21 @@ class MainNavigationStateTest {
         val updated = state.withVisibleTabs(next)
         next.clear()
         assertEquals(signedOutTabs, updated.visibleTabs)
-        assertEquals(4, updated.selectedIndex)
+        assertEquals(2, updated.selectedIndex)
     }
+
     @Test fun homeworkRemainsSelectedAcrossLoginAndSavedStateRestoration() {
-        val original = MainNavigationState.restore(signedOutTabs, "HOMEWORK")
+        val withHomework = MainTab.visibleFor(null, OptionalTabFeatures(homework = true))
+        val original = MainNavigationState.restore(withHomework, "HOMEWORK")
         assertEquals(MainTab.HOMEWORK, original.selectedTab)
         val loggedIn = original.withVisibleTabs(signedInTabs)
         assertEquals(MainTab.HOMEWORK, loggedIn.selectedTab)
-        assertEquals(original, loggedIn.withVisibleTabs(signedOutTabs))
+        assertEquals(original, loggedIn.withVisibleTabs(withHomework))
         assertEquals(MainTab.HOMEWORK, MainNavigationState.restore(signedInTabs, loggedIn.selectedTab.name).selectedTab)
     }
 
+    private fun loggedIn() = cn.limpu.hita.data.model.eas.EASToken().apply {
+        campus = cn.limpu.hita.data.model.eas.EASToken.Campus.SHENZHEN
+        accessToken = "token"
+    }
 }

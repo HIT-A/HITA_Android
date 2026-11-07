@@ -209,7 +209,19 @@ class MainActivity : HiltBaseActivity<MainViewBinding>(),
         }
     }
 
-    override fun onPostResume() { super.onPostResume(); tabHost.resume() }
+    override fun onResume() {
+        super.onResume()
+        viewModel.refreshVisibleTabs()
+    }
+
+    override fun onPostResume() {
+        super.onPostResume()
+        tabHost.resume()
+    }
+
+    fun refreshOptionalTabs() {
+        viewModel.refreshVisibleTabs()
+    }
     override fun onStop() { easRepository.observeEasToken().removeObserver(tokenObserver); super.onStop() }
     override fun onDestroy() {
         viewModel.detachHost(hostId)

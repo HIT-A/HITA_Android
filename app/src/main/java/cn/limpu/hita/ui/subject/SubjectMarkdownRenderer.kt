@@ -2,6 +2,7 @@ package cn.limpu.hita.ui.subject
 
 import android.content.Context
 import android.graphics.Typeface
+import android.os.Build
 import android.text.Layout
 import android.text.method.LinkMovementMethod
 import android.view.View
@@ -58,7 +59,12 @@ internal class SubjectMarkdownRenderer(context: Context, private val openLink: (
         textSize = 15f
         includeFontPadding = false
         setLineSpacing(0f, 1.28f)
-        breakStrategy = Layout.BREAK_STRATEGY_HIGH_QUALITY
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            breakStrategy = android.graphics.text.LineBreaker.BREAK_STRATEGY_HIGH_QUALITY
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            @Suppress("WrongConstant")
+            breakStrategy = Layout.BREAK_STRATEGY_HIGH_QUALITY
+        }
         hyphenationFrequency = Layout.HYPHENATION_FREQUENCY_NORMAL
         setTextColor(color)
         movementMethod = LinkMovementMethod.getInstance()

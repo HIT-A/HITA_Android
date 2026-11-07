@@ -193,6 +193,8 @@ class WebViewLoginActivity : AppCompatActivity() {
     private var shenzhenSawAuthPage = false
     private var shenzhenStuckNudgeCount = 0
     private var autoOpeningJwts = false
+    private var vpnResumeAttempted = false
+    private var leftForExternalVpn = false
     private var silentMode = false
     private lateinit var config: CampusWebConfig
     private var navigatingToEelab = false
@@ -530,6 +532,8 @@ class WebViewLoginActivity : AppCompatActivity() {
                             if (silentMode) {
                                 LogUtils.d("ivpn redirect page in silent mode, need user interaction")
                                 finishWithCancelledResult()
+                            } else if (resumeAcademicLoginAfterVpn(view, url)) {
+                                LogUtils.d("benbu vpn connected, opening academic login")
                             } else {
                                 LogUtils.d("ivpn redirect page, waiting for CAS login: path=${uri.path}")
                             }
@@ -579,8 +583,12 @@ class WebViewLoginActivity : AppCompatActivity() {
                             startCookiePolling()
                         }
                         else -> {
-                            LogUtils.d("unhandled page: host=${uri.host} path=${uri.path}")
-                            nudgeStuckCampusLogin(url)
+                            if (resumeAcademicLoginAfterVpn(view, url)) {
+                                LogUtils.d("vpn page returned, continuing academic login campus=${config.campus}")
+                            } else {
+                                LogUtils.d("unhandled page: host=${uri.host} path=${uri.path}")
+                                nudgeStuckCampusLogin(url)
+                            }
                         }
                     }
                 }
@@ -1657,6 +1665,41 @@ class WebViewLoginActivity : AppCompatActivity() {
     }
 
     /**
+     * VPN 或信任门户连上后继续打开教务网页登录，不结束 Activity。
+     * 每个登录过程只自动跳一次，避免门户和教务入口互相来回。
+     */
+    private fun resumeAcademicLoginAfterVpn(view: WebView, url: String): Boolean {
+        if (finished || silentMode || vpnResumeAttempted || isSuccessPage(url)) return false
+        if (isAuthenticationPage(url) || isMfaPage(url)) return false
+        val connected = when (config.campus) {
+            EASToken.Campus.BENBU -> isIvpnRedirectPage(url)
+            EASToken.Campus.WEIHAI -> isWeihaiVpnShell(url)
+            EASToken.Campus.SHENZHEN -> isTrustPortalPage(url) && shenzhenForceWebModeApplied
+        }
+        if (!connected || url.substringBefore('?') == config.jwtsUrl.substringBefore('?')) return false
+        vpnResumeAttempted = true
+        autoOpeningJwts = false
+        LogUtils.d("vpn connected, continuing academic login campus=${config.campus}")
+        view.loadUrl(config.jwtsUrl)
+        return true
+    }
+
+    private fun isWeihaiVpnShell(url: String): Boolean {
+        val uri = Uri.parse(url)
+        if (!uri.host.equals("webvpn.hitwh.edu.cn", ignoreCase = true)) return false
+        if (isPortalHomePage(url) || isAuthenticationPage(url) || isSuccessPage(url)) return false
+        return !uri.path.orEmpty().lowercase().contains("/http/")
+    }
+
+    private fun isVpnConnectionPage(url: String): Boolean {
+        return when (config.campus) {
+            EASToken.Campus.BENBU -> isIvpnRedirectPage(url)
+            EASToken.Campus.WEIHAI -> isWeihaiVpnShell(url) || isPortalHomePage(url)
+            EASToken.Campus.SHENZHEN -> isTrustPortalPage(url)
+        }
+    }
+
+    /**
      * The aTrust shortcut page defaults to probing a locally installed Sangfor client.
      * A normal Android WebView has no such client listening on localhost, so that path
      * ends at the UEM authorization page instead of the browser authentication flow.
@@ -2453,15 +2496,33 @@ class WebViewLoginActivity : AppCompatActivity() {
 
     private val onBackPressedCallback = object : OnBackPressedCallback(true) {
         override fun handleOnBackPressed() {
-            // 用户按返回即视为放弃本次 Web 登录：直接以 RESULT_CANCELED 结束，
-            // 交由宿主（PopUpLoginEAS）收尾。原先的 webView.goBack() 会在
-            // WebVPN/CAS/EAS 之间的多层重定向历史里反复回退，用户按多次仍停在
-            // 原页面，既退不出登录也无法触发成功判定，导致登录后卡死。
+            val current = if (::webView.isInitialized) webView.url.orEmpty() else ""
+            if (leftForExternalVpn && ::webView.isInitialized &&
+                resumeAcademicLoginAfterVpn(webView, current)
+            ) {
+                leftForExternalVpn = false
+                return
+            }
             LogUtils.d(
                 "web login back pressed, cancelling campus=${config.campus} " +
                     "canGoBack=${if (::webView.isInitialized) webView.canGoBack() else false}"
             )
             finishWithCancelledResult()
+        }
+    }
+
+    override fun onPause() {
+        super.onPause()
+        if (::webView.isInitialized && isVpnConnectionPage(webView.url.orEmpty())) {
+            leftForExternalVpn = true
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (!leftForExternalVpn || !::webView.isInitialized || finished) return
+        if (resumeAcademicLoginAfterVpn(webView, webView.url.orEmpty())) {
+            leftForExternalVpn = false
         }
     }
 

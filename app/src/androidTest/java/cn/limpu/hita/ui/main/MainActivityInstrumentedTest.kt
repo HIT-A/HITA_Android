@@ -11,6 +11,7 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import cn.limpu.hita.data.repository.EasSettingsRepository
+import cn.limpu.hita.data.source.preference.OptionalTabStore
 import cn.limpu.hita.ui.main.agent.AgentChatFragment
 import cn.limpu.hita.ui.main.blog.BlogFragment
 import cn.limpu.hita.ui.main.navigation.NavigationFragment
@@ -124,8 +125,10 @@ class MainActivityInstrumentedTest {
     }
 
     @Test fun homeworkTabMountsAndSurvivesActivityRecreation() = launch { scenario ->
+        OptionalTabStore(app).setHomework(true)
         scenario.onActivity {
             val model = ViewModelProvider(it)[MainViewModel::class.java]
+            model.refreshVisibleTabs()
             model.selectTab(model.state.value.navigation.visibleTabs.indexOf(MainTab.HOMEWORK))
         }
         waitForTab(scenario, MainTab.HOMEWORK)

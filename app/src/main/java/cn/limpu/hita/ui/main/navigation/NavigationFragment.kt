@@ -63,10 +63,12 @@ import cn.limpu.hita.data.analytics.UsageAnalyticsEvent
 import cn.limpu.hita.data.model.eas.EASToken
 import cn.limpu.hita.data.repository.EASRepository
 import cn.limpu.hita.data.source.preference.CourseReminderStore
+import cn.limpu.hita.data.source.preference.OptionalTabStore
 import cn.limpu.hita.data.work.CourseReminderScheduler
 import cn.limpu.hita.feature.livecourse.guard.LiveCourseGuardService
 import cn.limpu.hita.feature.livecourse.scheduler.LiveCourseScheduler
 import cn.limpu.hita.feature.livecourse.settings.LiveCourseSettings
+import cn.limpu.hita.ui.main.MainActivity
 import cn.limpu.hita.ui.credit.CreditStatsActivity
 import cn.limpu.hita.ui.design.HitaComposeTheme
 import cn.limpu.hita.ui.design.HitaTheme
@@ -106,6 +108,10 @@ class NavigationFragment : androidx.fragment.app.Fragment() {
     private var liveCourseStrongReminderState by mutableStateOf(false)
     private var usageAnalyticsEnabledState by mutableStateOf(true)
     private var userStateVersion by mutableStateOf(0)
+    private var showMoreFeatures by mutableStateOf(false)
+    private var homeworkEnabledState by mutableStateOf(false)
+    private var infoEnabledState by mutableStateOf(false)
+    private var agentEnabledState by mutableStateOf(false)
 
     private val pickAvatarLauncher = registerForActivityResult(
         ActivityResultContracts.GetContent()
@@ -146,6 +152,11 @@ class NavigationFragment : androidx.fragment.app.Fragment() {
             liveCourseEnabledState = settings.isEnabled()
             liveCourseStrongReminderState = settings.isStrongReminderEnabled()
         }
+        OptionalTabStore(requireContext()).features().also { features ->
+            homeworkEnabledState = features.homework
+            infoEnabledState = features.info
+            agentEnabledState = features.agent
+        }
         return ComposeView(requireContext()).apply {
             setContent {
                 HitaComposeTheme() {
@@ -166,6 +177,7 @@ class NavigationFragment : androidx.fragment.app.Fragment() {
                         },
                         usageAnalyticsEnabled = usageAnalyticsEnabledState,
                         onToggleUsageAnalytics = { toggleUsageAnalytics() },
+                        onOpenMoreFeatures = { showMoreFeatures = true },
                         onOpenNotices = { openNotices() },
                         onAvatarClick = { showAvatarPicker() },
                         onUserClick = { openUserCard() },
@@ -190,6 +202,17 @@ class NavigationFragment : androidx.fragment.app.Fragment() {
                             ActivityUtils.startActivity(requireContext(), UsefulLinksActivity::class.java)
                         },
                     )
+                    if (showMoreFeatures) {
+                        MoreFeaturesScreen(
+                            homeworkEnabled = homeworkEnabledState,
+                            infoEnabled = infoEnabledState,
+                            agentEnabled = agentEnabledState,
+                            onHomework = { setOptionalFeature(OptionalFeature.HOMEWORK, it) },
+                            onInfo = { setOptionalFeature(OptionalFeature.INFO, it) },
+                            onAgent = { setOptionalFeature(OptionalFeature.AGENT, it) },
+                            onBack = { showMoreFeatures = false },
+                        )
+                    }
                 }
             }
         }
@@ -402,6 +425,111 @@ class NavigationFragment : androidx.fragment.app.Fragment() {
     private fun openNotices() {
         ActivityUtils.startActivity(requireContext(), AppNoticesActivity::class.java)
     }
+
+    private fun setOptionalFeature(feature: OptionalFeature, enabled: Boolean) {
+        val store = OptionalTabStore(requireContext())
+        when (feature) {
+            OptionalFeature.HOMEWORK -> {
+                homeworkEnabledState = enabled
+                store.setHomework(enabled)
+            }
+            OptionalFeature.INFO -> {
+                infoEnabledState = enabled
+                store.setInfo(enabled)
+            }
+            OptionalFeature.AGENT -> {
+                agentEnabledState = enabled
+                store.setAgent(enabled)
+            }
+        }
+        (activity as? MainActivity)?.refreshOptionalTabs()
+    }
+}
+
+private enum class OptionalFeature { HOMEWORK, INFO, AGENT }
+
+@Composable
+private fun MoreFeaturesScreen(
+    homeworkEnabled: Boolean,
+    infoEnabled: Boolean,
+    agentEnabled: Boolean,
+    onHomework: (Boolean) -> Unit,
+    onInfo: (Boolean) -> Unit,
+    onAgent: (Boolean) -> Unit,
+    onBack: () -> Unit,
+) {
+    val tokens = HitaTheme.tokens
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(
+                if (hitaUsesMainBackdrop()) Color.Transparent else MaterialTheme.colorScheme.background
+            )
+            .verticalScroll(rememberScrollState())
+            .padding(bottom = 80.dp),
+        verticalArrangement = Arrangement.spacedBy(tokens.spacing.sm)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = tokens.spacing.sm, vertical = tokens.spacing.md),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                painter = painterResource(R.drawable.ic_baseline_keyboard_arrow_right_24),
+                contentDescription = "返回",
+                tint = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier
+                    .size(40.dp)
+                    .clickable(onClick = onBack)
+                    .padding(8.dp)
+            )
+            Text(
+                text = "更多功能",
+                color = MaterialTheme.colorScheme.onSurface,
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Bold
+            )
+        }
+        NavigationGroup(title = "底部导航") {
+            featureSwitch(
+                title = stringResource(R.string.title_homework),
+                subtitle = "开启后显示待办页",
+                checked = homeworkEnabled,
+                onChecked = onHomework
+            )
+            featureSwitch(
+                title = stringResource(R.string.title_blog),
+                subtitle = "开启后，登录教务才显示资讯页",
+                checked = infoEnabled,
+                onChecked = onInfo
+            )
+            featureSwitch(
+                title = stringResource(R.string.title_agent),
+                subtitle = "开启后显示助手页",
+                checked = agentEnabled,
+                onChecked = onAgent
+            )
+        }
+    }
+}
+
+@Composable
+private fun featureSwitch(
+    title: String,
+    subtitle: String,
+    checked: Boolean,
+    onChecked: (Boolean) -> Unit,
+) {
+    NavigationRow(
+        icon = R.drawable.ic_menu_settings,
+        title = title,
+        subtitle = subtitle,
+        onClick = { onChecked(!checked) },
+        trailing = {
+            Switch(checked = checked, onCheckedChange = onChecked)
+        }
+    )
 }
 
 @Composable
@@ -430,6 +558,7 @@ private fun NavigationScreen(
     onOpenLiveCourseSystemSettings: () -> Unit,
     onToggleLiveCourseStrongReminder: () -> Unit,
     onToggleUsageAnalytics: () -> Unit,
+    onOpenMoreFeatures: () -> Unit,
     onOpenNotices: () -> Unit,
 ) {
     val tokens = HitaTheme.tokens
@@ -539,6 +668,19 @@ private fun NavigationScreen(
                     Switch(
                         checked = usageAnalyticsEnabled,
                         onCheckedChange = { onToggleUsageAnalytics() }
+                    )
+                }
+            )
+            NavigationRow(
+                icon = R.drawable.ic_menu_settings,
+                title = "更多功能",
+                subtitle = "待办、资讯、助手",
+                onClick = onOpenMoreFeatures,
+                trailing = {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_baseline_keyboard_arrow_right_24),
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             )

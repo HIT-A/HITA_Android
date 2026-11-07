@@ -1,6 +1,7 @@
 package cn.limpu.hita.ui.main
 
 import cn.limpu.hita.data.model.eas.EASToken
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -12,6 +13,35 @@ class MainTabVisibilityTest {
         assertFalse(MainTab.showsInfo(EASToken()))
         assertFalse(MainTab.showsBlog(null))
         assertFalse(MainTab.BLOG in MainTab.visibleFor(EASToken()))
+    }
+
+    @Test
+    fun `optional tabs stay hidden until each one is enabled`() {
+        val loggedIn = EASToken().apply {
+            campus = EASToken.Campus.SHENZHEN
+            accessToken = "token"
+        }
+        val defaults = MainTab.visibleFor(loggedIn)
+        assertEquals(
+            listOf(MainTab.TIMELINE, MainTab.TIMETABLE, MainTab.NAVIGATION),
+            defaults
+        )
+        assertFalse(MainTab.HOMEWORK in defaults)
+        assertFalse(MainTab.BLOG in defaults)
+        assertFalse(MainTab.AGENT in defaults)
+
+        val enabled = MainTab.visibleFor(
+            loggedIn,
+            OptionalTabFeatures(homework = true, info = true, agent = true)
+        )
+        assertEquals(
+            listOf(MainTab.TIMELINE, MainTab.HOMEWORK, MainTab.TIMETABLE, MainTab.AGENT, MainTab.BLOG, MainTab.NAVIGATION),
+            enabled
+        )
+        assertEquals(
+            listOf(MainTab.TIMELINE, MainTab.HOMEWORK, MainTab.TIMETABLE, MainTab.NAVIGATION),
+            MainTab.visibleFor(null, OptionalTabFeatures(homework = true, info = true))
+        )
     }
 
     @Test
@@ -27,9 +57,9 @@ class MainTabVisibilityTest {
         }
         assertTrue(MainTab.showsBlog(appApi))
         assertTrue(MainTab.showsInfo(appApi))
-        assertTrue(MainTab.BLOG in MainTab.visibleFor(appApi))
+        assertFalse(MainTab.BLOG in MainTab.visibleFor(appApi))
         assertTrue(MainTab.showsBlog(web))
-        assertTrue(MainTab.BLOG in MainTab.visibleFor(web))
+        assertTrue(MainTab.BLOG in MainTab.visibleFor(web, OptionalTabFeatures(info = true)))
     }
 
     @Test
@@ -50,7 +80,7 @@ class MainTabVisibilityTest {
                 accessToken = "token"
             }
             assertTrue(MainTab.showsInfo(token))
-            assertTrue(MainTab.BLOG in MainTab.visibleFor(token))
+            assertTrue(MainTab.BLOG in MainTab.visibleFor(token, OptionalTabFeatures(info = true)))
             assertFalse(MainTab.showsBlog(token))
         }
     }

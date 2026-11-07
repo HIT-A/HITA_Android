@@ -48,6 +48,9 @@ object AppNoticeCenter {
     /** 本地内置公告 id（用户群）。换新公告时改 id，打开应用会再弹一次。 */
     const val LOCAL_GROUP_NOTICE_ID = "local_qq_group_1093659013"
 
+    /** 待办、资讯、助手默认收起的说明。换文案时改 id，已读用户才会再看到一次。 */
+    const val LOCAL_OPTIONAL_TABS_NOTICE_ID = "local_optional_tabs_folded_v1"
+
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val httpClient by lazy {
         OkHttpClient.Builder()
@@ -107,10 +110,21 @@ object AppNoticeCenter {
     }
 
     /**
-     * 本地内置公告（随包发布，不依赖后端）：用户群入口。
+     * 本地内置公告（随包发布，不依赖后端）。
      * 未读时和其它普通公告一起，在打开应用时弹一次。
      */
     fun localNotices(context: Context): List<AppNotice> = listOf(
+        AppNotice(
+            id = LOCAL_OPTIONAL_TABS_NOTICE_ID,
+            kind = "service",
+            severity = "info",
+            title = context.getString(R.string.notice_optional_tabs_title),
+            body = context.getString(R.string.notice_optional_tabs_body),
+            minAppVersion = null,
+            affectedMinVersion = null,
+            startsAt = null,
+            endsAt = null
+        ),
         AppNotice(
             id = LOCAL_GROUP_NOTICE_ID,
             kind = "group",

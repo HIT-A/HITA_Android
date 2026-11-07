@@ -6,6 +6,7 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
@@ -185,11 +186,21 @@ object ApkInstallLauncher {
     }
 
     private fun notifySafely(context: Context, id: Int, notification: android.app.Notification) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            context.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            LogUtils.w("ApkInstallLauncher: 缺少通知权限，无法提示安装")
+            return
+        }
         try {
             if (!NotificationManagerCompat.from(context).areNotificationsEnabled()) {
                 LogUtils.w("ApkInstallLauncher: 通知被禁用，无法提示安装")
+                return
             }
             NotificationManagerCompat.from(context).notify(id, notification)
+        } catch (e: SecurityException) {
+            LogUtils.e("ApkInstallLauncher: 发送更新通知被系统拒绝", e)
         } catch (e: Exception) {
             LogUtils.e("ApkInstallLauncher: 发送更新通知失败", e)
         }
