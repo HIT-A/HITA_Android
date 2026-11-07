@@ -111,6 +111,11 @@ abstract class AppDatabase : RoomDatabase() {
         private val MIGRATION_17_18 = object : Migration(17, 18) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("CREATE TABLE IF NOT EXISTS timetable_change_outbox (operationId TEXT NOT NULL, payload TEXT NOT NULL, createdAtMillis INTEGER NOT NULL, PRIMARY KEY(operationId))")
+                // 15→16 曾经以不带反引号的 SQL 建过 index_timetable_groupId，Room 按 schema 逐字比对
+                // 索引 SQL 会判定不一致并拒绝打开数据库（启动即崩溃）。这些设备的版本号已经超过 16，
+                // 修改 15→16 不会再执行，所以在这里删掉后按 schema 的原文重建。正常设备上是等价重建。
+                db.execSQL("DROP INDEX IF EXISTS `index_timetable_groupId`")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_timetable_groupId` ON `timetable` (`groupId`)")
             }
         }
 
@@ -207,7 +212,7 @@ abstract class AppDatabase : RoomDatabase() {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("CREATE TABLE IF NOT EXISTS timetable_group (id TEXT NOT NULL PRIMARY KEY, name TEXT NOT NULL, createdAt INTEGER NOT NULL)")
                 db.execSQL("ALTER TABLE timetable ADD COLUMN groupId TEXT")
-                db.execSQL("CREATE INDEX IF NOT EXISTS index_timetable_groupId ON timetable(groupId)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_timetable_groupId` ON `timetable` (`groupId`)")
             }
         }
 

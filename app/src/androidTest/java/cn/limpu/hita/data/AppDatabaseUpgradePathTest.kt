@@ -42,6 +42,34 @@ class AppDatabaseUpgradePathTest {
         }
     }
 
+    /**
+     * 诊断版的中间构建把 15→16 的索引以不带反引号的 SQL 建好后，版本号已记为 16；
+     * Room 按 schema 逐字比对索引 SQL，旧写法会让后续升级直接拒绝打开数据库。
+     */
+    @Test fun version16WithUnquotedGroupIndexUpgradesAndKeepsData() {
+        seed(16)
+        val context = instrumentation.targetContext
+        val helper = androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory().create(
+            androidx.sqlite.db.SupportSQLiteOpenHelper.Configuration.builder(context)
+                .name(DB_NAME)
+                .callback(object : androidx.sqlite.db.SupportSQLiteOpenHelper.Callback(16) {
+                    override fun onCreate(db: androidx.sqlite.db.SupportSQLiteDatabase) = Unit
+                    override fun onUpgrade(
+                        db: androidx.sqlite.db.SupportSQLiteDatabase,
+                        oldVersion: Int,
+                        newVersion: Int,
+                    ) = Unit
+                })
+                .build()
+        )
+        helper.writableDatabase.use { db ->
+            db.execSQL("DROP INDEX IF EXISTS `index_timetable_groupId`")
+            db.execSQL("CREATE INDEX IF NOT EXISTS index_timetable_groupId ON timetable(groupId)")
+        }
+        helper.close()
+        assertMigratedDatabase(16)
+    }
+
     /** 9/11/14 中 timetable、subject、events、chat_* 列完全一致，同一份种子数据适用。 */
     private fun seed(version: Int) {
         val legacy = createLegacyAppDatabase(DB_NAME, version)
