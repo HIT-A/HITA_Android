@@ -2,6 +2,7 @@ package cn.limpu.hita.ui.main
 
 import cn.limpu.hita.R
 import cn.limpu.hita.data.model.eas.EASToken
+import cn.limpu.hita.data.source.preference.OptionalTabFeatures
 
 enum class MainTab(
     val titleRes: Int,
@@ -32,8 +33,8 @@ enum class MainTab(
         }
 
         /**
-         * 今日、时间表、更多始终显示。
-         * 待办、资讯、助手默认关闭，只在更多-设置-更多功能里分别开启后出现。
+         * 今日、时间表、更多始终显示，待办默认显示。
+         * 资讯、助手默认关闭，只在更多-设置-更多功能里分别开启后出现。
          * 资讯还要求已登录。
          */
         fun visibleFor(
@@ -54,10 +55,3 @@ enum class MainTab(
             raw?.let { name -> entries.firstOrNull { it.name == name } }
     }
 }
-
-/** 待办、资讯、助手三个底栏模块的独立开关，缺省全部关闭。 */
-data class OptionalTabFeatures(
-    val homework: Boolean = false,
-    val info: Boolean = false,
-    val agent: Boolean = false,
-)

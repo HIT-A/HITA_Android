@@ -48,8 +48,8 @@ object AppNoticeCenter {
     /** 本地内置公告 id（用户群）。换新公告时改 id，打开应用会再弹一次。 */
     const val LOCAL_GROUP_NOTICE_ID = "local_qq_group_1093659013"
 
-    /** 待办、资讯、助手默认收起的说明。换文案时改 id，已读用户才会再看到一次。 */
-    const val LOCAL_OPTIONAL_TABS_NOTICE_ID = "local_optional_tabs_folded_v1"
+    /** 待办默认开启、资讯与助手默认收起的说明。换文案时改 id，已读用户才会再看到一次。 */
+    const val LOCAL_OPTIONAL_TABS_NOTICE_ID = "local_optional_tabs_homework_default_v2"
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val httpClient by lazy {

@@ -1,6 +1,7 @@
 package cn.limpu.hita.ui.main
 
 import cn.limpu.hita.data.model.eas.EASToken
+import cn.limpu.hita.data.source.preference.OptionalTabFeatures
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -16,19 +17,20 @@ class MainTabVisibilityTest {
     }
 
     @Test
-    fun `optional tabs stay hidden until each one is enabled`() {
+    fun `homework is on by default while info and agent stay hidden`() {
         val loggedIn = EASToken().apply {
             campus = EASToken.Campus.SHENZHEN
             accessToken = "token"
         }
         val defaults = MainTab.visibleFor(loggedIn)
         assertEquals(
-            listOf(MainTab.TIMELINE, MainTab.TIMETABLE, MainTab.NAVIGATION),
+            listOf(MainTab.TIMELINE, MainTab.HOMEWORK, MainTab.TIMETABLE, MainTab.NAVIGATION),
             defaults
         )
-        assertFalse(MainTab.HOMEWORK in defaults)
+        assertTrue(MainTab.HOMEWORK in defaults)
         assertFalse(MainTab.BLOG in defaults)
         assertFalse(MainTab.AGENT in defaults)
+        assertEquals(defaults, MainTab.visibleFor(loggedIn, OptionalTabFeatures()))
 
         val enabled = MainTab.visibleFor(
             loggedIn,
@@ -39,8 +41,12 @@ class MainTabVisibilityTest {
             enabled
         )
         assertEquals(
+            listOf(MainTab.TIMELINE, MainTab.TIMETABLE, MainTab.NAVIGATION),
+            MainTab.visibleFor(null, OptionalTabFeatures(homework = false))
+        )
+        assertEquals(
             listOf(MainTab.TIMELINE, MainTab.HOMEWORK, MainTab.TIMETABLE, MainTab.NAVIGATION),
-            MainTab.visibleFor(null, OptionalTabFeatures(homework = true, info = true))
+            MainTab.visibleFor(null, OptionalTabFeatures(info = true))
         )
     }
 

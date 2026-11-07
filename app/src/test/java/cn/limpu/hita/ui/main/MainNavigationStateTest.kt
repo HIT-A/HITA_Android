@@ -1,5 +1,6 @@
 package cn.limpu.hita.ui.main
 
+import cn.limpu.hita.data.source.preference.OptionalTabFeatures
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -29,9 +30,9 @@ class MainNavigationStateTest {
 
     @Test fun appearingBlogPreservesNavigationIdentityInsteadOfItsOldPosition() {
         val state = MainNavigationState.restore(signedOutTabs).selectIndex(2).withVisibleTabs(signedInTabs)
-        assertEquals(MainTab.NAVIGATION, state.selectedTab)
-        assertEquals(5, state.selectedIndex)
-        assertEquals(MainTab.NAVIGATION, state.withVisibleTabs(signedOutTabs).selectedTab)
+        assertEquals(MainTab.TIMETABLE, state.selectedTab)
+        assertEquals(2, state.selectedIndex)
+        assertEquals(MainTab.TIMETABLE, state.withVisibleTabs(signedOutTabs).selectedTab)
     }
 
     @Test fun disappearingSelectedTabReturnsToToday() {
@@ -51,7 +52,7 @@ class MainNavigationStateTest {
         val updated = state.withVisibleTabs(next)
         next.clear()
         assertEquals(signedOutTabs, updated.visibleTabs)
-        assertEquals(2, updated.selectedIndex)
+        assertEquals(3, updated.selectedIndex)
     }
 
     @Test fun homeworkRemainsSelectedAcrossLoginAndSavedStateRestoration() {

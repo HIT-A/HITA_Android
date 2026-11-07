@@ -109,7 +109,7 @@ class NavigationFragment : androidx.fragment.app.Fragment() {
     private var usageAnalyticsEnabledState by mutableStateOf(true)
     private var userStateVersion by mutableStateOf(0)
     private var showMoreFeatures by mutableStateOf(false)
-    private var homeworkEnabledState by mutableStateOf(false)
+    private var homeworkEnabledState by mutableStateOf(true)
     private var infoEnabledState by mutableStateOf(false)
     private var agentEnabledState by mutableStateOf(false)
 
@@ -494,7 +494,7 @@ private fun MoreFeaturesScreen(
         NavigationGroup(title = "底部导航") {
             featureSwitch(
                 title = stringResource(R.string.title_homework),
-                subtitle = "开启后显示待办页",
+                subtitle = "关闭后隐藏待办页",
                 checked = homeworkEnabled,
                 onChecked = onHomework
             )
