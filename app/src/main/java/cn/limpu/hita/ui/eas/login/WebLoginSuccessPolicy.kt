@@ -112,4 +112,21 @@ internal object WebLoginSuccessPolicy {
             path.contains("xsxk")
         return isKnownAcademicPage && EASToken.hasShenzhenWebSessionCookies(cookies)
     }
+
+    /**
+     * 深圳 aTrust 信任门户的任意 /portal 页面即表示 VPN 已连通，
+     * 此时应直接续跳教务网页登录，不再停留在 aTrust 界面。
+     */
+    fun isShenzhenTrustPortal(url: String): Boolean {
+        val uri = runCatching { URI(url) }.getOrNull() ?: return false
+        if (uri.scheme?.lowercase() != "https") return false
+        if (!uri.host.orEmpty().equals("trust.hitsz.edu.cn", ignoreCase = true)) return false
+        return uri.path.orEmpty().lowercase().startsWith("/portal")
+    }
+
+    /** 深圳教务登录入口：到达这里说明已离开 aTrust，无需再次续跳。 */
+    fun isShenzhenAcademicEntry(url: String): Boolean {
+        val uri = runCatching { URI(url) }.getOrNull() ?: return false
+        return uri.host.orEmpty().lowercase() in setOf("jw.hitsz.edu.cn", "jw-hitsz-edu-cn.hitsz.edu.cn")
+    }
 }

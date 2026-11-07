@@ -1680,26 +1680,36 @@ class WebViewLoginActivity : AppCompatActivity() {
         return Uri.parse(url).path.orEmpty().contains("/authserver/reAuthCheck/", ignoreCase = true)
     }
 
-    private fun isTrustPortalPage(url: String): Boolean {
-        val uri = Uri.parse(url)
-        return uri.host.equals("trust.hitsz.edu.cn", ignoreCase = true) &&
-            uri.path.orEmpty().startsWith("/portal", ignoreCase = true)
-    }
+    private fun isTrustPortalPage(url: String): Boolean =
+        WebLoginSuccessPolicy.isShenzhenTrustPortal(url)
 
     /**
      * VPN 或信任门户连上后继续打开教务网页登录，不结束 Activity。
      * 每个登录过程只自动跳一次，避免门户和教务入口互相来回。
      */
     private fun resumeAcademicLoginAfterVpn(view: WebView, url: String): Boolean {
-        if (finished || silentMode || vpnResumeAttempted || isSuccessPage(url)) return false
+        if (finished || silentMode || isSuccessPage(url)) return false
         if (isAuthenticationPage(url) || isMfaPage(url)) return false
+        // 已经在教务页时不再续跳，避免 aTrust 与教务入口来回打转。
+        if (config.campus == EASToken.Campus.SHENZHEN &&
+            WebLoginSuccessPolicy.isShenzhenAcademicEntry(url)
+        ) {
+            return false
+        }
         val connected = when (config.campus) {
             EASToken.Campus.BENBU -> isIvpnRedirectPage(url)
             EASToken.Campus.WEIHAI -> isWeihaiVpnShell(url)
             // 深圳的 aTrust 门户页就是“已连接”信号；forceWeb 只影响是否自动重载，不阻止续跳。
             EASToken.Campus.SHENZHEN -> isTrustPortalPage(url)
         }
-        if (!connected || url.substringBefore('?') == config.jwtsUrl.substringBefore('?')) return false
+        if (!connected) return false
+        if (url.substringBefore('?') == config.jwtsUrl.substringBefore('?')) return false
+        // 深圳每次回到 aTrust 门户都允许再续跳一次：VPN 重连后用户会重新经过门户。
+        if (config.campus == EASToken.Campus.SHENZHEN) {
+            vpnResumeAttempted = false
+        } else if (vpnResumeAttempted) {
+            return false
+        }
         vpnResumeAttempted = true
         autoOpeningJwts = false
         LogUtils.d("vpn connected, continuing academic login campus=${config.campus}")

@@ -203,4 +203,29 @@ class WebLoginSuccessPolicyTest {
         )) assertFalse(WebLoginSuccessPolicy.isBenbuAuthenticatedPage(url, cookies))
     }
 
+    @Test fun `Shenzhen trust portal pages continue to academic login`() {
+        for (url in listOf(
+            "https://trust.hitsz.edu.cn/portal",
+            "https://trust.hitsz.edu.cn/portal/",
+            "https://trust.hitsz.edu.cn/portal/shortcut.html",
+            "https://trust.hitsz.edu.cn/portal/#/page_app_handler",
+            "https://TRUST.hitsz.edu.cn/portal/index",
+        )) assertTrue(url, WebLoginSuccessPolicy.isShenzhenTrustPortal(url))
+
+        for (url in listOf(
+            "http://trust.hitsz.edu.cn/portal",
+            "https://trust.hitsz.edu.cn/other",
+            "https://trust.hitsz.edu.cn.evil.example/portal",
+            "https://jw-hitsz-edu-cn.hitsz.edu.cn/authentication/main",
+            "not-a-url",
+            "",
+        )) assertFalse(url, WebLoginSuccessPolicy.isShenzhenTrustPortal(url))
+    }
+
+    @Test fun `Shenzhen academic entry is recognised so the flow does not loop`() {
+        assertTrue(WebLoginSuccessPolicy.isShenzhenAcademicEntry("https://jw-hitsz-edu-cn.hitsz.edu.cn/authentication/main"))
+        assertTrue(WebLoginSuccessPolicy.isShenzhenAcademicEntry("https://jw.hitsz.edu.cn/"))
+        assertFalse(WebLoginSuccessPolicy.isShenzhenAcademicEntry("https://trust.hitsz.edu.cn/portal"))
+        assertFalse(WebLoginSuccessPolicy.isShenzhenAcademicEntry("https://jw.hitsz.edu.cn.evil.example/"))
+    }
 }
