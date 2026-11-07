@@ -86,6 +86,7 @@ class PopUpLoginEAS : BottomSheetDialogFragment() {
     private var silentWebLoginTried = false
     private var pendingNonSilentCampus by mutableStateOf<EASToken.Campus?>(null)
     private var loginInProgress by mutableStateOf(false)
+    private var selectedStudentType by mutableStateOf(EASToken.TYPE.UNDERGRAD)
 
     /** 是否已经把结果（成功/失败）交给宿主；未交付就关闭视为"稍后"。 */
     private var resultDelivered = false
@@ -116,12 +117,25 @@ class PopUpLoginEAS : BottomSheetDialogFragment() {
         fun onCancelled(window: PopUpLoginEAS) {}
     }
 
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putString("selected_student_type", selectedStudentType.name)
+        outState.putString("pending_web_campus", pendingWebViewCampus?.name)
+    }
+
     override fun onCreateView(
         inflater: LayoutInflater,
         container: ViewGroup?,
         savedInstanceState: Bundle?
     ): View {
         return ComposeView(requireContext()).apply {
+            selectedStudentType = savedInstanceState?.getString("selected_student_type")
+                ?.let { runCatching { EASToken.TYPE.valueOf(it) }.getOrNull() }
+                ?: viewModel.easRepo.getEasToken().stutype
+            if (pendingWebViewCampus == null) {
+                pendingWebViewCampus = savedInstanceState?.getString("pending_web_campus")
+                    ?.let { runCatching { EASToken.Campus.valueOf(it) }.getOrNull() }
+            }
             setContent {
                 HitaComposeTheme() {
                     val loginResult by viewModel.loginResultLiveData.observeAsState()
@@ -149,6 +163,8 @@ class PopUpLoginEAS : BottomSheetDialogFragment() {
                         isAgreementAccepted = isUserAgreementAccepted(),
                         onMarkAgreementAccepted = { markUserAgreementAccepted() },
                         initialCampus = preferredCampus ?: viewModel.easRepo.getEasToken().campus,
+                        studentType = selectedStudentType,
+                        onStudentTypeChange = { selectedStudentType = it },
                         onLogin = { campus, username, password ->
                             performLogin(campus, username, password, webViewLauncher)
                         },
@@ -216,7 +232,7 @@ class PopUpLoginEAS : BottomSheetDialogFragment() {
                 putExtra(WebViewLoginActivity.EXTRA_CAMPUS, campus.name)
                 putExtra(
                     WebViewLoginActivity.EXTRA_STUDENT_TYPE,
-                    viewModel.easRepo.getEasToken().getStudentType()
+                    if (selectedStudentType == EASToken.TYPE.GRAD) "2" else "1"
                 )
             }
         )
@@ -255,6 +271,12 @@ class PopUpLoginEAS : BottomSheetDialogFragment() {
         silentWebLoginTried = false
 
         if (cookiesJson != null && campus != null) {
+            if (data.getStringExtra(WebViewLoginActivity.EXTRA_STUDENT_TYPE) !=
+                if (selectedStudentType == EASToken.TYPE.GRAD) "2" else "1") {
+                loginInProgress = false
+                deliverFailure()
+                return
+            }
             try {
                 val cookiesJsonObj = JSONObject(cookiesJson)
                 val cookiesMap = HashMap<String, String>()
@@ -287,12 +309,13 @@ class PopUpLoginEAS : BottomSheetDialogFragment() {
         webBaseUrl: String?,
     ) {
         val cookiesJson = JSONObject(cookiesMap as Map<*, *>).toString()
-        val loginMetadata = if (campus == EASToken.Campus.SHENZHEN) {
+        val loginMetadata = if (campus == EASToken.Campus.SHENZHEN ||
+            campus == EASToken.Campus.WEIHAI && selectedStudentType == EASToken.TYPE.GRAD) {
             webBaseUrl.orEmpty()
         } else {
             electronicExpToken.orEmpty()
         }
-        val loginSource = viewModel.easRepo.login(cookiesJson, loginMetadata, campus)
+        val loginSource = viewModel.easRepo.login(cookiesJson, loginMetadata, campus, selectedStudentType)
         val observer = object : Observer<DataState<Boolean>> {
             override fun onChanged(value: DataState<Boolean>) {
                 val state = value
@@ -359,6 +382,8 @@ private fun LoginEASScreen(
     isAgreementAccepted: Boolean,
     onMarkAgreementAccepted: () -> Unit,
     initialCampus: EASToken.Campus,
+    studentType: EASToken.TYPE,
+    onStudentTypeChange: (EASToken.TYPE) -> Unit,
     onLogin: (EASToken.Campus, String, String) -> Unit,
     onWebLogin: (EASToken.Campus) -> Unit,
     onAutoLaunch: (EASToken.Campus) -> Unit,
@@ -521,6 +546,21 @@ private fun LoginEASScreen(
                     color = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.padding(start = tokens.spacing.xs)
                 )
+            }
+        }
+        if (selectedCampus == EASToken.Campus.WEIHAI) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                listOf(
+                    EASToken.TYPE.UNDERGRAD to R.string.eas_student_type_undergraduate,
+                    EASToken.TYPE.GRAD to R.string.eas_student_type_graduate,
+                ).forEach { (type, label) ->
+                    RadioButton(
+                        selected = studentType == type,
+                        onClick = { if (!isLoading) onStudentTypeChange(type) },
+                        enabled = !isLoading,
+                    )
+                    Text(stringResource(label))
+                }
             }
         }
 

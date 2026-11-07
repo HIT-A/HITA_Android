@@ -1,6 +1,11 @@
 package cn.limpu.hita.ui.main.homework
 
 import android.app.DatePickerDialog
+import android.app.TimePickerDialog
+import android.content.Intent
+import android.webkit.CookieManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -30,12 +35,15 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import cn.limpu.hita.R
 import cn.limpu.hita.data.model.homework.HomeworkItem
+import cn.limpu.hita.data.repository.grader.GraderState
 import cn.limpu.hita.data.repository.homework.HomeworkState
 import cn.limpu.hita.data.repository.homework.HomeworkStore
 import java.time.LocalDate
+import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -43,6 +51,14 @@ internal fun HomeworkScreen(viewModel: HomeworkViewModel) {
     val state by viewModel.state.observeAsState(HomeworkState())
     val busy by viewModel.busy.observeAsState(false)
     val today by viewModel.today.observeAsState(LocalDate.now().toString())
+    val grader by viewModel.graderState.observeAsState(GraderState())
+    val now by viewModel.now.observeAsState(System.currentTimeMillis())
+    val graderTasks = remember(grader.tasks, now) {
+        grader.tasks.filter { it.dueAt >= now }.sortedBy { it.dueAt }
+    }
+    val graderPending = graderTasks.filterNot { it.completed }
+    val graderCompleted = graderTasks.filter { it.completed }
+    var showGraderCompleted by rememberSaveable(grader.accountId) { mutableStateOf(false) }
     var dateOverride by rememberSaveable { mutableStateOf<String?>(null) }
     var undated by rememberSaveable { mutableStateOf(false) }
     var showCompleted by rememberSaveable { mutableStateOf(false) }
@@ -53,6 +69,9 @@ internal fun HomeworkScreen(viewModel: HomeworkViewModel) {
     var draftDate by rememberSaveable { mutableStateOf(today) }
     var originalDraft by rememberSaveable { mutableStateOf("") }
     var originalDate by rememberSaveable { mutableStateOf(today) }
+    var draftTime by rememberSaveable { mutableStateOf("23:59") }
+    var originalTime by rememberSaveable { mutableStateOf("23:59") }
+    var showTimePicker by rememberSaveable { mutableStateOf(false) }
     var confirmDelete by rememberSaveable { mutableStateOf(false) }
     var confirmDiscard by rememberSaveable { mutableStateOf(false) }
     var pickerDate by rememberSaveable { mutableStateOf<String?>(null) }
@@ -66,6 +85,9 @@ internal fun HomeworkScreen(viewModel: HomeworkViewModel) {
     val completed = daily.filter { it.completed }
     val unplannedCount = state.items.count { it.plannedDate == null }
     val context = LocalContext.current
+    val graderLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+        viewModel.refreshToday()
+    }
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val weekState = rememberLazyListState()
@@ -80,15 +102,17 @@ internal fun HomeworkScreen(viewModel: HomeworkViewModel) {
         editingId = item?.id
         draft = item?.title ?: quickDraft
         draftDate = item?.plannedDate ?: if (undated) today else selectedDate
+        draftTime = item?.plannedTime ?: "23:59"
         originalDraft = draft
         originalDate = draftDate
+        originalTime = draftTime
         editing = true
         confirmDelete = false
         confirmDiscard = false
     }
     fun closeEditor() {
         if (busy) return
-        if (draft != originalDraft || draftDate != originalDate) confirmDiscard = true else editing = false
+        if (draft != originalDraft || draftDate != originalDate || draftTime != originalTime) confirmDiscard = true else editing = false
     }
     fun pickDate(value: String, editor: Boolean = false) {
         pickerForEditor = editor
@@ -120,6 +144,12 @@ internal fun HomeworkScreen(viewModel: HomeworkViewModel) {
     LaunchedEffect(weekStart, selectedDate) {
         weekState.animateScrollToItem((date.dayOfWeek.value - 4).coerceAtLeast(0))
     }
+    LaunchedEffect(graderTasks, now) {
+        graderTasks.firstOrNull()?.let { task ->
+            delay((task.dueAt - now).coerceAtLeast(0L) + 1L)
+            viewModel.refreshToday()
+        }
+    }
     // A saved dialog request is recreated on rotation and dismissed with its composition.
     pickerDate?.let { value ->
         DisposableEffect(value, pickerForEditor) {
@@ -130,6 +160,18 @@ internal fun HomeworkScreen(viewModel: HomeworkViewModel) {
                 pickerDate = null
             }, initial.year, initial.monthValue - 1, initial.dayOfMonth)
             dialog.setOnDismissListener { pickerDate = null }
+            dialog.show()
+            onDispose { dialog.setOnDismissListener(null); dialog.dismiss() }
+        }
+    }
+    if (showTimePicker) {
+        DisposableEffect(Unit) {
+            val initial = LocalTime.parse(draftTime)
+            val dialog = TimePickerDialog(context, { _, hour, minute ->
+                draftTime = LocalTime.of(hour, minute).toString()
+                showTimePicker = false
+            }, initial.hour, initial.minute, true)
+            dialog.setOnDismissListener { showTimePicker = false }
             dialog.show()
             onDispose { dialog.setOnDismissListener(null); dialog.dismiss() }
         }
@@ -301,6 +343,46 @@ internal fun HomeworkScreen(viewModel: HomeworkViewModel) {
                         }
                     }
                 }
+                item(key = "grader-connection") {
+                    GraderConnectionCard(
+                        state = grader,
+                        onLogin = { graderLauncher.launch(Intent(context, GraderLoginActivity::class.java)) },
+                        onRefresh = viewModel::refreshGrader,
+                        onDisconnect = {
+                            viewModel.disconnectGrader {
+                                CookieManager.getInstance().setCookie(
+                                    "https://grader.hitsz.edu.cn",
+                                    "sessionid=; Max-Age=0; Path=/; Secure; HttpOnly",
+                                ) { CookieManager.getInstance().flush() }
+                            }
+                        },
+                        empty = graderTasks.isEmpty(),
+                    )
+                }
+                if (graderPending.isNotEmpty()) {
+                    item(key = "grader-pending-heading") {
+                        Text(stringResource(R.string.grader_pending_count, graderPending.size),
+                            style = MaterialTheme.typography.titleSmall)
+                    }
+                    items(graderPending, key = { "grader-${it.id}" }) { task ->
+                        GraderTaskRow(task, grader.syncing) { viewModel.completeGrader(task.id, it) }
+                    }
+                }
+                if (graderCompleted.isNotEmpty()) {
+                    item(key = "grader-completed-heading") {
+                        TextButton(onClick = { showGraderCompleted = !showGraderCompleted }) {
+                            Text(stringResource(
+                                if (showGraderCompleted) R.string.grader_hide_completed else R.string.grader_completed_count,
+                                graderCompleted.size,
+                            ))
+                        }
+                    }
+                    if (showGraderCompleted) {
+                        items(graderCompleted, key = { "grader-${it.id}" }) { task ->
+                            GraderTaskRow(task, grader.syncing) { viewModel.completeGrader(task.id, it) }
+                        }
+                    }
+                }
             }
             SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).imePadding().padding(bottom = 92.dp))
         }
@@ -322,6 +404,9 @@ internal fun HomeworkScreen(viewModel: HomeworkViewModel) {
                     TextButton(onClick = { pickDate(draftDate, editor = true) }, enabled = !busy) {
                         Text(stringResource(R.string.homework_planned_date, draftDate))
                     }
+                    TextButton(onClick = { showTimePicker = true }, enabled = !busy) {
+                        Text(stringResource(R.string.homework_deadline_time, draftTime))
+                    }
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         TextButton(onClick = { draftDate = today }, enabled = !busy) { Text(stringResource(R.string.homework_today)) }
                         TextButton(onClick = { draftDate = LocalDate.parse(today).plusDays(1).toString() }, enabled = !busy) {
@@ -338,7 +423,7 @@ internal fun HomeworkScreen(viewModel: HomeworkViewModel) {
             },
             confirmButton = {
                 TextButton(enabled = !busy && draft.isNotBlank(), onClick = {
-                    viewModel.save(editingId, draft, draftDate) {
+                    viewModel.save(editingId, draft, draftDate, draftTime) {
                         if (editingId == null) quickDraft = ""
                         selectDate(draftDate)
                         editing = false
@@ -393,12 +478,22 @@ private fun HomeworkRow(item: HomeworkItem, busy: Boolean, onComplete: (Boolean)
                 checked = item.completed, onCheckedChange = onComplete, enabled = !busy,
                 modifier = Modifier.semantics { contentDescription = item.title },
             )
-            Text(
-                item.title,
+            Column(
                 modifier = Modifier.weight(1f).clickable(enabled = !busy, onClick = onEdit).padding(vertical = 12.dp),
-                textDecoration = if (item.completed) TextDecoration.LineThrough else TextDecoration.None,
-                color = if (item.completed) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
-            )
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Text(
+                    item.title,
+                    textDecoration = if (item.completed) TextDecoration.LineThrough else TextDecoration.None,
+                    color = if (item.completed) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
+                )
+                Text(
+                    item.deadlineText?.let { stringResource(R.string.homework_deadline, it) }
+                        ?: stringResource(R.string.homework_no_deadline),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             IconButton(onClick = onEdit, enabled = !busy) {
                 Icon(painterResource(R.drawable.ic_baseline_edit_24), stringResource(R.string.homework_edit),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant)

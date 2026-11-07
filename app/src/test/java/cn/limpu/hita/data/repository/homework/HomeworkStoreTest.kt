@@ -129,4 +129,30 @@ class HomeworkStoreTest {
         assertEquals("2028-02-29", store.add("闰日", 1, "2028-02-29").single().plannedDate)
     }
 
+    @Test fun legacyEndOfDayAndExplicitDeadlineSurviveCompletionAndRestart() {
+        var disk: String? = """[{"id":"legacy","title":"旧作业","createdAt":1,"plannedDate":"2026-10-30"}]"""
+        val store = HomeworkStore({ disk }, { disk = it; true })
+        assertEquals("2026-10-30 23:59", store.load().single().deadlineText)
+        store.edit("legacy", "实验报告", "2026-10-31", "17:05")
+        store.setCompleted("legacy", true)
+        val restored = HomeworkStore({ disk }, { error("read only") }).load().single()
+        assertEquals("2026-10-31 17:05", restored.deadlineText)
+        assertTrue(restored.completed)
+        assertNull(store.add("未安排", 2).last().deadlineText)
+    }
+
+    @Test fun invalidDeadlineTimesNeverOverwriteSavedTasks() {
+        var disk: String? = null
+        val store = HomeworkStore({ disk }, { disk = it; true })
+        store.add("实验报告", 1, "2026-10-30", "00:00")
+        val previous = disk
+        for (time in listOf("", "24:00", "9:00", "12:00:00", "23:59:59")) {
+            assertThrows(Exception::class.java) { store.edit(store.load().single().id, "修改", "2026-10-31", time) }
+            assertEquals(previous, disk)
+        }
+        assertThrows(IllegalArgumentException::class.java) { store.add("没有日期", 2, plannedTime = "12:30") }
+        assertEquals(previous, disk)
+        assertEquals("2026-10-30 00:00", HomeworkStore({ disk }, { true }).load().single().deadlineText)
+    }
+
 }

@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <full-backup-content>
+        <exclude domain="sharedpref" path="grader_secure_v1.xml" />
         <exclude domain="sharedpref" path="usage_analytics.xml" />
         <exclude domain="sharedpref" path="usage_analytics_settings.xml" />
         <exclude domain="sharedpref" path="usage_analytics_session.xml" />

@@ -9,6 +9,10 @@ import androidx.lifecycle.switchMap
 import androidx.lifecycle.viewModelScope
 import com.limpu.component.data.DataState
 import com.limpu.component.data.Trigger
+import cn.limpu.hita.data.model.eas.EASToken
+import cn.limpu.hita.data.model.eas.GraduateFilterOptions
+import cn.limpu.hita.data.model.eas.GraduateSelectionCategory
+import cn.limpu.hita.data.repository.GraduateCourseCatalogRepository
 import cn.limpu.hita.data.model.eas.ShenzhenCourseCatalogPage
 import cn.limpu.hita.data.model.eas.ShenzhenCourseCatalogItem
 import cn.limpu.hita.data.model.eas.ShenzhenCourseCatalogSource
@@ -70,7 +74,8 @@ enum class CourseSelectionCommandFailure {
     SCHEDULE_TOO_FAR,
     CREATION_FAILED,
     CANNOT_CANCEL,
-    CANNOT_CONFIRM
+    CANNOT_CONFIRM,
+    REMOTE_SELECTION_UNSUPPORTED
 }
 
 sealed interface CourseSelectionCommandResult {
@@ -170,10 +175,36 @@ class ShenzhenCourseCatalogViewModel @Inject constructor(
 
     val pools = ShenzhenSelectionPools.all
 
+    /** 实际会话是否为威海研究生；所有研究生分流都读取这一处。 */
+    private val graduateToken: EASToken?
+        get() = easRepo.getEasToken().takeIf {
+            it.isLogin() && it.campus == EASToken.Campus.WEIHAI && it.stutype == EASToken.TYPE.GRAD
+        }
+
+    private val graduateCatalog = GraduateCourseCatalogRepository { easRepo.captureQuerySession() }
+
+    val isGraduateCatalog: Boolean get() = graduateToken != null
+
+    /** 研究生动态选课类别（`xkgzszList`）；仅研究生模式使用。 */
+    val graduateCategories = MutableLiveData<List<GraduateSelectionCategory>>(emptyList())
+    val graduateFilters = MutableLiveData<GraduateFilterOptions?>(null)
+    private val graduateCategoryId = MutableLiveData<String?>(null)
+    private val graduateCampusId = MutableLiveData("")
+    private val graduateCollegeId = MutableLiveData("")
+
     private val termQueries = TermQueryLiveData(viewModelScope, easRepo.querySessions,
-        createRequest = { easRepo.createTermQueryRequest(kind = TermQueryKind.SHENZHEN_SELECTION_WEB) },
+        createRequest = {
+            easRepo.createTermQueryRequest(
+                kind = if (isGraduateCatalog) TermQueryKind.ACADEMIC
+                else TermQueryKind.SHENZHEN_SELECTION_WEB
+            )
+        },
         transform = { session, state -> state.mapTerms {
-            TermUtils.filterTermsForStudent(it, session.grade, session.calendarYear, session.calendarMonth)
+            if (session.campus == EASToken.Campus.WEIHAI && session.studentType == EASToken.TYPE.GRAD) {
+                TermUtils.filterTermsForGraduate(it)
+            } else {
+                TermUtils.filterTermsForStudent(it, session.grade, session.calendarYear, session.calendarMonth)
+            }
         } },
         onSessionChanged = {
             pendingCoursePlanProjection = false
@@ -194,6 +225,11 @@ class ShenzhenCourseCatalogViewModel @Inject constructor(
             followedSectionIdsLiveData.value = emptySet()
             attachmentCourseLiveData.value = null
             historicalFailureRequestLiveData.value = null
+            graduateCategories.value = emptyList()
+            graduateFilters.value = null
+            graduateCategoryId.value = null
+            graduateCampusId.value = ""
+            graduateCollegeId.value = ""
         },
         onResult = { _, state -> if (state.state == DataState.STATE.SUCCESS) reconcileTerms(state.data.orEmpty()) },
     )
@@ -218,21 +254,57 @@ class ShenzhenCourseCatalogViewModel @Inject constructor(
     val followedSectionIdsLiveData = MutableLiveData<Set<String>>(emptySet())
     val startDateLiveData: LiveData<DataState<java.util.Calendar>> = selectedTermLiveData.switchMap { term ->
         if (term == null) MutableLiveData(DataState(DataState.STATE.NOTHING))
-        else {
+        else if (isGraduateCatalog) {
+            val session = easRepo.captureQuerySession()
+            FiniteEasQueryLiveData(viewModelScope, session) { easRepo.getStartDateOfTermOnce(session, term) }
+        } else {
             val session = easRepo.captureQuerySession()
             FiniteEasQueryLiveData(viewModelScope, session) { easRepo.getShenzhenCoursePlanningStartDateOnce(session, term) }
         }
     }
     val scheduleStructureLiveData: LiveData<DataState<MutableList<TimePeriodInDay>>> = selectedTermLiveData.switchMap { term ->
         if (term == null) MutableLiveData(DataState(DataState.STATE.NOTHING))
-        else {
+        else if (isGraduateCatalog) {
+            val session = easRepo.captureQuerySession()
+            FiniteEasQueryLiveData(viewModelScope, session) {
+                easRepo.getScheduleStructureOnce(session, term, isUndergraduate = false)
+            }
+        } else {
             val session = easRepo.captureQuerySession()
             FiniteEasQueryLiveData(viewModelScope, session) { easRepo.getShenzhenCoursePlanningScheduleStructureOnce(session, term) }
         }
     }
     val selectedCoursesLiveData: LiveData<DataState<List<ShenzhenCourseCatalogItem>>> = selectedTermLiveData.switchMap { term ->
         if (term == null) MutableLiveData(DataState(DataState.STATE.NOTHING))
-        else easRepo.sessionBoundData { easRepo.getShenzhenSelectedCourses(term) }
+        else if (isGraduateCatalog) {
+            val session = easRepo.captureQuerySession()
+            FiniteEasQueryLiveData(viewModelScope, session) {
+                graduateCatalog.selectedCourses(session, term).let { state ->
+                    if (state.state != DataState.STATE.SUCCESS) {
+                        DataState(state.state, state.message)
+                    } else {
+                        val selected = state.data
+                        if (selected != null) {
+                            graduateCategories.postValue(selected.categories)
+                            if (graduateCategoryId.value.isNullOrBlank() && selected.categories.isNotEmpty()) {
+                                graduateCategoryId.postValue(selected.categories.first().id)
+                                submitQuery(page = 1)
+                            } else if (graduateCategoryId.value == null && selected.categories.isEmpty()) {
+                                // 无动态类别时用空类别查询参数，但仍需发起一次候选查询。
+                                graduateCategoryId.postValue("")
+                                submitQuery(page = 1)
+                            }
+                        }
+                        DataState(
+                            selected?.rows.orEmpty().map { row ->
+                                GraduateCourseCatalogRepository.card(row, selected?.categories?.find { it.id == row.selectionMode })
+                            },
+                            DataState.STATE.SUCCESS,
+                        )
+                    }
+                }
+            }
+        } else easRepo.sessionBoundData { easRepo.getShenzhenSelectedCourses(term) }
     }
     val courseSelectionDraftLiveData = MutableLiveData<CourseSelectionDraft?>()
     val coursePlanActionLiveData = MediatorLiveData<DataState<CourseSelectionDraft>>()
@@ -259,7 +331,35 @@ class ShenzhenCourseCatalogViewModel @Inject constructor(
 
     val coursesLiveData: LiveData<DataState<ShenzhenCourseCatalogPage>> = queryLiveData.switchMap { query ->
         if (query == null) return@switchMap MutableLiveData(DataState(DataState.STATE.NOTHING))
-        easRepo.sessionBoundData { when (query.source) {
+        if (isGraduateCatalog) {
+            val session = easRepo.captureQuerySession()
+            FiniteEasQueryLiveData(viewModelScope, session) {
+                val state = when (query.source) {
+                    ShenzhenCourseCatalogSource.AVAILABLE -> graduateCatalog.candidates(
+                        term = query.term,
+                        categoryId = graduateCategoryId.value.orEmpty(),
+                        keyword = query.keyword,
+                        campusId = graduateCampusId.value.orEmpty(),
+                        collegeId = graduateCollegeId.value.orEmpty(),
+                        page = query.page,
+                        session = session,
+                    )
+                    ShenzhenCourseCatalogSource.SCHOOL -> graduateCatalog.schoolCourses(
+                        term = query.term,
+                        keyword = query.keyword,
+                        campusId = graduateCampusId.value.orEmpty(),
+                        page = query.page,
+                        session = session,
+                    )
+                }
+                if (state.state == DataState.STATE.SUCCESS) {
+                    DataState(
+                        GraduateCourseCatalogRepository.catalogPage(state.data!!, graduateCategories.value.orEmpty()),
+                        DataState.STATE.SUCCESS,
+                    )
+                } else DataState(state.state, state.message)
+            }
+        } else easRepo.sessionBoundData { when (query.source) {
             ShenzhenCourseCatalogSource.AVAILABLE -> easRepo.queryShenzhenAvailableCourses(
                 query.term,
                 query.pool,
@@ -338,6 +438,30 @@ class ShenzhenCourseCatalogViewModel @Inject constructor(
         followedSectionIdsLiveData.value = timetableRepository.followedSchoolSectionIds(term)
         courseSelectionDraftLiveData.value = timetableRepository.courseSelectionDraft(term)
         submitQuery(page = if (resetPage) 1 else queryLiveData.value?.page ?: 1)
+    }
+
+    fun selectGraduateCategory(categoryId: String) {
+        graduateCategoryId.value = categoryId
+        submitQuery(page = 1)
+    }
+
+    fun selectGraduateCampus(campusId: String) {
+        graduateCampusId.value = campusId
+        submitQuery(page = 1)
+    }
+
+    fun selectGraduateCollege(collegeId: String) {
+        graduateCollegeId.value = collegeId
+        submitQuery(page = 1)
+    }
+
+    fun loadGraduateFilters() {
+        val term = selectedTermDisplay.current() ?: return
+        val session = easRepo.captureQuerySession()
+        viewModelScope.launch {
+            val state = graduateCatalog.filters(term, session)
+            if (state.state == DataState.STATE.SUCCESS) graduateFilters.value = state.data
+        }
     }
 
     fun selectSource(source: ShenzhenCourseCatalogSource) {
@@ -467,6 +591,7 @@ class ShenzhenCourseCatalogViewModel @Inject constructor(
     }
 
     fun loadAttachments(course: ShenzhenCourseCatalogItem) {
+        if (isGraduateCatalog) return
         attachmentCourseLiveData.value = course
     }
 
@@ -477,6 +602,7 @@ class ShenzhenCourseCatalogViewModel @Inject constructor(
     }
 
     fun loadHistoricalFailureRates(course: ShenzhenCourseCatalogItem): Boolean {
+        if (isGraduateCatalog) return false
         val term = selectedTermDisplay.current() ?: return false
         historicalFailureRequestLiveData.value = ShenzhenHistoricalFailureRequest(
             course = course,
@@ -683,9 +809,20 @@ class ShenzhenCourseCatalogViewModel @Inject constructor(
         )
     }
 
+    /** 研究生候选按服务端动态类别选择，不使用深圳静态课程池。 */
+    fun graduateSelectionCategories(): List<GraduateSelectionCategory> =
+        graduateCategories.value.orEmpty().ifEmpty {
+            listOf(GraduateSelectionCategory("", "全部类别"))
+        }
+
     private fun createSelectionJob(
         create: (TermItem, ShenzhenSelectionPool, List<ShenzhenCourseCatalogItem>) -> CourseSelectionJob
     ): CourseSelectionCommandResult {
+        if (isGraduateCatalog) {
+            return publishSelectionCommand(CourseSelectionCommandResult.Rejected(
+                CourseSelectionCommandFailure.REMOTE_SELECTION_UNSUPPORTED
+            ))
+        }
         val term = selectedTermDisplay.current() ?: return publishSelectionCommand(
             CourseSelectionCommandResult.Rejected(CourseSelectionCommandFailure.NO_TERM)
         )

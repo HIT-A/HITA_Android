@@ -33,7 +33,8 @@ internal object EasSessionGenerationGuard {
      * 任一侧还没有账号标识时返回 false，刷新中的同一会话仍可补齐空字段。
      */
     fun blocksStoredSessionInheritance(stored: EASToken, incoming: EASToken): Boolean {
-        if (!stored.isLogin() || stored.campus != incoming.campus) return true
+        if (!stored.isLogin() || stored.campus != incoming.campus ||
+            stored.campus == EASToken.Campus.WEIHAI && stored.stutype != incoming.stutype) return true
         val storedAccount = stored.accountIdentity()
         val incomingAccount = incoming.accountIdentity()
         return storedAccount != null &&
@@ -42,7 +43,8 @@ internal object EasSessionGenerationGuard {
     }
 
     private fun representsSameAccountSession(stored: EASToken, incoming: EASToken): Boolean {
-        if (!stored.isLogin() || !incoming.isLogin() || stored.campus != incoming.campus) return false
+        if (!stored.isLogin() || !incoming.isLogin() || stored.campus != incoming.campus ||
+            stored.campus == EASToken.Campus.WEIHAI && stored.stutype != incoming.stutype) return false
 
         val storedAccount = stored.accountIdentity()
         val incomingAccount = incoming.accountIdentity()

@@ -15,6 +15,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import cn.limpu.hita.R
 import cn.limpu.hita.data.repository.homework.HomeworkRepository
+import cn.limpu.hita.data.repository.grader.GraderRepository
 import cn.limpu.hita.ui.design.HitaComposeTheme
 import androidx.activity.ComponentActivity
 import java.time.LocalDate
@@ -34,8 +35,9 @@ class HomeworkUiInstrumentedTest {
         val preferenceName = "homework-ui-" + UUID.randomUUID()
         val isolatedApp = object : Application() {
             init { attachBaseContext(base) }
+            override fun getApplicationContext(): Context = this
             override fun getSharedPreferences(name: String, mode: Int): SharedPreferences =
-                base.getSharedPreferences(preferenceName, mode)
+                base.getSharedPreferences("$preferenceName-$name", mode)
         }
         val repository = HomeworkRepository(isolatedApp)
         val today = LocalDate.now()
@@ -48,7 +50,8 @@ class HomeworkUiInstrumentedTest {
                 scenario.onActivity { activity ->
                     val model = ViewModelProvider(activity, object : ViewModelProvider.Factory {
                         @Suppress("UNCHECKED_CAST")
-                        override fun <T : ViewModel> create(modelClass: Class<T>): T = HomeworkViewModel(repository) as T
+                        override fun <T : ViewModel> create(modelClass: Class<T>): T =
+                            HomeworkViewModel(repository, GraderRepository(isolatedApp)) as T
                     })[HomeworkViewModel::class.java]
                     activity.setContentView(ComposeView(activity).apply {
                         setContent { HitaComposeTheme { HomeworkScreen(model) } }
@@ -111,7 +114,8 @@ class HomeworkUiInstrumentedTest {
                 assertFalse(hasText("fixture-undated"))
             }
         } finally {
-            base.deleteSharedPreferences(preferenceName)
+            base.deleteSharedPreferences("$preferenceName-timeline_homework_v1")
+            base.deleteSharedPreferences("$preferenceName-grader_secure_v1")
         }
     }
 

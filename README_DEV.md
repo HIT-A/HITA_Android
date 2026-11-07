@@ -94,6 +94,15 @@ app 通过项目依赖使用 timetable-core 产出的 JAR；分享协议与比�
 - **主线程网络**：所有 EAS / Retrofit 调用必须在协程中执行
 - **硬编码中文**：UI 文案放 `strings.xml`（当前仅中文 `values/`）
 
+## 教务登录与 Grader 待办
+
+- 威海登录可选择本科生或研究生。研究生使用独立教务入口及 `/user/me` 身份验证，不要求浏览器提供内层 JSESSIONID；目前只接入认证和身份恢复，尚未支持的研究生教务查询明确提示不支持，不转发到本科网站。
+- 手动待办在内容下显示完整截止日期与时分，编辑时可选择时间；只有日期的旧记录按当天 23:59 截止，没有日期的旧记录仍保留为未安排。
+- 待办页的 Grader 区域通过学校统一认证单独登录，按账号读取所有课程的完整作业集合，只显示已发布且未过期的任务，不受手动待办所选日期限制。截止时间按北京时间展示；勾选完成只保存本地状态，不会向网站提交作业。
+- Grader 会话、缓存和按账号隔离的完成状态采用加密偏好原子保存，排除云备份及设备迁移；不会保存统一认证密码。刷新失败保留已有数据，过期会话需要重新登录。
+
+协议依据、验收记录和未验证范围见[威海研究生登录与 Grader 待办设计](docs/superpowers/specs/2026-11-07-weihai-graduate-grader-todos-design.md)。
+
 ## 文档与构建产物
 
 完整架构与开发约定见 `CLAUDE.md`（Codex 适配副本为 `AGENTS.md`，内容一致）。使用统计契约和验证范围见 [统计 v2](docs/analytics-v2.md)。课表分享、双人对比与课表管理重构的交付说明见 [docs/timetable-sharing.md](docs/timetable-sharing.md)、[docs/timetable-comparison.md](docs/timetable-comparison.md) 和 [docs/timetable-display-management.md](docs/timetable-display-management.md)。设计说明保留在 `docs/superpowers/specs/`；已完成的用户反馈实施清单已从当前树移除，未实施的字体计划保留。

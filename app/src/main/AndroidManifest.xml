@@ -135,6 +135,7 @@
         <activity android:name=".ui.timetable.friend.FriendTimetableDetailActivity" android:exported="false" />
         <activity android:name=".ui.timetable.share.TimetableShareActivity" android:exported="false" />
         <activity android:name=".ui.main.timetable.compare.TimetableComparisonActivity" android:exported="false" />
+        <activity android:name=".ui.main.homework.GraderLoginActivity" android:exported="false" />
         <activity
             android:name=".ui.ActivitySplash"
             android:exported="false"

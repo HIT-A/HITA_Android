@@ -46,7 +46,13 @@ class ScoreInquiryViewModel @Inject constructor(
     private val termQueries = TermQueryLiveData(viewModelScope, easRepo.querySessions,
         createRequest = { easRepo.createTermQueryRequest() },
         transform = { session, state -> state.mapTerms {
-            TermUtils.filterTermsForStudent(it, session.grade, session.calendarYear, session.calendarMonth)
+            if (session.campus == cn.limpu.hita.data.model.eas.EASToken.Campus.WEIHAI &&
+                session.studentType == cn.limpu.hita.data.model.eas.EASToken.TYPE.GRAD
+            ) {
+                TermUtils.filterTermsForGraduate(it)
+            } else {
+                TermUtils.filterTermsForStudent(it, session.grade, session.calendarYear, session.calendarMonth)
+            }
         } },
         onSessionChanged = {
             savedStateHandle.remove<String>(STATE_SELECTED_TERM_ID)

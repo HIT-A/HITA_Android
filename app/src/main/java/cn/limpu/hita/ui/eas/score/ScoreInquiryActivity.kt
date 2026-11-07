@@ -308,6 +308,9 @@ private fun ScoreInquiryScreen(
     val selectedTerm = selectedTermDisplay?.toTermItem()
     val selectedTestType by viewModel.selectedTestTypeLiveData.observeAsState()
     val scoresState by viewModel.scoresLiveData.observeAsState()
+    val termsState by viewModel.termsLiveData.observeAsState()
+    val queryMessage = termsState?.takeIf { it.state == DataState.STATE.FETCH_FAILED }?.message
+        ?: scoresState?.takeIf { it.state == DataState.STATE.FETCH_FAILED }?.message
     val summary by viewModel.scoreSummaryLiveData.observeAsState()
     val localEstimate by viewModel.localScoreLiveData.observeAsState()
     val scores = scoresState?.data.orEmpty()
@@ -380,7 +383,7 @@ private fun ScoreInquiryScreen(
                 }
                 if (showEmpty && scores.isEmpty() && !isRefreshing) {
                     item {
-                        ScoreEmptyView()
+                        ScoreEmptyView(queryMessage)
                     }
                 }
                 if (scores.isNotEmpty()) {
@@ -656,7 +659,7 @@ private fun ScoreReminderCard(
 }
 
 @Composable
-private fun ScoreEmptyView() {
+private fun ScoreEmptyView(message: String?) {
     val tokens = HitaTheme.tokens
     Column(
         modifier = Modifier
@@ -683,7 +686,7 @@ private fun ScoreEmptyView() {
             )
         }
         Text(
-            text = stringResource(R.string.no_info),
+            text = message?.takeIf { it.isNotBlank() } ?: stringResource(R.string.no_info),
             modifier = Modifier.padding(top = tokens.spacing.md),
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )

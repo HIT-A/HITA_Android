@@ -49,6 +49,14 @@ object TermUtils {
     }
 
     /**
+     * 研究生学期列表直接采用教务权威结果。
+     *
+     * 研究生身份不含本科年级信息，套用“最近 4 年”会隐藏更早的历史学期；
+     * 顺序也保留服务端当前的权威排列（当前学期由 `isCurrent` 标记）。
+     */
+    fun filterTermsForGraduate(allTerms: List<TermItem>): List<TermItem> = allTerms
+
+    /**
      * Filter terms for timetable import. The academic system may expose a
      * newly opened future term before marking it as the current term, so the
      * current-term upper bound used by score/exam history must not apply here.

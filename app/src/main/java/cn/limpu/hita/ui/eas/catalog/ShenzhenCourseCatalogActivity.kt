@@ -82,6 +82,8 @@ import cn.limpu.hita.data.model.eas.CourseSelectionCourseStatus
 import cn.limpu.hita.data.model.eas.CourseSelectionJob
 import cn.limpu.hita.data.model.eas.CourseSelectionJobStatus
 import cn.limpu.hita.data.model.eas.EASToken
+import cn.limpu.hita.data.model.eas.GraduateFilterOptions
+import cn.limpu.hita.data.model.eas.GraduateSelectionCategory
 import cn.limpu.hita.data.model.eas.ShenzhenCourseCatalogItem
 import cn.limpu.hita.data.model.eas.ShenzhenCourseCatalogPage
 import cn.limpu.hita.data.model.eas.ShenzhenCourseCatalogSource
@@ -189,6 +191,9 @@ class ShenzhenCourseCatalogActivity :
                     val selectedSubmissionCourses by
                         viewModel.selectedSubmissionCoursesLiveData.observeAsState(emptyList())
                     val selectionJobs by viewModel.selectionJobsLiveData.observeAsState(emptyList())
+                    val graduateCategories by viewModel.graduateCategories.observeAsState(emptyList())
+                    val graduateFilters by viewModel.graduateFilters.observeAsState()
+                    val graduateMode = viewModel.isGraduateCatalog
 
                     ShenzhenCourseCatalogScreen(
                         uiState = uiState,
@@ -204,6 +209,9 @@ class ShenzhenCourseCatalogActivity :
                         selectedForSubmission = selectedForSubmission,
                         selectedSubmissionCourses = selectedSubmissionCourses,
                         selectionJobs = selectionJobs,
+                        graduateMode = graduateMode,
+                        graduateCategories = graduateCategories,
+                        graduateFilters = graduateFilters,
                         notificationPermissionGranted = notificationPermissionGranted,
                         onBack = { finish() },
                         onRefresh = { refresh() },
@@ -215,6 +223,10 @@ class ShenzhenCourseCatalogActivity :
                         onSelectTerm = { showTermPicker() },
                         onSelectPool = { showPoolPicker() },
                         onSelectStudentType = { showStudentTypePicker() },
+                        onSelectGraduateCategory = viewModel::selectGraduateCategory,
+                        onSelectGraduateCampus = viewModel::selectGraduateCampus,
+                        onSelectGraduateCollege = viewModel::selectGraduateCollege,
+                        onLoadGraduateFilters = viewModel::loadGraduateFilters,
                         onRecommend = { openCourseRecommendation() },
                         onShowCoursePlan = { showCoursePlan() },
                         onCoursePlanConflict = viewModel::coursePlanConflict,
@@ -486,6 +498,8 @@ class ShenzhenCourseCatalogActivity :
                         getString(R.string.course_selection_schedule_range_error)
                     CourseSelectionCommandFailure.CREATION_FAILED ->
                         getString(R.string.course_selection_job_creation_failed)
+                    CourseSelectionCommandFailure.REMOTE_SELECTION_UNSUPPORTED ->
+                        getString(R.string.graduate_catalog_remote_submission_unsupported)
                     CourseSelectionCommandFailure.CANNOT_CANCEL ->
                         getString(R.string.course_selection_job_cannot_cancel)
                     CourseSelectionCommandFailure.CANNOT_CONFIRM ->
@@ -503,14 +517,17 @@ class ShenzhenCourseCatalogActivity :
     }
 
     private fun connectWebSession() {
+        val graduate = easRepository.getEasToken().let {
+            it.campus == EASToken.Campus.WEIHAI && it.stutype == EASToken.TYPE.GRAD
+        }
         ActivityUtils.showEasVerifyWindow<Activity>(
             this,
             easRepository,
-            preferredCampus = EASToken.Campus.SHENZHEN,
+            preferredCampus = if (graduate) EASToken.Campus.WEIHAI else EASToken.Campus.SHENZHEN,
             onResponseListener = object : PopUpLoginEAS.OnResponseListener {
                 override fun onSuccess(window: PopUpLoginEAS) {
                     window.dismiss()
-                    if (easRepository.hasShenzhenWebSession()) {
+                    if (graduate || easRepository.hasShenzhenWebSession()) {
                         refresh()
                     } else {
                         Toast.makeText(
@@ -596,6 +613,7 @@ class ShenzhenCourseCatalogActivity :
     }
 
     private fun showCourseActions(course: ShenzhenCourseCatalogItem) {
+        if (viewModel.isGraduateCatalog) return
         showCourseAttachments(course)
     }
 
@@ -687,6 +705,9 @@ private fun ShenzhenCourseCatalogScreen(
     selectedForSubmission: Set<String>,
     selectedSubmissionCourses: List<ShenzhenCourseCatalogItem>,
     selectionJobs: List<CourseSelectionJob>,
+    graduateMode: Boolean = false,
+    graduateCategories: List<GraduateSelectionCategory> = emptyList(),
+    graduateFilters: GraduateFilterOptions? = null,
     notificationPermissionGranted: Boolean,
     onBack: () -> Unit,
     onRefresh: () -> Unit,
@@ -698,6 +719,10 @@ private fun ShenzhenCourseCatalogScreen(
     onSelectTerm: () -> Unit,
     onSelectPool: () -> Unit,
     onSelectStudentType: () -> Unit,
+    onSelectGraduateCategory: (String) -> Unit = {},
+    onSelectGraduateCampus: (String) -> Unit = {},
+    onSelectGraduateCollege: (String) -> Unit = {},
+    onLoadGraduateFilters: () -> Unit = {},
     onRecommend: () -> Unit,
     onShowCoursePlan: () -> Unit,
     onCoursePlanConflict: (ShenzhenCourseCatalogItem) -> String?,
@@ -740,6 +765,9 @@ private fun ShenzhenCourseCatalogScreen(
         CatalogUiState.Loading -> null
     }
     var keyword by remember(query?.keyword) { mutableStateOf(query?.keyword.orEmpty()) }
+    var selectedGraduateCategory by remember(graduateCategories) {
+        mutableStateOf(graduateCategories.firstOrNull()?.id.orEmpty())
+    }
     var showImmediateConfirmation by remember { mutableStateOf(false) }
     var showScheduleDatePicker by remember { mutableStateOf(false) }
     var scheduledDateMillis by remember { mutableStateOf<Long?>(null) }
@@ -861,8 +889,8 @@ private fun ShenzhenCourseCatalogScreen(
                 verticalArrangement = Arrangement.spacedBy(tokens.spacing.sm)
             ) {
                 selectionJobItems(
-                    activeJobs = activeSelectionJobs,
-                    terminalJobs = terminalSelectionJobs,
+                    activeJobs = if (graduateMode) emptyList() else activeSelectionJobs,
+                    terminalJobs = if (graduateMode) emptyList() else terminalSelectionJobs,
                     onCancel = onCancelSelectionJob,
                     onReconfirm = onConfirmSelectionJob
                 )
@@ -892,7 +920,12 @@ private fun ShenzhenCourseCatalogScreen(
             FilterChip(
                 selected = source == ShenzhenCourseCatalogSource.AVAILABLE,
                 onClick = { onSelectSource(ShenzhenCourseCatalogSource.AVAILABLE) },
-                label = { Text("教务选课池") },
+                label = {
+                    Text(
+                        if (graduateMode) stringResource(R.string.graduate_catalog_source_candidates)
+                        else "教务选课池"
+                    )
+                },
                 modifier = Modifier.weight(1f)
             )
             FilterChip(
@@ -903,7 +936,13 @@ private fun ShenzhenCourseCatalogScreen(
             )
         }
         Text(
-            text = if (source == ShenzhenCourseCatalogSource.AVAILABLE) {
+            text = if (graduateMode) {
+                if (source == ShenzhenCourseCatalogSource.AVAILABLE) {
+                    stringResource(R.string.graduate_catalog_candidates_hint)
+                } else {
+                    stringResource(R.string.graduate_catalog_school_hint)
+                }
+            } else if (source == ShenzhenCourseCatalogSource.AVAILABLE) {
                 "学校选课任务池 · “必修”是课程性质，不代表你的个人必修"
             } else {
                 "深圳 Web 教务 · 全校开课数据，只读浏览"
@@ -915,7 +954,15 @@ private fun ShenzhenCourseCatalogScreen(
 
         CatalogFilters(
             termName = term?.let(TermNameFormatter::fullTermName) ?: "选择学期",
-            secondaryName = if (source == ShenzhenCourseCatalogSource.AVAILABLE) {
+            secondaryName = if (graduateMode) {
+                if (source == ShenzhenCourseCatalogSource.AVAILABLE) {
+                    graduateCategories.firstOrNull { it.id == selectedGraduateCategory }?.name
+                        ?: graduateCategories.firstOrNull()?.name
+                        ?: stringResource(R.string.graduate_catalog_all_categories)
+                } else {
+                    "研究生"
+                }
+            } else if (source == ShenzhenCourseCatalogSource.AVAILABLE) {
                 pool?.name ?: "选择课程类型"
             } else if (studentType == "2") {
                 "研究生"
@@ -926,21 +973,39 @@ private fun ShenzhenCourseCatalogScreen(
             onKeywordChange = { keyword = it },
             onSearch = { onSearch(keyword) },
             onSelectTerm = onSelectTerm,
-            onSelectSecondary = if (source == ShenzhenCourseCatalogSource.AVAILABLE) {
-                onSelectPool
-            } else {
-                onSelectStudentType
+            onSelectSecondary = when {
+                graduateMode && source == ShenzhenCourseCatalogSource.SCHOOL -> onLoadGraduateFilters
+                graduateMode -> {
+                    val category = graduateCategories.firstOrNull { it.id == selectedGraduateCategory }
+                        ?: graduateCategories.firstOrNull()
+                    ({
+                        if (category != null) onSelectGraduateCategory(category.id)
+                    })
+                }
+                source == ShenzhenCourseCatalogSource.AVAILABLE -> onSelectPool
+                else -> onSelectStudentType
             },
             modifier = Modifier.padding(horizontal = tokens.spacing.lg, vertical = tokens.spacing.sm)
         )
 
-        Button(
-            onClick = onRecommend,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = tokens.spacing.lg, vertical = tokens.spacing.xs)
-        ) {
-            Text("智能选课推荐")
+        if (graduateMode) {
+            Text(
+                text = stringResource(R.string.graduate_catalog_read_only_hint),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 12.sp,
+                modifier = Modifier.padding(horizontal = tokens.spacing.xl)
+            )
+        }
+
+        if (!graduateMode) {
+            Button(
+                onClick = onRecommend,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = tokens.spacing.lg, vertical = tokens.spacing.xs)
+            ) {
+                Text("智能选课推荐")
+            }
         }
         OutlinedButton(
             onClick = onShowCoursePlan,
@@ -971,8 +1036,8 @@ private fun ShenzhenCourseCatalogScreen(
             verticalArrangement = Arrangement.spacedBy(tokens.spacing.sm)
         ) {
             selectionJobItems(
-                activeJobs = activeSelectionJobs,
-                terminalJobs = terminalSelectionJobs,
+                activeJobs = if (graduateMode) emptyList() else activeSelectionJobs,
+                terminalJobs = if (graduateMode) emptyList() else terminalSelectionJobs,
                 onCancel = onCancelSelectionJob,
                 onReconfirm = onConfirmSelectionJob
             )
@@ -990,7 +1055,7 @@ private fun ShenzhenCourseCatalogScreen(
                         followed = item.taskId.ifBlank { item.id } in followedSectionIds,
                         selectedInEas = item.taskId.ifBlank { item.id } in selectedCourseIds,
                         inCoursePlan = item.taskId.ifBlank { item.id } in coursePlanDraft?.courseIds.orEmpty(),
-                        conflictMessage = if (item.source == ShenzhenCourseCatalogSource.AVAILABLE) {
+                        conflictMessage = if (item.source == ShenzhenCourseCatalogSource.AVAILABLE || graduateMode) {
                             onCoursePlanConflict(item)
                         } else {
                             null
@@ -1025,7 +1090,7 @@ private fun ShenzhenCourseCatalogScreen(
                 }
             }
         }
-        if (source == ShenzhenCourseCatalogSource.AVAILABLE) {
+        if (source == ShenzhenCourseCatalogSource.AVAILABLE && !graduateMode) {
             SelectionActionBar(
                 selectedCount = selectedSubmissionCourses.size,
                 onSubmitNow = { showImmediateConfirmation = true },
@@ -1702,6 +1767,18 @@ private fun CourseCatalogCard(
                     Text("${item.credits} 学分", color = MaterialTheme.colorScheme.primary)
                 }
                 if (item.source == ShenzhenCourseCatalogSource.SCHOOL) {
+                    TextButton(
+                        onClick = onToggleCoursePlan,
+                        enabled = !selectedInEas
+                    ) {
+                        Text(
+                            when {
+                                selectedInEas -> "教务已选"
+                                inCoursePlan -> "已加入"
+                                else -> "加入预览"
+                            }
+                        )
+                    }
                     TextButton(
                         onClick = onToggleFollow,
                         enabled = followed || item.isFollowable
