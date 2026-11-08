@@ -249,12 +249,14 @@ flowchart TD
 | `style/src/main/AndroidManifest.xml` | 去掉 `usesCleartextTraffic`（由 app 合并后的配置生效） |
 | `app/src/main/res/xml/analytics_backup_rules.xml`、`analytics_data_extraction_rules.xml` | 补敏感偏好与 cookie jar 排除 |
 | `app/src/main/java/cn/limpu/hita/data/repository/AiSettingsRepository.kt` | 去除明文回退 + 明文迁移 |
-| `app/src/main/java/cn/limpu/hita/data/source/preference/EasPreferenceSource.kt` | 加密偏好失败日志区分；保持内存降级 |
+| `app/src/main/java/cn/limpu/hita/data/source/preference/EasPreferenceSource.kt` | 复用共享的 `InMemorySharedPreferences`，删除原先重复的私有实现（降级策略不变） |
 | `app/src/main/java/cn/limpu/hita/data/source/preference/EasCredentialStore.kt` | 加密偏好打开失败安全降级（不抛） |
 | `app/src/main/java/cn/limpu/hita/utils/LogRedaction.kt` | 新增集中脱敏工具 |
 | `app/src/main/java/cn/limpu/hita/ui/eas/login/WebViewSecurityPolicy.kt` | 新增 WebView 安全策略 |
 | `app/src/main/java/cn/limpu/hita/ui/eas/login/WebViewLoginActivity.kt` | WebView 基线设置、SSL 错误处理、弹窗导航收窄、日志脱敏 |
 | `app/src/main/java/cn/limpu/hita/ui/notice/InfoPortalLoginActivity.kt` | WebView 基线设置、SSL 错误处理、导航收窄 |
+| `app/src/main/java/cn/limpu/hita/ui/main/homework/GraderLoginActivity.kt` | 补 `onReceivedSslError` 取消加载并复用现有错误提示 |
+| `app/src/main/java/cn/limpu/hita/data/source/preference/InMemorySharedPreferences.kt` | 新增：加密存储不可用时统一的进程内偏好实现 |
 | 对应测试 | 见第 5 节 |
 
 不修改（文件所有权之外，泄露点已在 SEC-05 列出交接）：`EASRepository.kt`、`data/source/web/eas/*.kt`、`TimetableRepository`、WorkManager workers、公共测试框架、GitHub Actions。
@@ -372,8 +374,8 @@ flowchart TD
 | 用例 | 结果 |
 |---|---|
 | `LogRedactionTest`（11 例） | PASS |
-| `WebViewSecurityPolicyTest`（10 例） | PASS |
-| `AiSettingsStoragePolicyTest`（5 例） | PASS |
+| `WebViewSecurityPolicyTest`（9 例） | PASS |
+| `AiSettingsStoragePolicyTest`（6 例） | PASS |
 | `SecurityResourceRulesTest`（7 例） | PASS |
 | `GraderSessionPolicyTest`（6 例，新增） | PASS |
 | `:app:testDebugUnitTest` 全量（165 个测试类） | PASS，0 failure / 0 error |
