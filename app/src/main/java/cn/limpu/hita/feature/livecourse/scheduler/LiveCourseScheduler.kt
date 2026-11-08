@@ -19,6 +19,7 @@ import cn.limpu.hita.feature.livecourse.settings.LiveCourseSettings
 import cn.limpu.hita.ui.main.MainActivity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import java.time.Instant
@@ -43,7 +44,6 @@ class LiveCourseScheduler(context: Context) {
             cancel()
             return
         }
-        LiveCourseWork.ensurePeriodic(appContext)
 
         val application = appContext as? Application ?: return
         val repository = TimetableRepository(application)
@@ -191,21 +191,32 @@ class LiveCourseScheduler(context: Context) {
             val scheduler = LiveCourseScheduler(context)
             if (!LiveCourseSettings(context).isEnabled()) {
                 reconcileGeneration.incrementAndGet()
+                synchronized(scheduleLock) { reconcileJob?.cancel(); reconcileJob = null }
                 scheduler.cancel()
                 return
             }
             val generation = reconcileGeneration.incrementAndGet()
             // This entry point is also called directly by the Compose settings switch. The
             // timetable repository performs synchronous Room reads, so it must never run on UI.
-            CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
-                try {
-                    scheduler.reconcile(generation = generation)
-                } catch (error: Exception) {
-                    cn.limpu.hita.utils.LogUtils.e("Live course reconcile failed", error)
+            // One shared scope with a single cancelable job replaces the previous per-call
+            // `CoroutineScope` objects, which were never cancelled and accumulated per trigger.
+            synchronized(scheduleLock) {
+                reconcileJob?.cancel()
+                reconcileJob = scheduleScope.launch {
+                    try {
+                        scheduler.reconcile(generation = generation)
+                    } catch (error: kotlinx.coroutines.CancellationException) {
+                        throw error
+                    } catch (error: Exception) {
+                        cn.limpu.hita.utils.LogUtils.e("Live course reconcile failed", error)
+                    }
                 }
             }
         }
 
         private val reconcileGeneration = AtomicInteger(0)
+        private val scheduleLock = Any()
+        private val scheduleScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        @Volatile private var reconcileJob: Job? = null
     }
 }

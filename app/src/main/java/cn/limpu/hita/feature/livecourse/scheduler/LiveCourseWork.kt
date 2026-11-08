@@ -16,13 +16,21 @@ internal object LiveCourseWork {
     private const val PERIODIC_NAME = "live_course_reconcile_periodic"
     private const val TRANSITION_NAME = "live_course_next_transition"
 
+    // The guard service reconciles every 60 s. `enqueueUniquePeriodicWork` is two IPC round trips
+    // to WorkManager even when the stored request is kept, so remember what this process already
+    // enqueued. Cancellation clears the marker, which is the only path that removes the request.
+    @Volatile private var periodicEnqueued = false
+
+    @Synchronized
     fun ensurePeriodic(context: Context) {
+        if (periodicEnqueued) return
         val request = PeriodicWorkRequestBuilder<LiveCourseWorker>(15, TimeUnit.MINUTES).build()
         WorkManager.getInstance(context).enqueueUniquePeriodicWork(
             PERIODIC_NAME,
             ExistingPeriodicWorkPolicy.KEEP,
             request,
         )
+        periodicEnqueued = true
     }
 
     fun scheduleTransition(context: Context, triggerAtMillis: Long) {
@@ -41,9 +49,11 @@ internal object LiveCourseWork {
         WorkManager.getInstance(context).cancelUniqueWork(TRANSITION_NAME)
     }
 
+    @Synchronized
     fun cancel(context: Context) {
         cancelTransition(context)
         WorkManager.getInstance(context).cancelUniqueWork(PERIODIC_NAME)
+        periodicEnqueued = false
     }
 }
 

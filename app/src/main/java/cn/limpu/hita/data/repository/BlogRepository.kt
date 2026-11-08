@@ -9,19 +9,34 @@ import cn.limpu.hita.data.model.blog.BlogArticle
 import cn.limpu.hita.data.source.preference.BlogPreferenceSource
 import cn.limpu.hita.data.source.web.blog.BlogFeedParser
 import cn.limpu.hita.utils.LogUtils
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import java.util.concurrent.Executors
+import java.io.IOException
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
 
+/**
+ * Blog feed storage.
+ *
+ * Every operation runs on [scope]: a single-thread executor was replaced because retry backoff
+ * used `Thread.sleep`, which parked the only worker for 4.5 s and queued user-initiated article
+ * reads behind a feed download that may last 150 s.
+ */
 @Singleton
 class BlogRepository @Inject constructor(application: Application) {
     private val appContext = application.applicationContext
     private val dao = AppDatabase.getDatabase(application).blogArticleDao()
     private val prefs = BlogPreferenceSource(appContext)
-    private val executor = Executors.newSingleThreadExecutor()
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val httpClient by lazy {
         OkHttpClient.Builder()
             .connectTimeout(30, TimeUnit.SECONDS)
@@ -49,11 +64,16 @@ class BlogRepository @Inject constructor(application: Application) {
     @Volatile
     private var articleCache: List<BlogArticle> = emptyList()
 
+    /** Only one refresh may run: a newer request supersedes the older one, like `REPLACE` work. */
+    private var refreshJob: Job? = null
+
     init {
-        executor.execute {
+        scope.launch {
             try {
                 articleCache = dao.getAll()
                 publishUnseenLocked()
+            } catch (error: CancellationException) {
+                throw error
             } catch (e: Exception) {
                 LogUtils.e("blog cache load failed", e)
                 _syncErrorLiveData.postValue(e.message ?: "sync failed")
@@ -69,7 +89,7 @@ class BlogRepository @Inject constructor(application: Application) {
     }
 
     fun loadArticle(guid: String, callback: (BlogArticle?) -> Unit) {
-        executor.execute {
+        scope.launch {
             val article = articleCache.firstOrNull { it.guid == guid } ?: dao.getByGuid(guid)
             callback(article)
         }
@@ -93,7 +113,8 @@ class BlogRepository @Inject constructor(application: Application) {
     }
 
     fun refresh(force: Boolean) {
-        executor.execute {
+        refreshJob?.cancel()
+        refreshJob = scope.launch {
             _refreshingLiveData.postValue(true)
             try {
                 val xml = downloadFeed()
@@ -105,7 +126,7 @@ class BlogRepository @Inject constructor(application: Application) {
                     prefs.hasBaseline &&
                     prefs.lastBuildDate.isNotBlank() &&
                     prefs.lastBuildDate == feed.lastBuildDate &&
-                    dao.getAll().isNotEmpty()
+                    dao.count() > 0
                 if (!unchanged) {
                     dao.replaceAll(feed.articles)
                     prefs.lastBuildDate = feed.lastBuildDate
@@ -119,6 +140,8 @@ class BlogRepository @Inject constructor(application: Application) {
                 articleCache = dao.getAll()
                 _syncErrorLiveData.postValue(null)
                 publishUnseenLocked()
+            } catch (error: CancellationException) {
+                throw error
             } catch (e: Exception) {
                 LogUtils.e("blog sync failed: ${e.message}", e)
                 _syncErrorLiveData.postValue(e.message ?: "sync failed")
@@ -130,46 +153,41 @@ class BlogRepository @Inject constructor(application: Application) {
     }
 
     fun markTabOpened() {
-        executor.execute {
-            val guids = dao.getAll().map { it.guid }.toSet()
-            prefs.replaceTabClearedGuids(guids)
+        scope.launch {
+            prefs.replaceTabClearedGuids(dao.getAllGuids().toSet())
             publishUnseenLocked()
         }
     }
 
     fun markArticleRead(guid: String) {
         if (guid.isBlank()) return
-        executor.execute {
+        scope.launch {
             prefs.addReadGuid(guid)
             publishUnseenLocked()
         }
     }
 
-    private fun publishUnseenLocked() {
-        val current = dao.getAll().map { it.guid }.toSet()
+    private suspend fun publishUnseenLocked() {
+        val current = dao.getAllGuids().toSet()
         val read = prefs.readGuids()
         val tabCleared = prefs.tabClearedGuids()
         _unreadGuidsLiveData.postValue(current - read)
         _tabUnseenLiveData.postValue(current.any { it !in tabCleared })
     }
 
-    private fun downloadFeed(): String {
-        var lastError: Exception? = null
-        repeat(3) { attempt ->
-            try {
-                return fetchFeedOnce()
-            } catch (error: Exception) {
-                lastError = error
-                LogUtils.e("blog download attempt ${attempt + 1} failed: ${error.message}", error)
-                if (attempt < 2) {
-                    Thread.sleep(1500L * (attempt + 1))
-                }
-            }
-        }
-        throw lastError ?: IllegalStateException("rss download failed")
-    }
+    /**
+     * Three attempts with cancellable backoff. `delay` releases the IO dispatcher thread, so a
+     * superseded or abandoned refresh never holds a worker, and refresh cancellation is prompt.
+     */
+    private suspend fun downloadFeed(): String = retryWithBackoff(
+        attempts = 3,
+        backoffMillis = RETRY_BACKOFF_MILLIS,
+        onAttemptFailed = { attempt, error ->
+            LogUtils.e("blog download attempt ${attempt + 1} failed: ${error.message}", error)
+        },
+    ) { fetchFeedOnce() }
 
-    private fun fetchFeedOnce(): String {
+    private suspend fun fetchFeedOnce(): String = withContext(Dispatchers.IO) {
         val request = Request.Builder()
             .url(BlogFeedParser.FEED_URL)
             .get()
@@ -184,14 +202,44 @@ class BlogRepository @Inject constructor(application: Application) {
             if (response.code !in 200..299) {
                 throw IllegalStateException("HTTP ${response.code}")
             }
-            val body = response.body?.string() ?: throw IllegalStateException("empty body")
+            val body = response.body?.string() ?: throw IOException("empty body")
             if (!body.contains("<item")) {
                 throw IllegalStateException("rss has no items")
             }
-            return body
+            return@use body
         }
     }
+
     companion object {
+        /** Matches the previous blocking backoff (1.5 s then 3 s) without parking a thread. */
+        private const val RETRY_BACKOFF_MILLIS = 1500L
+
+        /**
+         * Retries [block] with cancellable backoff. Suspending instead of `Thread.sleep` means an
+         * abandoned refresh releases its dispatcher thread during the wait, and a cancelled
+         * coroutine stops immediately without performing the next attempt.
+         */
+        internal suspend fun <T> retryWithBackoff(
+            attempts: Int,
+            backoffMillis: Long,
+            onAttemptFailed: (Int, Exception) -> Unit = { _, _ -> },
+            block: suspend () -> T,
+        ): T {
+            var lastError: Exception? = null
+            repeat(attempts) { attempt ->
+                try {
+                    return block()
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (error: Exception) {
+                    lastError = error
+                    onAttemptFailed(attempt, error)
+                    if (attempt < attempts - 1) delay(backoffMillis * (attempt + 1))
+                }
+            }
+            throw lastError ?: IllegalStateException("rss download failed")
+        }
+
         fun normalizeBlogLink(raw: String): String? {
             val trimmed = raw.trim().substringBefore('#')
             if (trimmed.isBlank()) return null
