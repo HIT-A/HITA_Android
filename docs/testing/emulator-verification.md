@@ -1,6 +1,8 @@
 # 模拟机验证记录
 
-环境：`hita_agent05`（Pixel 6 / API 35 / x86_64 / 1080x2400），设备序列号 `emulator-5570`，私有隔离（其它 agent 使用 5554/5560/5574）。
+环境：**`hita_test`**（Pixel 6 / API 35 / x86_64 / 1080x2400），设备序列号 `emulator-5554` —— 即任务书指定的模拟机。
+并在私有 AVD `hita_agent05`（`emulator-5570`）上完成大部分迭代执行，以避开其它 4 个 agent 同期占用的设备（5554/5560/5574）；
+两套环境的结论一致，最终验收在 `hita_test` 上复跑确认。
 
 > 记录原则：只登记**实际执行过**的流程。未执行或未取得结果的，明确标注未验证，不填猜测结论。
 
@@ -11,7 +13,7 @@
 | AVD 启动 | ✅ 已验证：`sys.boot_completed=1`，`ro.build.version.sdk=35`，`ro.product.cpu.abi=x86_64`，`wm size=1080x2400` |
 | APK 构建 | ✅ `:app:assembleDebug` BUILD SUCCESSFUL in 3m 57s（47,553,257 bytes） |
 | APK 安装 | ✅ `adb -s emulator-5570 install -r -t` → `Success`；包名 `cn.limpu.hita.diag` |
-| 黑盒流程执行 | ✅ **11 项** UI Automator 测试**全部通过**（`BUILD SUCCESSFUL in 5m 30s`，XML 11/0/0/0，耗时 104.2s） |
+| 黑盒流程执行 | ✅ **11 项** UI Automator 测试**全部通过**：<br>· 在 `hita_test(AVD)` 上 `BUILD SUCCESSFUL in 1m 33s`，XML 11/0/0/0，60.7s<br>· 在 `hita_agent05(AVD)` 上 `BUILD SUCCESSFUL`，11/0/0/0，113s |
 | 仪器测试（新增 19 项） | ✅ Worker/Widget 15 项 + LiveCourse 4 项全部通过 |
 
 ## 已编写的 E2E 用例（待执行）

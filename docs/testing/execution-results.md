@@ -126,6 +126,21 @@ mentation run failed due to Process crashed`） |
 > `perf` 集此前不存在任何 `*PerfTest` 类（命令会跑空），因此新增 `StartupLatencyPerfTest`
 > 作为该集的真实载体——它黑盒测量冷/热启动到首窗的耗时并断言预算，不依赖生产埋点。
 
+## 未决问题（实测发现，移交说明）
+
+### I-1 `MainThemeInstrumentedTest` 使全量仪器运行挂起
+
+| 项 | 内容 |
+|---|---|
+| 现象 | 全量 `:app:connectedDebugAndroidTest` 反复停在 **817/864** 且不再推进（3 次独立运行均在同一点，其中两次为 10+ 分钟无进展） |
+| 证据 | 挂起时设备 `topResumedActivity = cn.limpu.hita.diag/cn.limpu.hita.ui.main.MainActivity`；最新产物为 `logcat-cn.limpu.hita.ui.main.MainThemeInstrumentedTest-allSevenThemesRenderDrawerAndPageWithoutReplacingTheActiveFragment.txt` |
+| 该文件归属 | `app/src/androidTest/java/cn/limpu/hita/ui/main/MainThemeInstrumentedTest.kt` —— 属 **agent-03-ui** 的业务测试范围，本 agent 按边界只审查记录、不修改 |
+| 影响 | 全量设备回归无法自然跑完；单类运行与排除该类后均正常 |
+| 规避（已验证执行路径） | `-Pandroid.testInstrumentationRunnerArguments.notClass=cn.limpu.hita.ui.main.MainThemeInstrumentedTest` |
+| 建议 | agent-03-ui 检查该测试的 7 主题循环里是否存在未释放的 Activity/Compose 句柄或阻塞等待；修复后应可完整跑完 864 项 |
+
+> 该挂起与本次新增的 17 项测试无关：新增测试全部单独执行通过，且排除该类后全量运行不再复现。
+
 ## 阻塞说明（必须如实记录）
 
 本轮多次出现构建被系统资源竞争中断：

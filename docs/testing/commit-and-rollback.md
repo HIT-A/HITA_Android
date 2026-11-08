@@ -11,13 +11,20 @@
 | 3 | build: 测试依赖增补与死依赖清理 | `gradle/libs.versions.toml`、`app/build.gradle` | `647d0ef` |
 | — | 脚本（随 docs 提交） | `scripts/test-suites.sh`、`scripts/test-report.py`、`scripts/e2e-emulator.sh` | 含在 `aa4aeff` |
 
-## 已提交 hash
+## 已提交 hash（`git log --oneline 5992ba3..HEAD`）
 
 ```
-aa4aeff  docs: 建立测试体系台账、有效性审查与四类测试设计
-b853398  test: 补齐后台任务与模拟机 E2E 测试（19 项）
-647d0ef  build: 测试依赖增补并移除未使用的 room-testing
+255cd61 test: 消除 E2E/通知断言的跨进程与体积问题
+9d201eb docs: 补齐变异测试实测结果
+6fcd37c test: 扩展模拟机 E2E 至 11 项覆盖 7 组流程
+ff5e285 test: 新增启动耗时性能测试并修复测试集运行器的 Windows 调用
+6bb826d docs: 回填实测结果、commit hash 与耗时对比
+647d0ef build: 测试依赖增补并移除未使用的 room-testing
+b853398 test: 补齐后台任务与模拟机 E2E 测试
+aa4aeff docs: 建立测试体系台账、有效性审查与四类测试设计
 ```
+
+分支 `refactor/agent-05-testing`，基线 `5992ba381a9d6e87deb7526885f3d957b8a6d09b`，共 8 个提交，未 push。
 
 ## 回滚方案
 

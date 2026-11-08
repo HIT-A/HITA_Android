@@ -5,11 +5,13 @@
 | 类别 | 用例 | 通过 | 失败 | 错误 | 跳过 | 耗时 |
 |---|---|---|---|---|---|---|
 | JVM（4 模块 + core） | 1007 | 1006 | 0 | 0 | 1（既有可选 HOA 联网） | 16.9s（用例）+ 3m8s（构建） |
-| 仪器（app，含新增 17 项） | 856 | 856 | 0 | 0 | 0 | 712.3s（12m46s 总） |
+| 仪器（app，全量） | **863** | **863** | 0 | 0 | 0 | 402.6s（7m35s 总；`notClass=MainThemeInstrumentedTest`，见 I-1） |
 | 仪器（component） | 7 | 7 | 0 | 0 | 0 | 1.4s |
 | 仪器（hitauser） | 11 | 11 | 0 | 0 | 0 | 1.6s |
 | 仪器（style） | 8 | 8 | 0 | 0 | 0 | 5.7s |
 | 性能专项（perf） | 2 | 2 | 0 | 0 | 0 | 23.2s（首启 4.78s / 再次 14.18s） |
+| 模拟机 E2E（`hita_test` AVD） | 11 | 11 | 0 | 0 | 0 | 60.7s（1m33s 总） |
+| 模拟机 E2E（`hita_agent05` 私有 AVD） | 11 | 11 | 0 | 0 | 0 | 113s |
 
 > 未通过实际执行的一律不记入本表。XML 见 `app/build/test-results/`、`app/build/outputs/androidTest-results/`。
 
