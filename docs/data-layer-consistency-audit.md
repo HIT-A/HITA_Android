@@ -106,4 +106,4 @@ git checkout 5992ba381a9d6e87deb7526885f3d957b8a6d09b -- app/src/main/java/cn/li
 
 ## 最终提交
 
-提交后由 git rev-parse HEAD 回填。
+代码修复提交 `1c4a15034674ea90b69fa5019f36eb4a0bdc7b62`。本报告的哈希回填是其后的文档提交，不把变动后的 HEAD 再写回报告，避免提交循环。分支 `refactor/agent-02-data`。提交时 `git merge-base --is-ancestor 5992ba381a9d6e87deb7526885f3d957b8a6d09b HEAD` 退出码 0。未 push，未合并 main。
