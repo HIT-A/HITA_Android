@@ -41,4 +41,22 @@ class BenbuGraduateScheduleParserTest {
         val body = """[{"JCMC":"1-2","MON":"信号&lt;基础&gt;&amp;nbsp;[1周]A楼[必修]"}]"""
         assertEquals("信号<基础>&nbsp;", BenbuGraduateScheduleParser.parseTimetable(body).single().name)
     }
+
+    @Test
+    fun `accepts rows nested under the same object wrappers as other academic parsers`() {
+        val row = """{"JCMC":"第1-2节","MON":"高等数学◇张老师[1-16周]教学楼A[必修]"}"""
+        listOf("data", "rows", "content", "result").forEach { key ->
+            val courses = BenbuGraduateScheduleParser.parseTimetable("""{"$key":[$row]}""")
+            assertEquals(key, "高等数学", courses.single().name)
+        }
+        val nested = BenbuGraduateScheduleParser.parseTimetable("""{"data":{"rows":[$row]}}""")
+        assertEquals("高等数学", nested.single().name)
+    }
+
+    @Test
+    fun `object without a timetable array stays empty instead of inventing courses`() {
+        assertTrue(BenbuGraduateScheduleParser.parseTimetable("""{"code":500,"message":"服务器错误"}""").isEmpty())
+        assertTrue(BenbuGraduateScheduleParser.parseTimetable("""{"data":{"message":"无课表"}}""").isEmpty())
+        assertTrue(BenbuGraduateScheduleParser.parseTimetable("<html>/common/login</html>").isEmpty())
+    }
 }
