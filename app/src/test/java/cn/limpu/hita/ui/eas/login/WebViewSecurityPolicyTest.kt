@@ -112,4 +112,45 @@ class WebViewSecurityPolicyTest {
         assertFalse(WebViewSecurityPolicy.isCleartextNavigation("https://jwts.hit.edu.cn/loginCAS"))
         assertFalse(WebViewSecurityPolicy.isCleartextNavigation(null))
     }
+
+    /**
+     * 登录链路回归防线：这些字符串是 `WebViewLoginActivity.CampusUrls`、
+     * `WeihaiGraduateSessionPolicy.BASE_URL`、`approvedCredentialOrigins()` 与
+     * `ShenzhenWebAutoLogin.reauthenticationUrl` 实际会 loadUrl 的目标。
+     * 任何白名单收窄都必须同时更新这里；否则三校区登录会被自己拦死。
+     */
+    @Test
+    fun `every real campus entry url stays allowed`() {
+        val benbu = listOf(
+            "http://i-hit-edu-cn.vpn.hit.edu.cn:1080/portal/home/",
+            "http://jwts-hit-edu-cn.vpn.hit.edu.cn:1080/loginCAS",
+            "http://i-hit-edu-cn.vpn.hit.edu.cn:1080/",
+            "http://eelabinfo-hit-edu-cn.vpn.hit.edu.cn:1080/api/cas/loginSuccess",
+            "http://ids-hit-edu-cn-s.vpn.hit.edu.cn/authserver/login",
+            "http://ids-hit-edu-cn-s.ivpn.hit.edu.cn/authserver/login",
+            "https://ids.hit.edu.cn/authserver/login",
+        )
+        val weihai = listOf(
+            "https://webvpn.hitwh.edu.cn/",
+            "https://webvpn.hitwh.edu.cn/https/77726476706e69737468656265737421e9fd529b2b7e60596a1f81e29d51367b6311/cas",
+            "https://webvpn.hitwh.edu.cn/http/77726476706e69737468656265737421fae0558f693861446900c7a99c406d3667/loginCAS",
+            "https://webvpn.hitwh.edu.cn/http/77726476706e69737468656265737421fae0558f693861446900c7a99c406d3667/cjcx/queryQmcj",
+            "https://ids.hit.edu.cn/authserver/login",
+        )
+        val shenzhen = listOf(
+            "https://jw-hitsz-edu-cn.hitsz.edu.cn/",
+            "https://jw-hitsz-edu-cn.hitsz.edu.cn/authentication/main",
+            "https://jw-hitsz-edu-cn.hitsz.edu.cn/authentication/require",
+            "https://jw-hitsz-edu-cn.hitsz.edu.cn/session/invalid",
+            "https://jw-hitsz-edu-cn.hitsz.edu.cn/cas",
+            "https://jw.hitsz.edu.cn/",
+            "https://jw.hitsz.edu.cn/cas",
+            "https://ids-hit-edu-cn-s.hitsz.edu.cn/authserver/login",
+            "https://trust.hitsz.edu.cn/",
+            "https://info.hitsz.edu.cn/list.jsp?urltype=tree.TreeTempUrl&wbtreeid=1053",
+        )
+        benbu.forEach { assertTrue("BENBU 登录链路被拦: $it", WebViewSecurityPolicy.isAllowedNavigation(EASToken.Campus.BENBU, it)) }
+        weihai.forEach { assertTrue("WEIHAI 登录链路被拦: $it", WebViewSecurityPolicy.isAllowedNavigation(EASToken.Campus.WEIHAI, it)) }
+        shenzhen.forEach { assertTrue("SHENZHEN 登录链路被拦: $it", WebViewSecurityPolicy.isAllowedNavigation(EASToken.Campus.SHENZHEN, it)) }
+    }
 }

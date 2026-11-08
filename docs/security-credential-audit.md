@@ -374,7 +374,7 @@ flowchart TD
 | 用例 | 结果 |
 |---|---|
 | `LogRedactionTest`（11 例） | PASS |
-| `WebViewSecurityPolicyTest`（9 例） | PASS |
+| `WebViewSecurityPolicyTest`（10 例，含「三校区真实入口 URL 全部放行」回归防线） | PASS |
 | `AiSettingsStoragePolicyTest`（6 例） | PASS |
 | `SecurityResourceRulesTest`（7 例） | PASS |
 | `GraderSessionPolicyTest`（6 例，新增） | PASS |
