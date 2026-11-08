@@ -6,11 +6,18 @@
 
 | 序 | 提交内容 | 涉及文件 |
 |---|---|---|
-| 1 | docs: 测试体系阶段一文档 | `docs/testing/*.md` |
-| 2 | test: 补齐后台任务测试（Worker/Widget/直播课） | `app/src/androidTest/.../data/work/*.kt`、`.../feature/livecourse/scheduler/*.kt` |
-| 3 | test: 模拟机 E2E（UI Automator） | `app/src/androidTest/.../e2e/*.kt` |
-| 4 | build: 测试依赖增补与死依赖清理 | `gradle/libs.versions.toml`、`app/build.gradle` |
-| 5 | chore: 测试集运行器与报告聚合 | `scripts/test-suites.sh`、`scripts/test-report.py`、`scripts/e2e-emulator.sh` |
+| 1 | docs: 测试体系阶段一文档 | `docs/testing/*.md` | `aa4aeff` |
+| 2 | test: 补齐后台任务与 E2E 测试（19 项） | `app/src/androidTest/.../data/work/*.kt`、`.../feature/livecourse/scheduler/*.kt`、`.../e2e/*.kt` | `b853398` |
+| 3 | build: 测试依赖增补与死依赖清理 | `gradle/libs.versions.toml`、`app/build.gradle` | `647d0ef` |
+| — | 脚本（随 docs 提交） | `scripts/test-suites.sh`、`scripts/test-report.py`、`scripts/e2e-emulator.sh` | 含在 `aa4aeff` |
+
+## 已提交 hash
+
+```
+aa4aeff  docs: 建立测试体系台账、有效性审查与四类测试设计
+b853398  test: 补齐后台任务与模拟机 E2E 测试（19 项）
+647d0ef  build: 测试依赖增补并移除未使用的 room-testing
+```
 
 ## 回滚方案
 
