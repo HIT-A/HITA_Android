@@ -11,4 +11,4 @@ if [[ -n "${LAYER_BASE_SHA:-}" ]]; then
   args+=(--base-ref "$LAYER_BASE_SHA")
 fi
 
-exec python3 scripts/check_repository.py "${args[@]}"
+exec python3 scripts/check_repository.py --root "$root" "${args[@]}"
