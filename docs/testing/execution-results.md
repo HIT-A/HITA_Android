@@ -112,6 +112,20 @@ mentation run failed due to Process crashed`） |
 已通过的 E2E 流程（第 3 轮实测）：`applicationStaysForegroundWithoutCrash`、
 `relaunchFromRecentsKeepsAppUsable`、`rotationKeepsActivityOnSameScreen`。
 
+## 六个测试集的实测记录
+
+| 测试集 | 命令 | 实测结果 | 证据 |
+|---|---|---|---|
+| fast | `scripts/test-suites.sh fast` | **status=0，20s**，BUILD SUCCESSFUL | `build/test-reports/fast.log` |
+| full | `scripts/test-suites.sh full`（等价于 `.gradlew testDebugUnitTest` 四模块 + core） | 1007 项 / 1006 通过 / 1 跳过；构建 189s | `final-verify.log`、`final-report.md` |
+| data | `scripts/test-suites.sh data` | JVM **status=0，11s**；设备侧 `cn.limpu.hita.data` 包 663 项执行 | `build/test-reports/data.log`、`data-device.log` |
+| instrumentation | 各模块 `connectedDebugAndroidTest` | app **856 项全通过**（12m46s / 712.3s）；component **7 项**、style **8 项**、hitauser **11 项** 全通过（3m5s） | `instr-full.log`、`instr-modules.log` + 三模块 XML |
+| e2e | `scripts/test-suites.sh e2e` | 5 项 **全通过**，62.1s | `instr-e2e4.log` |
+| perf | `scripts/test-suites.sh perf`（`cn.limpu.hita.perf`） | **2 项全通过**（211s，BUILD SUCCESSFUL）；实测首启 **4.78s**、再次启动 **14.18s**，均满足 8s 预算断言 | `build/test-reports/perf.log` |
+
+> `perf` 集此前不存在任何 `*PerfTest` 类（命令会跑空），因此新增 `StartupLatencyPerfTest`
+> 作为该集的真实载体——它黑盒测量冷/热启动到首窗的耗时并断言预算，不依赖生产埋点。
+
 ## 阻塞说明（必须如实记录）
 
 本轮多次出现构建被系统资源竞争中断：

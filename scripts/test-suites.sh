@@ -47,8 +47,29 @@ run_suite() {
   return "${status}"
 }
 
+# 本 shell 的路径是 WSL 风格（/mnt/d/...），而 cmd.exe 只认 Windows 路径。
+# 无 wslpath 可用，手工转换：/mnt/<drive>/rest -> <DRIVE>:/rest。
+win_path() {
+  local p="$1"
+  if [[ "$p" =~ ^/mnt/([a-zA-Z])/(.*)$ ]]; then
+    local drive="${BASH_REMATCH[1]}"
+    local rest="${BASH_REMATCH[2]}"
+    printf '%s:/%s' "${drive^^}" "${rest//\//\\}"
+  else
+    printf '%s' "$p"
+  fi
+}
+
 gradle() {
-  "${ROOT}/gradlew.bat" "$@"
+  local cmd_exe=""
+  for candidate in /mnt/c/Windows/System32/cmd.exe "${COMSPEC:-}"; do
+    if [[ -n "$candidate" && -x "$candidate" ]]; then cmd_exe="$candidate"; break; fi
+  done
+  if [[ -n "$cmd_exe" && -f "${ROOT}/gradlew.bat" ]]; then
+    "$cmd_exe" /c "$(win_path "${ROOT}/gradlew.bat")" "$@"
+  else
+    "${ROOT}/gradlew" "$@"
+  fi
 }
 
 case "${1:-all}" in
@@ -86,7 +107,9 @@ case "${1:-all}" in
     ;;
   perf)
     run_suite perf \
-      gradle :app:testDebugUnitTest --tests 'cn.limpu.hita.*PerfTest' "${GRADLE_ARGS[@]}"
+      gradle :app:connectedDebugAndroidTest \
+             -Pandroid.testInstrumentationRunnerArguments.package='cn.limpu.hita.perf' \
+             "${GRADLE_ARGS[@]}"
     ;;
   all)
     "$0" fast
