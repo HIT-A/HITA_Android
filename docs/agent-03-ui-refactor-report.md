@@ -88,7 +88,7 @@
 
 | 场景 | 结果 |
 |---|---|
-| 冷启动 | 完成，无 `FATAL EXCEPTION`/`ANR in cn.limpu.hita.diag` |
+| 冷启动（最终交付态） | `Status: ok`，`TotalTime 11,023 ms`；全程 `FATAL EXCEPTION` / `ANR in cn.limpu` 计数 **0** |
 | 今日（时间线） | 「11月8日 周日 / 今日空闲 / 今天暂无课程或日程安排」正常 |
 | 课表 | 周网格、日期行、时间轴、底栏正常 |
 | 横屏（`user_rotation 1`） | 网格重排正常，无崩溃 |
