@@ -11,18 +11,22 @@
 | AVD 启动 | ✅ 已验证：`sys.boot_completed=1`，`ro.build.version.sdk=35`，`ro.product.cpu.abi=x86_64`，`wm size=1080x2400` |
 | APK 构建 | ✅ `:app:assembleDebug` BUILD SUCCESSFUL in 3m 57s（47,553,257 bytes） |
 | APK 安装 | ✅ `adb -s emulator-5570 install -r -t` → `Success`；包名 `cn.limpu.hita.diag` |
-| 黑盒流程执行 | ✅ 5 项 UI Automator 测试**全部通过**（`BUILD SUCCESSFUL in 4m 16s`，XML 5/0/0/0，耗时 62.1s） |
+| 黑盒流程执行 | ✅ **11 项** UI Automator 测试**全部通过**（`BUILD SUCCESSFUL in 5m 30s`，XML 11/0/0/0，耗时 104.2s） |
 | 仪器测试（新增 19 项） | ✅ Worker/Widget 15 项 + LiveCourse 4 项全部通过 |
 
 ## 已编写的 E2E 用例（待执行）
 
-| 流程 | 测试类 | 用例数 | 实测 |
+| 组 | 覆盖内容 | 用例 | 实测 |
 |---|---|---|---|
-| 启动渲染 | `StartupNavigationE2eTest#coldStartShowsDiagnosticLauncherAndMainSurface` | 1 | ✅ |
-| 启动后前台存活 | `StartupNavigationE2eTest#applicationStaysForegroundWithoutCrash` | 1 | ✅ |
-| 主导航可见 | `NavigationAndPersistenceE2eTest#bottomNavigationShowsAtLeastOneLocalLabel` | 1 | ✅ |
-| 回到桌面后重启 | `NavigationAndPersistenceE2eTest#relaunchFromRecentsKeepsAppUsable` | 1 | ✅ |
-| Activity 重建（旋转） | `NavigationAndPersistenceE2eTest#rotationKeepsActivityOnSameScreen` | 1 | ✅ |
+| 1 启动 | 冷启动渲染、静置后前台存活 | `StartupNavigationE2eTest` ×2 | ✅ |
+| 2 主导航 | Tab 文案、Tab 集合与登录态策略 | `NavigationAndPersistenceE2eTest#bottomNavigationShowsAtLeastOneLocalLabel`、`LoggedOutVisibilityE2eTest#loggedOutTabSetHidesAccountOnlyEntries` | ✅ |
+| 3 课表页 | 未登录进入课表区域不崩溃 | `LoggedOutVisibilityE2eTest#timetableSurfaceOpensWithoutAccount` | ✅ |
+| 4 进程重启 | 回桌面后重新启动 | `NavigationAndPersistenceE2eTest#relaunchFromRecentsKeepsAppUsable` | ✅ |
+| 5 Activity 重建 | 旋转后窗口不丢失 | `NavigationAndPersistenceE2eTest#rotationKeepsActivityOnSameScreen` | ✅ |
+| 6 网络异常 | 断网启动与静置不崩溃 | `LoggedOutVisibilityE2eTest#appDoesNotCrashWithNoAccountAndNoNetwork` | ✅ |
+| 7 系统集成 | Widget Provider、后台调度、通知配置 | `SystemIntegrationE2eTest` ×3 | ✅ |
+
+未覆盖的 1 组：**登录后流程**（登录模拟、课表导入、成绩/考试查询、AI 会话），原因见下节。
 
 未编写的流程及原因：
 - 登录模拟、课表/成绩/考试查询：EAS/WebVPN 基地址为硬编码 `const val`，无法在真实 APK 上注入 MockWebServer（见下节）。

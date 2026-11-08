@@ -100,9 +100,10 @@ case "${1:-all}" in
              "${GRADLE_ARGS[@]}"
     ;;
   e2e)
+    # package= 过滤在 AGP 8.10 上不生效（实测只跑 2 项），因此显式列出全部 E2E 类。
     run_suite e2e \
       gradle :app:connectedDebugAndroidTest \
-             -Pandroid.testInstrumentationRunnerArguments.class='cn.limpu.hita.e2e.StartupNavigationE2eTest' \
+             -Pandroid.testInstrumentationRunnerArguments.class='cn.limpu.hita.e2e.StartupNavigationE2eTest,cn.limpu.hita.e2e.NavigationAndPersistenceE2eTest,cn.limpu.hita.e2e.LoggedOutVisibilityE2eTest,cn.limpu.hita.e2e.SystemIntegrationE2eTest' \
              "${GRADLE_ARGS[@]}"
     ;;
   perf)
