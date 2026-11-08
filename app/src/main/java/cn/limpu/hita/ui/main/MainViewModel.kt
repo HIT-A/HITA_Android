@@ -96,6 +96,7 @@ internal class MainViewModel @Inject constructor(
         if (pendingNotice != MainNoticeSelection.None) emit(host, MainEffect.Notice(pendingNotice))
         pendingUpdate?.let { emit(host, MainEffect.Update(it)) }
         pendingSilentRenewal?.takeIf { it.request.session == MainSession.from(eas.getEasToken()) }?.let {
+            startup.silentRenewalConsumed()
             emit(host, it.effect, it.request.session)
         }
         pendingSessionExpired?.takeIf { it == MainSession.from(eas.getEasToken()) }?.let {
@@ -168,7 +169,12 @@ internal class MainViewModel @Inject constructor(
                             val token = eas.getEasToken()
                             val effect = MainEffect.SilentRenewal(token.campus, token.stutype)
                             pendingSilentRenewal = PendingSilentRenewal(action, effect)
-                            activeHost?.let { emit(it, effect, action.session) }
+                            // 没有 Activity 承接就发不出续期：此时不消耗续期预算，
+                            // 否则挂上宿主后只能直接弹过期提示，等于白白跳过续期机会。
+                            activeHost?.let {
+                                startup.silentRenewalConsumed()
+                                emit(it, effect, action.session)
+                            }
                             return@launch
                         }
                         if (startup.importFinished(action, result)) {

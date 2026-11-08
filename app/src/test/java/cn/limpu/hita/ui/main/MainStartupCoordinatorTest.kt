@@ -134,12 +134,15 @@ class MainStartupCoordinatorTest {
         assertFalse(coordinator.silentRenewalNeeded(request, AutoImportResult.FAILED))
         assertFalse(coordinator.silentRenewalNeeded(request, AutoImportResult.SKIPPED_IN_PROGRESS))
         assertTrue(coordinator.silentRenewalNeeded(request, AutoImportResult.NOT_LOGGED_IN))
+        // Merely answering the question keeps the budget; only reaching a live host spends it.
+        assertTrue(coordinator.silentRenewalNeeded(request, AutoImportResult.NOT_LOGGED_IN))
     }
 
     @Test fun sessionExpiryOffersSilentRenewalOnceThenPromptsOnlyAfterItFails() {
         val request = coordinator.accountChanged(account, false).imports().single()
         // The first expiry asks the host for one silent renewal instead of prompting at once.
         assertTrue(coordinator.silentRenewalNeeded(request, AutoImportResult.NOT_LOGGED_IN))
+        coordinator.silentRenewalConsumed()
         // Budget spent: a repeated expiry must not loop through renew -> import -> renew.
         assertFalse(coordinator.silentRenewalNeeded(request, AutoImportResult.NOT_LOGGED_IN))
         // The original notification is still delivered exactly once after renewal failed.
@@ -150,6 +153,7 @@ class MainStartupCoordinatorTest {
     @Test fun successfulSilentRenewalSchedulesAFreshImportAndSkipsThePrompt() {
         val request = coordinator.accountChanged(account, false).imports().single()
         assertTrue(coordinator.silentRenewalNeeded(request, AutoImportResult.NOT_LOGGED_IN))
+        coordinator.silentRenewalConsumed()
         // Cookie refresh keeps the account but bumps the generation.
         coordinator.reloginSucceeded()
         val retry = coordinator.accountChanged(account.copy(generation = 2), false).imports().single()

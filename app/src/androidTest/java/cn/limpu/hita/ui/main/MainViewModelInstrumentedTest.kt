@@ -77,7 +77,14 @@ class MainViewModelInstrumentedTest {
         assertEquals(1, h.requests.imports.size)
         h.replaceHost(start = true)
         assertEquals(1, h.requests.imports.size)
+        // 首次 NOT_LOGGED_IN 先给一次静默续期机会，此时不弹过期通知。
         h.main { h.requests.imports.single().complete(AutoImportResult.NOT_LOGGED_IN) }
+        h.flush()
+        val renewal = h.accepted.single { it.value is MainEffect.SilentRenewal }
+        assertEquals(h.host, renewal.host)
+        assertTrue(h.accepted.none { it.value == MainEffect.SessionExpired })
+        // 续期失败才回落到过期提示，且只弹一次。
+        h.main { h.model.silentRenewalLaunched(); h.model.silentRenewalFailed() }
         h.flush()
         val effects = h.accepted.filter { it.value == MainEffect.SessionExpired }
         assertEquals(1, effects.size)
@@ -92,10 +99,17 @@ class MainViewModelInstrumentedTest {
     @Test fun importWithNoAttachedHostRetainsPromptButOldAccountResultCannotMarkNewSession() = Harness(loggedInEas = true).use { h ->
         h.start()
         h.detachHost()
+        // 没有宿主承接时续期请求不发也不消耗预算，避免白白丢掉这次续期机会。
         h.main { h.requests.imports.single().complete(AutoImportResult.NOT_LOGGED_IN) }
         h.flush()
+        assertTrue(h.accepted.none { it.value is MainEffect.SilentRenewal })
         assertTrue(h.accepted.none { it.value == MainEffect.SessionExpired })
         h.replaceHost(start = false)
+        h.flush()
+        // 挂上新宿主后才补发续期；此时仍不弹过期提示。
+        assertEquals(1, h.accepted.count { it.value is MainEffect.SilentRenewal })
+        assertTrue(h.accepted.none { it.value == MainEffect.SessionExpired })
+        h.main { h.model.silentRenewalLaunched(); h.model.silentRenewalFailed() }
         h.flush()
         assertEquals(1, h.accepted.count { it.value == MainEffect.SessionExpired })
         h.main {

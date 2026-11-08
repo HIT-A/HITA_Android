@@ -94,12 +94,19 @@ internal class MainStartupCoordinator(
     /**
      * Silent WebView renewal is offered at most once per coordinator: it must never loop through
      * renew → import → renew. When it is refused or fails, [importFinished] delivers the prompt.
+     *
+     * This only answers whether renewal applies; the budget is spent by [silentRenewalConsumed]
+     * once a host can actually launch it, so a stopped Activity cannot swallow the one chance.
      */
     fun silentRenewalNeeded(request: MainStartupAction.Import, result: AutoImportResult): Boolean {
         if (closed || request != activeImport || request.session != session) return false
         if (result != AutoImportResult.NOT_LOGGED_IN || silentRenewalOffered) return false
-        silentRenewalOffered = true
         return true
+    }
+
+    /** Spends the one-shot renewal budget; call right before the effect reaches a live host. */
+    fun silentRenewalConsumed() {
+        silentRenewalOffered = true
     }
 
     /** Returns true exactly once when the current session needs a relogin prompt. */
