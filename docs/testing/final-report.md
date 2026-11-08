@@ -13,6 +13,10 @@
 | 模拟机 E2E（`hita_test` AVD） | 11 | 11 | 0 | 0 | 0 | 60.7s（1m33s 总） |
 | 模拟机 E2E（`hita_agent05` 私有 AVD） | 11 | 11 | 0 | 0 | 0 | 113s |
 
+> 自动表说明：下表由 `scripts/test-report.py` 扫描**当前存在于 build 目录**的 XML 生成。
+> `connected/` 目录在每次 `connectedDebugAndroidTest` 运行时会被覆盖，因此自动表可能只反映最后一次运行
+> （例如只含 11 项 E2E）。**权威数字以上方手工汇总表为准**，其每一项都对应日志证据。
+>
 > 未通过实际执行的一律不记入本表。XML 见 `app/build/test-results/`、`app/build/outputs/androidTest-results/`。
 
 
