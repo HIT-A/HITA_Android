@@ -5,6 +5,7 @@ import android.content.SharedPreferences
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKeys
 import cn.limpu.hita.data.model.eas.EASToken
+import cn.limpu.hita.utils.LogUtils
 
 data class EasCredential(
     val campus: EASToken.Campus,
@@ -37,15 +38,36 @@ object EasCredentialStoreKeyPolicy {
         "${campus.name}:${username.trim()}"
 }
 
+/**
+ * 已保存的教务账号密码。
+ *
+ * 契约：密码只落在 EncryptedSharedPreferences。Keystore 密钥或偏好文件损坏时，
+ * 退回进程内内存偏好——自动填充本次运行仍可用，但不会把密码写进明文文件；
+ * 同时删除无法解密的旧文件，避免每次启动都重复失败。
+ */
 class EasCredentialStore(context: Context) {
-    private val preferences: SharedPreferences by lazy {
-        EncryptedSharedPreferences.create(
+    private val appContext = context.applicationContext
+    private val preferences: SharedPreferences by lazy { openPreferences() }
+
+    private fun openPreferences(): SharedPreferences {
+        fun create() = EncryptedSharedPreferences.create(
             PREFERENCE_NAME,
             MasterKeys.getOrCreate(MasterKeys.AES256_GCM_SPEC),
-            context.applicationContext,
+            appContext,
             EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
             EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
         )
+        return runCatching { create() }.getOrElse { error ->
+            LogUtils.e("credential store unreadable, recreating encrypted prefs", error)
+            runCatching { appContext.deleteSharedPreferences(PREFERENCE_NAME) }
+            runCatching { create() }.getOrElse { retryError ->
+                LogUtils.e(
+                    "credential store unavailable; saved passwords stay in memory only",
+                    retryError
+                )
+                InMemorySharedPreferences()
+            }
+        }
     }
 
     @Synchronized

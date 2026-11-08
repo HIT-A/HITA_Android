@@ -3,7 +3,6 @@
 
     <application
         android:requestLegacyExternalStorage="true"
-        android:usesCleartextTraffic="true"
         android:supportsRtl="true">
 
         <provider

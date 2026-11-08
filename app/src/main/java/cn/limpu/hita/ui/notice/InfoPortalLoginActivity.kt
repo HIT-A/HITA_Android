@@ -15,6 +15,8 @@ import cn.limpu.hita.data.repository.CampusNoticeRepository
 import cn.limpu.hita.data.repository.EASRepository
 import cn.limpu.hita.ui.main.MainTab
 import cn.limpu.hita.data.source.web.notice.CampusNoticeParser
+import cn.limpu.hita.utils.LogUtils
+import cn.limpu.hita.utils.LogRedaction
 import dagger.hilt.android.AndroidEntryPoint
 import org.json.JSONTokener
 import javax.inject.Inject
@@ -43,10 +45,32 @@ class InfoPortalLoginActivity : AppCompatActivity() {
         webView.setBackgroundColor(Color.WHITE)
         webView.settings.javaScriptEnabled = true
         webView.settings.domStorageEnabled = true
+        // 通知门户与 CAS 只加载 http(s) 资源，不需要本地文件/内容访问能力。
+        webView.settings.allowFileAccess = false
+        webView.settings.allowContentAccess = false
+        @Suppress("DEPRECATION")
+        webView.settings.allowFileAccessFromFileURLs = false
+        @Suppress("DEPRECATION")
+        webView.settings.allowUniversalAccessFromFileURLs = false
         webView.webChromeClient = WebChromeClient()
         webView.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                 return false
+            }
+
+            /**
+             * 门户登录同样会提交统一身份认证凭据，证书错误必须取消而非忽略。
+             */
+            override fun onReceivedSslError(
+                view: WebView?,
+                handler: android.webkit.SslErrorHandler?,
+                error: android.net.http.SslError?
+            ) {
+                handler?.cancel()
+                LogUtils.e(
+                    "notice portal ssl error canceled: primary=${error?.primaryError} " +
+                        "url=${LogRedaction.url(error?.url)}"
+                )
             }
 
             override fun onPageFinished(view: WebView, url: String) {
