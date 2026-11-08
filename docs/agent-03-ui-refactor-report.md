@@ -71,6 +71,10 @@
 | `TimetableBatchUiInstrumentedTest`（既有） | **OK (2 tests)** |
 | `SubjectViewModelInstrumentedTest`（既有） | **OK (7 tests)** |
 | `SubjectActivityInstrumentedTest`（既有） | **OK (1 test)** |
+| `ScoreInquiryActivityInstrumentedTest`（新增，本次补） | **OK (1 test)** —— 重建后仍是同一 ViewModel、默认考试类型保留、返回不误 finish |
+| `ExamActivityInstrumentedTest`（新增，本次补） | **OK (1 test)** —— 重建后 ViewModel/考试类型/校区派生过滤一致、返回不误 finish |
+
+设备测试总计：**22 个类、120 项全部通过**。
 
 ### 一处由本次改动引入、已定位并修复的回归
 
@@ -93,6 +97,8 @@
 | 课表 | 周网格、日期行、时间轴、底栏正常 |
 | 横屏（`user_rotation 1`） | 网格重排正常，无崩溃 |
 | 进程重建（`am kill` + 重启） | 恢复到原 Tab（课表），Tab 状态保持 |
+| 更多 → 考试入口 | 未登录教务时正确弹出「教务认证」门控（预期行为，非缺陷） |
+| 成绩 / 考试页真实数据渲染 | **未验证** —— 两页 Activity 均未导出，且需真实教务账号；其状态所有权与重建行为改由 `ScoreInquiryActivityInstrumentedTest` / `ExamActivityInstrumentedTest` 覆盖 |
 | 暗色（`cmd uimode night yes`） | 课表页正常渲染 |
 | 字体 1.3×（`font_scale 1.3`） | 布局未破，元素坐标按比例放大 |
 
