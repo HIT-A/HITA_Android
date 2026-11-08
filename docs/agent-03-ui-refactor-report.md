@@ -34,7 +34,10 @@
 
 | 提交 | 内容 |
 |---|---|
-| `ed4cc3f` | `refactor(ui): 收敛时间线/课表/课程浏览的 UI 状态与重组开销` —— 本次全部改动（11 个既有文件修改、5 个新增文件、2 篇文档） |
+| `ed4cc3f` | `refactor(ui): 收敛时间线/课表/课程浏览的 UI 状态与重组开销` —— UI 层重构主体（11 个既有文件修改、5 个新增源文件、3 个新增测试文件） |
+| `efd1dcd` | `docs(ui): 补齐 Agent 03 交付报告提交清单` |
+| `c7b4f01` | `docs(ui): 补入最终模拟机实测数据` |
+| `fd9ae9d` | `test(ui): 补成绩与考试页的 Activity 级重建/返回回归` |
 
 分支：`refactor/agent-03-ui`（基于 `5992ba3`），未推送、未合并。
 
@@ -42,7 +45,15 @@
 
 ### JVM 单测
 
-`./gradlew :app:testDebugUnitTest`（JDK 21）→ **BUILD SUCCESSFUL**
+`./gradlew :app:assembleDebug :app:testDebugUnitTest :component:testDebugUnitTest :hitauser:testDebugUnitTest :style:testDebugUnitTest :timetable-core:test :app:assembleDebugAndroidTest`（JDK 21）→ **BUILD SUCCESSFUL**
+
+| 模块 | 用例 | 失败 | 跳过 |
+|---|---|---|---|
+| `app` | 960 | 0 | 1（既有可选联网测试） |
+| `component` | 7 | 0 | 0 |
+| `hitauser` | 4 | 0 | 0 |
+| `timetable-core` | 57 | 0 | 0 |
+| `style` | NO-SOURCE（该项目本无 JVM 测试源） | — | — |
 
 | 项 | 基线（5992ba3） | 本次 |
 |---|---|---|
