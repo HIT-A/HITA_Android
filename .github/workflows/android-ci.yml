@@ -1,8 +1,8 @@
 name: Android CI
 
 # PR merge gate. Deep compatibility, performance, security, and scheduled matrices
-# are intentionally out of this workflow until a separate runner budget exists.
-# Do not add pull_request_target: this workflow executes repository code.
+# Do not execute this workflow from an untrusted pull request context.
+# Keep pull requests on the normal pull request event because the jobs execute repository code.
 
 on:
   push:
