@@ -4,6 +4,7 @@ import cn.limpu.hita.data.model.eas.ExamItem
 import cn.limpu.hita.data.model.timetable.EventItem
 import cn.limpu.hita.utils.LogUtils
 import java.sql.Timestamp
+import java.text.ParsePosition
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
@@ -18,9 +19,10 @@ object ExamEventMapper {
 
             val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
             val timeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
-            val parsedDate = dateFormat.parse(date) ?: return null
-            val parsedStart = timeFormat.parse(times[0].trim()) ?: return null
-            val parsedEnd = timeFormat.parse(times[1].trim()) ?: return null
+            val parsedDate = parseStrict(dateFormat, date) ?: return null
+            val parsedStart = parseStrict(timeFormat, times[0].trim()) ?: return null
+            val parsedEnd = parseStrict(timeFormat, times[1].trim()) ?: return null
+            if (!parsedEnd.after(parsedStart)) return null
             val startClock = Calendar.getInstance().apply { time = parsedStart }
             val endClock = Calendar.getInstance().apply { time = parsedEnd }
             val calendarStart = Calendar.getInstance().apply {
@@ -55,6 +57,13 @@ object ExamEventMapper {
             LogUtils.e("parse exam failed: ${exam.courseName}", e, logTag)
             null
         }
+    }
+
+    private fun parseStrict(format: SimpleDateFormat, value: String): java.util.Date? {
+        format.isLenient = false
+        val position = ParsePosition(0)
+        val parsed = format.parse(value, position)
+        return parsed?.takeIf { position.index == value.length }
     }
 
     fun identityKey(event: EventItem): String {
