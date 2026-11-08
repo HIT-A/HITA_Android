@@ -4,6 +4,7 @@ import android.Manifest
 import android.app.Application
 import android.app.NotificationManager
 import android.content.Context
+import android.os.SystemClock
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -13,6 +14,7 @@ import cn.limpu.hita.data.model.timetable.DisplayScope
 import cn.limpu.hita.data.model.timetable.EventItem
 import cn.limpu.hita.data.model.timetable.Timetable
 import cn.limpu.hita.data.repository.DisplayScopeResolver
+import cn.limpu.hita.feature.livecourse.notification.LiveCourseNotificationManager
 import cn.limpu.hita.feature.livecourse.settings.LiveCourseSettings
 import java.sql.Timestamp
 import java.util.UUID
@@ -37,6 +39,11 @@ class LiveCourseSchedulerInstrumentedTest {
     private val database get() = AppDatabase.getDatabase(app)
     private val settings get() = LiveCourseSettings(app)
     private val notifications get() = app.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+
+    /** 只统计本应用直播课程频道下的通知，避免同批次其它测试遗留通知造成顺序依赖。 */
+    private fun liveCourseNotifications(): Int = notifications.activeNotifications.count {
+        it.notification.channelId == LiveCourseNotificationManager.CHANNEL_ID
+    }
 
     private val timetableId = "live-test-${UUID.randomUUID()}"
 
@@ -73,7 +80,7 @@ class LiveCourseSchedulerInstrumentedTest {
 
         LiveCourseScheduler(app).reconcile(nowMillis = System.currentTimeMillis())
 
-        assertEquals(0, notifications.activeNotifications.size)
+        assertEquals(0, liveCourseNotifications())
     }
 
     @Test
@@ -86,7 +93,7 @@ class LiveCourseSchedulerInstrumentedTest {
 
         assertTrue(
             "课中必须发布直播课程通知",
-            notifications.activeNotifications.isNotEmpty(),
+            liveCourseNotifications() > 0,
         )
     }
 
@@ -97,13 +104,44 @@ class LiveCourseSchedulerInstrumentedTest {
         settings.setEnabled(true)
         val scheduler = LiveCourseScheduler(app)
         scheduler.reconcile(nowMillis = now)
-        assertTrue(notifications.activeNotifications.isNotEmpty())
+        assertTrue("课中必须先发布通知", liveCourseNotifications() > 0)
 
         scheduler.cancel()
 
-        assertEquals(0, notifications.activeNotifications.size)
+        // 通知由被测进程发布/取消；测试进程的 activeNotifications 会缓存旧视图，
+        // 且系统侧清理是异步的。因此轮询系统中立视图，给出有界等待窗口，
+        // 而不是立即断言（立即断言实测会捕获到清理中的瞬时状态）。
+        val deadline = SystemClock.elapsedRealtime() + 3_000L
+        var remaining = liveCourseNotificationsOnDevice()
+        while (remaining > 0 && SystemClock.elapsedRealtime() < deadline) {
+            SystemClock.sleep(50)
+            remaining = liveCourseNotificationsOnDevice()
+        }
+        assertEquals(
+            "cancel 后系统侧不得残留该频道通知（等待窗口 3000ms 后）",
+            0,
+            remaining,
+        )
     }
 
+    /** 通过 dumpsys 读取系统中立视图（不受本进程缓存影响）。 */
+    private fun liveCourseNotificationsOnDevice(): Int {
+        val descriptor = InstrumentationRegistry.getInstrumentation().uiAutomation
+            .executeShellCommand("dumpsys notification --noredact | grep -c 'channel=hita_live_course'")
+        val out = java.io.ByteArrayOutputStream()
+        java.io.FileInputStream(descriptor.fileDescriptor).use { stream ->
+            val buffer = ByteArray(8192)
+            while (true) {
+                val read = stream.read(buffer)
+                if (read <= 0) break
+                out.write(buffer, 0, read)
+            }
+        }
+        descriptor.close()
+        // 设备端 `grep -c` 只输出一个数字，直接解析即可。
+        val text = out.toString(Charsets.UTF_8.name())
+        return text.trim().lineSequence().firstOrNull { it.isNotBlank() }?.trim()?.toIntOrNull() ?: 0
+    }
 
     @Test
     fun noUpcomingClassKeepsNotificationCleared() {
@@ -111,7 +149,7 @@ class LiveCourseSchedulerInstrumentedTest {
 
         LiveCourseScheduler(app).reconcile(nowMillis = System.currentTimeMillis())
 
-        assertEquals(0, notifications.activeNotifications.size)
+        assertEquals(0, liveCourseNotifications())
     }
 
     private fun seedClass(startOffsetMinutes: Int, durationMinutes: Int) {

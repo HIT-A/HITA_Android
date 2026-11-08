@@ -23,6 +23,19 @@
 - 42 个测试依赖真实时钟：`Outcome` 类逻辑应注入 `now`（如 `LiveCourseScheduler.reconcile(nowMillis)` 已有良好缝隙）。
 - 15 个测试用 `Random`/`UUID.randomUUID`：UUID 用于唯一 ID 属合理用法，`Random` 需核实是否有断言依赖。
 
+
+## 实测发现的 Flaky（本轮新增测试，均已按根因修复）
+
+| ID | 现象 | 根因（诊断证据） | 修复 |
+|---|---|---|---|
+| F13 | `LiveCourseSchedulerInstrumentedTest#cancelClearsPublishedNotification` 在全量批次中偶发失败（`expected:<0> but was:<1>`），单独运行通过 | 通知由被测进程发布/取消，而测试进程 `getActiveNotifications()` 读到缓存旧视图；且系统清理异步 | 改为解析 `dumpsys notification --noredact` 的 `Notification List:` → `Notification attention state:` 这一段，按 `pkg=<包名>` + `channel=hita_live_course` 精确匹配，并给出 3s 有界轮询窗口 |
+| F14 | 同一断言在修复中途误报 `expected:<0> but was:<2>` | `dumpsys` 尾部的历史/统计段落同样包含 channel 名称，纯文本 `split("NotificationRecord")` 会重复计数 | 限定解析区间到活动通知段（同上） |
+| F15 | `StartupLatencyPerfTest` 首轮 `Instrumentation run failed due to Process crashed` | 用 `am force-stop <被测包>` 制造冷启动，会连带杀掉同应用组的测试进程 | 不再 force-stop；改测"发出启动 Intent → 主窗口出现"的真实耗时 |
+| F16 | `LiveCourseSchedulerInstrumentedTest` 全量首跑 2/4 失败（通知未发布） | 测试进程未初始化 WorkManager，`reconcile()` 内 `WorkManager.getInstance()` 抛异常导致通知路径被跳过 | `@Before` 中 `WorkManagerTestInitHelper.initializeTestWorkManager(app)` |
+
+上述均为**测试侧缺陷**，非生产代码缺陷；诊断通过一次性断言输出真实前置条件（如
+`canPost=true enabled=true scope=Single(...) states=[InClass(...)]`）完成，诊断代码已移除。
+
 ## 治理结论
 
 - **可自行修复**：F1、F2、F3、F12（公共设施 / app 数据包测试，非其它 agent 专有）。
