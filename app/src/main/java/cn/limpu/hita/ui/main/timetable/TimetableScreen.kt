@@ -97,7 +97,12 @@ internal fun TimetableRoute(
 
     // 课程色分配：按显示目标全量课程稳定占槽,同屏课程两两不同色;P5/Sumi 的全同色是设计意图,跳过。
     val scopeCourseColors by viewModel.scopeCourseColors.observeAsState(emptyMap())
-    val currentPaletteArgb = hitaCoursePalette().map(::hitaColorToArgb).toIntArray()
+    // 色板本身按主题记忆;每次重组重建 IntArray 会让下面的 remember 永远失效,
+    // 进而把全量配色重算拖进任何一次状态变化。
+    val paletteColors = hitaCoursePalette()
+    val currentPaletteArgb = remember(paletteColors) {
+        IntArray(paletteColors.size) { index -> hitaColorToArgb(paletteColors[index]) }
+    }
     val colorAssignerEnabled = HitaTheme.preferenceStyle != ThemeTools.STYLE.P5 &&
         HitaTheme.preferenceStyle != ThemeTools.STYLE.SUMI
     val colorAssignments: Map<String, Int>? = remember(events, scopeCourseColors, currentPaletteArgb, colorAssignerEnabled) {

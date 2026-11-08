@@ -295,52 +295,22 @@ class ShenzhenCourseCatalogActivity :
 
     private fun bindLiveData() {
         viewModel.termsLiveData.observe(this) { state ->
-            when (state.state) {
-                DataState.STATE.SUCCESS -> {
-                    terms = state.data.orEmpty()
-                    uiState = CatalogUiState.Ready(refreshing = viewModel.coursesLiveData.value?.state in
-                        listOf(null, DataState.STATE.NOTHING, DataState.STATE.LOADING))
-                    viewModel.reconcileTerms(terms)
-                }
-                DataState.STATE.NOT_LOGGED_IN -> {
-                    uiState = CatalogUiState.NeedsWebLogin(state.message)
-                }
-                DataState.STATE.FETCH_FAILED -> {
-                    uiState = CatalogUiState.Error(state.message ?: "学期列表加载失败")
-                }
-                DataState.STATE.NOTHING -> Unit
-                else -> {
-                    uiState = CatalogUiState.Error(state.message ?: "学期列表暂不可用")
-                }
+            if (state.state == DataState.STATE.SUCCESS) {
+                terms = state.data.orEmpty()
+                uiState = CatalogUiState.Ready(refreshing = viewModel.coursesLiveData.value?.state in
+                    listOf(null, DataState.STATE.NOTHING, DataState.STATE.LOADING))
+                viewModel.reconcileTerms(terms)
+                return@observe
             }
+            CatalogUiStateProjection.fromTerms(state)?.let { uiState = it }
         }
         viewModel.queryLiveData.observe(this) {
             uiState = CatalogUiState.Ready(refreshing = true)
         }
         viewModel.coursesLiveData.observe(this) { state ->
-            when (state.state) {
-                DataState.STATE.SUCCESS -> {
-                    uiState = CatalogUiState.Ready(
-                        message = if (state.data?.items.isNullOrEmpty()) {
-                            "当前筛选条件下没有课程"
-                        } else {
-                            null
-                        }
-                    )
-                    resetSessionRetryState()
-                }
-                DataState.STATE.NOT_LOGGED_IN -> {
-                    uiState = CatalogUiState.NeedsWebLogin(state.message)
-                }
-                DataState.STATE.FETCH_FAILED -> {
-                    uiState = CatalogUiState.Ready(
-                        message = state.message ?: "课程数据加载失败"
-                    )
-                }
-                DataState.STATE.NOTHING -> Unit
-                else -> uiState = CatalogUiState.Ready(
-                    message = state.message ?: "课程数据暂不可用"
-                )
+            if (state.state == DataState.STATE.SUCCESS) resetSessionRetryState()
+            CatalogUiStateProjection.fromCourses(state, hasItems = !state.data?.items.isNullOrEmpty())?.let {
+                uiState = it
             }
         }
         viewModel.attachmentsLiveData.observe(this) { state ->
@@ -665,16 +635,6 @@ class ShenzhenCourseCatalogActivity :
     }
 }
 
-private sealed interface CatalogUiState {
-    data object Loading : CatalogUiState
-    data class NeedsWebLogin(val message: String?) : CatalogUiState
-    data class Error(val message: String) : CatalogUiState
-    data class Ready(
-        val refreshing: Boolean = false,
-        val message: String? = null
-    ) : CatalogUiState
-}
-
 private data class CourseAttachmentDialogState(
     val course: ShenzhenCourseCatalogItem,
     val loading: Boolean = false,
@@ -773,6 +733,18 @@ private fun ShenzhenCourseCatalogScreen(
     var scheduledDateMillis by remember { mutableStateOf<Long?>(null) }
     var showExactAlarmGuidance by remember { mutableStateOf(false) }
     var awaitingNotificationPermission by remember { mutableStateOf(false) }
+
+    // 冲突描述原本在 items{} 里逐卡现算（O(课程 × 会议²)），滚动时每帧重跑。
+    // 这里按"当前页 + 已选/草稿"一次性求值，卡片只做 map 查表。
+    val conflictMessages = remember(page, selectedCourses, coursePlanDraft, graduateMode) {
+        val items = page?.items.orEmpty()
+        if (graduateMode) {
+            items.associate { conflictKey(it) to onCoursePlanConflict(it) }
+        } else {
+            items.filter { it.source == ShenzhenCourseCatalogSource.AVAILABLE }
+                .associate { conflictKey(it) to onCoursePlanConflict(it) }
+        }
+    }
 
     LaunchedEffect(notificationPermissionGranted, awaitingNotificationPermission) {
         if (notificationPermissionGranted && awaitingNotificationPermission) {
@@ -1055,11 +1027,7 @@ private fun ShenzhenCourseCatalogScreen(
                         followed = item.taskId.ifBlank { item.id } in followedSectionIds,
                         selectedInEas = item.taskId.ifBlank { item.id } in selectedCourseIds,
                         inCoursePlan = item.taskId.ifBlank { item.id } in coursePlanDraft?.courseIds.orEmpty(),
-                        conflictMessage = if (item.source == ShenzhenCourseCatalogSource.AVAILABLE || graduateMode) {
-                            onCoursePlanConflict(item)
-                        } else {
-                            null
-                        },
+                        conflictMessage = conflictMessages[conflictKey(item)],
                         selectable = ShenzhenCourseSelectionUiPolicy.canSelect(item),
                         selectedForSubmission = item.selectionRequestId.isNotBlank() &&
                             item.selectionRequestId in selectedForSubmission,
@@ -2155,6 +2123,9 @@ private fun TeacherFailureRateRow(rate: ShenzhenTeacherFailureRate) {
         }
     }
 }
+
+private fun conflictKey(course: ShenzhenCourseCatalogItem): String =
+    "${course.source}-${course.taskId.ifBlank { course.id }}"
 
 private fun formatFileSize(bytes: Long): String = when {
     bytes >= 1024L * 1024L -> "%.1f MB".format(bytes / (1024.0 * 1024.0))

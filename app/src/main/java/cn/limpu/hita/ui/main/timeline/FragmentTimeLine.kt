@@ -52,6 +52,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -65,6 +67,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -202,11 +205,16 @@ private fun TimelineScreen(
     val upcomingExamsRaw by viewModel.upcomingExamLiveData.observeAsState(emptyList())
     var expanded by remember { mutableStateOf(false) }
     var ticker by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    val lifecycleOwner = LocalLifecycleOwner.current
 
-    LaunchedEffect(Unit) {
-        while (true) {
-            delay(10_000L)
-            ticker = System.currentTimeMillis()
+    // 只在页面真正可见（RESUMED）时走 10s 时钟：Tab 隐藏或页面退出前台后停表，
+    // 避免后台维持一个永远唤醒的重组源。
+    LaunchedEffect(lifecycleOwner) {
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            while (true) {
+                ticker = System.currentTimeMillis()
+                delay(10_000L)
+            }
         }
     }
 
@@ -223,6 +231,7 @@ private fun TimelineScreen(
     val displayEvents = remember(hintEvents, todayEvents) {
         hintEvents + todayEvents
     }
+    val timelineBounds = remember(displayEvents) { TimelineListProjection.timelineBounds(displayEvents) }
     val headerState = remember(todayEvents, upcomingExams, ticker) {
         buildHeaderState(context, todayEvents, upcomingExams)
     }
@@ -268,13 +277,10 @@ private fun TimelineScreen(
             if (event.type == EventItem.TYPE.TAG) {
                 TimelineHintCard(event = event, onConfirmed = onHintConfirmed)
             } else {
-                val isFirstTimeline = remember(displayEvents) {
-                    index == displayEvents.indexOfFirst { it.type != EventItem.TYPE.TAG }
-                }
-                val isLastTimeline = remember(displayEvents) {
-                    index == displayEvents.indexOfLast { it.type != EventItem.TYPE.TAG }
-                }
-                val isPassed = TimeTools.passed(event.to)
+                val row = TimelineListProjection.rowState(event, index, timelineBounds, ticker)
+                val isFirstTimeline = row.isFirstTimeline
+                val isLastTimeline = row.isLastTimeline
+                val isPassed = row.isPassed
                 val spec = tween<Float>(durationMillis = 450, easing = FastOutSlowInEasing)
                 val alpha = remember { Animatable(if (isPassed) 1f else 0f) }
                 val translationY = remember { Animatable(if (isPassed) 0f else 120f) }
@@ -306,9 +312,9 @@ private fun TimelineScreen(
                     TimelineEventRow(
                         event = event,
                         isPassed = isPassed,
-                        isUpcomingExam = SpecialEventReminderUtils.isExamEvent(event) &&
-                                event.from.time > System.currentTimeMillis(),
-                        isNow = event.containsTimeStamp(System.currentTimeMillis()),
+                        isUpcomingExam = row.isUpcomingExam,
+                        isNow = row.isNow,
+                        progress = row.progress,
                         isFirstTimeline = isFirstTimeline,
                         isLastTimeline = isLastTimeline,
                         onClick = { onEventClick(event) },
@@ -576,7 +582,9 @@ private fun TimelineHeaderCard(
 
                 Icon(
                     painter = painterResource(R.drawable.ic_baseline_arrow_drop_down_24),
-                    contentDescription = null,
+                    contentDescription = stringResource(
+                        if (expanded) R.string.timeline_collapse_hint else R.string.timeline_expand_hint
+                    ),
                     tint = Color.White,
                     modifier = Modifier
                         .align(Alignment.End)
@@ -880,6 +888,7 @@ private fun TimelineEventRow(
     isPassed: Boolean,
     isUpcomingExam: Boolean,
     isNow: Boolean,
+    progress: Float,
     isFirstTimeline: Boolean,
     isLastTimeline: Boolean,
     onClick: () -> Unit,
@@ -1034,7 +1043,7 @@ private fun TimelineEventRow(
                         }
                         if (isNow) {
                             LinearProgressIndicator(
-                                progress = { event.getProgress(System.currentTimeMillis()) },
+                                progress = { progress },
                                 modifier = Modifier
                                     .padding(top = HitaTheme.tokens.spacing.sm)
                                     .width(72.dp)

@@ -14,14 +14,13 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBars
-import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
@@ -318,7 +317,8 @@ private fun ScoreInquiryScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .windowInsetsPadding(WindowInsets.statusBars)
+            .statusBarsPadding()
+            .navigationBarsPadding()
             .background(MaterialTheme.colorScheme.background)
     ) {
         TopAppBar(
@@ -387,24 +387,22 @@ private fun ScoreInquiryScreen(
                     }
                 }
                 if (scores.isNotEmpty()) {
-                    item {
-                        Card(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = tokens.spacing.lg, vertical = tokens.spacing.sm),
-                            shape = RoundedCornerShape(24.dp),
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+                    // 成绩行原本在单个 item 内 forEach 全量组合，100+ 条时无法虚拟化。
+                    // 改为 LazyColumn 直接承载：每行自带卡片背景，视觉与原 Card 一致，
+                    // 首末行分别补齐上方/下方圆角与留白。
+                    itemsIndexed(
+                        scores,
+                        key = { index, score -> "${score.courseCode ?: "-"}-${score.courseName}-$index" },
+                    ) { index, score ->
+                        ScoreRowSurface(
+                            first = index == 0,
+                            last = index == scores.lastIndex,
                         ) {
-                            Column {
-                                scores.forEachIndexed { index, score ->
-                                    ScoreRow(
-                                        score = score,
-                                        showDivider = index != scores.lastIndex,
-                                        onClick = { onOpenScore(score) }
-                                    )
-                                }
-                            }
+                            ScoreRow(
+                                score = score,
+                                showDivider = index != scores.lastIndex,
+                                onClick = { onOpenScore(score) }
+                            )
                         }
                     }
                 }
@@ -691,6 +689,36 @@ private fun ScoreEmptyView(message: String?) {
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
     }
+}
+
+/**
+ * 成绩行的卡片承载层：与原单个 Card 外观一致（surface 底、24dp 外圆角、水平留白），
+ * 但因为行由 LazyColumn 逐条虚拟化，圆角与留白分别落在首行/末行。
+ */
+@Composable
+private fun ScoreRowSurface(
+    first: Boolean,
+    last: Boolean,
+    content: @Composable () -> Unit,
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(
+                start = HitaTheme.tokens.spacing.lg,
+                end = HitaTheme.tokens.spacing.lg,
+                top = if (first) HitaTheme.tokens.spacing.sm else 0.dp,
+                bottom = if (last) HitaTheme.tokens.spacing.sm else 0.dp,
+            ),
+        shape = RoundedCornerShape(
+            topStart = if (first) 24.dp else 0.dp,
+            topEnd = if (first) 24.dp else 0.dp,
+            bottomStart = if (last) 24.dp else 0.dp,
+            bottomEnd = if (last) 24.dp else 0.dp,
+        ),
+        color = MaterialTheme.colorScheme.surface,
+        content = content,
+    )
 }
 
 @Composable

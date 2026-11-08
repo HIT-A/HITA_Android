@@ -1752,6 +1752,8 @@
     <string name="exam_import_invalid_time">考试时间格式解析失败</string>
     <string name="exam_import_failure_detail">导入失败: %1$s</string>
     <string name="timeline_empty_events">今天暂无课程或日程安排</string>
+    <string name="timeline_expand_hint">展开今日概览</string>
+    <string name="timeline_collapse_hint">收起今日概览</string>
     <string name="outside_selected_term">非所选学期</string>
     <string name="exam_term_load_failed">暂时无法获取可用学期，请点击刷新重试</string>
     <string name="chat_save_failed">对话保存失败，请重试</string>
