@@ -309,13 +309,9 @@ class PopUpLoginEAS : BottomSheetDialogFragment() {
         webBaseUrl: String?,
     ) {
         val cookiesJson = JSONObject(cookiesMap as Map<*, *>).toString()
-        val loginMetadata = if (campus == EASToken.Campus.SHENZHEN ||
-            campus == EASToken.Campus.WEIHAI && selectedStudentType == EASToken.TYPE.GRAD) {
-            webBaseUrl.orEmpty()
-        } else {
-            electronicExpToken.orEmpty()
-        }
-        val loginSource = viewModel.easRepo.login(cookiesJson, loginMetadata, campus, selectedStudentType)
+        val loginSource = viewModel.easRepo.loginWithWebSession(
+            cookiesJson, webBaseUrl, electronicExpToken, campus, selectedStudentType,
+        )
         val observer = object : Observer<DataState<Boolean>> {
             override fun onChanged(value: DataState<Boolean>) {
                 val state = value

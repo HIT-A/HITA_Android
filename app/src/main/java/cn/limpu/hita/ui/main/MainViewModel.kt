@@ -34,12 +34,19 @@ import kotlin.coroutines.resume
 
 internal sealed interface MainEffect {
     data object SessionExpired : MainEffect
+    data class SilentRenewal(val campus: EASToken.Campus, val studentType: EASToken.TYPE) : MainEffect
     data class Update(val result: CheckUpdateResult) : MainEffect
     data class Notice(val selection: MainNoticeSelection) : MainEffect
     data class Message(val stringId: Int) : MainEffect
 }
 
 internal data class MainHostEffect(val host: Long, val session: MainSession?, val value: MainEffect)
+
+/** A silent-renewal request held until the host is attached and the WebView login is launched. */
+internal data class PendingSilentRenewal(
+    val request: MainStartupAction.Import,
+    val effect: MainEffect.SilentRenewal,
+)
 
 @HiltViewModel
 internal class MainViewModel @Inject constructor(
@@ -63,6 +70,9 @@ internal class MainViewModel @Inject constructor(
     private var wallpaperJob: Job? = null
     private var pendingUpdate: CheckUpdateResult? = null
     private var pendingSessionExpired: MainSession? = null
+    private var pendingSilentRenewal: PendingSilentRenewal? = null
+    private var activeSilentRenewal: MainEffect.SilentRenewal? = null
+    private var silentRenewalInFlight = false
     private var noticeFetched = false
     private var pendingNotice: MainNoticeSelection = MainNoticeSelection.None
     private val startup = MainStartupCoordinator(object : MainStartupSettings {
@@ -85,6 +95,9 @@ internal class MainViewModel @Inject constructor(
         activeHost = host
         if (pendingNotice != MainNoticeSelection.None) emit(host, MainEffect.Notice(pendingNotice))
         pendingUpdate?.let { emit(host, MainEffect.Update(it)) }
+        pendingSilentRenewal?.takeIf { it.request.session == MainSession.from(eas.getEasToken()) }?.let {
+            emit(host, it.effect, it.request.session)
+        }
         pendingSessionExpired?.takeIf { it == MainSession.from(eas.getEasToken()) }?.let {
             emit(host, MainEffect.SessionExpired, it)
         }
@@ -148,6 +161,16 @@ internal class MainViewModel @Inject constructor(
                         val result = requests.importTimetable(action.session.undergraduate)
                         // Re-read account identity even while the Activity is stopped and observes no token.
                         if (action.session != MainSession.from(eas.getEasToken())) return@launch
+                        // Silent WebView renewal first: it reuses still-valid identity cookies so the
+                        // user is not asked to log in again on every cold start. The prompt stays as
+                        // the fallback for a genuinely expired login.
+                        if (startup.silentRenewalNeeded(action, result)) {
+                            val token = eas.getEasToken()
+                            val effect = MainEffect.SilentRenewal(token.campus, token.stutype)
+                            pendingSilentRenewal = PendingSilentRenewal(action, effect)
+                            activeHost?.let { emit(it, effect, action.session) }
+                            return@launch
+                        }
                         if (startup.importFinished(action, result)) {
                             eas.markSessionExpired()
                             refreshUser()
@@ -186,6 +209,43 @@ internal class MainViewModel @Inject constructor(
 
     fun noticeFinished(selection: MainNoticeSelection) {
         if (pendingNotice == selection) pendingNotice = MainNoticeSelection.None
+    }
+
+    /** The host is about to launch the silent WebView login; keep the request for its result. */
+    fun silentRenewalLaunched() {
+        activeSilentRenewal = pendingSilentRenewal?.effect
+        pendingSilentRenewal = null
+        silentRenewalInFlight = activeSilentRenewal != null
+    }
+
+    /** Campus/student type of the renewal currently in flight, for the Activity result handler. */
+    fun activeSilentRenewal(): MainEffect.SilentRenewal? = activeSilentRenewal
+
+    /**
+     * Silent renewal restored the session: schedule a fresh import and skip the expired prompt.
+     * [MainStartupCoordinator.reloginSucceeded] re-arms the import attempt, and accountChanged
+     * re-runs the startup actions with the refreshed token.
+     */
+    fun silentRenewalSucceeded() {
+        pendingSilentRenewal = null
+        activeSilentRenewal = null
+        silentRenewalInFlight = false
+        startup.reloginSucceeded()
+        accountChanged(eas.getEasToken())
+    }
+
+    /** Silent renewal could not restore the session (needs credentials, MFA, or failed): prompt. */
+    fun silentRenewalFailed() {
+        pendingSilentRenewal = null
+        val wasInFlight = silentRenewalInFlight
+        activeSilentRenewal = null
+        silentRenewalInFlight = false
+        if (!wasInFlight) return
+        eas.markSessionExpired()
+        refreshUser()
+        val session = MainSession.from(eas.getEasToken())
+        pendingSessionExpired = session
+        activeHost?.let { emit(it, MainEffect.SessionExpired, session) }
     }
 
     fun updateFinished(result: CheckUpdateResult) { if (pendingUpdate === result) pendingUpdate = null }

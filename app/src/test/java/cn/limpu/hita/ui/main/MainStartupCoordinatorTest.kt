@@ -127,6 +127,43 @@ class MainStartupCoordinatorTest {
         assertTrue(settings.saved.isEmpty())
     }
 
+    @Test fun nonExpiryResultsDoNotConsumeTheSilentRenewalBudget() {
+        val request = coordinator.accountChanged(account, false).imports().single()
+        // A successful or merely failed import must leave the one-shot renewal offer intact.
+        assertFalse(coordinator.silentRenewalNeeded(request, AutoImportResult.SUCCESS))
+        assertFalse(coordinator.silentRenewalNeeded(request, AutoImportResult.FAILED))
+        assertFalse(coordinator.silentRenewalNeeded(request, AutoImportResult.SKIPPED_IN_PROGRESS))
+        assertTrue(coordinator.silentRenewalNeeded(request, AutoImportResult.NOT_LOGGED_IN))
+    }
+
+    @Test fun sessionExpiryOffersSilentRenewalOnceThenPromptsOnlyAfterItFails() {
+        val request = coordinator.accountChanged(account, false).imports().single()
+        // The first expiry asks the host for one silent renewal instead of prompting at once.
+        assertTrue(coordinator.silentRenewalNeeded(request, AutoImportResult.NOT_LOGGED_IN))
+        // Budget spent: a repeated expiry must not loop through renew -> import -> renew.
+        assertFalse(coordinator.silentRenewalNeeded(request, AutoImportResult.NOT_LOGGED_IN))
+        // The original notification is still delivered exactly once after renewal failed.
+        assertTrue(coordinator.importFinished(request, AutoImportResult.NOT_LOGGED_IN))
+        assertFalse(coordinator.importFinished(request, AutoImportResult.NOT_LOGGED_IN))
+    }
+
+    @Test fun successfulSilentRenewalSchedulesAFreshImportAndSkipsThePrompt() {
+        val request = coordinator.accountChanged(account, false).imports().single()
+        assertTrue(coordinator.silentRenewalNeeded(request, AutoImportResult.NOT_LOGGED_IN))
+        // Cookie refresh keeps the account but bumps the generation.
+        coordinator.reloginSucceeded()
+        val retry = coordinator.accountChanged(account.copy(generation = 2), false).imports().single()
+        assertEquals(2, retry.session.generation)
+        assertFalse(coordinator.importFinished(retry, AutoImportResult.SUCCESS))
+        assertEquals(listOf(clock), settings.saved)
+        // The throttle still applies after a successful import: advance past the 10-minute window.
+        clock += 600_001
+        // Still-expired after renewal falls back to the prompt, not another silent attempt.
+        val expiredRetry = coordinator.accountChanged(account.copy(key = "SHENZHEN:retry"), false).imports().single()
+        assertFalse(coordinator.silentRenewalNeeded(expiredRetry, AutoImportResult.NOT_LOGGED_IN))
+        assertTrue(coordinator.importFinished(expiredRetry, AutoImportResult.NOT_LOGGED_IN))
+    }
+
     @Test fun expiredPromptIsDeliveredOnceAndCloseRejectsAllPendingAndNewWork() {
         val first = coordinator.accountChanged(account, false).imports().single()
         assertTrue(coordinator.importFinished(first, AutoImportResult.NOT_LOGGED_IN))

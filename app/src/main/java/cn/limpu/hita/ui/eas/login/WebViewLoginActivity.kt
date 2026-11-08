@@ -550,11 +550,11 @@ class WebViewLoginActivity : AppCompatActivity() {
                         isIvpnRedirectPage(url) -> {
                             autoOpeningJwts = false
                             stopCookiePolling()
-                            if (silentMode) {
+                            if (resumeAcademicLoginAfterVpn(view, url)) {
+                                LogUtils.d("benbu vpn connected, opening academic login")
+                            } else if (silentMode) {
                                 LogUtils.d("ivpn redirect page in silent mode, need user interaction")
                                 finishWithCancelledResult()
-                            } else if (resumeAcademicLoginAfterVpn(view, url)) {
-                                LogUtils.d("benbu vpn connected, opening academic login")
                             } else {
                                 LogUtils.d("ivpn redirect page, waiting for CAS login: path=${uri.path}")
                             }
@@ -1688,7 +1688,10 @@ class WebViewLoginActivity : AppCompatActivity() {
      * 每个登录过程只自动跳一次，避免门户和教务入口互相来回。
      */
     private fun resumeAcademicLoginAfterVpn(view: WebView, url: String): Boolean {
-        if (finished || silentMode || isSuccessPage(url)) return false
+        // Silent renewal must walk the same VPN/portal hop; it only gives up on pages that
+        // actually demand credentials (checked by the callers). The one-shot guard below keeps
+        // portal <-> entry bouncing bounded.
+        if (finished || isSuccessPage(url)) return false
         if (isAuthenticationPage(url) || isMfaPage(url)) return false
         // 已经在教务页时不再续跳，避免 aTrust 与教务入口来回打转。
         if (config.campus == EASToken.Campus.SHENZHEN &&
@@ -2149,7 +2152,9 @@ class WebViewLoginActivity : AppCompatActivity() {
      * 大多能落到正常的成功页。每个 Activity 实例每校区最多触发 2 次，避免异常循环。
      */
     private fun nudgeStuckCampusLogin(url: String) {
-        if (finished || silentMode) return
+        // Allowed in silent mode too: it only re-drives an EAS entry page on a teaching host,
+        // never filling credentials; without it renewal stalls on blank pages.
+        if (finished) return
         val uri = runCatching { Uri.parse(url) }.getOrNull() ?: return
         val attempt = when (config.campus) {
             EASToken.Campus.WEIHAI -> {
@@ -2519,6 +2524,10 @@ class WebViewLoginActivity : AppCompatActivity() {
             }
         }
         LogUtils.success("login complete campus=${config.campus} cookies=${cookies.size} eelabToken=${eelabToken != null}")
+        // Identity cookies (CAS CASTGC, aTrust tokens, WebVPN tickets) live in the shared cookie
+        // jar; flush them now so a later process death cannot drop the session that silent renewal
+        // depends on.
+        CookieManager.getInstance().flush()
         setResult(Activity.RESULT_OK, intent)
         finish()
     }

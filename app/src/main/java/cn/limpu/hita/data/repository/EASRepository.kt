@@ -211,7 +211,39 @@ class EASRepository @Inject internal constructor(
         private const val JW_DIRECT_BASE_URL = "https://jw.hitsz.edu.cn"
         private const val JW_PROXY_BASE_URL = "https://jw-hitsz-edu-cn.hitsz.edu.cn"
         private const val SCORE_CACHE_RETENTION_MS = 365L * 24L * 60L * 60L * 1000L
+
+        /**
+         * WebViewLoginActivity hands the campus-specific extra back in `web_base_url` (Shenzhen,
+         * Weihai graduate) or `electronic_exp_token` (Benbu, Weihai undergraduate). Keep the
+         * mapping in one place so interactive and silent renewal authenticate identically.
+         */
+        fun webSessionLoginMetadata(
+            campus: EASToken.Campus,
+            studentType: EASToken.TYPE,
+            webBaseUrl: String?,
+            electronicExpToken: String?,
+        ): String = if (campus == EASToken.Campus.SHENZHEN ||
+            (campus == EASToken.Campus.WEIHAI && studentType == EASToken.TYPE.GRAD)
+        ) {
+            webBaseUrl.orEmpty()
+        } else {
+            electronicExpToken.orEmpty()
+        }
     }
+
+    /** Cookie login from a finished WebView session (interactive or silent renewal). */
+    fun loginWithWebSession(
+        cookiesJson: String,
+        webBaseUrl: String?,
+        electronicExpToken: String?,
+        campus: EASToken.Campus,
+        studentType: EASToken.TYPE = EASToken.TYPE.UNDERGRAD,
+    ): LiveData<DataState<Boolean>> = login(
+        cookiesJson,
+        webSessionLoginMetadata(campus, studentType, webBaseUrl, electronicExpToken),
+        campus,
+        studentType,
+    )
 
     init {
         runCatching { easCredentialStore.migrateLegacyIfNeeded(easPreferenceSource) }

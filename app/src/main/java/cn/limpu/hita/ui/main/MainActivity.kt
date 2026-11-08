@@ -78,6 +78,16 @@ class MainActivity : HiltBaseActivity<MainViewBinding>(),
         if (uri != null) viewModel.saveWallpaper(uri)
     }
 
+    /**
+     * Invisible session renewal: WebViewLoginActivity walks the campus login chain again, reusing
+     * the identity cookies that are still in the shared jar (CAS CASTGC ≈14 days, aTrust session,
+     * WebVPN ticket) so no credentials are ever typed. Cancellation means the identity layer is
+     * really gone; only then is the user prompted.
+     */
+    private val silentRenewalLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result -> handleSilentRenewalResult(result.resultCode, result.data) }
+
     override fun initViewBinding() = MainViewBinding(this)
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -177,6 +187,7 @@ class MainActivity : HiltBaseActivity<MainViewBinding>(),
                     if (viewModel.accepts(effect, hostId) && !isFinishing && !isDestroyed) {
                         when (val value = effect.value) {
                             MainEffect.SessionExpired -> { showSessionExpired(); viewModel.sessionExpiredPresented() }
+                            is MainEffect.SilentRenewal -> launchSilentRenewal(value)
                             is MainEffect.Notice -> noticePresenter.show(value.selection)
                             is MainEffect.Update -> updatePresenter.show(value.result)
                             is MainEffect.Message -> Toast.makeText(this@MainActivity, value.stringId, Toast.LENGTH_SHORT).show()
@@ -285,6 +296,57 @@ class MainActivity : HiltBaseActivity<MainViewBinding>(),
             .setMessage(R.string.eas_session_expired_message)
             .setPositiveButton(R.string.eas_relogin_now) { _, _ -> showEasLoginSheet() }
             .setNegativeButton(R.string.eas_relogin_later, null).show()
+    }
+
+    private fun launchSilentRenewal(effect: MainEffect.SilentRenewal) {
+        viewModel.silentRenewalLaunched()
+        LogUtils.d("silent session renewal start campus=${effect.campus}")
+        silentRenewalLauncher.launch(
+            Intent(this, cn.limpu.hita.ui.eas.login.WebViewLoginActivity::class.java).apply {
+                putExtra(cn.limpu.hita.ui.eas.login.WebViewLoginActivity.EXTRA_SILENT_MODE, true)
+                putExtra(cn.limpu.hita.ui.eas.login.WebViewLoginActivity.EXTRA_CAMPUS, effect.campus.name)
+                putExtra(
+                    cn.limpu.hita.ui.eas.login.WebViewLoginActivity.EXTRA_STUDENT_TYPE,
+                    if (effect.studentType == EASToken.TYPE.GRAD) "2" else "1"
+                )
+            }
+        )
+    }
+
+    private fun handleSilentRenewalResult(resultCode: Int, data: Intent?) {
+        val renewal = viewModel.activeSilentRenewal()
+        if (resultCode != Activity.RESULT_OK || renewal == null) {
+            LogUtils.w("silent session renewal needs interaction campus=${renewal?.campus} result=$resultCode")
+            viewModel.silentRenewalFailed()
+            return
+        }
+        val cookiesJson = data?.getStringExtra("cookies")
+        if (cookiesJson.isNullOrBlank()) {
+            viewModel.silentRenewalFailed()
+            return
+        }
+        val campus = renewal.campus
+        val studentType = if (data.getStringExtra(
+                cn.limpu.hita.ui.eas.login.WebViewLoginActivity.EXTRA_STUDENT_TYPE
+            ) == "2"
+        ) EASToken.TYPE.GRAD else EASToken.TYPE.UNDERGRAD
+        val loginSource = easRepository.loginWithWebSession(
+            cookiesJson,
+            data.getStringExtra("web_base_url"),
+            data.getStringExtra("electronic_exp_token"),
+            campus,
+            studentType,
+        )
+        lifecycleScope.launch {
+            val state = loginSource.awaitMainValue()
+            if (state.state == com.limpu.component.data.DataState.STATE.SUCCESS && state.data == true) {
+                LogUtils.success("silent session renewal restored campus=$campus")
+                viewModel.silentRenewalSucceeded()
+            } else {
+                LogUtils.e("silent session renewal rejected campus=$campus state=${state.state}")
+                viewModel.silentRenewalFailed()
+            }
+        }
     }
 
     private fun showWallpaperOptions() {

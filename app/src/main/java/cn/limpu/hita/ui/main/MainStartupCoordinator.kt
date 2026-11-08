@@ -45,6 +45,7 @@ internal class MainStartupCoordinator(
     private var checkedUpdate = false
     private var lastUpdate = 0L
     private var expiredPromptShown = false
+    private var silentRenewalOffered = false
     private var closed = false
 
     fun accountChanged(next: MainSession, showsBlogTab: Boolean): List<MainStartupAction> {
@@ -90,6 +91,17 @@ internal class MainStartupCoordinator(
         }
     }
 
+    /**
+     * Silent WebView renewal is offered at most once per coordinator: it must never loop through
+     * renew → import → renew. When it is refused or fails, [importFinished] delivers the prompt.
+     */
+    fun silentRenewalNeeded(request: MainStartupAction.Import, result: AutoImportResult): Boolean {
+        if (closed || request != activeImport || request.session != session) return false
+        if (result != AutoImportResult.NOT_LOGGED_IN || silentRenewalOffered) return false
+        silentRenewalOffered = true
+        return true
+    }
+
     /** Returns true exactly once when the current session needs a relogin prompt. */
     fun importFinished(request: MainStartupAction.Import, result: AutoImportResult): Boolean {
         if (closed || request != activeImport || request.session != session) return false
@@ -100,7 +112,15 @@ internal class MainStartupCoordinator(
         return true
     }
 
-    fun reloginSucceeded() { expiredPromptShown = false }
+    /**
+     * A fresh login or silent renewal resets the per-session gates so the caller schedules
+     * another import; the silent-renewal budget itself is not refilled.
+     */
+    fun reloginSucceeded() {
+        expiredPromptShown = false
+        attempted = false
+        activeImport = null
+    }
     fun retryInterruptedUpdate() { checkedUpdate = false }
     fun close() { closed = true; activeImport = null }
 }
