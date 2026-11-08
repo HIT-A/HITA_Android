@@ -64,6 +64,80 @@ internal object EasWebCredentialPolicy {
         """.trimIndent()
     }
 
+    /**
+     * 勾选 CAS 登录页的「N 天免登录」（rememberMe）。
+     *
+     * 该勾选项决定 CASTGC 是持久 cookie 还是会话 cookie：不勾选时登录拿到的
+     * `CASTGC` 为 `is_persistent=0`，进程被杀后身份票据即失效、必须重新输密码；
+     * 勾选后服务端下发带到期时间的持久票据（深圳实测 14 天），冷启动可复用身份层。
+     * 因此登录前主动勾选，不依赖用户手动操作。
+     */
+    fun rememberMeScript(): String = """
+        (function() {
+          function visible(element) {
+            if (!element || element.disabled) return false;
+            return !!(element.offsetWidth || element.offsetHeight || element.getClientRects().length);
+          }
+          function labelOf(element) {
+            return String(
+              element.innerText || element.textContent || element.value ||
+              element.getAttribute('aria-label') || element.getAttribute('title') || ''
+            ).replace(/\s+/g, '');
+          }
+          function isRememberLabel(text) {
+            if (!text) return false;
+            if (text.indexOf('免登录') >= 0) return true;
+            if (text.indexOf('记住我') >= 0) return true;
+            return /^(\d+天)?.*(免登录|记住|保持不变)/.test(text) || text.toLowerCase().indexOf('remember') >= 0;
+          }
+          function fire(element, type) {
+            element.dispatchEvent(new Event(type, {bubbles:true}));
+          }
+          function setChecked(input) {
+            if (!input) return false;
+            if (input.checked) return true;
+            var setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'checked').set;
+            if (setter) setter.call(input, true); else input.checked = true;
+            fire(input, 'input');
+            fire(input, 'change');
+            fire(input, 'click');
+            return !!input.checked;
+          }
+
+          var boxes = document.querySelectorAll('input[type="checkbox"]');
+          for (var i = 0; i < boxes.length; i++) {
+            var box = boxes[i];
+            if (!visible(box)) continue;
+            var wrapper = box.closest('label, li, div, span');
+            var text = labelOf(wrapper && wrapper !== box ? wrapper : box) +
+              ' ' + String(box.name || '') + ' ' + String(box.id || '');
+            if (isRememberLabel(text.replace(/\s+/g, ''))) {
+              return JSON.stringify({
+                checked: setChecked(box),
+                action: 'checkbox',
+                label: text.trim().slice(0, 40)
+              });
+            }
+          }
+
+          var nodes = document.querySelectorAll('label,span,div,li,p,a');
+          for (var j = 0; j < nodes.length; j++) {
+            var node = nodes[j];
+            if (!visible(node)) continue;
+            var own = labelOf(node).replace(/\s+/g, '');
+            if (!own || own.length > 12 || !isRememberLabel(own)) continue;
+            var inner = node.querySelector ? node.querySelector('input[type="checkbox"]') : null;
+            if (inner) {
+              return JSON.stringify({checked: setChecked(inner), action: 'label-checkbox', label: own});
+            }
+            var clicked = node.closest('label') || node;
+            clicked.click();
+            return JSON.stringify({checked: true, action: 'label-click', label: own});
+          }
+          return JSON.stringify({checked: false, action: 'none'});
+        })();
+    """.trimIndent()
+
     fun captureScript(): String = """
         (function() {
           if (window.__hitaCredentialCaptureInstalled) return;

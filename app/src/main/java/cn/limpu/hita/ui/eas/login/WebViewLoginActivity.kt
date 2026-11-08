@@ -162,6 +162,9 @@ class WebViewLoginActivity : AppCompatActivity() {
         private const val MFA_METHOD_SWITCH_MAX_POLLS = 75
         private const val SHENZHEN_AUTO_ADVANCE_RETRY_DELAY_MS = 300L
         private const val SHENZHEN_AUTO_ADVANCE_MAX_RETRIES = 12
+
+        /** CAS 登录页渲染节奏不一，分多轮尝试勾选「N 天免登录」，确保身份票据是持久 cookie。 */
+        private val CAS_REMEMBER_ME_DELAYS_MS = longArrayOf(0L, 400L, 1200L, 2500L)
         private const val SHENZHEN_DESKTOP_USER_AGENT =
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
                 "AppleWebKit/537.36 (KHTML, like Gecko) " +
@@ -2064,6 +2067,20 @@ class WebViewLoginActivity : AppCompatActivity() {
     }
 
     private fun prepareLoginPageCredentials(view: WebView, url: String) {
+        // 免登录勾选必须对三端都执行：不勾选时 CAS 只会下发会话级 CASTGC。
+        // 页面可能在 onPageFinished 之后才渲染出勾选框，因此多轮尝试。
+        if (isCasLoginPage(url)) {
+            CAS_REMEMBER_ME_DELAYS_MS.forEachIndexed { index, delay ->
+                view.postDelayed({
+                    if (finished) return@postDelayed
+                    view.evaluateJavascript(EasWebCredentialPolicy.rememberMeScript()) { raw ->
+                        LogUtils.d(
+                            "rememberMe round=$index url=${safeUrl(url)} result=${raw?.take(80) ?: "null"}"
+                        )
+                    }
+                }, delay)
+            }
+        }
         if (!EasWebCredentialPolicy.matchesLoginPage(config.campus, url, isMainFrame = true)) return
         view.evaluateJavascript(EasWebCredentialPolicy.captureScript(), null)
         val credential = EasWebCredentialPolicy.readOptionalCredential {
@@ -2073,6 +2090,13 @@ class WebViewLoginActivity : AppCompatActivity() {
             EasWebCredentialPolicy.autofillScript(credential.username, credential.password),
             null
         )
+    }
+
+    /** 三端统一身份认证登录页（含深圳），路径均以 `/authserver/login` 结尾。 */
+    private fun isCasLoginPage(url: String): Boolean {
+        val uri = runCatching { java.net.URI(url) }.getOrNull() ?: return false
+        val path = uri.path?.lowercase() ?: return false
+        return path.trimEnd('/').endsWith("/authserver/login")
     }
 
     private fun autoOpenJwts(webView: WebView) {

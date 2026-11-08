@@ -22,6 +22,14 @@
 
 ## 实现
 
+0. **登录页自动勾选「N 天免登录」**（`EasWebCredentialPolicy.rememberMeScript` +
+   `WebViewLoginActivity.prepareLoginPageCredentials`）。这是整条链路的前提：
+   CAS 只有在 `rememberMe` 勾选时才下发**持久** `CASTGC`，不勾选时 `CASTGC` 为
+   `is_persistent=0` 的会话 cookie，进程被杀即失效——此前手机实测正是因此拿到
+   会话级票据（见下方取证），冷启动必然需要重新输密码。脚本同时兼容原生
+   `input[type=checkbox]` 与自定义 label 两种控件，只写 `checked=true` 且已勾选时
+   直接返回，多次注入不会取消勾选；`onPageFinished` 后按 0/400/1200/2500ms 四轮重试，
+   覆盖页面延迟渲染的情况。
 1. **登录成功即落盘**（`WebViewLoginActivity.finishWithCookies`）追加
    `CookieManager.flush()`，避免进程被杀时身份票据尚未写入磁盘。
 2. **启动导入失败先静默续期**（`MainViewModel` + `MainActivity`）：
@@ -47,10 +55,24 @@
 
 ## 取证
 
+手机实测（2026-11-08，Android 16 / PJW110，深圳账号）：
+- 冷启动 ×3 全部免登录成功，课表直接加载，`0` 条「课表更新失败 / 教务登录已过期」通知。
+- 未勾选免登录时导出 cookie 库，`ids-hit-edu-cn-s.hitsz.edu.cn` 的 `CASTGC` 为
+  `is_persistent=0`（会话级）；`MULTIFACTOR_BROWSER_FINGERPRINT` 为 399.4 天；
+  `grader.hitsz.edu.cn` 的 `sessionid` 为 7.4 天。即持久化能力完全取决于
+  `rememberMe` 是否勾选，这是本次补上自动勾选的原因。
+
 `app/src/debug` 的 `EasSessionDebugReceiver`（仅 debug 包，发布包不包含）可导出 cookie jar
 当前持有的 cookie 名：
 
 ```
 adb shell am broadcast -a cn.limpu.hita.action.DUMP_EAS_SESSION
 adb logcat -d | grep eas-cookie-jar
+```
+
+cookie 库本身可整份取出核对过期时间戳（WebView 的库不受应用数据加密保护）：
+
+```
+adb exec-out run-as <pkg> cat app_webview/Default/Cookies > ck.db
+# cookies 表：expires_utc 为 1601 起的微秒数，0 表示会话级；is_persistent=1 才是持久 cookie
 ```
