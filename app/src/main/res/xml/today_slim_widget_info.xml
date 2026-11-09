@@ -6,7 +6,7 @@
     android:minHeight="80dp"
     android:previewImage="@drawable/widget_slim_preview"
     android:resizeMode="vertical|horizontal"
-    android:updatePeriodMillis="1800000"
+    android:updatePeriodMillis="0"
     android:widgetCategory="home_screen" />
 
     <!--    android:configure="com.zj.weather.common.widget.WeatherWidgetConfigureActivity"-->

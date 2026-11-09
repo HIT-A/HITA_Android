@@ -31,9 +31,10 @@ object ScoreReminderScheduler {
         val immediateRequest = OneTimeWorkRequestBuilder<ScoreReminderWorker>()
             .setConstraints(constraints)
             .build()
+        // 每次进入成绩页都会调用 schedule()；KEEP 避免取消正在执行的查询并重复请求 EAS。
         WorkManager.getInstance(context).enqueueUniqueWork(
             UNIQUE_IMMEDIATE_NAME,
-            ExistingWorkPolicy.REPLACE,
+            ExistingWorkPolicy.KEEP,
             immediateRequest
         )
     }
