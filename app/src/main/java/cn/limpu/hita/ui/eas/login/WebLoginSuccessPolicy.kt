@@ -101,11 +101,16 @@ internal object WebLoginSuccessPolicy {
         if (host !in allowedHosts) return false
 
         val path = uri.path.orEmpty().lowercase()
-        if (path.contains("login") || path.contains("authserver") || path.contains("authentication/require")) {
+        if (path.contains("login") || path.contains("authserver") ||
+            path.contains("authentication/require") || path.contains("session/invalid")
+        ) {
             return false
         }
         val isKnownAcademicPage = path.isBlank() || path == "/" ||
             path.contains("authentication/main") ||
+            // aTrust/CAS 验完票后 jw 会把代理地址回跳到 `/cas`，页面内容就是教务首页；
+            // 不把它算作已登录，用户会停在一个不会再触发成功判定的页面上。
+            path.trimEnd('/') == "/cas" ||
             path.contains("student_index") ||
             path.contains("user/me") ||
             path.contains("xszykb") ||
@@ -113,10 +118,7 @@ internal object WebLoginSuccessPolicy {
         return isKnownAcademicPage && EASToken.hasShenzhenWebSessionCookies(cookies)
     }
 
-    /**
-     * 深圳 aTrust 信任门户的任意 /portal 页面即表示 VPN 已连通，
-     * 此时应直接续跳教务网页登录，不再停留在 aTrust 界面。
-     */
+    /** 深圳 aTrust 信任门户的任意 /portal 页面。 */
     fun isShenzhenTrustPortal(url: String): Boolean {
         val uri = runCatching { URI(url) }.getOrNull() ?: return false
         if (uri.scheme?.lowercase() != "https") return false
@@ -124,7 +126,49 @@ internal object WebLoginSuccessPolicy {
         return uri.path.orEmpty().lowercase().startsWith("/portal")
     }
 
-    /** 深圳教务登录入口：到达这里说明已离开 aTrust，无需再次续跳。 */
+    /**
+     * 门户里的认证/引导页面：`shortcut.html`（会探测本地 aTrust 客户端）、
+     * `#/login`（统一身份认证表单）、客户端下载页。
+     *
+     * 这些页面恰恰说明**还没连上**：教务入口无会话时会被 302 到这里。把这里当成
+     * "已连接"再回跳教务入口，就形成 门户→教务→verify→门户 的无限重定向，页面
+     * 永远停在 `shortcut.html` 的 Loading。所以它们绝不触发自动续跳。
+     */
+    fun isShenzhenTrustPortalAuthPage(url: String): Boolean {
+        if (!isShenzhenTrustPortal(url)) return false
+        val uri = runCatching { URI(url) }.getOrNull() ?: return false
+        val path = uri.path.orEmpty().lowercase()
+        if (path.startsWith("/portal/shortcut")) return true
+        val route = uri.rawFragment.orEmpty().lowercase().removePrefix("!")
+        return route.startsWith("/login") ||
+            route.startsWith("/down_client") ||
+            route.startsWith("/app_center/auth")
+    }
+
+    /** 门户页且已不在认证/下载引导上：aTrust 已放行，可以续跳教务。 */
+    fun isShenzhenTrustPortalConnected(url: String): Boolean =
+        isShenzhenTrustPortal(url) && !isShenzhenTrustPortalAuthPage(url)
+
+    /**
+     * 深圳教务代理的"会话失活"页面：`/session/invalid`、`/authentication/require`。
+     * 它们出现在教务 host 上，但不是已登录页，需要转 `/cas` 重新走一次统一身份认证。
+     */
+    fun isShenzhenReauthenticationPage(url: String): Boolean {
+        val uri = runCatching { URI(url) }.getOrNull() ?: return false
+        if (uri.host.orEmpty().lowercase() !in setOf(
+                "jw.hitsz.edu.cn", "jw-hitsz-edu-cn.hitsz.edu.cn"
+            )
+        ) return false
+        val path = uri.path.orEmpty().lowercase()
+        return path.contains("/session/invalid") || path.endsWith("/authentication/require")
+    }
+
+    /**
+     * 深圳教务登录入口：到达这里说明已离开 aTrust。
+     *
+     * 注意它不是"已登录"：`/session/invalid`、`/authentication/require` 也在这个 host 上，
+     * 需要由 `ShenzhenWebAutoLogin.reauthenticationUrl` 转到 `/cas` 再走一次 CAS。
+     */
     fun isShenzhenAcademicEntry(url: String): Boolean {
         val uri = runCatching { URI(url) }.getOrNull() ?: return false
         return uri.host.orEmpty().lowercase() in setOf("jw.hitsz.edu.cn", "jw-hitsz-edu-cn.hitsz.edu.cn")

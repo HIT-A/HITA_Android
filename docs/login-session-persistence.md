@@ -76,3 +76,62 @@ cookie 库本身可整份取出核对过期时间戳（WebView 的库不受应�
 adb exec-out run-as <pkg> cat app_webview/Default/Cookies > ck.db
 # cookies 表：expires_utc 为 1601 起的微秒数，0 表示会话级；is_persistent=1 才是持久 cookie
 ```
+
+## aTrust 门户的两种状态（2026-11-09 复核）
+
+深圳教务入口 `https://jw-hitsz-edu-cn.hitsz.edu.cn/authentication/main` 在**没有有效 aTrust
+会话**时，会被网关 302 到信任门户：
+
+```
+/authentication/main
+  → trust.hitsz.edu.cn/controller/v1/public/verify?t=<jwt>
+  → trust.hitsz.edu.cn/portal/shortcut.html?dest=%23%21%2Flogin&appUrl=<教务入口>
+  → trust.hitsz.edu.cn/portal/?redirectid=… #/login      ← 统一身份认证表单
+```
+
+`/portal` 因此有两种完全不同的含义：
+
+| 形态 | URL 特征 | 含义 |
+|---|---|---|
+| 认证/引导页 | `shortcut.html`、`#/login`、`#/down_client_*`、`#/app_center/auth` | **还没连上**，需要认证 |
+| 已连接门户 | 其余 `#/…` 路由（服务页、用户信息等） | 已放行，可续跳教务 |
+
+判定见 `WebLoginSuccessPolicy.isShenzhenTrustPortalAuthPage` /
+`isShenzhenTrustPortalConnected`。把认证页当成"已连接"并回跳教务入口，会形成
+`门户 → 教务 → verify → 门户` 的无限重定向，WebView 永远停在 `shortcut.html` 的
+`Loading...`。`resumeAcademicLoginAfterVpn` 因此在三校区统一保留一次性续跳防护。
+
+登录完成的落点：aTrust 放行后 jw 代理会回跳到 `https://jw-hitsz-edu-cn.hitsz.edu.cn/cas`，
+页面内容就是教务首页，因此 `/cas` 也计入深圳的已登录落点。
+
+## 无感登录（三校区）
+
+1. aTrust 门户登录页（`#/login`）自动勾选《用户协议》并点「登录」
+   （`ShenzhenTrustPortalAutoLogin`）。
+2. 到达统一身份认证表单后，用已保存的账号密码自动填充并**自动提交**一次
+   （`EasWebCredentialPolicy.autofillAndSubmitScript`）。同一张登录页只提交一次，
+   单次登录最多提交 2 张页面，避免密码失效时触发风控。
+3. 账号密码来源：用户手动登录成功后由 `EasWebCredentialCaptureState` 捕获并写入
+   `EasCredentialStore`（EncryptedSharedPreferences）。三校区现在都在
+   `finishWithCookies` 统一提交，不再只有深圳的 API 登录路径会保存。
+4. 会话过期时 `MainViewModel` 的静默续期用同一套逻辑重走链路；失败才提示用户。
+
+依赖 Web 会话的页面（可选课程、成绩分析、培养方案、课表导入）点「连接 web 教务」时
+由 `EASActivity.launchDirectWebLogin` 直接打开 `WebViewLoginActivity`，不再弹校区/
+账号选择弹窗。
+
+## 静默续期与 CAS 自动提交（2026-11-09 修正）
+
+静默续期（`EXTRA_SILENT_MODE=true`）原本在遇到统一身份认证页时立即
+`finishWithCancelledResult()`，导致 `prepareLoginPageCredentials` 调度的自动填充/提交
+根本来不及执行，无感登录在会话过期路径上完全失效。现在的规则：
+
+| 到达页面 | 有已保存账号密码 | 没有凭据 |
+|---|---|---|
+| CAS `/authserver/login`（三校区） | 不中止，自动填充并提交一次 | 取消，交回宿主提示手动登录 |
+| aTrust 门户认证页（`#/login`、`shortcut.html`） | 不中止，自动勾选协议并点登录 | 取消 |
+| MFA / 滑块等交互页 | 取消 | 取消 |
+| 提交脚本返回 `submitted:false` | 立即取消，不空等到 18 s 超时 | — |
+
+静默窗口不会置 `leftForExternalVpn`：它不会真正外跳 aTrust 客户端，若置位会让回到
+前台时再触发一次续跳，抢在自动填充之前打断流程。

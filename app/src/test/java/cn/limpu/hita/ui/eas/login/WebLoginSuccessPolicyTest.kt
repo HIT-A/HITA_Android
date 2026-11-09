@@ -228,4 +228,76 @@ class WebLoginSuccessPolicyTest {
         assertFalse(WebLoginSuccessPolicy.isShenzhenAcademicEntry("https://trust.hitsz.edu.cn/portal"))
         assertFalse(WebLoginSuccessPolicy.isShenzhenAcademicEntry("https://jw.hitsz.edu.cn.evil.example/"))
     }
+
+    /**
+     * 回归防线：教务入口无会话时会被 302 到 aTrust 的 shortcut.html / #/login。
+     * 这两类页面一旦被当成"已连接"就回跳教务入口，会形成
+     * 门户 → 教务 → verify → 门户 的无限重定向，页面永远停在 Loading。
+     */
+    @Test fun `aTrust auth pages are never treated as connected`() {
+        for (url in listOf(
+            "https://trust.hitsz.edu.cn/portal/shortcut.html?dest=%23%21%2Flogin&appUrl=x",
+            "https://trust.hitsz.edu.cn/portal/?redirectid=0.1#/login",
+            "https://trust.hitsz.edu.cn/portal/#!/login",
+            "https://trust.hitsz.edu.cn/portal/#/down_client_mobile",
+            "https://trust.hitsz.edu.cn/portal/#/app_center/auth",
+        )) {
+            assertTrue("portal: $url", WebLoginSuccessPolicy.isShenzhenTrustPortal(url))
+            assertTrue("auth page: $url", WebLoginSuccessPolicy.isShenzhenTrustPortalAuthPage(url))
+            assertFalse("connected: $url", WebLoginSuccessPolicy.isShenzhenTrustPortalConnected(url))
+        }
+    }
+
+    @Test fun `aTrust portal home after login is connected`() {
+        for (url in listOf(
+            "https://trust.hitsz.edu.cn/portal/#/service",
+            "https://trust.hitsz.edu.cn/portal/#/user_info",
+            "https://trust.hitsz.edu.cn/portal/index",
+        )) {
+            assertFalse("auth page: $url", WebLoginSuccessPolicy.isShenzhenTrustPortalAuthPage(url))
+            assertTrue("connected: $url", WebLoginSuccessPolicy.isShenzhenTrustPortalConnected(url))
+        }
+    }
+
+    @Test fun `aTrust portal auto login only fires on the login route`() {
+        assertTrue(
+            ShenzhenTrustPortalAutoLogin.shouldAutoLogin(
+                "https://trust.hitsz.edu.cn/portal/?redirectid=0.5#/login"
+            )
+        )
+        for (url in listOf(
+            "https://trust.hitsz.edu.cn/portal/shortcut.html?dest=%23%21%2Flogin",
+            "https://trust.hitsz.edu.cn/portal/#/service",
+            "https://jw-hitsz-edu-cn.hitsz.edu.cn/authentication/main",
+        )) {
+            assertFalse(url, ShenzhenTrustPortalAutoLogin.shouldAutoLogin(url))
+        }
+    }
+
+    @Test fun `aTrust portal login script targets the agreement checkbox`() {
+        val script = ShenzhenTrustPortalAutoLogin.buildLoginScript()
+        // 门户可能有「记住我」等多个勾选框：必须按协议/同意文案定位，不能盲选第一个，
+        // 否则勾错框后点登录会被服务端拒绝。
+        assertTrue(script.contains("isAgreementLabel"))
+        assertTrue(script.contains("协议"))
+        assertTrue(script.contains("同意"))
+        assertTrue(script.contains("agree"))
+        assertTrue(script.contains("JSON.stringify({clicked:true"))
+    }
+
+    @Test fun `Shenzhen CAS callback landing completes login`() {
+        // aTrust 放行后 jw 代理回跳到 /cas，页面已是教务首页，必须能被判定为已登录。
+        assertTrue(
+            WebLoginSuccessPolicy.isShenzhenAuthenticatedPage(
+                "https://jw-hitsz-edu-cn.hitsz.edu.cn/cas",
+                mapOf("SESSION" to "session")
+            )
+        )
+        assertFalse(
+            WebLoginSuccessPolicy.isShenzhenAuthenticatedPage(
+                "https://jw-hitsz-edu-cn.hitsz.edu.cn/cas",
+                emptyMap()
+            )
+        )
+    }
 }

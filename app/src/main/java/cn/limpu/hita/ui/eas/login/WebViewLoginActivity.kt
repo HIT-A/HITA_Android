@@ -168,6 +168,15 @@ class WebViewLoginActivity : AppCompatActivity() {
 
         /** CAS 登录页渲染节奏不一，分多轮尝试勾选「N 天免登录」，确保身份票据是持久 cookie。 */
         private val CAS_REMEMBER_ME_DELAYS_MS = longArrayOf(0L, 400L, 1200L, 2500L)
+
+        /** 自动填充后等页面把按钮/表单渲染完成再提交，避免提交未就绪的 DOM。 */
+        private const val CAS_AUTO_SUBMIT_DELAY_MS = 600L
+
+        /** aTrust 门户登录页是 SPA，等它渲染出「登录」按钮再自动点击。 */
+        private const val TRUST_PORTAL_AUTO_LOGIN_DELAY_MS = 900L
+
+        /** 单次登录内自动提交 CAS 表单的上限，避免密码失效时反复提交换来风控。 */
+        private const val MAX_AUTO_SUBMIT = 2
         private const val SHENZHEN_DESKTOP_USER_AGENT =
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
                 "AppleWebKit/537.36 (KHTML, like Gecko) " +
@@ -228,8 +237,12 @@ class WebViewLoginActivity : AppCompatActivity() {
     private var shenzhenUnifiedLoginClicked = false
     private var shenzhenRoleSelectionClicked = false
     private var shenzhenReauthenticationStarted = false
-    private val credentialCaptureState = EasWebCredentialCaptureState()
+    private var credentialCaptureState = EasWebCredentialCaptureState()
     private val credentialBridgeName = "hitaCredentialBridge"
+    /** 本次登录里已自动提交过的 CAS 页面，避免验证失败后无限重试触发风控。 */
+    private val autoSubmittedLoginPages = mutableSetOf<String>()
+    /** aTrust 门户登录页是否已自动推进（每张页面最多一次）。 */
+    private var trustPortalAutoLoginPage: String? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         val campus = runCatching {
@@ -588,12 +601,25 @@ class WebViewLoginActivity : AppCompatActivity() {
 
                     when {
                         config.campus == EASToken.Campus.SHENZHEN && isTrustPortalPage(url) -> {
-                            // 深圳 aTrust 门户连上后直接进入教务网页登录，不停在 aTrust 界面。
+                            // 深圳教务入口无会话时会被 302 到 aTrust 门户：shortcut.html → #/login。
+                            // 这些页面说明"还没连上"，继续回跳教务入口会形成无限重定向
+                            // （页面永远停在 shortcut.html 的 Loading），所以只停在认证页等用户操作。
                             autoOpeningJwts = false
                             stopCookiePolling()
-                            if (resumeAcademicLoginAfterVpn(view, url)) {
+                            if (WebLoginSuccessPolicy.isShenzhenTrustPortalAuthPage(url)) {
+                                if (silentMode && !hasStoredCredential()) {
+                                    LogUtils.d("aTrust auth page in silent mode, need user interaction")
+                                    finishWithCancelledResult()
+                                } else {
+                                    LogUtils.d(
+                                        "shenzhen aTrust auth page reached, waiting for user: " +
+                                            safeUrl(url)
+                                    )
+                                    autoAdvanceTrustPortalLogin(view, url)
+                                }
+                            } else if (resumeAcademicLoginAfterVpn(view, url)) {
                                 LogUtils.success("shenzhen aTrust connected, opening academic login")
-                            } else if (shenzhenForceWebModeApplied) {
+                            } else {
                                 LogUtils.d("shenzhen aTrust portal reached, waiting for user interaction")
                             }
                         }
@@ -626,11 +652,16 @@ class WebViewLoginActivity : AppCompatActivity() {
                             } else if (config.campus == EASToken.Campus.SHENZHEN) {
                                 shenzhenSawAuthPage = true
                             }
-                            if (silentMode) {
+                            if (silentMode && !canAutoSubmitCredentials(url)) {
                                 LogUtils.d("authentication page in silent mode, need user interaction")
                                 finishWithCancelledResult()
                             } else {
-                                LogUtils.d("authentication page detected, waiting for user interaction")
+                                // 静默续期在 CAS 页不中止：prepareLoginPageCredentials 已调度
+                                // 自动填充+提交，提前 finish 会让它永远来不及执行。
+                                LogUtils.d(
+                                    "authentication page detected, waiting for auto submit " +
+                                        "silent=$silentMode"
+                                )
                             }
                         }
                         isSuccessPage(url) -> {
@@ -1752,17 +1783,15 @@ class WebViewLoginActivity : AppCompatActivity() {
         val connected = when (config.campus) {
             EASToken.Campus.BENBU -> isIvpnRedirectPage(url)
             EASToken.Campus.WEIHAI -> isWeihaiVpnShell(url)
-            // 深圳的 aTrust 门户页就是“已连接”信号；forceWeb 只影响是否自动重载，不阻止续跳。
-            EASToken.Campus.SHENZHEN -> isTrustPortalPage(url)
+            // 深圳只有"门户已不在认证/引导页"才算连通：shortcut.html 与 #/login 是
+            // 未连通的入口，把它们当信号会形成 门户→教务→verify→门户 的无限环。
+            EASToken.Campus.SHENZHEN -> WebLoginSuccessPolicy.isShenzhenTrustPortalConnected(url)
         }
         if (!connected) return false
         if (url.substringBefore('?') == config.jwtsUrl.substringBefore('?')) return false
-        // 深圳每次回到 aTrust 门户都允许再续跳一次：VPN 重连后用户会重新经过门户。
-        if (config.campus == EASToken.Campus.SHENZHEN) {
-            vpnResumeAttempted = false
-        } else if (vpnResumeAttempted) {
-            return false
-        }
+        // 三校区统一：每次续跳后必须重新经过一次"连通页面"才允许再跳，
+        // 避免 aTrust/教务入口互相无限重定向。
+        if (vpnResumeAttempted) return false
         vpnResumeAttempted = true
         autoOpeningJwts = false
         LogUtils.d("vpn connected, continuing academic login campus=${config.campus}")
@@ -1880,6 +1909,9 @@ class WebViewLoginActivity : AppCompatActivity() {
         if (
             config.campus != EASToken.Campus.SHENZHEN ||
             !isShenzhenProxyJwPage(url) ||
+            // 会话已失效的页面由 redirectExpiredShenzhenSession 负责转 CAS，
+            // 这里再注入点击脚本只会干扰它的跳转。
+            WebLoginSuccessPolicy.isShenzhenReauthenticationPage(url) ||
             finished
         ) {
             return
@@ -1896,10 +1928,13 @@ class WebViewLoginActivity : AppCompatActivity() {
         )
 
         fun attempt(index: Int) {
+            val currentUrl = view.url.orEmpty()
             if (
                 finished ||
                 generation != shenzhenAutoAdvanceGeneration ||
-                !isShenzhenProxyJwPage(view.url.orEmpty())
+                !isShenzhenProxyJwPage(currentUrl) ||
+                // 重定向到失效页/认证页后再注入点击脚本没有任何意义，还会拖慢 CAS 跳转。
+                WebLoginSuccessPolicy.isShenzhenReauthenticationPage(currentUrl)
             ) {
                 return
             }
@@ -2008,6 +2043,8 @@ class WebViewLoginActivity : AppCompatActivity() {
         if (
             config.campus != EASToken.Campus.SHENZHEN ||
             !isShenzhenProxyJwPage(url) ||
+            // 失效页马上会被转到 /cas，这里再 reload 一次只会打断那条跳转。
+            WebLoginSuccessPolicy.isShenzhenReauthenticationPage(url) ||
             shenzhenDesktopUserAgentApplied
         ) {
             return false
@@ -2076,13 +2113,13 @@ class WebViewLoginActivity : AppCompatActivity() {
             "https://webvpn.hitwh.edu.cn",
             "https://ids.hit.edu.cn"
         )
-        EASToken.Campus.SHENZHEN -> emptySet()
+        // 深圳统一身份认证 CAS：三校区都要能捕获用户手动输入的账号密码，
+        // 否则深圳 Web 会话一旦过期就只能每次重输。
+        EASToken.Campus.SHENZHEN -> setOf("https://ids-hit-edu-cn-s.hitsz.edu.cn")
     }
 
     private fun installCredentialBridge() {
-        if (config.campus == EASToken.Campus.SHENZHEN ||
-            !WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)
-        ) return
+        if (!WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) return
         runCatching {
             WebViewCompat.addWebMessageListener(
                 webView,
@@ -2128,15 +2165,60 @@ class WebViewLoginActivity : AppCompatActivity() {
                 }, delay)
             }
         }
+        // 深圳的 CAS 页在 ids-hit-edu-cn-s.hitsz.edu.cn，与本部/威海同一套表单结构，
+        // 因此三校区共用这条自动填充 + 自动提交路径。
         if (!EasWebCredentialPolicy.matchesLoginPage(config.campus, url, isMainFrame = true)) return
         view.evaluateJavascript(EasWebCredentialPolicy.captureScript(), null)
         val credential = EasWebCredentialPolicy.readOptionalCredential {
             easCredentialStore.get(config.campus)
         } ?: return
-        view.evaluateJavascript(
-            EasWebCredentialPolicy.autofillScript(credential.username, credential.password),
-            null
-        )
+        if (credential.username.isBlank() || credential.password.isBlank()) return
+        val loginKey = url.substringBefore('#')
+        if (loginKey in autoSubmittedLoginPages || autoSubmittedLoginPages.size > MAX_AUTO_SUBMIT) {
+            // 同一张登录页只自动提交一次；累计到上限（例如密码已改）就把控制权还给用户，
+            // 避免反复提交触发学校风控。这里不写入集合，否则集合会随页面数量无限增长。
+            view.evaluateJavascript(
+                EasWebCredentialPolicy.autofillScript(credential.username, credential.password),
+                null
+            )
+            return
+        }
+        autoSubmittedLoginPages.add(loginKey)
+        view.postDelayed({
+            if (finished || view.url.orEmpty().substringBefore('#') != loginKey) return@postDelayed
+            view.evaluateJavascript(
+                EasWebCredentialPolicy.autofillAndSubmitScript(
+                    credential.username,
+                    credential.password
+                )
+            ) { raw ->
+                LogUtils.d("auto submit login (${config.campus}): ${raw?.take(120) ?: "null"}")
+                // 静默续期没有用户在场：填不上或提交不了就别空等到超时，立刻交回宿主提示。
+                if (silentMode && !EasWebCredentialPolicy.submittedFromResult(raw)) {
+                    LogUtils.w("silent auto submit failed, cancelling: ${raw?.take(80) ?: "null"}")
+                    finishWithCancelledResult()
+                }
+            }
+        }, CAS_AUTO_SUBMIT_DELAY_MS)
+    }
+
+    /**
+     * 静默续期能否在这张认证页上自行完成：需要已保存的账号密码，且当前页仍是
+     * 可自动填充的登录表单。MFA、滑块等交互页一律返回 false，交回用户。
+     */
+    private fun canAutoSubmitCredentials(url: String): Boolean {
+        if (!EasWebCredentialPolicy.matchesLoginPage(config.campus, url, isMainFrame = true)) {
+            return false
+        }
+        return hasStoredCredential()
+    }
+
+    /** 本地是否已保存该校区可用的账号密码。 */
+    private fun hasStoredCredential(): Boolean {
+        val credential = EasWebCredentialPolicy.readOptionalCredential {
+            easCredentialStore.get(config.campus)
+        } ?: return false
+        return credential.username.isNotBlank() && credential.password.isNotBlank()
     }
 
     /** 三端统一身份认证登录页（含深圳），路径均以 `/authserver/login` 结尾。 */
@@ -2240,7 +2322,9 @@ class WebViewLoginActivity : AppCompatActivity() {
                 val host = uri.host.orEmpty()
                 if (host != "jw.hitsz.edu.cn" && host != "jw-hitsz-edu-cn.hitsz.edu.cn") return
                 if (isAuthenticationPage(url) || isTrustPortalPage(url) ||
-                    isPortalHomePage(url) || isSuccessPage(url)
+                    isPortalHomePage(url) || isSuccessPage(url) ||
+                    // 失效页已由 redirectExpiredShenzhenSession 转 CAS，再推会打断它的跳转。
+                    WebLoginSuccessPolicy.isShenzhenReauthenticationPage(url)
                 ) return
                 ++shenzhenStuckNudgeCount
             }
@@ -2574,10 +2658,18 @@ class WebViewLoginActivity : AppCompatActivity() {
                 .isAuthenticatedLanding(webView.url.orEmpty(), cookies)) return
         finished = true
         stopCookiePolling()
+        // 只要本次登录成功，无论从哪条路径收尾（URL 判定 / cookie 轮询 / eelab 回调），
+        // 都把用户手动输入的账号密码落盘，供下次无感登录自动填充。
+        credentialCaptureState.commitOnSuccess { credential ->
+            runCatching {
+                easCredentialStore.save(credential.campus, credential.username, credential.password)
+            }
+        }
 
         val cookiesJson = JSONObject(cookies as Map<*, *>).toString()
         val intent = Intent().apply {
             putExtra("cookies", cookiesJson)
+            putExtra(EXTRA_CAMPUS, config.campus.name)
             putExtra(EXTRA_STUDENT_TYPE, shenzhenPreferredStudentType)
             if (isWeihaiGraduate) putExtra("web_base_url", webView.url.orEmpty())
             if (config.campus == EASToken.Campus.SHENZHEN) {
@@ -2635,6 +2727,17 @@ class WebViewLoginActivity : AppCompatActivity() {
                 leftForExternalVpn = false
                 return
             }
+            // 用户在 aTrust 主界面（已连上门户服务页）按返回时，回到教务登录入口而不是
+            // 直接退出 HITA：门户只是去教务的中转页，退回后 aTrust 票据往往已就绪。
+            // 停在门户认证页（#/login、shortcut.html）时说明还没连上，返回照旧退出登录。
+            if (::webView.isInitialized && !finished &&
+                isShenzhenPortalBackTarget(current)
+            ) {
+                LogUtils.d("back from aTrust portal, returning to academic login: ${safeUrl(current)}")
+                vpnResumeAttempted = false
+                webView.loadUrl(config.jwtsUrl)
+                return
+            }
             LogUtils.d(
                 "web login back pressed, cancelling campus=${config.campus} " +
                     "canGoBack=${if (::webView.isInitialized) webView.canGoBack() else false}"
@@ -2643,9 +2746,36 @@ class WebViewLoginActivity : AppCompatActivity() {
         }
     }
 
+    /** 深圳：当前停在已连通的 aTrust 主界面，返回应回教务入口。 */
+    private fun isShenzhenPortalBackTarget(url: String): Boolean =
+        config.campus == EASToken.Campus.SHENZHEN &&
+            WebLoginSuccessPolicy.isShenzhenTrustPortalConnected(url)
+
+    /**
+     * aTrust 门户登录页只有一个「统一身份认证」按钮：勾选协议并点一次，才会跳到
+     * `ids-hit-edu-cn-s.hitsz.edu.cn/authserver/login`。这里自动完成这一步，
+     * 让用户不必在 WebView 里手点；每张页面最多推进一次，失败仍可手动操作。
+     */
+    private fun autoAdvanceTrustPortalLogin(view: WebView, url: String) {
+        if (!ShenzhenTrustPortalAutoLogin.shouldAutoLogin(url)) return
+        val pageKey = url.substringBefore('#')
+        if (trustPortalAutoLoginPage == pageKey) return
+        trustPortalAutoLoginPage = pageKey
+        view.postDelayed({
+            if (finished || view.url.orEmpty().substringBefore('#') != pageKey) return@postDelayed
+            view.evaluateJavascript(ShenzhenTrustPortalAutoLogin.buildLoginScript()) { raw ->
+                LogUtils.d("aTrust portal auto login result: ${raw?.take(120) ?: "null"}")
+            }
+        }, TRUST_PORTAL_AUTO_LOGIN_DELAY_MS)
+    }
+
     override fun onPause() {
         super.onPause()
-        if (::webView.isInitialized && isVpnConnectionPage(webView.url.orEmpty())) {
+        // 静默续期窗口页不会真正外跳 aTrust 客户端；若在这里置位，回到前台时会
+        // 多触发一次续跳，和自动填充路径抢跳转。
+        if (!silentMode && ::webView.isInitialized &&
+            isVpnConnectionPage(webView.url.orEmpty())
+        ) {
             leftForExternalVpn = true
         }
     }

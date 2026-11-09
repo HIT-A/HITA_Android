@@ -63,6 +63,49 @@ class EasWebCredentialPolicyTest {
             "https://webvpn.hitwh.edu.cn/authserver/login",
             false
         ))
+        // 深圳 CAS 也要能拿到账号密码并自动填充：三校区共用同一条无感登录路径
+        assertTrue(EasWebCredentialPolicy.matchesLoginPage(
+            EASToken.Campus.SHENZHEN,
+            "https://ids-hit-edu-cn-s.hitsz.edu.cn/authserver/login?service=x",
+            true
+        ))
+        assertFalse(EasWebCredentialPolicy.matchesLoginPage(
+            EASToken.Campus.SHENZHEN,
+            "https://trust.hitsz.edu.cn/portal/#/login",
+            true
+        ))
+        assertFalse(EasWebCredentialPolicy.matchesLoginPage(
+            EASToken.Campus.SHENZHEN,
+            "https://ids-hit-edu-cn-s.hitsz.edu.cn/authserver/login",
+            false
+        ))
+    }
+
+    @Test
+    fun `autofill and submit script is self contained and submits once`() {
+        val script = EasWebCredentialPolicy.autofillAndSubmitScript("2024311228", "p@ss\"word")
+        // 脚本必须是单个可执行 IIFE，且凭据被正确转义（不能拼出非法 JS）
+        assertTrue(script.trimStart().startsWith("(function()"))
+        assertTrue(script.trimEnd().endsWith("})();"))
+        assertTrue(script.contains("p@ss\\\"word"))
+        assertFalse(script.contains("${'$'}{fillFormJs}"))
+        assertTrue(script.contains("fillForms(username, password)"))
+        assertTrue(script.contains("requestSubmit"))
+    }
+
+    @Test
+    fun `submit result parsing drives silent renewal decisions`() {
+        // WebView 回调是 JSON 字面量；静默续期只有真的提交出去了才能继续等待登录结果。
+        assertTrue(EasWebCredentialPolicy.submittedFromResult("""{"filled":true,"submitted":true}"""))
+        assertTrue(
+            EasWebCredentialPolicy.submittedFromResult(
+                """"{\"filled\":true,\"submitted\":true,\"via\":\"button\"}""""
+            )
+        )
+        assertFalse(EasWebCredentialPolicy.submittedFromResult("""{"filled":false,"submitted":false}"""))
+        assertFalse(EasWebCredentialPolicy.submittedFromResult("""{"filled":true,"submitted":false}"""))
+        assertFalse(EasWebCredentialPolicy.submittedFromResult("null"))
+        assertFalse(EasWebCredentialPolicy.submittedFromResult(null))
     }
 
     @Test

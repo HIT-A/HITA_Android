@@ -487,29 +487,12 @@ class ShenzhenCourseCatalogActivity :
     }
 
     private fun connectWebSession() {
-        val graduate = easRepository.getEasToken().let {
-            it.campus == EASToken.Campus.WEIHAI && it.stutype == EASToken.TYPE.GRAD
-        }
-        ActivityUtils.showEasVerifyWindow<Activity>(
-            this,
-            easRepository,
-            preferredCampus = if (graduate) EASToken.Campus.WEIHAI else EASToken.Campus.SHENZHEN,
-            onResponseListener = object : PopUpLoginEAS.OnResponseListener {
-                override fun onSuccess(window: PopUpLoginEAS) {
-                    window.dismiss()
-                    if (graduate || easRepository.hasShenzhenWebSession()) {
-                        refresh()
-                    } else {
-                        Toast.makeText(
-                            this@ShenzhenCourseCatalogActivity,
-                            "请点击“使用统一身份认证网页登录”完成 Web 会话连接",
-                            Toast.LENGTH_LONG
-                        ).show()
-                    }
-                }
-
-                override fun onFailed(window: PopUpLoginEAS) = Unit
-            }
+        // 直接打开网页登录：校区/学历已由当前身份决定，不需要再让用户选一次。
+        val token = easRepository.getEasToken()
+        val graduate = token.campus == EASToken.Campus.WEIHAI && token.stutype == EASToken.TYPE.GRAD
+        launchDirectWebLogin(
+            campus = if (graduate) EASToken.Campus.WEIHAI else EASToken.Campus.SHENZHEN,
+            studentType = if (graduate) EASToken.TYPE.GRAD else EASToken.TYPE.UNDERGRAD,
         )
     }
 
