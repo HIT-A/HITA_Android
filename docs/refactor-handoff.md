@@ -1,6 +1,36 @@
-# 全仓优化交接（2026-10-28，#84 合并后）
+# 全仓优化交接（2026-10-28，#84 合并后；2026-11-09 六分支集成）
 
 本文记录分阶段优化的已交付结果、证据和剩余范围。项目约定见 [AGENTS.md](../AGENTS.md)，阶段 3–5 的完整验收台账见 [refactor-stage345-plan.md](refactor-stage345-plan.md)。历史测试数对应各 PR head，不代表合并后的 main 已另行验证。
+
+## 0. 2026-11-09 六分支集成（当前最新状态）
+
+`refactor/integration` 分支以 `5992ba381a9d6e87deb7526885f3d957b8a6d09b` 为基线，按依赖顺序逐个合并六个重构分支，全部为自动合并、无冲突：
+
+| 顺序 | 分支 | tip | 主题 |
+|---|---|---|---|
+| 1 | `refactor/agent-01-security` | `43aac09` | 凭据存储、WebView 导航、文件共享面、明文流量、日志脱敏 |
+| 2 | `refactor/agent-02-data` | `3db04b0` | 本部研究生课表包装 JSON 解析 |
+| 3 | `refactor/agent-04-performance` | `0898f20` | 主线程遥测 I/O、阻塞重试、重复调度 |
+| 4 | `refactor/agent-03-ui` | `c6a8b8d` | 时间线/课表/课程浏览状态与重组开销 |
+| 5 | `refactor/agent-05-testing` | `c5f3d35` | 四层测试体系、模拟机 E2E、测试脚本 |
+| 6 | `refactor/agent-06-ci` | `f5f101e` | CI 拆分门禁、Action SHA 固定、构建缓存、模拟器镜像 |
+
+合并提交依次为 `be16964`、`fd9ac46`、`433a93c`、`37f6387`、`cfa1bf1`、`98633e1`；六个 tip 均为 `refactor/integration` 的祖先。冲突为零，因此没有需要仲裁的设计语义取舍。
+
+集成后在本机重新执行的验证（不沿用任何 Agent 的自测结果）见 [第 12 节](#12-2026-11-09-集成后完整验证)。
+
+### 0.1 集成发现的回归与处置
+
+六个分支单独验证都通过，合到一起后暴露两处真实回归。两处都只改到「集成层面的接线」，没有放宽任何生产安全策略或测试断言：
+
+| 回归 | 现象 | 根因 | 处置 |
+|---|---|---|---|
+| INT-01 | app 仪器测试中 34 个 MockWebServer 契约类全部失败：`Cleartext HTTP traffic to localhost not permitted` | `refactor/agent-01-security` 的 `network_security_config.xml` 用 `base-config cleartextTrafficPermitted="false"` 全局禁明文，对 debug 变体同样生效；MockWebServer 固定走 `http://localhost:<port>` | 新增 `app/src/debug/res/xml/network_security_config.xml` 覆盖，**只在 debug 变体**放行 `localhost` / `127.0.0.1`；`main` 配置与 manifest 未改，`usesCleartextTraffic` 未恢复 |
+| INT-02 | `LiveCourseSchedulerInstrumentedTest` 的 `enabledSettingPublishesDuringClassTime`、`cancelClearsPublishedNotification` 失败（`agent-05` 分支上 4/4 通过） | `NotificationManagerCompat.notify` 异步跨进程发布；`refactor/agent-04-performance` 把每触发一次新建的 `CoroutineScope` 收敛为共享 scope + `ensurePeriodic` 记忆化后，单次 `reconcile` 明显变快，测试在系统登记通知前就断言，稳定读到 0 | 两处断言改为有界等待（3 s / 50 ms 轮询，与同文件 cancel 断言既有做法一致），断言语义不变 |
+
+顺带修复：`includeSubdomains` 在 4 处 `main` 域名被省略触发 `NetworkSecurityConfig` lint 错误（`agent-01` 引入时就存在，任何分支都没有跑过 `:app:lintDebug`），显式写上 `"false"`（等价于 Android 默认值，语义不变）。
+
+`LiveCourseWork` 的进程内 `periodicEnqueued` 标记曾被怀疑为 INT-02 的成因（`WorkManagerTestInitHelper` 会替换 WorkManager 实例而标记仍是 `true`），实测证明它不是本次失败的原因（改与不改都复现），因此**未保留**该改动，仍保持 `agent-04` 原样；这是一处已确认的潜在隐患，记录在遗留项，未在本轮扩大改动面。
 
 **阶段 0、1、2 已完成。阶段 3.1 已合并教学楼查询 #65、考试查询 #66、空教室远端查询 #67、空教室 Repository 与页面迁移 #68，以及学期远端协程能力 #70。阶段 5.V/M/R 构建改造已合并 #71，5.T 子模块测试与兼容修复已合并 #72；Subject 整链已合并 #73；纯 JVM 核心/旧 sync 清理已合并 #74，学期缓存/全部消费端已合并 #75；课表页面状态、批次与周组件拆分已合并 #77；3.D1/D2 EASRepository 装配已合并 #82；3.Q4/I2 成绩查询与通知整链已合并 #83；3.A2 ReAct 工具与 AI 空教室取消链已合并 #84。阶段 3 其余范围、阶段 4 的 Main/Web 登录和阶段 5 最终审计尚未完成。**
 

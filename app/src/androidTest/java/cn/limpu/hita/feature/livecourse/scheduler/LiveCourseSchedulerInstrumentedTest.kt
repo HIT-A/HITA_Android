@@ -45,6 +45,23 @@ class LiveCourseSchedulerInstrumentedTest {
         it.notification.channelId == LiveCourseNotificationManager.CHANNEL_ID
     }
 
+    /**
+     * 有界等待该频道通知出现。
+     *
+     * `NotificationManagerCompat.notify` 是异步跨进程发布，`reconcile` 返回时系统侧未必已经
+     * 登记该通知；优化后单次 reconcile 更快，立即断言会稳定读到 0。因此给出与 cancel 断言的
+     * 同量级等待窗口（3s，50ms 轮询），而不是立即判定未发布。
+     */
+    private fun awaitLiveCourseNotifications(timeoutMs: Long = 3_000L): Int {
+        val deadline = SystemClock.elapsedRealtime() + timeoutMs
+        var count = liveCourseNotifications()
+        while (count == 0 && SystemClock.elapsedRealtime() < deadline) {
+            SystemClock.sleep(50)
+            count = liveCourseNotifications()
+        }
+        return count
+    }
+
     private val timetableId = "live-test-${UUID.randomUUID()}"
 
     @Before
@@ -93,7 +110,7 @@ class LiveCourseSchedulerInstrumentedTest {
 
         assertTrue(
             "课中必须发布直播课程通知",
-            liveCourseNotifications() > 0,
+            awaitLiveCourseNotifications() > 0,
         )
     }
 
@@ -104,7 +121,7 @@ class LiveCourseSchedulerInstrumentedTest {
         settings.setEnabled(true)
         val scheduler = LiveCourseScheduler(app)
         scheduler.reconcile(nowMillis = now)
-        assertTrue("课中必须先发布通知", liveCourseNotifications() > 0)
+        assertTrue("课中必须先发布通知", awaitLiveCourseNotifications() > 0)
 
         scheduler.cancel()
 

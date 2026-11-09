@@ -438,3 +438,74 @@ flowchart TD
 迁移兼容：`ai_settings_secure_v2` 是新增文件名，回滚到旧版本时旧代码只读 `ai_settings`，
 用户需重填一次 Key；`local_eas_token_secure_v2`、`local_eas_credentials` 文件名未改，
 回滚无数据影响。
+
+## 11. 集成回归（2026-11-09）：debug 变体回环明文放行
+
+### 11.1 现象
+
+六个重构分支合并到 `refactor/integration` 后，34 个依赖 MockWebServer 的契约/仪器测试在
+`emulator-5554` (API 35) 上失败：
+
+```
+java.io.IOException: Cleartext HTTP traffic to localhost not permitted
+```
+
+失败类包括 `TermRepositoryHttpContractTest`、`BenbuTermQueryContractTest`、
+`BenbuGraduateTermQueryContractTest`、`BenbuLoginValidationInstrumentedTest`、
+`ShenzhenAcademicContract*` 等。单测（JVM）不受影响，只有跑在设备上的 androidTest 失败。
+
+### 11.2 根因
+
+SEC-04 在 `app/src/main/res/xml/network_security_config.xml` 里用
+`<base-config cleartextTrafficPermitted="false">` 全局禁止明文，只白名单放行少数校园域名；
+`AndroidManifest.xml` 也从 `android:usesCleartextTraffic="true"` 改为
+`android:networkSecurityConfig="@xml/network_security_config"`。
+
+这份配置对所有构建变体生效，而 `MockWebServer.url("/")` 返回 `http://localhost:<port>/`，
+不在任何白名单里，于是被平台网络栈直接拒绝。生产策略本身正确，问题在于 debug/仪器测试
+也需要回环明文。
+
+### 11.3 修复
+
+新增 `app/src/debug/res/xml/network_security_config.xml` 覆盖 main 的同名资源（debug 源集
+资源覆盖 main，且 debug 资源不进入 release APK，与 `app/src/debug/AndroidManifest.xml`
+里已有注释的既有做法一致）。覆盖文件内容 = main 的全部内容 + 一个
+
+```xml
+<domain-config cleartextTrafficPermitted="true">
+    <domain includeSubdomains="false">localhost</domain>
+    <domain includeSubdomains="false">127.0.0.1</domain>
+</domain-config>
+```
+
+`base-config` 仍为 `cleartextTrafficPermitted="false"`，main 的全部校园白名单逐字保留；
+`app/src/main/res/xml/network_security_config.xml` 与 `app/src/main/AndroidManifest.xml`
+未做任何修改。
+
+### 11.4 验证方法
+
+```bash
+export JAVA_HOME="C:/Users/ming/.gradle/jdks/eclipse_adoptium-21-amd64-windows.2"
+./gradlew.bat --console=plain :app:testDebugUnitTest   --tests 'cn.limpu.hita.security.SecurityResourceRulesTest'
+./gradlew.bat --console=plain :app:assembleDebug :app:assembleDebugAndroidTest
+adb -s emulator-5554 install -r app/build/outputs/apk/debug/app-debug.apk
+adb -s emulator-5554 install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+adb -s emulator-5554 shell am instrument -w \
+  -e class cn.limpu.hita.data.repository.TermRepositoryHttpContractTest \
+  cn.limpu.hita.diag.test/androidx.test.runner.AndroidJUnitRunner
+adb -s emulator-5554 shell am instrument -w \
+  -e class cn.limpu.hita.data.source.web.eas.BenbuTermQueryContractTest \
+  cn.limpu.hita.diag.test/androidx.test.runner.AndroidJUnitRunner
+```
+
+期望：单元测试退出码 0；两个 `am instrument` 均输出 `OK (N tests)`，不再出现
+`Cleartext HTTP traffic to localhost not permitted`。
+
+### 11.5 边界说明
+
+- **生产/Release 策略未放宽**：release APK 不含 debug 源集，仍使用 main 的
+  `base-config cleartextTrafficPermitted="false"` 与校园白名单；`usesCleartextTraffic`
+  没有恢复。
+- `app/src/test/java/cn/limpu/hita/security/SecurityResourceRulesTest.kt` 的断言未改动，仍然
+  校验 `src/main/res/xml/network_security_config.xml`（不读 debug 覆盖文件）。
+- 未改动任何 `androidTest` 测试文件，未删除或跳过任何断言。

@@ -25,12 +25,12 @@
     </domain-config>
 
     <domain-config cleartextTrafficPermitted="true">
-        <domain>today.hitwh.edu.cn</domain>
+        <domain includeSubdomains="false">today.hitwh.edu.cn</domain>
     </domain-config>
 
     <domain-config cleartextTrafficPermitted="true">
-        <domain>www.hitsz.edu.cn</domain>
-        <domain>faculty.hitsz.edu.cn</domain>
-        <domain>jw.hitsz.edu.cn</domain>
+        <domain includeSubdomains="false">www.hitsz.edu.cn</domain>
+        <domain includeSubdomains="false">faculty.hitsz.edu.cn</domain>
+        <domain includeSubdomains="false">jw.hitsz.edu.cn</domain>
     </domain-config>
 </network-security-config>
