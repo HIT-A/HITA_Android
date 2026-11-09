@@ -13,11 +13,14 @@ internal object EasWebCredentialPolicy {
 
     private val approvedHosts = mapOf(
         EASToken.Campus.BENBU to (benbuIdsGatewayHosts + setOf("ids.hit.edu.cn")),
-        EASToken.Campus.WEIHAI to setOf("webvpn.hitwh.edu.cn", "ids.hit.edu.cn")
+        EASToken.Campus.WEIHAI to setOf("webvpn.hitwh.edu.cn", "ids.hit.edu.cn"),
+        // 深圳统一身份认证 CAS：aTrust 放行后由 jw 代理 302 到这里，是三校区里
+        // 唯一还要再输一次账号密码的页面，因此同样需要自动填充。
+        EASToken.Campus.SHENZHEN to setOf("ids-hit-edu-cn-s.hitsz.edu.cn")
     )
 
     fun matchesLoginPage(campus: EASToken.Campus, url: String, isMainFrame: Boolean): Boolean {
-        if (!isMainFrame || campus == EASToken.Campus.SHENZHEN) return false
+        if (!isMainFrame) return false
         val uri = runCatching { URI(url) }.getOrNull() ?: return false
         val path = uri.path?.lowercase() ?: return false
         return matchesLoginOrigin(campus, uri) && path.trimEnd('/').endsWith("/authserver/login")
@@ -32,6 +35,31 @@ internal object EasWebCredentialPolicy {
     fun readOptionalCredential(read: () -> EasCredential?): EasCredential? =
         runCatching(read).getOrNull()
 
+    /** 页面内公共片段：定位并填入用户名/密码输入框。 */
+    private fun fillFormJs(): String = """
+        function firstVisible(selector) {
+          var fields = document.querySelectorAll(selector);
+          for (var i = 0; i < fields.length; i++) {
+            var field = fields[i];
+            if (!field.disabled && (field.offsetWidth || field.offsetHeight || field.getClientRects().length)) return field;
+          }
+          return null;
+        }
+        function fillForms(username, password) {
+          var user = firstVisible('input[autocomplete="username"], input[name*="user" i], input[id*="user" i], input[type="text"]');
+          var pass = firstVisible('input[autocomplete="current-password"], input[type="password"]');
+          if (!user || !pass) return false;
+          var setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+          setter.call(user, username);
+          setter.call(pass, password);
+          [user, pass].forEach(function(input) {
+            input.dispatchEvent(new Event('input', {bubbles:true}));
+            input.dispatchEvent(new Event('change', {bubbles:true}));
+          });
+          return true;
+        }
+    """.trimIndent()
+
     fun autofillScript(username: String, password: String): String {
         val usernameJson = username.toJavaScriptString()
         val passwordJson = password.toJavaScriptString()
@@ -39,24 +67,8 @@ internal object EasWebCredentialPolicy {
             (function() {
               var username = $usernameJson;
               var password = $passwordJson;
-              function firstVisible(selector) {
-                var fields = document.querySelectorAll(selector);
-                for (var i = 0; i < fields.length; i++) {
-                  var field = fields[i];
-                  if (!field.disabled && (field.offsetWidth || field.offsetHeight || field.getClientRects().length)) return field;
-                }
-                return null;
-              }
-              var user = firstVisible('input[autocomplete="username"], input[name*="user" i], input[id*="user" i], input[type="text"]');
-              var pass = firstVisible('input[autocomplete="current-password"], input[type="password"]');
-              if (!user || !pass) return false;
-              var setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-              setter.call(user, username);
-              setter.call(pass, password);
-              [user, pass].forEach(function(input) {
-                input.dispatchEvent(new Event('input', {bubbles:true}));
-                input.dispatchEvent(new Event('change', {bubbles:true}));
-              });
+              ${fillFormJs()}
+              if (!fillForms(username, password)) return false;
               username = '';
               password = '';
               return true;
@@ -137,6 +149,64 @@ internal object EasWebCredentialPolicy {
           return JSON.stringify({checked: false, action: 'none'});
         })();
     """.trimIndent()
+
+    /**
+     * 自动填充并提交统一身份认证表单，让再次登录对用户无感。
+     *
+     * 只在填好后**一次**触发提交：先点可见的登录按钮（CAS 的 `#login_submit`、aTrust
+     * 的 `.ix-button-primary`），没有按钮才回退到 `form.requestSubmit()`。返回 JSON，
+     * 宿主据此判断是否还需用户手动操作。
+     */
+    fun autofillAndSubmitScript(username: String, password: String): String {
+        val usernameJson = username.toJavaScriptString()
+        val passwordJson = password.toJavaScriptString()
+        return """
+            (function() {
+              var username = $usernameJson;
+              var password = $passwordJson;
+              ${fillFormJs()}
+              function visible(element) {
+                if (!element || element.disabled) return false;
+                return !!(element.offsetWidth || element.offsetHeight || element.getClientRects().length);
+              }
+              if (!fillForms(username, password)) {
+                return JSON.stringify({filled:false, submitted:false});
+              }
+              username = '';
+              password = '';
+              var candidates = document.querySelectorAll(
+                '#login_submit, button[type=submit], input[type=submit], .ix-button-primary'
+              );
+              var button = null;
+              for (var i = 0; i < candidates.length; i++) {
+                if (visible(candidates[i])) { button = candidates[i]; break; }
+              }
+              if (button) {
+                button.click();
+                return JSON.stringify({filled:true, submitted:true, via:'button'});
+              }
+              var form = document.querySelector('form');
+              if (form && form.requestSubmit) {
+                form.requestSubmit();
+                return JSON.stringify({filled:true, submitted:true, via:'form'});
+              }
+              return JSON.stringify({filled:true, submitted:false});
+            })();
+        """.trimIndent()
+    }
+
+    /**
+     * 解析 [autofillAndSubmitScript] 的返回值，判断这次是否真的把表单提交出去了。
+     *
+     * WebView 的 `evaluateJavascript` 回调给的是 JSON 字面量字符串（形如
+     * `"{\"filled\":true,\"submitted\":true}"`），也可能被转义成对象，这里统一按字符串处理。
+     */
+    fun submittedFromResult(raw: String?): Boolean {
+        val text = raw?.trim().orEmpty()
+        if (text.isEmpty() || text == "null") return false
+        val json = text.removePrefix("\"").removeSuffix("\"").replace("\\\"", "\"")
+        return json.contains("\"submitted\":true") || json.contains("\"submitted\": true")
+    }
 
     fun captureScript(): String = """
         (function() {

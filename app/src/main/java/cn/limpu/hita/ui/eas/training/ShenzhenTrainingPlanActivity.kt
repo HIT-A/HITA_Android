@@ -120,25 +120,8 @@ class ShenzhenTrainingPlanActivity :
     }
 
     private fun connectWebSession() {
-        ActivityUtils.showEasVerifyWindow<Activity>(
-            this,
-            easRepository,
-            preferredCampus = EASToken.Campus.SHENZHEN,
-            onResponseListener = object : PopUpLoginEAS.OnResponseListener {
-                override fun onSuccess(window: PopUpLoginEAS) {
-                    window.dismiss()
-                    refresh()
-                }
-
-                override fun onFailed(window: PopUpLoginEAS) {
-                    Toast.makeText(
-                        this@ShenzhenTrainingPlanActivity,
-                        "需要深圳 Web 教务会话",
-                        Toast.LENGTH_LONG
-                    ).show()
-                }
-            }
-        )
+        // 直接打开网页登录，不再弹校区/账号选择框。
+        launchDirectWebLogin(EASToken.Campus.SHENZHEN, EASToken.TYPE.UNDERGRAD)
     }
 }
 
