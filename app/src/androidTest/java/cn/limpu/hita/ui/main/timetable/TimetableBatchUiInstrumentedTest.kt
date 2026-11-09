@@ -268,12 +268,18 @@ class TimetableBatchUiInstrumentedTest {
     }
 
     private fun waitUntil(condition: () -> Boolean) {
-        val deadline = SystemClock.uptimeMillis() + 10_000
+        // CI 的 API 35 模拟机上，Room 事务 + LiveData 回推 + Compose 重组可能累计超过 10s，
+        // 尤其本用例要串行走两遍"失败-重试"链路。这里只放宽时序预算，断言语义不变。
+        val deadline = SystemClock.uptimeMillis() + WAIT_BUDGET_MS
         while (SystemClock.uptimeMillis() < deadline) {
             instrumentation.waitForIdleSync()
             if (condition()) return
             SystemClock.sleep(25)
         }
         fail("Actual batch form did not reach the expected state")
+    }
+
+    private companion object {
+        const val WAIT_BUDGET_MS = 30_000L
     }
 }
