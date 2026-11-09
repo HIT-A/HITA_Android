@@ -13,6 +13,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.webkit.CookieManager
 import android.webkit.RenderProcessGoneDetail
+import android.webkit.SslErrorHandler
 import android.webkit.WebResourceResponse
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
@@ -20,6 +21,7 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.net.http.SslError
 import cn.limpu.hita.data.model.eas.EASToken
 import cn.limpu.hita.data.source.preference.EasCredential
 import cn.limpu.hita.data.source.preference.EasCredentialStore
@@ -73,6 +75,7 @@ import cn.limpu.hita.BuildConfig
 import cn.limpu.hita.R
 import cn.limpu.hita.ui.design.HitaComposeTheme
 import cn.limpu.hita.utils.LogUtils
+import cn.limpu.hita.utils.LogRedaction
 import dagger.hilt.android.AndroidEntryPoint
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -347,6 +350,18 @@ class WebViewLoginActivity : AppCompatActivity() {
             settings.domStorageEnabled = true
             settings.loadWithOverviewMode = true
             settings.useWideViewPort = true
+            // 认证页只加载 http(s) 资源，不需要任何本地文件/内容访问能力。
+            settings.allowFileAccess = false
+            settings.allowContentAccess = false
+            @Suppress("DEPRECATION")
+            settings.allowFileAccessFromFileURLs = false
+            @Suppress("DEPRECATION")
+            settings.allowUniversalAccessFromFileURLs = false
+            // 登录页不会提交表单到本地保存；关掉可减少凭据在 WebView 数据库中的残留。
+            @Suppress("DEPRECATION")
+            settings.saveFormData = false
+            @Suppress("DEPRECATION")
+            settings.savePassword = false
             if (config.campus == EASToken.Campus.SHENZHEN) {
                 // The aTrust mobile route requires its native UEM client. Use its browser
                 // route here, then switch back to the mobile UA on the university CAS page.
@@ -407,16 +422,22 @@ class WebViewLoginActivity : AppCompatActivity() {
                     val popupWebView = WebView(sourceView.context).apply {
                         settings.javaScriptEnabled = true
                         settings.domStorageEnabled = true
+                        settings.allowFileAccess = false
+                        settings.allowContentAccess = false
                         webViewClient = object : WebViewClient() {
                             override fun shouldOverrideUrlLoading(
                                 popup: WebView,
                                 request: WebResourceRequest
                             ): Boolean {
-                                val target = request.url?.toString().orEmpty()
-                                if (!forwarded && target.startsWith("http")) {
+                                val target = request.url?.toString()
+                                // 弹窗只用于把认证跳转交回主 WebView：目标必须在校区
+                                // 白名单内，否则丢弃，避免任意页面劫持主 WebView。
+                                if (!forwarded && WebViewSecurityPolicy.isAllowedPopupForward(config.campus, target)) {
                                     forwarded = true
-                                    this@WebViewLoginActivity.webView.loadUrl(target)
+                                    this@WebViewLoginActivity.webView.loadUrl(checkNotNull(target))
                                     popup.post { popup.destroy() }
+                                } else if (!forwarded) {
+                                    LogUtils.w("popup navigation blocked: ${safeUrl(target)}")
                                 }
                                 return true
                             }
@@ -433,6 +454,41 @@ class WebViewLoginActivity : AppCompatActivity() {
             }
 
             webViewClient = object : WebViewClient() {
+                override fun shouldOverrideUrlLoading(
+                    view: WebView,
+                    request: WebResourceRequest
+                ): Boolean {
+                    if (!request.isForMainFrame) return false
+                    val target = request.url?.toString()
+                    if (WebViewSecurityPolicy.isAllowedNavigation(config.campus, target)) return false
+                    LogUtils.w("main frame navigation blocked: ${safeUrl(target)} campus=${config.campus}")
+                    return true
+                }
+
+                @Suppress("DEPRECATION")
+                override fun shouldOverrideUrlLoading(view: WebView, url: String): Boolean {
+                    if (WebViewSecurityPolicy.isAllowedNavigation(config.campus, url)) return false
+                    LogUtils.w("main frame navigation blocked: ${safeUrl(url)} campus=${config.campus}")
+                    return true
+                }
+
+                /**
+                 * 证书错误一律取消加载：登录凭据在 POST body 里，忽略证书错误等于把学号密码
+                 * 交给中间人。这里不提供「继续访问」入口，只把失败原因暴露给日志与静默续期判断。
+                 */
+                override fun onReceivedSslError(
+                    view: WebView?,
+                    handler: SslErrorHandler?,
+                    error: SslError?
+                ) {
+                    handler?.cancel()
+                    progressVisible = false
+                    LogUtils.e(
+                        "webview ssl error canceled: primary=${error?.primaryError} " +
+                            "url=${safeUrl(error?.url)} campus=${config.campus}"
+                    )
+                }
+
                 override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
                     super.onPageStarted(view, url, favicon)
                     shenzhenAutoAdvanceGeneration++
@@ -490,7 +546,7 @@ class WebViewLoginActivity : AppCompatActivity() {
                             LogUtils.d("eelabinfo page loaded, fetching JWT token...")
                             webView.postDelayed({ fetchEelabTokenViaHttp() }, 1000)
                         } else if (!url.contains("eelabinfo") && !eelabTokenFetching) {
-                            LogUtils.w("navigated away from eelabinfo, finishing without token, url=$url")
+                            LogUtils.w("navigated away from eelabinfo, finishing without token, url=${safeUrl(url)}")
                             navigatingToEelab = false
                             finishWithCookies(collectedEasCookies ?: collectCookies())
                         }
@@ -602,7 +658,7 @@ class WebViewLoginActivity : AppCompatActivity() {
                             // 主动拉取 EAS cookies 并 finishWithCookies，不依赖落点 URL。
                             LogUtils.d(
                                 "weihai post-auth page, starting cookie polling: path=${uri.path} " +
-                                    "cookies=${collectCookies().keys.sorted()}"
+                                    "cookieNames=${LogRedaction.cookieNames(collectCookies().keys)}"
                             )
                             startCookiePolling()
                         }
@@ -629,7 +685,7 @@ class WebViewLoginActivity : AppCompatActivity() {
                     if (isExpectedShenzhenClientProbe(request)) {
                         return
                     }
-                    LogUtils.w( "onReceivedError url=${request?.url} code=${error?.errorCode} desc=${error?.description} campus=${config.campus}")
+                    LogUtils.w( "onReceivedError url=${safeUrl(request?.url?.toString())} code=${error?.errorCode} desc=${error?.description} campus=${config.campus}")
                 }
 
                 override fun onReceivedHttpError(
@@ -1629,17 +1685,8 @@ class WebViewLoginActivity : AppCompatActivity() {
         }
     }
 
-    private fun safeUrl(url: String?): String {
-        if (url.isNullOrBlank()) return ""
-        val uri = Uri.parse(url)
-        return buildString {
-            append(uri.scheme.orEmpty())
-            append("://")
-            append(uri.host.orEmpty())
-            if (uri.port != -1) append(":").append(uri.port)
-            append(uri.path.orEmpty())
-        }
-    }
+    /** 只保留 scheme/host/port/path；集中规则见 LogRedaction，避免各页面各写一套。 */
+    private fun safeUrl(url: String?): String = LogRedaction.url(url)
 
     private fun layerName(layerType: Int): String {
         return when (layerType) {
@@ -2128,7 +2175,7 @@ class WebViewLoginActivity : AppCompatActivity() {
         val hasJsessionid = WebLoginSuccessPolicy.hasJsessionIdCookie(cookies)
 
         if (cookieRetryCount == 0 || cookieRetryCount % 10 == 0) {
-            LogUtils.d("checkCookies: retry=$cookieRetryCount keys=${cookies.keys.sorted()} host=${Uri.parse(currentUrl).host}")
+            LogUtils.d("checkCookies: retry=$cookieRetryCount cookieNames=${LogRedaction.cookieNames(cookies.keys)} host=${Uri.parse(currentUrl).host}")
         }
 
         if (isWeihaiGraduate &&
@@ -2419,7 +2466,7 @@ class WebViewLoginActivity : AppCompatActivity() {
                 val responseCode = connection.responseCode
                 if (responseCode == 200) {
                     val response = connection.inputStream.bufferedReader().use { it.readText() }
-                    LogUtils.d("VPN cookie API response: $response")
+                    LogUtils.d("VPN cookie API response: ${LogRedaction.cookieHeader(response)}")
 
                     // 解析返回的 cookies（格式：name=value; JSESSIONID=xxx; HIT=yyy）
                     val parts = response.split(";")
@@ -2433,7 +2480,7 @@ class WebViewLoginActivity : AppCompatActivity() {
                                 // 只关心 EAS 相关的 cookies
                                 if (key == "JSESSIONID" || key == "HIT" || key == "TWFID") {
                                     result[key] = value
-                                    LogUtils.d("parsed VPN cookie: $key=$value")
+                                    LogUtils.d("parsed VPN cookie: $key=${LogRedaction.secret(value)}")
                                 }
                             }
                         }

@@ -1,12 +1,35 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  Backup 白名单化：只有明确需要的、非敏感的偏好/数据库参与备份，其余一律排除。
+
+  敏感项（必须排除）：
+  - local_eas_token_secure_v2.xml / local_eas_token.xml：accessToken、refreshToken、cookies、
+    webCookies、username、phone、email；旧文件名是历史明文迁移源
+  - local_eas_credentials.xml：学号 + 密码（加密偏好，但备份到新设备后 Keystore 密钥不存在，
+    复制过去的只是不可解密数据，纯属暴露面）
+  - ai_settings.xml / ai_settings_secure_v2.xml：用户自定义 API Key
+  - grader_secure_v1.xml：作业平台会话 cookie
+  - local_user_profile.xml：用户 token / publicKey / 学号（hitauser 模块）
+  - app_webview/：WebView cookie jar，含 CAS CASTGC、aTrust、WebVPN 票据
+
+  非敏感项（保留备份）：课表数据库、课表偏好、主题、设置等用户可迁移数据。
+-->
 <full-backup-content>
-        <exclude domain="sharedpref" path="grader_secure_v1.xml" />
-        <exclude domain="sharedpref" path="usage_analytics.xml" />
-        <exclude domain="sharedpref" path="usage_analytics_settings.xml" />
-        <exclude domain="sharedpref" path="usage_analytics_session.xml" />
-        <exclude domain="sharedpref" path="stats.xml" />
-        <exclude domain="database" path="usage_analytics_v2.db" />
-        <exclude domain="database" path="usage_analytics_v2.db-wal" />
-        <exclude domain="database" path="usage_analytics_v2.db-shm" />
-        <exclude domain="database" path="usage_analytics_v2.db-journal" />
+    <exclude domain="sharedpref" path="local_eas_token.xml" />
+    <exclude domain="sharedpref" path="local_eas_token_secure_v2.xml" />
+    <exclude domain="sharedpref" path="local_eas_token_secure_v2_fallback.xml" />
+    <exclude domain="sharedpref" path="local_eas_credentials.xml" />
+    <exclude domain="sharedpref" path="ai_settings.xml" />
+    <exclude domain="sharedpref" path="ai_settings_secure_v2.xml" />
+    <exclude domain="sharedpref" path="grader_secure_v1.xml" />
+    <exclude domain="sharedpref" path="local_user_profile.xml" />
+    <exclude domain="sharedpref" path="usage_analytics.xml" />
+    <exclude domain="sharedpref" path="usage_analytics_settings.xml" />
+    <exclude domain="sharedpref" path="usage_analytics_session.xml" />
+    <exclude domain="sharedpref" path="stats.xml" />
+    <exclude domain="database" path="usage_analytics_v2.db" />
+    <exclude domain="database" path="usage_analytics_v2.db-wal" />
+    <exclude domain="database" path="usage_analytics_v2.db-shm" />
+    <exclude domain="database" path="usage_analytics_v2.db-journal" />
+    <exclude domain="root" path="app_webview/" />
 </full-backup-content>
