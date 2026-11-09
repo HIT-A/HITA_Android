@@ -402,6 +402,10 @@ API 35 `hita_test`，安装后各连续采样 5 次：
 | `BackgroundScheduleUniquenessTest`（调度唯一性） | **失败**：`a periodic course reminder still exists ... repeatIntervalMillis=900000` | **通过**（4/4） |
 | `AnalyticsConsentStateTest`（同意状态语义） | — | **通过**（2/2） |
 
+课表操作（切到「时间表」tab 到 UI 树出现「默认课表」）也做了前后交替对比，各 3 轮：基线 125 / 76 / 62 ms，集成 94 / 95 / 94 ms。该指标的测量下限由 `uiautomator dump` 往返（约 60–90 ms）决定，差异落在噪声内，**同样不作收益声明**；课表页的真实优化结论（配色 `remember` 命中、对比网格按天记忆化、抽屉绘制期读取）只有代码级确定性证据，见 `docs/agent-03-ui-refactor-report.md` §6。
+
+内存/CPU 补充：切到「时间表」tab 后系统总 CPU 0.1% user + 1.2% kernel，`dumpsys gfxinfo` 未累积帧统计（Compose 未走 HWUI 帧统计路径），因此不给出帧时间结论。
+
 ### 12.5 安全自查
 
 | 项 | 结论 | 证据 |
