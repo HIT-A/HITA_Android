@@ -334,3 +334,90 @@ CI [40198232504](https://github.com/HIT-A/HITA_Android/actions/runs/40198232504)
 维护完整验收台账，不把已完成局部替代完整目标。独立审查、合适构建/真实测试报告、原用例完整保留、缺陷先红后绿仍须执行。
 从最新origin/main新建每批分支，完成真实调用者迁移与证据后提交PR/合并，再更新台账继续；最终逐项核实全部范围后才结束目标。
 ```
+
+## 12. 2026-11-09 集成后完整验证
+
+全部在本机集成后的 `refactor/integration` 树上重新执行，不沿用任何 Agent 的自测结果。JDK 21（`~/.gradle/jdks/eclipse_adoptium-21-amd64-windows.2`），API 35 模拟器 `hita_test`，另有 API 26 AVD `hita_api26` 用于最低版本冒烟。
+
+### 12.1 基本检查
+
+| 检查 | 命令 | 结果 |
+|---|---|---|
+| 仓库/分层/链接 | `python scripts/check_repository.py` | 通过，退出码 0 |
+| 检查器自测 | `python scripts/test_check_repository.py` | 22 项中 21 项通过；1 项 symlink 用例因本机未启用开发者模式而 `WinError 1314`，基线 `main` 上同样失败，非本次回归 |
+| Android Lint | `./gradlew.bat :app:lintDebug` | 退出码 0（修复 `includeSubdomains` 后）；1150 warnings 为既有量级 |
+| 脚本语法 | 8 个 `.sh` 的 LF blob `bash -n` | 全部通过 |
+| 构建 | `:app:assembleDebug :app:assembleDebugAndroidTest` | BUILD SUCCESSFUL |
+
+`project_health_check.sh` / `code_consistency_check.sh` 在本机 Git Bash 下无法直接执行：本机 `python3` 是 WindowsApps 占位（退出码 49），且脚本调用 `python3`。两个脚本的实际检查内容已分别用 `python` 等价执行（必需文件齐全 + `check_repository.py` 通过）。CI 在 Linux 上使用真实 `python3`，不受影响。
+
+### 12.2 四类测试实际结果
+
+| 测试集 | 用例 | 通过 | 失败 | 错误 | 跳过 |
+|---|---|---|---|---|---|
+| app JVM（`testDebugUnitTest`） | 1006 | 1005 | 0 | 0 | 1（既有可选 HOA 联网） |
+| app 仪器（`connectedDebugAndroidTest`，API 35） | 878 | 878 | 0 | 0 | 0 |
+| component JVM / 仪器 | 7 / 7 | 7 / 7 | 0 | 0 | 0 |
+| hitauser JVM / 仪器 | 4 / 11 | 4 / 11 | 0 | 0 | 0 |
+| style 仪器（JVM 为 NO-SOURCE） | 8 | 8 | 0 | 0 | 0 |
+| timetable-core JVM + JAR | 57 | 57 | 0 | 0 | 0 |
+
+仪器测试身份无重复（按 `package.class#method` 去重为 0）。数据层覆盖 Room/DAO/Migration 链/Room 事务/导入导出/课表恢复；`AppDatabaseUpgradePathTest` 为设备测试，包含在 878 项中。
+
+### 12.3 模拟机核心流程（实机执行，非构建推断）
+
+API 35（`emulator-5554`，1080×2400）与 API 26（`emulator-5564`，1080×1920）各自安装 3.2.0 的 `cn.limpu.hita.diag` 并实际操作：
+
+| 流程 | API 35 | API 26 |
+|---|---|---|
+| 冷启动 `am start -W` | `Status: ok` | `Status: ok`（8000ms 首启，含 AVD 冷缓） |
+| 公告弹窗渲染与「知道了」交互 | 通过 | 通过 |
+| 主界面（今日/时间线） | 「11月9日 周一」「今日空闲」「今天暂无课程或日程安排」 | 同左 |
+| 底部导航 今日→待办 | 「2026年 · 星期一」日期条渲染 | — |
+| 底部导航 →时间表 | 「默认课表1」周网格、日期行渲染 | — |
+| 底部导航 →更多 | 教务功能/考试/成绩/空教室/培养方案/课程资源入口渲染 | — |
+| 设置区（滚动后） | 实时课程/使用统计/更多功能/公告项渲染 | — |
+| 版本 | `3.2.0` (`2026110901`) | 安装的同一 APK |
+| 崩溃/ANR | 0 | 0 |
+
+### 12.4 性能实测（同机同 AVD，前后版本交替安装）
+
+API 35 `hita_test`，安装后各连续采样 5 次：
+
+| 指标 | 基线 `5992ba3`（3.1.2） | 集成（3.2.0） |
+|---|---|---|
+| 冷启动 `TotalTime` | 4271 / 2703 / 4087 / 3769 / 2655 ms | 4006 / 3945 / 4035 / 3868 / 4049 ms |
+| 热启动 `TotalTime` | 365 / 188 / 198 / 207 / 152 ms | 294 / 214 / 271 / 242 / 128 ms |
+| `TOTAL PSS`（空闲） | 158,427 KB | 157,471 KB |
+| 空闲 CPU | ~0% | ~0% |
+
+冷/热启动墙钟在软件渲染模拟器上噪声大于改动幅度，**不作收益声明**。确定性收益用同一组探针在基线与集成上分别实跑取证：
+
+| 探针 | 基线 `5992ba3` | 集成 3.2.0 |
+|---|---|---|
+| `AnalyticsMainThreadIoTest`（StrictMode 主线程磁盘写归因） | **失败**：`usage analytics performed synchronous disk I/O on the main thread` | **通过**（1/1） |
+| `BackgroundScheduleUniquenessTest`（调度唯一性） | **失败**：`a periodic course reminder still exists ... repeatIntervalMillis=900000` | **通过**（4/4） |
+| `AnalyticsConsentStateTest`（同意状态语义） | — | **通过**（2/2） |
+
+### 12.5 安全自查
+
+| 项 | 结论 | 证据 |
+|---|---|---|
+| FileProvider | 只登记 `cache-path`、`files-path`、`external-files-path(ics/)`、`external-path(Download/)`；无 `root-path` | `app/src/main/res/xml/file_paths.xml`；`SecurityResourceRulesTest` 断言 |
+| FileProvider 运行时边界 | 私有 `databases/`、`shared_prefs/` 构造 URI 抛 `IllegalArgumentException` | `SecurityBaselineInstrumentedTest`（在 878 项内通过） |
+| 凭据存储 | 加密偏好不可解密时删除重建后退回进程内存储，不落明文 | `InMemorySharedPreferences` + `AiSettingsStoragePolicyTest` |
+| 备份/迁移 | 云备份与设备迁移均排除 EAS token/凭据、AI Key、Grader 会话、用户档案、`app_webview/` | 两份 backup 规则 + `SecurityResourceRulesTest` |
+| WebView | `allowFileAccess`/`allowContentAccess` 关闭，主框架导航与弹窗按校区白名单，SSL 错误一律 cancel | `WebViewSecurityPolicy` + 设备断言；白名单覆盖三校区 24 条真实登录 URL |
+| 明文 HTTP | 全局禁明文，仅校园域名白名单；debug 变体额外放行回环（MockWebServer），release 不含该文件 | `network_security_config.xml`（main + debug）；`cleartextToNonAllowlistedHostIsBlockedAtRuntime` 通过 |
+| 日志脱敏 | `LogRedaction` 收敛登录 WebView 的 URL/cookie/token 输出；`WeihaiEASWebSource`/`BenbuEASWebSource`/`EASWebSource`/`EASRepository` 的残留泄露点仍在 | `LogRedactionTest`；残留点列为未完成项 |
+
+### 12.6 CI/CD
+
+`.github/workflows/android-ci.yml` 结构校验通过：4 个 job（`repository-checks` 10min、`jvm-tests` 30min、`build` 30min、`device-tests` 45min）互不依赖、并行执行；顶层 `permissions: contents: read`；并发组按 PR 号/ref 且 `cancel-in-progress`；6 个第三方 Action 全部固定到 commit SHA；无 `continue-on-error`、无 `pull_request_target`。8 个 CI/测试脚本的 LF blob `bash -n` 全部通过。
+
+**未验证**：远端 GitHub Actions 一次真实运行。本机 `git fetch origin` / `https://github.com` 连接超时（`Failed to connect to github.com:443`），无法推送或触发远端 CI。本地等价执行已覆盖四个 job 的全部命令。
+
+### 12.7 兼容性
+
+API 26（`minSdkVersion 26`）AVD 安装 3.2.0、启动、公告交互与主界面渲染均通过，0 崩溃（见 12.3）。API 35 全量仪器测试通过。
+

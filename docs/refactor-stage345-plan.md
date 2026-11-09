@@ -141,3 +141,24 @@
 | 3.A2 ReAct 工具与 AI 空教室整链 | PR #84 已合并，merge `3fa7707` | CI 40517300664 两个 job 成功；设备 XML 851 项全部通过，JVM XML 940 项中 939 通过、1 个既有可选 HOA 联网跳过，测试身份无重复；真实账号/WebVPN/物理真机未验证 |
 
 Main 最终主题 smoke：`main/theme-cache-run.log` 的一次实际 instrumentation 方法覆盖全部七种主题并通过，`main/screenshots-final/main-theme-smoke/` 的七张截图已逐张审阅；这是实际渲染 smoke，不是像素等价或真实账号验证。最后夹具改动只涉及 accessibility 虚节点遍历与缓存刷新，生产/JVM 输入未变，复用上述 app JVM 与构建结果；最终完整 CI 仍待验。
+
+## 9. 2026-11-09 六分支集成批（refactor/integration）
+
+本目标之外的一次独立集成：以 `5992ba381a9d6e87deb7526885f3d957b8a6d09b` 为基线，按安全 → 数据 → 性能 → UI → 测试 → CI 的顺序逐个合并六个已完成的重构分支。**这不是阶段 3/4/5 剩余条目的完成证明**，下方各 ID 状态保持不变。
+
+| 顺序 | 分支 | tip | 合并提交 |
+|---|---|---|---|
+| 1 | `refactor/agent-01-security` | `43aac09` | `be16964` |
+| 2 | `refactor/agent-02-data` | `3db04b0` | `fd9ac46` |
+| 3 | `refactor/agent-04-performance` | `0898f20` | `433a93c` |
+| 4 | `refactor/agent-03-ui` | `c6a8b8d` | `37f6387` |
+| 5 | `refactor/agent-05-testing` | `c5f3d35` | `cfa1bf1` |
+| 6 | `refactor/agent-06-ci` | `f5f101e` | `98633e1` |
+
+六个 tip 均为 `refactor/integration` 的祖先；六次合并全部自动完成，无冲突，因此没有需要仲裁的接口语义、迁移或用户行为取舍。集成后修复一处双分支叠加回归（INT-01 debug 明文）与一处测试时序回归（INT-02 LiveCourse 通知断言），详见交接文档 §0.1；另修复 `agent-01` 引入时即存在的 4 处 `NetworkSecurityConfig` lint error。
+
+集成后从零重跑的四类测试、模拟机流程、性能对照与安全自查结果见 [交接文档 §12](refactor-handoff.md#12-2026-11-09-集成后完整验证)。远端 CI 因本机无法连接 `github.com` 未验证。
+
+## 10. 与阶段 3/4/5 的关系
+
+本批只把六个已完成分支合到一个可验证的集成树，并按项目要求出 3.2.0 调试包。台账 §3–§6 的 `3.Q3`/`3.I1`/`3.Q5`/`3.Q6`/`3.Q7`/`3.F`/`4.M1`/`4.M2`/`4.W1`/`4.W2`/`4.F`/`5.F`/`R1`–`R4` 状态**未因本次集成改变**，仍按原验收条件推进。

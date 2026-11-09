@@ -211,3 +211,12 @@
 - Main 的 update LiveData.awaitValue 私有桥也属于一次性查询迁移范围，取消回调线程与重复完成须审查；不要在阶段4复制。
 - 阶段5 pure Kotlin 提取应优先选已经无 Android 边界的 protocol/compare/上述 formatter 或 geometry；提取 UI controller 不是纯模块化。
 - 当前未解决的账号/校区缓存隔离、事务内文件恢复风险等不是阶段4四类抽离的替代完成条件，保留 root 的全阶段台账，不用该报告缩减阶段3/5目标。
+
+## 2026-11-09 集成状态（只更新事实）
+
+六分支集成后，UI 分支实际交付的内容是：
+
+- 时间线、课程浏览（catalog）、待办的展示状态收敛为纯投影函数（`TimelineListProjection`、`CatalogUiState`、`HomeworkDayPartitions`），并缩减课表配色/对比网格/抽屉的重复计算。
+- 新增 `TimelineProjectionInstrumentedTest`、`ScoreInquiryActivityInstrumentedTest`、`ExamActivityInstrumentedTest` 三个设备用例，锁定真实 Activity 的重建与返回契约。
+
+未因本次集成改变：`MainActivity`、`TimetableFragment`、`WebViewLoginActivity`、`SubjectActivity` 的宿主职责拆分进度，以及本节 4.W1/4.W2/4.F 的验收条件。UI 分支的 `docs/agent-03-ui-refactor-report.md` 里明确列为「未实施」的项（`collectAsStateWithLifecycle` 迁移、`@Immutable` 标注、catalog 硬编码中文提取、返回键行为调整、`MainUiState` 拆分）仍全部未做。
