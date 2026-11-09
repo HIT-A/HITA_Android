@@ -514,7 +514,9 @@ private fun AgentChatScreen(
                 }
             }
 
-            val visibleMessages = messages.filter { it.role != AgentChatMessage.Role.TRACE }
+            val visibleMessages = remember(messages) {
+                messages.filter { it.role != AgentChatMessage.Role.TRACE }
+            }
             LazyColumn(
                 state = listState,
                 modifier = Modifier
@@ -534,7 +536,7 @@ private fun AgentChatScreen(
                 } else {
                     itemsIndexed(
                         visibleMessages,
-                        key = { index, item -> "${item.timestampMs}-${item.role}-$index" }
+                        key = { _, item -> "${item.timestampMs}-${item.role}-${item.text.hashCode()}" }
                     ) { _, message ->
                         AgentMessageBubble(
                             message = message,

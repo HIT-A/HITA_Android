@@ -335,6 +335,11 @@ private fun EmptyClassroomScreen(
             onPickWeek = onPickWeek
         )
         val classrooms = classroomState?.data.orEmpty()
+        // 占用状态依赖"当前节次"，不能跨时间缓存；但同一次组合内完全一致，
+        // 因此按教室一次性求值，避免卡片在滚动/重组时各自重跑 Calendar 与 JSON 解析。
+        val classroomStates = remember(classrooms, structureState?.data) {
+            classrooms.associate { it.id.ifBlank { it.name } to getClassroomState(it, structureState?.data) }
+        }
         Box(modifier = Modifier.fillMaxSize()) {
             LazyVerticalGrid(
                 columns = GridCells.Fixed(2),
@@ -344,7 +349,7 @@ private fun EmptyClassroomScreen(
                 items(classrooms, key = { it.id.ifBlank { it.name } }) { classroom ->
                     EmptyClassroomCard(
                         classroom = classroom,
-                        state = getClassroomState(classroom, structureState?.data),
+                        state = classroomStates[classroom.id.ifBlank { classroom.name }] ?: "未知",
                         onClick = { onOpenDetail(classroom) }
                     )
                 }

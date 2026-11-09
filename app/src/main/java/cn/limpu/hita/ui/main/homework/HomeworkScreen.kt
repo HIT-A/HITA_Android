@@ -45,6 +45,14 @@ import java.util.Locale
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
 
+/** 日期格式器在文件作用域构造一次；DateTimeFormatter 不可变且线程安全。 */
+private val HOMEWORK_MONTH_DAY: DateTimeFormatter =
+    DateTimeFormatter.ofPattern("M月d日", Locale.SIMPLIFIED_CHINESE)
+private val HOMEWORK_YEAR_WEEKDAY: DateTimeFormatter =
+    DateTimeFormatter.ofPattern("yyyy年 · EEEE", Locale.SIMPLIFIED_CHINESE)
+private val HOMEWORK_WEEKDAY_SHORT: DateTimeFormatter =
+    DateTimeFormatter.ofPattern("EEEEE", Locale.SIMPLIFIED_CHINESE)
+
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun HomeworkScreen(viewModel: HomeworkViewModel) {
@@ -78,9 +86,13 @@ internal fun HomeworkScreen(viewModel: HomeworkViewModel) {
     val daily = remember(state.items, selectedDate, undated) {
         state.items.filter { it.plannedDate == if (undated) null else selectedDate }
     }
-    val pending = daily.filterNot { it.completed }
-    val completed = daily.filter { it.completed }
-    val unplannedCount = state.items.count { it.plannedDate == null }
+    // 三个派生值原本每次重组各扫一遍 daily / items；合并成一次分区。
+    val partitions = remember(daily, state.items, selectedDate, undated) {
+        partitionHomeworkDay(state.items) { it.plannedDate == if (undated) null else selectedDate }
+    }
+    val pending = partitions.pending
+    val completed = partitions.completed
+    val unplannedCount = partitions.unplannedCount
     val context = LocalContext.current
     val graderLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         viewModel.refreshToday()
@@ -197,12 +209,12 @@ internal fun HomeworkScreen(viewModel: HomeworkViewModel) {
                             ) {
                                 Text(
                                     if (undated) stringResource(R.string.homework_undated_count, unplannedCount)
-                                    else date.format(DateTimeFormatter.ofPattern("M月d日", Locale.SIMPLIFIED_CHINESE)),
+                                    else date.format(HOMEWORK_MONTH_DAY),
                                     style = MaterialTheme.typography.headlineSmall,
                                 )
                                 Text(
                                     if (undated) stringResource(R.string.homework_undated_subtitle)
-                                    else date.format(DateTimeFormatter.ofPattern("yyyy年 · EEEE", Locale.SIMPLIFIED_CHINESE)),
+                                    else date.format(HOMEWORK_YEAR_WEEKDAY),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
@@ -229,7 +241,7 @@ internal fun HomeworkScreen(viewModel: HomeworkViewModel) {
                                         contentColor = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
                                     ) {
                                         Column(Modifier.padding(horizontal = 10.dp, vertical = 10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                                            Text(day.format(DateTimeFormatter.ofPattern("EEEEE", Locale.SIMPLIFIED_CHINESE)),
+                                            Text(day.format(HOMEWORK_WEEKDAY_SHORT),
                                                 style = MaterialTheme.typography.labelSmall)
                                             Text(day.dayOfMonth.toString(), style = MaterialTheme.typography.titleMedium)
                                             Text(if (count > 0) count.toString() else "·", style = MaterialTheme.typography.labelSmall)

@@ -20,6 +20,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -171,9 +172,16 @@ fun ComparisonGrid(
                 ComparisonGridBackground(startMinute = startMinute, endMinute = endMinute, monday = monday)
                 BoxWithConstraints(Modifier.fillMaxSize()) {
                     val sectionWidth = maxWidth / 7f
+                    // 每天的分块原本每次重组都重排一遍（sortedBy + 合并），
+                    // 但结果只由当天 slots 与两个开关决定。
+                    val dayBlocks = remember(ready.result.days, ready.config.showFree, ready.config.showConflicts) {
+                        ready.result.days.map { day ->
+                            mergedBlocks(day, ready.config.showFree, ready.config.showConflicts)
+                        }
+                    }
                     ready.result.days.forEachIndexed { dayIndex, day ->
                         val midnight = day.date.atStartOfDay(CAMPUS_ZONE).toInstant().toEpochMilli()
-                        mergedBlocks(day, ready.config.showFree, ready.config.showConflicts).forEach { block ->
+                        dayBlocks.getOrElse(dayIndex) { emptyList() }.forEach { block ->
                             val topMinutes = (block.span.startMillis - midnight) / 60_000f - startMinute
                             val bottomMinutes = (block.span.endMillis - midnight) / 60_000f - startMinute
                             if (bottomMinutes <= 0f || topMinutes >= windowMinutes) {
