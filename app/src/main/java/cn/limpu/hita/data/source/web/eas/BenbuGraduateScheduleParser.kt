@@ -40,7 +40,7 @@ internal object BenbuGraduateScheduleParser {
     }
 
     fun parseTimetable(body: String): List<CourseItem> {
-        val rows = runCatching { JsonParser().parse(body).takeIf { it.isJsonArray }?.asJsonArray }.getOrNull() ?: return emptyList()
+        val rows = timetableRows(body) ?: return emptyList()
         val result = mutableListOf<CourseItem>()
         val days = listOf("MON", "TUES", "WED", "THUR", "FRI", "SAT", "SUN")
         rows.forEach { rowElement ->
@@ -81,6 +81,23 @@ internal object BenbuGraduateScheduleParser {
         val range = Regex("(\\d+)\\s*[-~至到]\\s*(\\d+)").find(part)
         if (range != null) (range.groupValues[1].toInt()..range.groupValues[2].toInt()).toList()
         else part.trim().toIntOrNull()?.let(::listOf).orEmpty()
+    }
+
+
+    private fun timetableRows(body: String): com.google.gson.JsonArray? {
+        val root = runCatching { JsonParser().parse(body) }.getOrNull() ?: return null
+        if (root.isJsonArray) return root.asJsonArray
+        if (!root.isJsonObject) return null
+        return rowsOf(root.asJsonObject)
+    }
+
+    private fun rowsOf(value: JsonObject): com.google.gson.JsonArray? {
+        listOf("data", "rows", "content", "result").forEach { key ->
+            val nested = value.get(key) ?: return@forEach
+            if (nested.isJsonArray) return nested.asJsonArray
+            if (nested.isJsonObject) rowsOf(nested.asJsonObject)?.let { return it }
+        }
+        return null
     }
 
     private fun parsePeriod(value: String): Pair<Int, Int>? {
