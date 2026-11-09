@@ -163,9 +163,10 @@ dependencies {
     testImplementation(libs.junit)
     testImplementation(testFixtures(project(':timetable-core')))
     androidTestImplementation(libs.androidTestJunit)
-    androidTestImplementation(libs.roomTesting)
     androidTestImplementation(libs.espressoCore)
     androidTestImplementation(libs.mockWebServer)
+    androidTestImplementation(libs.uiautomator)
+    androidTestImplementation(libs.workTesting)
 
     implementation(libs.roomRuntime)
     kapt(libs.roomCompiler)

@@ -120,6 +120,8 @@ APK 和构建元信息从 CI / Release 获取；源码树不保存旧 `app/debug
 
 PDF 依赖自带资源的约定、去重依据和回归命令见 [PDF 资源](docs/pdf-resources.md)。
 
+测试分层、六个测试集、报告聚合与模拟机 E2E 的入口见 [测试体系](docs/testing/README.md)；测试台账、有效性审查、缺口清单、清理依据与耗时对比同目录。
+
 ### 分层依赖检查
 
 同一检查器还禁止以下目录中的 `.kt` / `.java` 主源码引用 `cn.limpu.hita.ui.`，路径相对仓库根目录：
