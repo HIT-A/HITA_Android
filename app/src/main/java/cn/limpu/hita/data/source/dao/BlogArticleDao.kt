@@ -16,6 +16,13 @@ interface BlogArticleDao {
     @Query("SELECT * FROM blog_article ORDER BY pubDateMillis DESC")
     fun getAll(): List<BlogArticle>
 
+    /** Only identities are needed for unread bookkeeping; `getAll` also loads full article HTML. */
+    @Query("SELECT guid FROM blog_article")
+    fun getAllGuids(): List<String>
+
+    @Query("SELECT count(*) FROM blog_article")
+    fun count(): Int
+
     @Query("SELECT * FROM blog_article WHERE guid = :guid LIMIT 1")
     fun getByGuid(guid: String): BlogArticle?
 

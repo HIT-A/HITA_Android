@@ -11,8 +11,8 @@ plugins {
 def envVersionCode = System.getenv("VERSION_CODE")
 def appVersionCodeValue = (envVersionCode != null && envVersionCode.matches("\\d+"))
     ? Integer.parseInt(envVersionCode)
-    : 2026103101
-def appVersionNameValue = "3.1.2"
+    : 2026110901
+def appVersionNameValue = "3.2.0"
 
 def keystorePropertiesFile = rootProject.file("keystore.properties")
 def keystoreProperties = new Properties()
@@ -163,9 +163,10 @@ dependencies {
     testImplementation(libs.junit)
     testImplementation(testFixtures(project(':timetable-core')))
     androidTestImplementation(libs.androidTestJunit)
-    androidTestImplementation(libs.roomTesting)
     androidTestImplementation(libs.espressoCore)
     androidTestImplementation(libs.mockWebServer)
+    androidTestImplementation(libs.uiautomator)
+    androidTestImplementation(libs.workTesting)
 
     implementation(libs.roomRuntime)
     kapt(libs.roomCompiler)

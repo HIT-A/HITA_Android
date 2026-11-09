@@ -38,6 +38,9 @@ object UsageAnalyticsClient {
     private const val ONCE = "usage-analytics-send-v2"
     private const val PERIODIC = "usage-analytics-rescue-v2"
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    // Session snapshots must land in the order they were taken; parallel IO threads could
+    // otherwise resurrect a cleared `last_background` with an older snapshot.
+    private val sessionWriter = Dispatchers.IO.limitedParallelism(1)
     private val delivery = Mutex()
     private val gate = Any()
     private val main = Handler(Looper.getMainLooper())
@@ -55,6 +58,17 @@ object UsageAnalyticsClient {
     private var activeDay = ""
     private var screen: String? = null
     private var backgroundElapsed: Long? = null
+    // Session/consent state is owned in memory (guarded by [gate]) and persisted on [scope].
+    // Reading it from SharedPreferences on the main thread bought nothing: the values are only
+    // consulted here, while every persisted write cost a synchronous fsync on main.
+    private var lastBackgroundMillis: Long? = null
+    private var lastSeenMillis: Long = 0L
+    @Volatile private var enabledState: Boolean? = null
+    @Volatile private var generationValue: Long = -1L
+    // Re-enqueueing unique work on every captured event only repeats two IPC calls; the
+    // enqueued requests already survive process death. Reset when consent flips, which is
+    // the only time WorkManager cancels them out from under us.
+    @Volatile private var workScheduledGeneration: Long = -1L
 
     class Operation internal constructor(
         val id: String = UUID.randomUUID().toString(),
@@ -69,16 +83,26 @@ object UsageAnalyticsClient {
         val app = context.applicationContext
         if (android.os.Build.VERSION.SDK_INT >= 28 && Application.getProcessName() != app.packageName) return
         catalog = JsonParser().parse(app.assets.open("analytics-catalog-v2.json").bufferedReader().use { it.readText() }).asJsonObject.getAsJsonObject("events")
+        // One read at startup mirrors the SharedPreferences first-load that `isEnabled` already
+        // performed; afterwards every consent/session read is served from memory.
+        val settings = app.getSharedPreferences(SETTINGS, Context.MODE_PRIVATE)
+        enabledState = settings.getBoolean("enabled", true)
+        generationValue = settings.getLong("generation", 0)
+        app.getSharedPreferences("usage_analytics_session", Context.MODE_PRIVATE).let { session ->
+            sessionId = session.getString("session_id", null)
+            lastSeenMillis = session.getLong("last_seen", 0)
+            lastBackgroundMillis = session.getLong("last_background", 0).takeIf { it > 0 }
+        }
         contextRef = app
-        sessionId = app.getSharedPreferences("usage_analytics_session", Context.MODE_PRIVATE).getString("session_id", null)
         main.post {
             ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
                 override fun onStart(owner: LifecycleOwner) { synchronized(gate) { foreground = true; qualified = false }; main.postDelayed(qualifier, 2000) }
                 override fun onStop(owner: LifecycleOwner) {
                     synchronized(gate) {
                         foreground = false; qualified = false; backgroundElapsed = SystemClock.elapsedRealtime()
-                        sessionPrefs()?.edit()?.putLong("last_background", System.currentTimeMillis())?.commit()
+                        lastBackgroundMillis = System.currentTimeMillis()
                     }
+                    persistSession()
                     main.removeCallbacks(qualifier); main.removeCallbacks(heartbeat); flush()
                 }
             })
@@ -122,45 +146,90 @@ object UsageAnalyticsClient {
                 if (!foreground || resumed.isEmpty() || !qualified || !enabled()) return
                 val day = Instant.now().atZone(zone).toLocalDate().toString()
                 if (day != activeDay) { activeDay = day; capture("app_active_day", mapOf("cause" to "midnight")) }
-                sessionPrefs()?.edit()?.putLong("last_seen", System.currentTimeMillis())?.commit()
+                lastSeenMillis = System.currentTimeMillis()
             }
-            flush(); main.postDelayed(this, 30_000)
+            persistSession(); flush(); main.postDelayed(this, 30_000)
         }
     }
 
     // Must hold gate. A background process can never qualify itself as foreground.
     private fun qualify(cause: String) {
         if (!foreground || resumed.isEmpty() || qualified || !enabled()) return
-        val prefs = sessionPrefs() ?: return
         val now = System.currentTimeMillis()
-        val last = prefs.getLong("last_background", prefs.getLong("last_seen", 0))
+        val last = lastBackgroundMillis ?: lastSeenMillis
         val gap = backgroundElapsed?.let { SystemClock.elapsedRealtime() - it } ?: (now - last)
         val newSession = sessionId == null || gap < 0 || gap >= 30 * 60 * 1000L
         if (newSession) sessionId = UUID.randomUUID().toString()
         qualified = true
         activeDay = Instant.now().atZone(zone).toLocalDate().toString()
-        prefs.edit().putString("session_id", sessionId).remove("last_background").putLong("last_seen", now).commit()
+        lastBackgroundMillis = null
+        lastSeenMillis = now
+        persistSession()
         if (newSession) capture("session_started", mapOf("cause" to if (last == 0L) "cold_start" else cause))
         capture("app_foreground", emptyMap())
         screen?.let { capture("screen_viewed", mapOf("screen" to it)) }
         main.removeCallbacks(heartbeat); main.post(heartbeat)
     }
 
-    fun isEnabled(context: Context): Boolean = context.getSharedPreferences(SETTINGS, Context.MODE_PRIVATE).getBoolean("enabled", true)
+    /**
+     * Persists the session snapshot that outlives the process. The disk write itself always
+     * happens on [scope]; callers may hold [gate] because [synchronized] is reentrant.
+     */
+    private fun persistSession() {
+        val app = contextRef ?: return
+        val snapshot = synchronized(gate) {
+            SessionSnapshot(sessionId, lastBackgroundMillis, lastSeenMillis)
+        }
+        scope.launch(sessionWriter) {
+            runCatching {
+                val editor = app.getSharedPreferences("usage_analytics_session", Context.MODE_PRIVATE).edit()
+                editor.putString("session_id", snapshot.sessionId)
+                if (snapshot.lastBackground == null) editor.remove("last_background")
+                else editor.putLong("last_background", snapshot.lastBackground)
+                editor.putLong("last_seen", snapshot.lastSeen)
+                editor.commit()
+            }.onFailure { reportLocalFailure(it) }
+        }
+    }
+
+    private data class SessionSnapshot(val sessionId: String?, val lastBackground: Long?, val lastSeen: Long)
+
+    fun isEnabled(context: Context): Boolean = enabledState
+        ?: context.getSharedPreferences(SETTINGS, Context.MODE_PRIVATE).getBoolean("enabled", true)
+
+    /**
+     * Consent is published in memory first so callers observe it immediately, and the durable
+     * write happens on [scope]. A disk failure is reported locally instead of crashing the UI
+     * thread (`check` inside a Compose switch previously threw a raw exception at the caller).
+     */
     fun setEnabled(context: Context, enabled: Boolean) {
         initialize(context)
         val cutoff: Long
         synchronized(gate) {
-            val prefs = context.getSharedPreferences(SETTINGS, Context.MODE_PRIVATE)
-            cutoff = prefs.getLong("generation", 0) + 1
-            check(prefs.edit().putBoolean("enabled", enabled).putLong("generation", cutoff).remove("retry_at").commit())
+            cutoff = generation() + 1
+            enabledState = enabled
+            generationValue = cutoff
             activeCall?.cancel(); qualified = false
             if (!enabled) { main.removeCallbacks(qualifier); main.removeCallbacks(heartbeat) }
             else { sessionId = null; main.postDelayed(qualifier, 2000) }
         }
         val work = WorkManager.getInstance(context)
-        if (!enabled) { work.cancelUniqueWork(ONCE); work.cancelUniqueWork(PERIODIC) }
-        scope.launch { runCatching { store().clearBefore(cutoff + if (enabled) 0 else 1); if (enabled && enabled()) schedule() }.onFailure { reportLocalFailure(it) } }
+        if (!enabled) {
+            // WorkManager cancels both unique names; the next consent grant must enqueue again.
+            workScheduledGeneration = -1
+            work.cancelUniqueWork(ONCE); work.cancelUniqueWork(PERIODIC)
+        }
+        scope.launch {
+            runCatching {
+                val prefs = context.getSharedPreferences(SETTINGS, Context.MODE_PRIVATE)
+                if (!prefs.edit().putBoolean("enabled", enabled).putLong("generation", cutoff).remove("retry_at").commit()) {
+                    reportLocalFailure(IllegalStateException("consent write rejected"))
+                    return@runCatching
+                }
+                store().clearBefore(cutoff + if (enabled) 0 else 1)
+                if (enabled && enabled()) schedule()
+            }.onFailure { reportLocalFailure(it) }
+        }
     }
 
     fun record(event: UsageAnalyticsEvent, dimensions: Map<String, String> = emptyMap()) = synchronized(gate) {
@@ -273,8 +342,16 @@ object UsageAnalyticsClient {
         val delay = seconds?.coerceIn(0, 86_400)?.times(1000) ?: runCatching { ZonedDateTime.parse(value, DateTimeFormatter.RFC_1123_DATE_TIME).toInstant().toEpochMilli() - System.currentTimeMillis() }.getOrDefault(30_000)
         return delay.coerceIn(30_000, 86_400_000)
     }
+    /**
+     * Both unique requests survive process death, so re-enqueueing them for every captured event
+     * only repeated two WorkManager IPC calls. Consent changes reset the marker because that is
+     * the only path that cancels the requests.
+     */
     private fun schedule() {
         val app = contextRef ?: return; if (!isEnabled(app)) return
+        val gen = generation()
+        if (workScheduledGeneration == gen) return
+        workScheduledGeneration = gen
         val constraints = Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
         val once = OneTimeWorkRequestBuilder<UsageAnalyticsWorker>().setConstraints(constraints).setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS).build()
         WorkManager.getInstance(app).enqueueUniqueWork(ONCE, ExistingWorkPolicy.KEEP, once)
@@ -282,9 +359,8 @@ object UsageAnalyticsClient {
         WorkManager.getInstance(app).enqueueUniquePeriodicWork(PERIODIC, ExistingPeriodicWorkPolicy.KEEP, periodic)
     }
     @Synchronized private fun store(): UsageAnalyticsQueueStore = storeRef ?: UsageAnalyticsQueueStore(contextRef!!).also { storeRef = it }
-    private fun generation() = contextRef?.getSharedPreferences(SETTINGS, Context.MODE_PRIVATE)?.getLong("generation", 0) ?: 0
-    private fun enabled() = contextRef?.let(::isEnabled) ?: false
-    private fun sessionPrefs() = contextRef?.getSharedPreferences("usage_analytics_session", Context.MODE_PRIVATE)
+    private fun generation(): Long = generationValue.takeIf { it >= 0 } ?: 0
+    private fun enabled(): Boolean = enabledState ?: false
     private fun localCount(reason: String) { scope.launch { runCatching { store().count(reason) } } }
     private fun reportLocalFailure(error: Throwable) { LogUtils.w("UsageAnalytics: local storage unavailable (${error.javaClass.simpleName})") }
 }

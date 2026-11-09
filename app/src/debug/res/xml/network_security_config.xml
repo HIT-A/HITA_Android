@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  debug 变体覆盖 main 的同名资源（release 打包时 debug 源集被排除）。
+
+  与 main 的差异只有一处：额外放行回环地址的明文 HTTP。仪器/契约测试使用
+  MockWebServer，其 url("/") 返回 http://localhost:<port>/，被 main 的
+  base-config cleartextTrafficPermitted="false" 拒绝
+  （IOException: Cleartext HTTP traffic to localhost not permitted）。
+
+  生产（release）仍使用 main 的配置：全局禁明文 + 校园白名单，未放宽。
+
+  需要 http 的原因（服务端本身只提供 http，客户端无法升级）：
+  - 本部零信任网关应用代理：*.vpn.hit.edu.cn / *.ivpn.hit.edu.cn 下的
+    i-、jwts-、eelabinfo-、sjjx-、yjsgl-、gcourse-、ids-hit-edu-cn-s- 等子域（:1080 端口）
+  - 威海通知：today.hitwh.edu.cn（经 WebVPN 包装的教务仍然走 https）
+  - 深圳：www.hitsz.edu.cn（新闻/通知抓取）、faculty.hitsz.edu.cn（教师主页）、
+    jw.hitsz.edu.cn（头像图片）
+
+  其余域名默认禁止明文；UsefulLinks 里的 http:// 校方站点通过 Intent.ACTION_VIEW
+  交给系统浏览器，不经过本应用的网络栈。
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">vpn.hit.edu.cn</domain>
+        <domain includeSubdomains="true">ivpn.hit.edu.cn</domain>
+    </domain-config>
+
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">today.hitwh.edu.cn</domain>
+    </domain-config>
+
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">www.hitsz.edu.cn</domain>
+        <domain includeSubdomains="false">faculty.hitsz.edu.cn</domain>
+        <domain includeSubdomains="false">jw.hitsz.edu.cn</domain>
+    </domain-config>
+
+    <!-- 仅 debug 变体：仪器/契约测试使用 MockWebServer，地址为 http://localhost:<port>。
+         release 不含本文件，生产仍按 main 的配置全局禁止明文。 -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">localhost</domain>
+        <domain includeSubdomains="false">127.0.0.1</domain>
+    </domain-config>
+</network-security-config>

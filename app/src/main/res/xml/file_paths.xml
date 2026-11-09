@@ -1,30 +1,27 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  最小授权：只登记真实调用点需要的目录。
+  - cache-path            : TimetableTokenText 写出的 token 附件（context.cacheDir）
+  - files-path(".")       : 课表导出在外部存储不可用时的 ICS 兜底目录（app 私有，非世界可读）
+  - external-files-path   : 课表导出的 ICS（getExternalFilesDir("ics")）
+  - external-path(Download): 应用内更新下载的 APK
+  已移除 root-path、全量 external-path、external-cache-path：未登记目录在
+  FileProvider.getUriForFile 时直接抛 IllegalArgumentException，避免文件越界授权。
+-->
 <paths>
-    <external-path
-        name="camera_photos"
-        path="." />
-
-    <root-path
-        name="root"
-        path="" />
-    <files-path
-        name="files"
-        path="." />
-
     <cache-path
         name="cache"
         path="." />
 
-    <external-path
-        name="external"
+    <files-path
+        name="files"
         path="." />
 
     <external-files-path
-        name="external_file_path"
-        path="." />
+        name="ics_external_files"
+        path="ics/" />
 
-    <external-cache-path
-        name="external_cache_path"
-        path="." />
-
+    <external-path
+        name="downloads"
+        path="Download/" />
 </paths>

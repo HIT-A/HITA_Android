@@ -153,10 +153,13 @@ class CourseReminderWorker(appContext: Context, params: WorkerParameters) : Work
     private fun saveSentReminders(ids: Set<String>) {
         val prefs = applicationContext.getSharedPreferences(SP_NAME, Context.MODE_PRIVATE)
         val today = TimeTools.getDateString(Calendar.getInstance())
+        // doWork() runs on a WorkManager background thread, so a blocking write is allowed here
+        // and is the correct choice: `apply` may lose the "already notified" set if the process
+        // dies right after posting a notification, which would re-notify the same course.
         prefs.edit()
-            .putStringSet(KEY_SENT_IDS, ids)
+            .putStringSet(KEY_SENT_IDS, HashSet(ids))
             .putString(KEY_DATE, today)
-            .apply()
+            .commit()
     }
 
     companion object {

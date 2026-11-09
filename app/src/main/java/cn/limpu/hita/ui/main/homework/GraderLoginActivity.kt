@@ -94,6 +94,16 @@ class GraderLoginActivity : AppCompatActivity() {
                 override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: WebResourceError?) {
                     if (!closing && request?.isForMainFrame == true) showError()
                 }
+
+                /** 证书错误必须取消加载；作业平台会话 cookie 不能交给中间人。 */
+                override fun onReceivedSslError(
+                    view: WebView?,
+                    handler: android.webkit.SslErrorHandler?,
+                    error: android.net.http.SslError?
+                ) {
+                    handler?.cancel()
+                    if (!closing) showError()
+                }
             }
         }
         root.addView(webView, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))

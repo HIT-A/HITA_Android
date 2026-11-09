@@ -154,3 +154,14 @@ hitauser 声明 minSdk21，但固定的 Room 2.8.4 AAR `room-runtime-android/2.8
 | Worker边界 | 接口与平台装配+旧任务兼容实测，allowlist清零 | 更名/搬目录绕过检查 |
 
 以上是计划与静态事实，不是已完成结果。实际实现与测试产物需由后续工作逐项补齐。
+
+## 2026-11-09 集成状态（只更新事实）
+
+六分支集成后的实际构建与测试事实：
+
+- 依赖目录、Maven Local 开关、`style` Release 资源校验均保持 `#71` 的形态；集成树上 `:style:verifyReleaseResources`、`:style:assembleRelease` 实际执行成功，`:app:minifyReleaseWithR8` 成功产出 `mapping.txt` 后被 `packageRelease` 因缺少本机 `keystore.properties` 拦下（预期，签名文件不入库）。
+- 各模块实际执行的测试：app JVM 1006（1005 通过 + 1 既有可选联网跳过）、app 仪器 878、component JVM/仪器 7/7、hitauser JVM/仪器 4/11、style 仪器 8、timetable-core 57。`style:testDebugUnitTest` 仍是 `NO-SOURCE`。
+- `timetable-core` 仍是独立 JVM 制品，`verifyJvmDependencies` 通过；app 通过项目依赖消费其 JAR 与 testFixtures。
+- CI 配置结构（四 job 并行、Action 固定 SHA、构建缓存、wrapper 校验、模拟器 `google_apis/x86_64`）已合入并做静态校验；**远端 Actions 未实际运行**，本机无法连接 `github.com`。
+
+本节 §6 表格的验收标准不变。`5.F` 最终审计（真实 resolved 依赖、各模块 XML、JAR 内容与消费关系的逐项复核）仍未完成。

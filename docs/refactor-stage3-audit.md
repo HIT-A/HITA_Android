@@ -145,3 +145,15 @@
 9. 阶段3最终audit：枚举每个EASService和深圳公开请求、每个生产调用点、剩余LiveData/thread/latch原因，不依赖grep零命中；每个条目给测试与合并PR链接。
 
 每批的证明：现有测试源码/身份保持（除必要测试harness适配有独立review）；新行为测试先证明触发；JVM、assembleDebug、所涉androidTest+完整设备回归按修改风险运行；CI实际报告核对身份/错误/skip，不能仅看绿灯；仓库/分层检查通过；独立静态review。不能把MockWebServer/Room/模拟器测试描述成校园真实账号验证。
+
+## 8. 2026-11-09 集成状态（只更新事实，不放宽验收）
+
+六分支集成后在本机重跑的四类测试见 [交接文档 §12](refactor-handoff.md#12-2026-11-09-集成后完整验证)，与本节审计相关的实际变化只有一处：
+
+- 本部研究生课表包装 JSON（`data`/`rows`/`content`/`result`）不再被当作空课表，由 `BenbuGraduateScheduleParser` 递归取第一层课表数组；错误对象与登录页仍返回空。见 [数据层一致性审查](data-layer-consistency-audit.md)。
+
+本节其余结论不变。特别地：
+
+- §2 表格中仍标记为「待做」的 `3.Q5`、`3.Q6`、`3.Q7`、`3.F` 没有因集成而完成；本次没有迁移这些能力的生产调用者。
+- `SEC-05` 在安全分支里只修了 `WebViewLoginActivity`；`WeihaiEASWebSource`、`BenbuEASWebSource`、`EASWebSource`、`AbstractEASWebSource`、`EASRepository` 里的 URL/学号/姓名/token 前缀日志泄露点仍在，属未完成项。
+- `reconcile` 的共享 scope 与 `LiveCourseWork.ensurePeriodic` 记忆化由性能分支引入；`periodicEnqueued` 布尔标记在被 `WorkManagerTestInitHelper` 替换 WorkManager 后仍为 `true`，是一处未修的潜在隐患（本次实测未导致失败，故未扩大改动面）。
