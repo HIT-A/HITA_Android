@@ -39,6 +39,8 @@
         <domain includeSubdomains="false">www.hitsz.edu.cn</domain>
         <domain includeSubdomains="false">faculty.hitsz.edu.cn</domain>
         <domain includeSubdomains="false">jw.hitsz.edu.cn</domain>
+        <!-- 校园通知门户只提供 http：https 由另一前置应答，CAS 回跳的 service 也是 http。 -->
+        <domain includeSubdomains="false">info.hitsz.edu.cn</domain>
     </domain-config>
 
     <!-- 仅 debug 变体：仪器/契约测试使用 MockWebServer，地址为 http://localhost:<port>。

@@ -11,7 +11,8 @@ import java.util.TimeZone
  * 每页 14 条，分页 /1024/list{N}.htm；日期为 span.news-time2 绝对日期。
  */
 object WeihaiNoticeParser {
-    const val LIST_URL = "http://today.hitwh.edu.cn/1024/list.htm"
+    const val PORTAL_URL = "http://today.hitwh.edu.cn/"
+    const val LIST_URL = "${PORTAL_URL}1024/list.htm"
     const val MAX_NOTICES = 30
     const val PAGES_FOR_CAP = 3
     const val PARSER_VERSION = 1
@@ -26,7 +27,7 @@ object WeihaiNoticeParser {
 
     fun listPageUrl(page: Int): String {
         val safe = page.coerceAtLeast(1)
-        return if (safe == 1) LIST_URL else "http://today.hitwh.edu.cn/1024/list$safe.htm"
+        return if (safe == 1) LIST_URL else "${PORTAL_URL}1024/list$safe.htm"
     }
 
     fun parse(html: String, baseUrl: String = LIST_URL): List<CampusNotice> {
@@ -53,7 +54,7 @@ object WeihaiNoticeParser {
                 campus = CAMPUS,
                 id = id,
                 title = title,
-                url = "http://today.hitwh.edu.cn$raw",
+                url = PORTAL_URL + raw.removePrefix("/"),
                 pubDateMillis = parseDateMillis(dateText),
             )
         }

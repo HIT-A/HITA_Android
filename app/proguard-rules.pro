@@ -122,21 +122,6 @@
 -keep class com.tom_roush.fontbox.** { *; }
 -dontwarn com.tom_roush.**
 
-# ====== Apache POI ======
--keep class org.apache.poi.** { *; }
--keep class org.apache.xmlbeans.** { *; }
--dontwarn org.apache.poi.**
--dontwarn org.apache.xmlbeans.**
--dontwarn org.openxmlformats.**
--dontwarn schemasMicrosoftComOfficeOffice.**
--dontwarn schemasMicrosoftComOfficePowerpoint.**
--dontwarn schemasMicrosoftComOfficeWord.**
--dontwarn schemasMicrosoftComVml.**
--dontwarn com.microsoft.schemas.**.**
--dontwarn org.etsi.**.**
--dontwarn org.w3.2009.**.**
--dontwarn javax.xml.stream.**
-
 # ====== Markwon ======
 -keep class io.noties.markwon.** { *; }
 -keep class io.noties.markwon.ext.** { *; }
@@ -222,18 +207,9 @@
 -keep class com.limpu.hita.theta.** { *; }
 
 # ====== Third-party UI libs ======
--keep class br.com.simplepass.loadingbutton.** { *; }
--keep class net.cachapa.expandablelayout.** { *; }
--keep class com.beloo.widget.chipslayoutmanager.** { *; }
--keep class tyrantgit.explosionfield.** { *; }
 -keep class com.cncoderx.wheelview.** { *; }
--keep class me.ibrahimsn.lib.** { *; }
--keep class com.angcyo.dslspan.** { *; }
--keep class top.zibin.luban.** { *; }
--keep class com.bm.library.** { *; }
 
 # ====== Missing classes (R8 auto-generated) ======
--dontwarn com.beloo.widget.chipslayoutmanager.Orientation
 -dontwarn java.awt.Rectangle
 -dontwarn java.awt.Shape
 -dontwarn java.awt.geom.AffineTransform

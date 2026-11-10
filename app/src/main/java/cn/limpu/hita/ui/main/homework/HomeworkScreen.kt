@@ -55,11 +55,20 @@ private val HOMEWORK_WEEKDAY_SHORT: DateTimeFormatter =
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-internal fun HomeworkScreen(viewModel: HomeworkViewModel) {
+internal fun HomeworkScreen(
+    viewModel: HomeworkViewModel,
+    /**
+     * 仅供 UI 测试覆盖评阅入口可见性；生产传 `null`，由 [HomeworkViewModel.graderVisible]
+     * 按深圳校区 + 已登录判定。
+     */
+    graderVisibleOverride: Boolean? = null,
+) {
     val state by viewModel.state.observeAsState(HomeworkState())
     val busy by viewModel.busy.observeAsState(false)
     val today by viewModel.today.observeAsState(LocalDate.now().toString())
     val grader by viewModel.graderState.observeAsState(GraderState())
+    val graderVisible by viewModel.graderVisible.observeAsState(viewModel.graderVisible.value == true)
+    val showGrader = graderVisibleOverride ?: graderVisible
     val now by viewModel.now.observeAsState(System.currentTimeMillis())
     val graderTasks = remember(grader.tasks, now) {
         grader.tasks.filter { it.dueAt >= now }.sortedBy { it.dueAt }
@@ -153,7 +162,8 @@ internal fun HomeworkScreen(viewModel: HomeworkViewModel) {
     LaunchedEffect(weekStart, selectedDate) {
         weekState.animateScrollToItem((date.dayOfWeek.value - 4).coerceAtLeast(0))
     }
-    LaunchedEffect(graderTasks, now) {
+    LaunchedEffect(graderTasks, now, showGrader) {
+        if (!showGrader) return@LaunchedEffect
         graderTasks.firstOrNull()?.let { task ->
             delay((task.dueAt - now).coerceAtLeast(0L) + 1L)
             viewModel.refreshToday()
@@ -352,29 +362,31 @@ internal fun HomeworkScreen(viewModel: HomeworkViewModel) {
                         }
                     }
                 }
-                item(key = "grader-connection") {
-                    GraderConnectionCard(
-                        state = grader,
-                        onLogin = { graderLauncher.launch(Intent(context, GraderLoginActivity::class.java)) },
-                        onRefresh = viewModel::refreshGrader,
-                        onDisconnect = {
-                            viewModel.disconnectGrader {
-                                CookieManager.getInstance().setCookie(
-                                    "https://grader.hitsz.edu.cn",
-                                    "sessionid=; Max-Age=0; Path=/; Secure; HttpOnly",
-                                ) { CookieManager.getInstance().flush() }
-                            }
-                        },
-                        empty = graderTasks.isEmpty(),
-                    )
-                }
-                if (graderTasks.isNotEmpty()) {
-                    item(key = "grader-pending-heading") {
-                        Text(stringResource(R.string.grader_pending_count, graderTasks.size),
-                            style = MaterialTheme.typography.titleSmall)
+                if (showGrader) {
+                    item(key = "grader-connection") {
+                        GraderConnectionCard(
+                            state = grader,
+                            onLogin = { graderLauncher.launch(Intent(context, GraderLoginActivity::class.java)) },
+                            onRefresh = viewModel::refreshGrader,
+                            onDisconnect = {
+                                viewModel.disconnectGrader {
+                                    CookieManager.getInstance().setCookie(
+                                        "https://grader.hitsz.edu.cn",
+                                        "sessionid=; Max-Age=0; Path=/; Secure; HttpOnly",
+                                    ) { CookieManager.getInstance().flush() }
+                                }
+                            },
+                            empty = graderTasks.isEmpty(),
+                        )
                     }
-                    items(graderTasks, key = { "grader-${it.id}" }) { task ->
-                        GraderTaskRow(task, grader.syncing) { viewModel.completeGrader(task.id, it) }
+                    if (graderTasks.isNotEmpty()) {
+                        item(key = "grader-pending-heading") {
+                            Text(stringResource(R.string.grader_pending_count, graderTasks.size),
+                                style = MaterialTheme.typography.titleSmall)
+                        }
+                        items(graderTasks, key = { "grader-${it.id}" }) { task ->
+                            GraderTaskRow(task, grader.syncing) { viewModel.completeGrader(task.id, it) }
+                        }
                     }
                 }
             }

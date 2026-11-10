@@ -25,6 +25,15 @@ internal interface GraduateHttpTransport {
         const val DEFAULT_REFERER = "/authentication/main"
         const val ROLE_CODE = "02"
         const val ACCEPT = "application/json, text/javascript, */*; q=0.01"
+
+        /**
+         * 研究生教务（`yjsgl`）经 WebVPN 访问。服务端按 UA 判定浏览器是否过时，
+         * Jsoup 默认 UA（`Jsoup/x.y.z`）会被直接判为过时并返回「你的浏览器已经过时」拦截页。
+         * 本项目其它教务请求（[EASWebSource]）一律伪装桌面 Chrome，这里保持一致。
+         */
+        const val DESKTOP_USER_AGENT =
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+                "(KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36"
     }
 }
 
@@ -68,6 +77,7 @@ internal class GraduateJsoupTransport(
         }
         val request = Jsoup.connect(WeihaiGraduateSessionPolicy.BASE_URL + path)
             .cookies(token.cookies)
+            .userAgent(GraduateHttpTransport.DESKTOP_USER_AGENT)
             .header("Accept", GraduateHttpTransport.ACCEPT)
             .header("RoleCode", GraduateHttpTransport.ROLE_CODE)
             .header("X-Requested-With", "XMLHttpRequest")

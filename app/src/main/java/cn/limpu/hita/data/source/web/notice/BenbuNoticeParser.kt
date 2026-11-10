@@ -9,9 +9,11 @@ import java.util.TimeZone
 /**
  * 本部「今日哈工大」公告公示（category/10，Drupal）。
  * 列表只给相对时间（"2小时前"），绝对日期取自 /article/yyyy/MM/dd/{id} 路径。
+ * 页面声明的 canonical 是 http，但 http 与 https 都直接 200；详情统一用 https 基址。
  */
 object BenbuNoticeParser {
-    const val LIST_URL = "https://today.hit.edu.cn/category/10"
+    const val PORTAL_URL = "https://today.hit.edu.cn/"
+    const val LIST_URL = "${PORTAL_URL}category/10"
     const val MAX_NOTICES = 30
     const val PAGES_FOR_CAP = 2
     const val PARSER_VERSION = 1
@@ -48,7 +50,7 @@ object BenbuNoticeParser {
                 campus = CAMPUS,
                 id = id,
                 title = title,
-                url = "https://today.hit.edu.cn/article/$year/$month/$day/$articleId",
+                url = "${PORTAL_URL}article/$year/$month/$day/$articleId",
                 pubDateMillis = parseDateMillis(year, month, day),
             )
         }

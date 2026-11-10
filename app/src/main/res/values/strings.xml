@@ -33,7 +33,12 @@
     <string name="eas_campus_weihai">威海</string>
     <string name="webview_login">浏览器登录</string>
     <string name="webview_login_title">教务网页登录</string>
-    <string name="eac_weihai_webview_todo">威海校区 WebView 登录暂未接入</string>
+    <!-- 教务服务端「浏览器已过时」拦截页的特征文案，用于 WebView 内探测该页，非界面文案 -->
+    <string name="eas_outdated_browser_marker">你使用的浏览器已经过时</string>
+    <string name="eas_outdated_browser_marker_en">outdated browser</string>
+    <string name="eas_outdated_browser_marker_upgrade">upgrade your browser</string>
+    <string name="eas_outdated_browser_retry_hint">教务页面提示浏览器内核过旧，已返回登录入口，请重试</string>
+    <string name="eas_outdated_browser_persistent">教务页面持续提示浏览器内核过旧，本次登录失败</string>
     <string name="login">登录</string>
     <string name="import_timetable">导入课表</string>
     <string name="pick_import_term">选择导入学期</string>
@@ -1362,6 +1367,7 @@
     <string name="more_features_homework_hint">关闭后隐藏待办页</string>
     <string name="more_features_info_hint">开启后，登录教务才显示资讯页</string>
     <string name="more_features_agent_hint">开启后显示助手页</string>
+    <string name="more_features_subtitle_separator">、</string>
     <string name="notice_copy_group">复制群号：%1$s</string>
     <string name="notice_group_copied">已复制群号</string>
     <string name="notices_title">公告</string>
@@ -1625,6 +1631,7 @@
     <string name="campus_notice_need_campus_net">校园通知加载失败，请检查网络后重试</string>
     <string name="campus_notice_load_failed">校园通知同步失败，下拉或点重试</string>
     <string name="campus_notice_login">登录信息门户</string>
+    <string name="campus_notice_multifactor_hint">统一身份认证要求多因子验证，请输入短信或哈工大 APP 收到的验证码完成登录</string>
     <string name="timetable_share_action">分享课表</string>
     <string name="timetable_share_back">返回</string>
     <string name="timetable_share_select">选择个人课表</string>

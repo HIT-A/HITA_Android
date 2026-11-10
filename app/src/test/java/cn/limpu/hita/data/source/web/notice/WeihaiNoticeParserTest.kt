@@ -20,7 +20,7 @@ class WeihaiNoticeParserTest {
             </div></div>
             </body></html>
         """.trimIndent()
-        val notices = WeihaiNoticeParser.parse(html)
+        val notices = WeihaiNoticeParser.parse(html, WeihaiNoticeParser.LIST_URL)
         assertEquals(2, notices.size)
         assertEquals("hitwh:220789", notices[0].id)
         // 截断的文本标题必须由 title 属性补全
@@ -28,6 +28,22 @@ class WeihaiNoticeParserTest {
         assertEquals("http://today.hitwh.edu.cn/2026/0924/c1024a220789/page.htm", notices[0].url)
         assertEquals("WEIHAI", notices[0].campus)
         assertTrue(notices[0].pubDateMillis > notices[1].pubDateMillis)
+    }
+
+    @Test
+    fun detailUrlUsesTheCampusBasePassedToParse() {
+        val html = """
+            <div class="list_list_wrap"><ul>
+              <li><span class="news-time2">2026-11-10</span><a href="/2026/1110/c1024a222516/page.htm" title="威海校园通知标题">威海校园通知标题</a></li>
+            </ul></div>
+        """.trimIndent()
+        val notices = WeihaiNoticeParser.parse(html, "http://today.hitwh.edu.cn/1024/list.htm")
+        assertEquals(1, notices.size)
+        assertEquals(
+            "http://today.hitwh.edu.cn/2026/1110/c1024a222516/page.htm",
+            notices[0].url,
+        )
+        assertFalse(notices[0].url.contains("info.hitsz.edu.cn"))
     }
 
     @Test

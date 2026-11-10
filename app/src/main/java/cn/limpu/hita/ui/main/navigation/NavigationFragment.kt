@@ -63,6 +63,8 @@ import cn.limpu.hita.data.analytics.UsageAnalyticsEvent
 import cn.limpu.hita.data.model.eas.EASToken
 import cn.limpu.hita.data.repository.EASRepository
 import cn.limpu.hita.data.source.preference.CourseReminderStore
+import cn.limpu.hita.data.source.preference.OptionalTabFeatures
+import cn.limpu.hita.data.source.preference.OptionalTabStore
 import cn.limpu.hita.data.work.CourseReminderScheduler
 import cn.limpu.hita.feature.livecourse.guard.LiveCourseGuardService
 import cn.limpu.hita.feature.livecourse.scheduler.LiveCourseScheduler
@@ -82,6 +84,7 @@ import cn.limpu.hita.ui.eas.classroom.EmptyClassroomActivity
 import cn.limpu.hita.ui.eas.catalog.ShenzhenCourseCatalogActivity
 import cn.limpu.hita.ui.eas.exam.ExamActivity
 import cn.limpu.hita.ui.eas.grade.ShenzhenGradeAnalysisActivity
+import cn.limpu.hita.ui.main.MainTab
 import cn.limpu.hita.ui.notice.AppNoticesActivity
 import cn.limpu.hita.ui.links.UsefulLinksActivity
 import cn.limpu.hita.ui.eas.login.PopUpLoginEAS
@@ -106,6 +109,7 @@ class NavigationFragment : androidx.fragment.app.Fragment() {
     private var liveCourseStrongReminderState by mutableStateOf(false)
     private var usageAnalyticsEnabledState by mutableStateOf(true)
     private var userStateVersion by mutableStateOf(0)
+    private var optionalTabFeaturesState by mutableStateOf(OptionalTabFeatures())
 
     private val pickAvatarLauncher = registerForActivityResult(
         ActivityResultContracts.GetContent()
@@ -142,6 +146,7 @@ class NavigationFragment : androidx.fragment.app.Fragment() {
     ): View {
         reminderEnabledState = CourseReminderStore(requireContext()).isEnabled()
         usageAnalyticsEnabledState = UsageAnalyticsClient.isEnabled(requireContext())
+        optionalTabFeaturesState = OptionalTabStore(requireContext()).features()
         LiveCourseSettings(requireContext()).also { settings ->
             liveCourseEnabledState = settings.isEnabled()
             liveCourseStrongReminderState = settings.isStrongReminderEnabled()
@@ -155,6 +160,7 @@ class NavigationFragment : androidx.fragment.app.Fragment() {
                         viewModel = viewModel,
                         localUser = remember(userStateVersion) { localUserRepository.getLoggedInUser() },
                         easToken = easToken,
+                        optionalTabFeatures = optionalTabFeaturesState,
                         reminderEnabled = reminderEnabledState,
                         onToggleReminder = { toggleCourseReminder(!reminderEnabledState) },
                         liveCourseEnabled = liveCourseEnabledState,
@@ -215,6 +221,7 @@ class NavigationFragment : androidx.fragment.app.Fragment() {
             startLiveCourseGuardIfEnabled()
         }
         usageAnalyticsEnabledState = UsageAnalyticsClient.isEnabled(requireContext())
+        optionalTabFeaturesState = OptionalTabStore(requireContext()).features()
         viewModel.startRefresh()
     }
 
@@ -460,6 +467,7 @@ private fun NavigationScreen(
     viewModel: NavigationViewModel,
     localUser: UserLocal,
     easToken: EASToken,
+    optionalTabFeatures: OptionalTabFeatures,
     reminderEnabled: Boolean,
     liveCourseEnabled: Boolean,
     liveCourseStrongReminderEnabled: Boolean,
@@ -485,6 +493,15 @@ private fun NavigationScreen(
     onOpenNotices: () -> Unit,
 ) {
     val tokens = HitaTheme.tokens
+    // 「更多功能」副标题只列底栏当前真实显示的模块：直接复用 MainTab.visibleFor，
+    // 与底栏完全同源、不复制任何判定（资讯在底栏 = 开关开启 && showsInfo 已登录）；
+    // 全部关闭时拼接为空串，NavigationWidgets.NavigationRow 的 isNotBlank 会隐藏副标题。
+    val visibleTabs = MainTab.visibleFor(easToken, optionalTabFeatures)
+    val moreFeaturesSubtitle = listOfNotNull(
+        stringResource(R.string.title_homework).takeIf { MainTab.HOMEWORK in visibleTabs },
+        stringResource(R.string.title_blog).takeIf { MainTab.BLOG in visibleTabs },
+        stringResource(R.string.title_agent).takeIf { MainTab.AGENT in visibleTabs },
+    ).joinToString(stringResource(R.string.more_features_subtitle_separator))
     val timetableCount by viewModel.timetableCountLiveData.observeAsState(0)
 
 
@@ -602,7 +619,7 @@ private fun NavigationScreen(
             NavigationRow(
                 icon = R.drawable.ic_menu_settings,
                 title = "更多功能",
-                subtitle = "待办、资讯、助手",
+                subtitle = moreFeaturesSubtitle,
                 onClick = onOpenMoreFeatures,
                 trailing = {
                     Icon(

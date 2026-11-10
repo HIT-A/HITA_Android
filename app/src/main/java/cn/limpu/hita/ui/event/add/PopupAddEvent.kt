@@ -338,7 +338,7 @@ private fun PopupAddEventScreen(
                     contentColor = MaterialTheme.colorScheme.onPrimary
                 ) {
                     Icon(
-                        painter = painterResource(R.drawable.ic_done_white_48dp),
+                        painter = painterResource(R.drawable.ic_baseline_done_24),
                         contentDescription = stringResource(R.string.confirm),
                         modifier = Modifier.size(24.dp)
                     )

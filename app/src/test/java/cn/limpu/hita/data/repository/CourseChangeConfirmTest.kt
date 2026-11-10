@@ -57,6 +57,26 @@ class CourseChangeConfirmTest {
     }
 
     @Test
+    fun rememberingIgnoredFingerprintDropsIdenticalUpdateOnNextRefresh() {
+        // 用户勾选「记住」后，同一份更新在下次刷新必须被过滤掉，不能再弹一次。
+        val local = MergeCourse("s1", "高等数学", "MATH", listOf(lesson(8 * 60, "正心楼 101")))
+        val incoming = MergeCourse("s1", "高等数学", "MATH", listOf(lesson(10 * 60, "诚意楼 202")))
+        val firstPlan = TimetableRefreshMergePolicy.plan(listOf(local), listOf(incoming), emptyMap(), 1_000L)
+        val update = firstPlan.pendingUpdates.single()
+        val remembered = update.rows.map { it.fingerprint }.toSet()
+
+        assertTrue("首次必须出现待确认项", update.rows.isNotEmpty())
+        assertTrue("过滤后必须为空，否则同一条更新会重复弹窗", update.filterRows(remembered).rows.isEmpty())
+
+        // 指纹在相同输入下必须稳定，否则记住的选择永远命中不到。
+        val secondPlan = TimetableRefreshMergePolicy.plan(listOf(local), listOf(incoming), emptyMap(), 2_000L)
+        assertEquals(remembered, secondPlan.pendingUpdates.single().rows.map { it.fingerprint }.toSet())
+
+        // 没勾「记住」的行不受影响。
+        assertTrue(update.filterRows(emptySet()).rows.isNotEmpty())
+    }
+
+    @Test
     fun applyRowsSkipsUnselectedAddedCourse() {
         val incoming = MergeCourse("s2", "大学物理", null, listOf(lesson(8 * 60, "A")))
         val update = CourseChangeConfirm.addedCourse(incoming)

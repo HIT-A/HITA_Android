@@ -46,6 +46,29 @@ internal object ShenzhenTrustPortalAutoLogin {
             return text.indexOf('协议') >= 0 || text.indexOf('同意') >= 0 ||
               text.toLowerCase().indexOf('agree') >= 0;
           }
+          /**
+           * 派发完整的指针/鼠标事件序列。aTrust 门户的按钮与复选框都绑在
+           * pointerdown/pointerup 上，单发 click 不会推进 SPA 状态。
+           */
+          function tap(element) {
+            var rect = element.getBoundingClientRect();
+            var x = rect.left + rect.width / 2;
+            var y = rect.top + rect.height / 2;
+            var base = {
+              bubbles: true, cancelable: true, composed: true,
+              clientX: x, clientY: y, screenX: x, screenY: y,
+              button: 0, buttons: 1, pointerId: 1, pointerType: 'mouse', isPrimary: true
+            };
+            try {
+              element.dispatchEvent(new PointerEvent('pointerdown', base));
+              element.dispatchEvent(new MouseEvent('mousedown', base));
+              element.dispatchEvent(new PointerEvent('pointerup', base));
+              element.dispatchEvent(new MouseEvent('mouseup', base));
+            } catch (error) {
+              // 老 WebView 没有 PointerEvent 构造器时至少补一次 click。
+            }
+            element.click();
+          }
           var boxes = document.querySelectorAll('input[type="checkbox"]');
           var target = null;
           for (var i = 0; i < boxes.length; i++) {
@@ -63,7 +86,7 @@ internal object ShenzhenTrustPortalAutoLogin {
               if (setter) setter.call(target, true); else target.checked = true;
               target.dispatchEvent(new Event('input', {bubbles:true}));
               target.dispatchEvent(new Event('change', {bubbles:true}));
-              target.dispatchEvent(new Event('click', {bubbles:true}));
+              tap(target);
             }
             agreement = !!target.checked;
           }
@@ -75,7 +98,9 @@ internal object ShenzhenTrustPortalAutoLogin {
             if (!visible(button) || button.disabled) continue;
             var text = labelOf(button);
             if (text.indexOf('登录') < 0 && text.toLowerCase().indexOf('login') < 0) continue;
-            button.click();
+            // aTrust 门户是 SPA，按钮挂着 ix-button 与禁用态样式类，只认真实的
+            // 指针事件序列：直接 button.click() 实测停在 #/login 不前进。
+            tap(button);
             return JSON.stringify({clicked:true, agreement:agreement, via:'button'});
           }
           return JSON.stringify({clicked:false, agreement:agreement});

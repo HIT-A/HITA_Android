@@ -36,19 +36,9 @@ okhttpLegacy = "3.10.0"
 glide = "4.16.0"
 retrofitApp = "2.9.0"
 jsoup = "1.18.2"
-loadingButton = "2.2.0"
-expandableLayout = "2.9.2"
-timelineView = "2.3.0"
-circleProgress = "1.2.1"
-multilineToolbar = "27.1.1"
-chipsLayoutManager = "0.3.7"
 wheelView = "1.2.2"
 ical4j = "1.0.2"
 pdfbox = "2.0.27.0"
-poi = "4.1.2"
-staxApi = "1.0-2"
-aaltoXml = "1.2.2"
-explosionField = "1.0.1"
 work = "2.9.1"
 markwon = "4.6.2"
 jlatexmath = "0.2.0"
@@ -108,21 +98,10 @@ retrofitApp = { module = "com.squareup.retrofit2:retrofit", version.ref = "retro
 converterGsonApp = { module = "com.squareup.retrofit2:converter-gson", version.ref = "retrofitApp" }
 okhttp = { module = "com.squareup.okhttp3:okhttp", version.ref = "okhttp" }
 jsoup = { module = "org.jsoup:jsoup", version.ref = "jsoup" }
-loadingButton = { module = "br.com.simplepass:loading-button-android", version.ref = "loadingButton" }
-expandableLayout = { module = "net.cachapa.expandablelayout:expandablelayout", version.ref = "expandableLayout" }
-timelineView = { module = "com.github.alorma:timelineview", version.ref = "timelineView" }
-circleProgress = { module = "com.github.lzyzsd:circleprogress", version.ref = "circleProgress" }
-multilineToolbar = { module = "net.opacapp:multiline-collapsingtoolbar", version.ref = "multilineToolbar" }
 # app keeps the former @aar artifact-only declaration at the use site.
-chipsLayoutManager = { module = "com.beloo.widget:ChipsLayoutManager", version.ref = "chipsLayoutManager" }
 wheelView = { module = "com.cncoderx.wheelview:library", version.ref = "wheelView" }
 ical4j = { module = "org.mnode.ical4j:ical4j", version.ref = "ical4j" }
 pdfboxAndroid = { module = "com.tom-roush:pdfbox-android", version.ref = "pdfbox" }
-poiOoxml = { module = "org.apache.poi:poi-ooxml", version.ref = "poi" }
-poi = { module = "org.apache.poi:poi", version.ref = "poi" }
-staxApi = { module = "javax.xml.stream:stax-api", version.ref = "staxApi" }
-aaltoXml = { module = "com.fasterxml:aalto-xml", version.ref = "aaltoXml" }
-explosionField = { module = "tyrantgit:explosionfield", version.ref = "explosionField" }
 workRuntimeKtx = { module = "androidx.work:work-runtime-ktx", version.ref = "work" }
 markwonCore = { module = "io.noties.markwon:core", version.ref = "markwon" }
 markwonLinkify = { module = "io.noties.markwon:linkify", version.ref = "markwon" }
