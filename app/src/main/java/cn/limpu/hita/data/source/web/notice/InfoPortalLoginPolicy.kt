@@ -88,6 +88,30 @@ internal object InfoPortalLoginPolicy {
     }
 
     /**
+     * CAS 表单页要执行的动作。
+     *
+     * 首次登录（还没有保存过凭据）绝不能自动提交：此时能做的只有替用户勾上
+     * 「N 天免登录」，然后把页面留给用户输账号密码。历史上这里无条件走
+     * 「勾选 + 静默退出」的顺序，导致用户刚看到登录页就被弹出，必须进第二次才能登录。
+     */
+    enum class CasFormAction {
+        /** 有已保存凭据：勾选免登录 + 自动填充 + 自动提交。 */
+        AUTO_SUBMIT,
+
+        /** 没有已保存凭据：只勾选免登录，页面留给用户手动输入。 */
+        PREPARE_ONLY,
+
+        /** 没有已保存凭据且处于静默重登：无法完成，直接收场。 */
+        GIVE_UP,
+    }
+
+    fun casFormAction(hasStoredCredential: Boolean, silent: Boolean): CasFormAction = when {
+        hasStoredCredential -> CasFormAction.AUTO_SUBMIT
+        silent -> CasFormAction.GIVE_UP
+        else -> CasFormAction.PREPARE_ONLY
+    }
+
+    /**
      * 门户会话是否已建立。
      *
      * 门户放行后自己的 `JSESSIONID` 才是业务会话；`iPlanetDirectoryPro` 是部分

@@ -29,12 +29,23 @@ username / password / lt / execution / _eventId / rememberMe
 因此门户登录直接复用本部凭据（`InfoPortalLoginPolicy.credentialCampus = BENBU`），
 并且与网页教务共用同一套 `EasWebCredentialPolicy`：
 
-1. 到达 CAS 表单后自动勾选「N 天免登录」（`rememberMeScript`），让 `CASTGC` 成为
-   持久票据而不是会话 cookie；
-2. 用已保存的账号密码自动填充并**自动提交一次**（`autofillAndSubmitScript`）；
+CAS 表单页的处理由 `InfoPortalLoginPolicy.casFormAction` 决定，分三种情形：
+
+| 情形 | 动作 |
+|---|---|
+| 有已保存凭据 | 勾选「N 天免登录」→ 自动填充 → **自动提交一次** |
+| 无已保存凭据、交互模式 | **只勾选「N 天免登录」**，页面留在前台等用户输入 |
+| 无已保存凭据、静默模式 | 立即 `RESULT_CANCELED`，交回宿主弹手动登录 |
+
+1. 勾选「N 天免登录」（`rememberMeScript`），让 `CASTGC` 成为持久票据而不是会话 cookie；
+2. 有凭据时才自动填充并自动提交（`autofillAndSubmitScript`）；
 3. 同一张表单只提交一次，单次登录最多两张，避免密码失效时反复提交触发风控；
 4. 登录成功（`CAS` 回跳、门户 `JSESSIONID` 就绪）后才把用户手输的账号密码写入
    `EasCredentialStore`，避免把输错的密码存成"可用凭据"。
+
+**首次登录不得自动收场**：没有已保存凭据时，交互模式只勾选免登录就停下，
+不填充、不提交、不结束 Activity。历史上这里无条件「先勾选、再无凭据就结束」，
+导致用户刚看到登录页就被弹出，必须点第二次才能登录。
 
 ## 登录态判定
 
@@ -51,6 +62,8 @@ username / password / lt / execution / _eventId / rememberMe
 `CampusNoticeRepository` 在同步失败时返回 `NEED_LOGIN`，`BlogFragment` 的
 `CampusNoticeScreen` 收到后**先自动拉起一次静默登录**（`EXTRA_SILENT_MODE=true`）：
 
+- **启动静默登录前先检查是否存有凭据**（`EasCredentialStore.get(campus)`）：
+  没有凭据时直接走交互登录，避免"打开→勾选→自动退出"徒劳一趟；
 - 静默模式复用已保存凭据，自动完成勾选、填充、提交，成功后直接刷新通知；
 - 没有可用凭据、或自动提交失败时立即返回 `RESULT_CANCELED`，不空等超时；
 - 每次进入该校区只自动尝试一次，失败后露出「登录信息门户」按钮由用户手动完成，

@@ -180,6 +180,10 @@ class InfoPortalLoginActivity : AppCompatActivity() {
      *
      * 与网页教务同一套策略对象，因此三处（本部/威海/深圳教务与这里）行为一致。
      * 每张表单只提交一次，累计有上限，避免密码失效时反复提交触发风控。
+     *
+     * **首次登录必须停在表单页**：没有已保存凭据时只勾选免登录，绝不自动提交、
+     * 也绝不自行收场。历史上的顺序是「先勾选、再无凭据就 finishCancelled()」，
+     * 于是用户在静默重登里刚看到页面就被弹出，必须点第二次才能登录。
      */
     private fun prepareCasCredentials(view: WebView, url: String) {
         if (!InfoPortalLoginPolicy.isCasLoginForm(url)) return
@@ -192,31 +196,41 @@ class InfoPortalLoginActivity : AppCompatActivity() {
             )
         ) return
 
+        val credential = EasWebCredentialPolicy.readOptionalCredential {
+            credentialStore.get(campus)
+        }?.takeIf { it.username.isNotBlank() && it.password.isNotBlank() }
+
+        when (InfoPortalLoginPolicy.casFormAction(credential != null, silentMode)) {
+            InfoPortalLoginPolicy.CasFormAction.GIVE_UP -> {
+                // 静默重登且没有可用凭据：无法完成，交回宿主让用户手点登录。
+                LogUtils.d("notice portal silent renewal needs credentials")
+                finishCancelled()
+                return
+            }
+
+            InfoPortalLoginPolicy.CasFormAction.PREPARE_ONLY -> {
+                // 首次登录：仅勾选免登录并安装凭据捕获桥，然后把页面留给用户输入。
+                // 不填充、不提交、不结束 Activity。
+                view.evaluateJavascript(EasWebCredentialPolicy.rememberMeScript(), null)
+                view.evaluateJavascript(EasWebCredentialPolicy.captureScript(), null)
+                return
+            }
+
+            InfoPortalLoginPolicy.CasFormAction.AUTO_SUBMIT -> Unit
+        }
+
+        val stored = credential ?: return
         view.evaluateJavascript(
             EasWebCredentialPolicy.rememberMeScript(), null
         )
         view.evaluateJavascript(
             EasWebCredentialPolicy.captureScript(), null
         )
-        val credential = EasWebCredentialPolicy.readOptionalCredential {
-            credentialStore.get(campus)
-        }
-        if (credential == null ||
-            credential.username.isBlank() || credential.password.isBlank()
-        ) {
-            // 没有可用凭据：静默模式没有意义，交回宿主弹手动登录。
-            if (silentMode) {
-                LogUtils.d("notice portal silent renewal needs credentials")
-                finishCancelled()
-            }
-            return
-        }
-
         val pageKey = url.substringBefore('#')
         if (pageKey in submittedLoginPages || submittedLoginPages.size >= MAX_AUTO_SUBMIT) {
             view.evaluateJavascript(
                 EasWebCredentialPolicy.autofillScript(
-                    credential.username, credential.password
+                    stored.username, stored.password
                 ),
                 null
             )
@@ -227,7 +241,7 @@ class InfoPortalLoginActivity : AppCompatActivity() {
             if (finished || view.url.orEmpty().substringBefore('#') != pageKey) return@postDelayed
             view.evaluateJavascript(
                 EasWebCredentialPolicy.autofillAndSubmitScript(
-                    credential.username, credential.password
+                    stored.username, stored.password
                 )
             ) { raw ->
                 LogUtils.d("notice portal auto submit: ${raw?.take(120) ?: "null"}")

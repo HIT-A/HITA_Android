@@ -73,6 +73,7 @@ import cn.limpu.hita.data.model.eas.EASToken
 import cn.limpu.hita.data.model.notice.CampusNotice
 import cn.limpu.hita.data.repository.CampusNoticeSyncError
 import cn.limpu.hita.data.repository.EASRepository
+import cn.limpu.hita.data.source.preference.EasCredentialStore
 import cn.limpu.hita.ui.main.MainTab
 import cn.limpu.hita.ui.blog.BlogReaderActivity
 import cn.limpu.hita.ui.design.HitaComposeTheme
@@ -94,6 +95,7 @@ import java.util.TimeZone
 @AndroidEntryPoint
 class BlogFragment : androidx.fragment.app.Fragment() {
     @Inject lateinit var easRepository: EASRepository
+    @Inject lateinit var credentialStore: EasCredentialStore
 
     private val viewModel: BlogViewModel by viewModels()
     private val noticeViewModel: CampusNoticeViewModel by viewModels()
@@ -148,7 +150,16 @@ class BlogFragment : androidx.fragment.app.Fragment() {
                                     )
                                 },
                                 onLoginPortal = { launchPortalLogin(silent = false) },
-                                onSilentLoginPortal = { launchPortalLogin(silent = true) },
+                                onSilentLoginPortal = {
+                                    // 没有已保存凭据时静默重登必然失败：CAS 表单页无人填充，
+                                    // 只会「打开→勾选免登录→自动退出」。这时直接走交互登录，
+                                    // 把页面留在前台等用户输入。
+                                    if (credentialStore.get(EASToken.Campus.SHENZHEN) != null) {
+                                        launchPortalLogin(silent = true)
+                                    } else {
+                                        launchPortalLogin(silent = false)
+                                    }
+                                },
                             )
                         } else {
                             CampusNoticeScreen(

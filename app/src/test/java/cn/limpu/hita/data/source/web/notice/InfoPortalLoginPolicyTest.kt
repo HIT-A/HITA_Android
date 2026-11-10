@@ -94,6 +94,29 @@ class InfoPortalLoginPolicyTest {
     }
 
     @Test
+    fun `cas form without stored credential never auto submits`() {
+        // 首次登录：没有已保存凭据，只能勾选免登录，页面必须留给用户输入。
+        assertEquals(
+            InfoPortalLoginPolicy.CasFormAction.PREPARE_ONLY,
+            InfoPortalLoginPolicy.casFormAction(hasStoredCredential = false, silent = false),
+        )
+        // 静默重登拿不到凭据时无法完成，必须立即收场，不能挂着透明窗口。
+        assertEquals(
+            InfoPortalLoginPolicy.CasFormAction.GIVE_UP,
+            InfoPortalLoginPolicy.casFormAction(hasStoredCredential = false, silent = true),
+        )
+        // 有已保存凭据才自动填充并提交。
+        assertEquals(
+            InfoPortalLoginPolicy.CasFormAction.AUTO_SUBMIT,
+            InfoPortalLoginPolicy.casFormAction(hasStoredCredential = true, silent = false),
+        )
+        assertEquals(
+            InfoPortalLoginPolicy.CasFormAction.AUTO_SUBMIT,
+            InfoPortalLoginPolicy.casFormAction(hasStoredCredential = true, silent = true),
+        )
+    }
+
+    @Test
     fun `login completes only on the notice list with a live session`() {
         val cookies = mapOf("JSESSIONID" to "abc")
         assertTrue(
