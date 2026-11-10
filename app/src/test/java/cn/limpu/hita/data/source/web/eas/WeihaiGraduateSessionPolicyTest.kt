@@ -44,4 +44,27 @@ class WeihaiGraduateSessionPolicyTest {
         }
         assertTrue(WeihaiGraduateSessionPolicy.isAuthenticationFailure(200, url, login))
     }
+
+    @Test fun desktopUserAgentCoversGraduatePagesButNotTheCasForm() {
+        val base = WeihaiGraduateSessionPolicy.BASE_URL
+        // 登录入口 `/cas` 只是跳转点：必须用桌面 UA，否则重定向后的教务页会被判为过时浏览器。
+        assertTrue(WeihaiGraduateSessionPolicy.needsDesktopUserAgentFor("$base/cas"))
+        // 登录后的研究生业务页同样需要桌面 UA——这里正是「浏览器已过时」拦截页的落点。
+        for (path in listOf(
+            "/authentication/main",
+            "/student_index",
+            "/user/me",
+        )) {
+            assertTrue(path, WeihaiGraduateSessionPolicy.needsDesktopUserAgentFor(base + path))
+        }
+        // CAS 表单页是唯一例外：桌面 UA 会让原生输入法光标与 HTML input 错位。
+        assertFalse(
+            WeihaiGraduateSessionPolicy.needsDesktopUserAgentFor(
+                "$base/authserver/login?service=https%3A%2F%2Fyjsgl.hitwh.edu.cn"
+            )
+        )
+        // 站点外的页面一律不接管 UA。
+        assertFalse(WeihaiGraduateSessionPolicy.needsDesktopUserAgentFor("https://example.invalid/cas"))
+        assertFalse(WeihaiGraduateSessionPolicy.needsDesktopUserAgentFor(""))
+    }
 }

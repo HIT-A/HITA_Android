@@ -181,11 +181,18 @@ class WebViewLoginActivity : AppCompatActivity() {
 
         /** 单次登录内自动提交 CAS 表单的上限，避免密码失效时反复提交换来风控。 */
         private const val MAX_AUTO_SUBMIT = 2
-        /** 教务浏览器路由只认桌面 UA；移动 UA 会被服务端按「浏览器已过时」拦截。 */
+        /**
+         * 教务浏览器路由只认桌面 UA；移动 UA 会被服务端按「浏览器已过时」拦截。
+         *
+         * 版本号必须与数据层 [cn.limpu.hita.data.source.web.eas.EASWebSource] /
+         * [cn.limpu.hita.data.source.web.eas.graduate.GraduateHttpTransport] 一致：
+         * 那些请求已经用 146 正常拿到研究生教务内容，是服务端实测接受的值。
+         * 两边不一致时，WebView 可能被拦而数据层正常，表现为「登录一直失败但刷新有数据」。
+         */
         private const val EAS_DESKTOP_USER_AGENT =
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
                 "AppleWebKit/537.36 (KHTML, like Gecko) " +
-                "Chrome/134.0.0.0 Safari/537.36"
+                "Chrome/146.0.0.0 Safari/537.36"
 
         /** 「浏览器已过时」拦截页兜底：第 1 次退回登录入口，第 2 次明确失败收尾。 */
         private const val MAX_OUTDATED_BROWSER_FALLBACK = 1
@@ -2025,19 +2032,15 @@ class WebViewLoginActivity : AppCompatActivity() {
     }
 
     /**
-     * 威海研究生教务系统（yjsgl.hitwh.edu.cn 经 WebVPN 反代）的页面。CAS/统一认证页
-     * （路径含 /authserver/）即使被反代在同一前缀下也不在其列：它们必须留在移动 UA 上。
+     * 威海研究生教务系统（yjsgl.hitwh.edu.cn 经 WebVPN 反代）的页面。CAS/统一认证**表单页**
+     * （路径含 /authserver/）必须留在移动 UA 上，否则原生输入法光标与 HTML input 错位；
+     * 其余研究生教务页面（含登录入口 `/cas` 与登录后的业务页）都要桌面 UA，否则服务端
+     * 按 UA 判定浏览器过时并下发拦截页。判定本身由 [WeihaiGraduateSessionPolicy] 承担，
+     * 便于离线测试覆盖。
      */
-    private fun isWeihaiGraduateAcademicPage(url: String): Boolean {
-        val uri = Uri.parse(url)
-        if (!uri.host.equals("webvpn.hitwh.edu.cn", ignoreCase = true)) return false
-        val path = uri.path.orEmpty()
-        val basePath = Uri.parse(
-            cn.limpu.hita.data.source.web.eas.WeihaiGraduateSessionPolicy.BASE_URL
-        ).path.orEmpty()
-        return path.startsWith(basePath, ignoreCase = true) &&
-            !path.contains("/authserver/", ignoreCase = true)
-    }
+    private fun isWeihaiGraduateAcademicPage(url: String): Boolean =
+        cn.limpu.hita.data.source.web.eas.WeihaiGraduateSessionPolicy
+            .needsDesktopUserAgentFor(url)
 
     private fun switchEasUserAgentForNavigation(view: WebView, url: String): Boolean {
         if (config.campus != EASToken.Campus.SHENZHEN &&
@@ -2179,6 +2182,14 @@ class WebViewLoginActivity : AppCompatActivity() {
         }
         if (!silentMode) {
             Toast.makeText(this, R.string.eas_outdated_browser_retry_hint, Toast.LENGTH_LONG).show()
+        }
+        // 重试前必须确认 UA 已是桌面版：拦截页本身可能是在「单程票跳转」这一跳里
+        // 用旧 UA 加载出来的（ticket= 页面不可重载，只切 UA 不重放），
+        // 否则退回入口后仍会重演同一次拦截。
+        if (needsEasDesktopUserAgent(config.loginUrl) && !easDesktopUserAgentApplied) {
+            easDesktopUserAgentApplied = true
+            view.settings.userAgentString = EAS_DESKTOP_USER_AGENT
+            LogUtils.d("forcing desktop user agent before retrying outdated browser page")
         }
         view.loadUrl(config.loginUrl)
     }

@@ -41,4 +41,24 @@ internal object WeihaiGraduateSessionPolicy {
             body.contains("<form", true) &&
             (body.contains("password", true) || body.contains("统一身份认证"))
     }
+
+    /**
+     * 该 URL 的请求是否需要伪装成桌面浏览器。
+     *
+     * 研究生教务（`yjsgl`）经 WebVPN 反代后，服务端**按 UA 判定浏览器版本**，移动 UA 会
+     * 拿到「你使用的浏览器已经过时」拦截页（实测 `Chrome Mobile 144` 即被拒）。因此除
+     * 统一身份认证表单页之外，整条研究生链路都必须用桌面 UA。
+     *
+     * CAS 表单页（路径含 `/authserver/`）是唯一的例外：它由 WebView 渲染供用户输入，
+     * 桌面 UA 会让 Chromium 的原生输入法光标与 HTML input 错位。登录入口 `/cas` 本身
+     * 不属于例外——它只是一个跳转点，重定向到 `/authserver/login` 后才切回移动 UA。
+     */
+    fun needsDesktopUserAgentFor(url: String): Boolean {
+        val uri = runCatching { URI(url) }.getOrNull() ?: return false
+        if (!uri.host.orEmpty().equals(base.host, ignoreCase = true)) return false
+        val path = uri.path.orEmpty()
+        if (!path.startsWith(base.path, ignoreCase = true)) return false
+        // 只在 CAS 表单页本页保留移动 UA；`/cas` 登录入口与登录后的教务页都要桌面 UA。
+        return !path.contains("/authserver/", ignoreCase = true)
+    }
 }
