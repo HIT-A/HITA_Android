@@ -70,7 +70,9 @@ class ScoreReminderWorker private constructor(
         val repository = dependencies.repository ?: entryPoint!!.easRepository()
         val session = repository.captureQuerySession()
         if (!session.loggedIn) return Result.success()
-        val ownerKey = session.ownerKey ?: return Result.retry()
+        // 已登录却拿不到 ownerKey：身份字段缺失是确定性状态，重试不会改变结果，
+        // 只会按 WorkManager 默认退避无限重跑。
+        val ownerKey = session.ownerKey ?: return Result.success()
         return session.whileCurrent { checkScores(repository, session, ownerKey, store) }
     }
 

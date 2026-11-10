@@ -11,6 +11,7 @@ import cn.limpu.hita.data.model.notice.CampusNotice
 import cn.limpu.hita.data.source.preference.CampusNoticePreferenceSource
 import cn.limpu.hita.data.source.web.notice.BenbuNoticeParser
 import cn.limpu.hita.data.source.web.notice.CampusNoticeParser
+import cn.limpu.hita.data.source.web.notice.InfoPortalLoginPolicy
 import cn.limpu.hita.data.source.web.notice.WeihaiNoticeParser
 import cn.limpu.hita.utils.LogUtils
 import okhttp3.OkHttpClient
@@ -179,10 +180,18 @@ class CampusNoticeRepository @Inject constructor(application: Application) {
         }
     }
 
-    private fun hasPortalCookie(): Boolean {
-        val cookie = portalCookieHeader("https://info.hitsz.edu.cn/")
-        return cookie.contains("JSESSIONID", ignoreCase = true) ||
-            cookie.contains("iPlanetDirectoryPro", ignoreCase = true)
+    private fun hasPortalCookie(): Boolean =
+        InfoPortalLoginPolicy.hasPortalSession(portalCookies())
+
+    /** 门户域上的 cookie 表；scheme 取实际使用的 PORTAL_URL（http）。 */
+    private fun portalCookies(): Map<String, String> {
+        val header = portalCookieHeader(CampusNoticeParser.PORTAL_URL)
+        if (header.isBlank()) return emptyMap()
+        return header.split(';').mapNotNull { part ->
+            val index = part.indexOf('=')
+            if (index <= 0) null
+            else part.substring(0, index).trim() to part.substring(index + 1).trim()
+        }.toMap()
     }
 
     private fun portalCookieHeader(url: String): String {
@@ -202,14 +211,14 @@ class CampusNoticeRepository @Inject constructor(application: Application) {
             .header("Accept", "text/html,application/xhtml+xml")
             .apply {
                 val cookie = portalCookieHeader(url)
-                if (cookie.isNotBlank() && url.contains("info.hitsz.edu.cn")) {
+                if (cookie.isNotBlank() && InfoPortalLoginPolicy.isPortalPage(url)) {
                     header("Cookie", cookie)
                 }
             }
             .build()
         httpClient.newCall(request).execute().use { response ->
             val finalUrl = response.request.url.toString()
-            if (CampusNoticeParser.isCasLoginUrl(finalUrl)) {
+            if (InfoPortalLoginPolicy.isLoginTransitPage(finalUrl)) {
                 throw CampusNoticeLoginRequired()
             }
             if (response.code in 401..403) {

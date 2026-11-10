@@ -84,9 +84,6 @@ private fun Any?.asStringAnyMapList(): List<Map<String, Any>>? {
 }
 
 interface AgentBackendApi {
-    @GET("health")
-    fun health(): Call<Map<String, String>>
-
     @POST("api/courses/search")
     fun searchCourses(@Body request: CourseSearchRequest): Call<CourseSearchResponse>
 

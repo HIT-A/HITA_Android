@@ -48,13 +48,23 @@ class HomeworkUiInstrumentedTest {
         try {
             ActivityScenario.launch(ComponentActivity::class.java).use { scenario ->
                 scenario.onActivity { activity ->
+                    val easRepository = dagger.hilt.android.EntryPointAccessors.fromApplication(
+                        base, cn.limpu.hita.data.repository.EasRepositoryWiringEntryPoint::class.java,
+                    ).easRepository()
                     val model = ViewModelProvider(activity, object : ViewModelProvider.Factory {
                         @Suppress("UNCHECKED_CAST")
                         override fun <T : ViewModel> create(modelClass: Class<T>): T =
-                            HomeworkViewModel(repository, GraderRepository(isolatedApp)) as T
+                            HomeworkViewModel(
+                                repository,
+                                GraderRepository(isolatedApp),
+                                easRepository,
+                            ) as T
                     })[HomeworkViewModel::class.java]
                     activity.setContentView(ComposeView(activity).apply {
-                        setContent { HitaComposeTheme { HomeworkScreen(model) } }
+                        // 测试进程没有教务登录态，显式关掉评阅入口以保持断言稳定。
+                        setContent {
+                            HitaComposeTheme { HomeworkScreen(model, graderVisibleOverride = false) }
+                        }
                     })
                 }
                 awaitText("fixture-today")

@@ -1,8 +1,6 @@
 package cn.limpu.hita.utils
 
 import android.util.Log
-import androidx.annotation.StringRes
-import androidx.fragment.app.Fragment
 import cn.limpu.hita.BuildConfig
 
 /**
@@ -86,79 +84,4 @@ object LogUtils {
             Log.i("[$tag]", "✅ $message")
         }
     }
-
-    /**
-     * 性能日志
-     * 使用统一的格式：[TAG] ⏱️ message
-     */
-    fun perf(message: String, tag: String = getCallerTag()) {
-        if (ENABLE_DEBUG) {
-            Log.d("[$tag]", "⏱️ $message")
-        }
-    }
-
-    /**
-     * 网络日志
-     * 使用统一的格式：[TAG] 🌐 message
-     */
-    fun network(message: String, tag: String = getCallerTag()) {
-        if (ENABLE_DEBUG) {
-            Log.d("[$tag]", "🌐 $message")
-        }
-    }
-
-    /**
-     * 数据库日志
-     * 使用统一的格式：[TAG] 💾 message
-     */
-    fun database(message: String, tag: String = getCallerTag()) {
-        if (ENABLE_DEBUG) {
-            Log.d("[$tag]", "💾 $message")
-        }
-    }
-
-    /**
-     * 带格式化参数的日志
-     */
-    fun d(format: String, vararg args: Any, tag: String = getCallerTag()) {
-        if (ENABLE_DEBUG) {
-            Log.d("[$tag]", "📍 ${String.format(format, *args)}")
-        }
-    }
-
-    /**
-     * 方法进入日志
-     */
-    fun enterMethod(methodName: String = "", tag: String = getCallerTag()) {
-        if (ENABLE_DEBUG) {
-            val method = if (methodName.isNotEmpty()) ":: $methodName" else ""
-            Log.d("[$tag]", "→️ $method")
-        }
-    }
-
-    /**
-     * 方法退出日志
-     */
-    fun exitMethod(methodName: String = "", tag: String = getCallerTag()) {
-        if (ENABLE_DEBUG) {
-            val method = if (methodName.isNotEmpty()) ":: $methodName" else ""
-            Log.d("[$tag]", "←️ $method")
-        }
-    }
-}
-
-/**
- * Fragment扩展函数，用于自动记录生命周期
- */
-fun Fragment.logLifecycle(event: String) {
-    LogUtils.d("${this.javaClass.simpleName}: $event", tag = "FragmentLifecycle")
-}
-
-/**
- * Any类的扩展函数，用于记录对象信息
- */
-fun <T : Any> T.logInfo(message: String = "") {
-    val className = this.javaClass.simpleName
-    val msg = if (message.isNotEmpty()) "$className: $message" else className
-    LogUtils.i(msg, tag = className)
 }

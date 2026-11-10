@@ -19,7 +19,7 @@ class BenbuNoticeParserTest {
             </ul>
             </body></html>
         """.trimIndent()
-        val notices = BenbuNoticeParser.parse(html)
+        val notices = BenbuNoticeParser.parse(html, BenbuNoticeParser.LIST_URL)
         assertEquals(2, notices.size)
         assertEquals("hit:132837", notices[0].id)
         assertEquals("材料科学与工程学院关于开展兼职辅导员选聘工作的通知", notices[0].title)
@@ -27,6 +27,22 @@ class BenbuNoticeParserTest {
         assertEquals("BENBU", notices[0].campus)
         assertTrue(notices[0].pubDateMillis > 0L)
         assertTrue(notices[1].pubDateMillis < notices[0].pubDateMillis)
+    }
+
+    @Test
+    fun detailUrlUsesTheCampusBasePassedToParse() {
+        val html = """
+            <ul class="paragraph list-tooltip">
+              <li><span class="title"><a href="/article/2026/11/10/133857" title="本部校园通知标题">本部校园通知标题</a></span></li>
+            </ul>
+        """.trimIndent()
+        val notices = BenbuNoticeParser.parse(html, "https://today.hit.edu.cn/category/10")
+        assertEquals(1, notices.size)
+        assertEquals(
+            "https://today.hit.edu.cn/article/2026/11/10/133857",
+            notices[0].url,
+        )
+        assertFalse(notices[0].url.contains("info.hitsz.edu.cn"))
     }
 
     @Test

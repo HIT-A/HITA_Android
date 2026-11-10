@@ -23,7 +23,7 @@ class CampusNoticeParserTest {
         assertEquals("哈尔滨工业大学（深圳）关于2026年度研究生国家奖学金评选通知", notices[0].title)
         assertEquals("wbnews:9581", notices[0].id)
         assertEquals(
-            "https://info.hitsz.edu.cn/content.jsp?urltype=news.NewsContentUrl&wbtreeid=1023&wbnewsid=9581",
+            "http://info.hitsz.edu.cn/content.jsp?urltype=news.NewsContentUrl&wbtreeid=1023&wbnewsid=9581",
             notices[0].url,
         )
         assertTrue(notices[0].pubDateMillis > 0L)
@@ -45,18 +45,18 @@ class CampusNoticeParserTest {
             <div class="head"><a href="content.jsp?urltype=tree.TreeTempUrl&wbtreeid=1028">政务公开</a></div>
             </body></html>
         """.trimIndent()
-        val notices = CampusNoticeParser.parse(html, "https://info.hitsz.edu.cn/")
+        val notices = CampusNoticeParser.parse(html, "http://info.hitsz.edu.cn/")
         assertTrue(notices.isEmpty())
     }
 
     @Test
     fun listPageUrlDoesNotHardcodeTotalpage() {
         assertEquals(
-            "https://info.hitsz.edu.cn/list.jsp?urltype=tree.TreeTempUrl&wbtreeid=1053",
+            "http://info.hitsz.edu.cn/list.jsp?urltype=tree.TreeTempUrl&wbtreeid=1053",
             CampusNoticeParser.listPageUrl(1),
         )
         assertEquals(
-            "https://info.hitsz.edu.cn/list.jsp?urltype=tree.TreeTempUrl&wbtreeid=1053&PAGENUM=3",
+            "http://info.hitsz.edu.cn/list.jsp?urltype=tree.TreeTempUrl&wbtreeid=1053&PAGENUM=3",
             CampusNoticeParser.listPageUrl(3),
         )
         assertFalse(CampusNoticeParser.listPageUrl(2).contains("totalpage"))
@@ -77,13 +77,13 @@ class CampusNoticeParserTest {
     fun noticeUrlRequiresNewsId() {
         assertTrue(
             CampusNoticeParser.isNoticeUrl(
-                "https://info.hitsz.edu.cn/content.jsp?urltype=news.NewsContentUrl&wbtreeid=1028&wbnewsid=9590",
+                "http://info.hitsz.edu.cn/content.jsp?urltype=news.NewsContentUrl&wbtreeid=1028&wbnewsid=9590",
             ),
         )
-        assertFalse(CampusNoticeParser.isNoticeUrl("https://info.hitsz.edu.cn/index.jsp"))
+        assertFalse(CampusNoticeParser.isNoticeUrl("http://info.hitsz.edu.cn/index.jsp"))
         assertFalse(
             CampusNoticeParser.isNoticeUrl(
-                "https://info.hitsz.edu.cn/list.jsp?urltype=tree.TreeTempUrl&wbtreeid=1028",
+                "http://info.hitsz.edu.cn/list.jsp?urltype=tree.TreeTempUrl&wbtreeid=1028",
             ),
         )
     }
@@ -95,7 +95,7 @@ class CampusNoticeParserTest {
         assertEquals(11, notices.size)
         assertTrue(notices.none { it.title.contains("官网首页") || it.title.contains("政务公开") })
         assertTrue(notices.all { it.id.startsWith("wbnews:") })
-        assertTrue(notices.all { it.url.startsWith("https://info.hitsz.edu.cn/content.jsp") })
+        assertTrue(notices.all { it.url.startsWith("http://info.hitsz.edu.cn/content.jsp") })
         assertTrue(notices.all { it.url.contains("wbnewsid=") })
         assertTrue(notices.all { it.pubDateMillis > 0L })
     }

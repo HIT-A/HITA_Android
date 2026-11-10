@@ -212,6 +212,21 @@ class EASRepository @Inject internal constructor(
         private const val JW_PROXY_BASE_URL = "https://jw-hitsz-edu-cn.hitsz.edu.cn"
         private const val SCORE_CACHE_RETENTION_MS = 365L * 24L * 60L * 60L * 1000L
 
+    /** 各校区 WebView 会话 cookie 的宿主与 cookie 名（见 [EASToken.hasShenzhenWebSessionCookies]）。 */
+    val WEB_SESSION_COOKIE_TARGETS: Map<EASToken.Campus, List<Pair<String, List<String>>>> = mapOf(
+        EASToken.Campus.SHENZHEN to listOf(
+            "https://jw-hitsz-edu-cn.hitsz.edu.cn" to listOf("SESSION", "JSESSIONID", "route"),
+            "https://jw.hitsz.edu.cn" to listOf("SESSION", "JSESSIONID", "route")
+        ),
+        EASToken.Campus.BENBU to listOf(
+            "https://vpn.hit.edu.cn" to listOf("JSESSIONID", "HIT"),
+            "https://ivpn.hit.edu.cn" to listOf("JSESSIONID", "HIT")
+        ),
+        EASToken.Campus.WEIHAI to listOf(
+            "https://webvpn.hitwh.edu.cn" to listOf("JSESSIONID", "route")
+        )
+    )
+
         /**
          * WebViewLoginActivity hands the campus-specific extra back in `web_base_url` (Shenzhen,
          * Weihai graduate) or `electronic_exp_token` (Benbu, Weihai undergraduate). Keep the
@@ -1066,12 +1081,16 @@ class EASRepository @Inject internal constructor(
         onResult: ((AutoImportResult) -> Unit)? = null) = timetableImportRepository.startAutoImportCurrentTimetable(isUndergraduate, onResult)
 
     /**
-     * 教务重登成功后的统一收尾：清空「记住忽略」指纹（让上游现状重新提示一次），
-     * 并立即强制 MERGE 刷新当前学期（绕过打开应用的 10 分钟节流，节流在调用方）。
+     * 教务重登成功后的统一收尾：立即强制 MERGE 刷新当前学期
+     * （绕过打开应用的 10 分钟节流，节流在调用方）。
+     *
+     * 这里**不再**清空「记住忽略」指纹。用户对某类课表变更勾选「记住」后，
+     * 该选择必须跨会话保留：会话过期重登是常态（静默续期、切网、长时间未用都会
+     * 触发），每次重登都清一次会让记住的选择等于失效。指纹只在用户显式登出或
+     * 切换账号时清除，见 [logout]。
      */
     fun onEasReloginSuccess() {
         clearSessionExpired()
-        timetableImportRepository.clearIgnoredTimetableChangeFingerprints()
         val token = easPreferenceSource.getEasToken()
         if (!token.isLogin()) return
         val isUndergrad = token.stutype == EASToken.TYPE.UNDERGRAD
@@ -1176,6 +1195,7 @@ class EASRepository @Inject internal constructor(
         credentialsToSave?.let { easCredentialStore.save(it.campus, it.username, it.password) }
         token.password = null
         val storedToken = easPreferenceSource.getEasToken()
+        val accountChanged = replacesLoggedInAccount(storedToken, token)
         token.sessionGeneration = EasSessionGenerationGuard.resolveCredentialScopeGeneration(
             storedToken = storedToken,
             incomingToken = token,
@@ -1184,6 +1204,7 @@ class EASRepository @Inject internal constructor(
         )
         authEpoch.set(token.sessionGeneration)
         val mergedToken = mergeWithStoredEasToken(token).withDerivedGrade()
+        if (accountChanged) timetableImportRepository.clearIgnoredTimetableChangeFingerprints()
         easPreferenceSource.saveEasToken(mergedToken)
         acceptServiceTokenRefresh = mergedToken.isLogin()
         publishEasToken(mergedToken)
@@ -1203,6 +1224,7 @@ class EASRepository @Inject internal constructor(
                 return
             }
             val storedToken = easPreferenceSource.getEasToken()
+            val accountChanged = replacesLoggedInAccount(storedToken, token)
             token.password = null
             token.sessionGeneration = EasSessionGenerationGuard.resolveCredentialScopeGeneration(
                 storedToken = storedToken,
@@ -1212,6 +1234,7 @@ class EASRepository @Inject internal constructor(
             )
             authEpoch.set(token.sessionGeneration)
             val mergedToken = mergeWithStoredEasToken(token)
+            if (accountChanged) timetableImportRepository.clearIgnoredTimetableChangeFingerprints()
             easPreferenceSource.saveEasToken(mergedToken)
             publishEasToken(mergedToken)
         }
@@ -1227,6 +1250,24 @@ class EASRepository @Inject internal constructor(
         } else {
             easTokenLiveData.postValue(token)
         }
+    }
+
+    /**
+     * 已登录账号被另一个账号替换。同一账号的 cookie 续期、个人信息补齐和
+     * 静默续期都返回 false：它们不能清掉用户记住的课表变更。任一侧还没有
+     * 账号标识时也保留，避免登录中途的空字段被误判为换号。
+     */
+    private fun replacesLoggedInAccount(stored: EASToken, incoming: EASToken): Boolean {
+        if (!stored.isLogin() || !incoming.isLogin()) return false
+        if (stored.campus != incoming.campus) return true
+        if (stored.campus == EASToken.Campus.WEIHAI && stored.stutype != incoming.stutype) return true
+        val storedAccount = stored.username?.takeIf(String::isNotBlank)
+            ?: stored.stuId?.takeIf(String::isNotBlank)
+            ?: stored.id?.takeIf(String::isNotBlank)
+        val incomingAccount = incoming.username?.takeIf(String::isNotBlank)
+            ?: incoming.stuId?.takeIf(String::isNotBlank)
+            ?: incoming.id?.takeIf(String::isNotBlank)
+        return storedAccount != null && incomingAccount != null && storedAccount != incomingAccount
     }
 
     private fun mergeWithStoredEasToken(token: EASToken): EASToken {
@@ -1284,7 +1325,10 @@ class EASRepository @Inject internal constructor(
         scoreCacheOwnerKey(previousToken)?.let { ownerKey ->
             queryCoordinator.scheduleCleanup(ownerKey, scoreCacheDao)
         }
-        clearShenzhenWebViewCookies(previousToken)
+        // 显式登出才清「记住忽略」指纹：这是用户主动结束会话的明确动作，
+        // 下次登录应重新看到上游现状。静默续期/会话过期重登不清，见 onEasReloginSuccess。
+        timetableImportRepository.clearIgnoredTimetableChangeFingerprints()
+        clearWebViewSessionCookies(previousToken.campus)
     }
 
     fun forgetCredentials(campus: EASToken.Campus, username: String) {
@@ -1299,15 +1343,30 @@ class EASRepository @Inject internal constructor(
         return generated
     }
 
-    private fun clearShenzhenWebViewCookies(token: EASToken) {
-        if (token.campus != EASToken.Campus.SHENZHEN) return
+    /**
+     * 退出登录时只清该校区教务域的会话 cookie。
+     *
+     * 不能再用 `removeAllCookies()`：统一身份认证（`ids.hit.edu.cn`，三校区共用）
+     * 会留下 `MULTIFACTOR_BROWSER_FINGERPRINT`（实测 400 天有效期），记录"这个
+     * 浏览器的多因子认证已通过"。整库清空会把这枚指纹一起抹掉，用户下次登录必然
+     * 重新触发短信/APP 验证码。MFA 是账号侧的设备信任策略，代码无法绕过，只能
+     * 保住这枚 cookie 复用登录状态。
+     */
+    private fun clearWebViewSessionCookies(campus: EASToken.Campus) {
+        val targets = WEB_SESSION_COOKIE_TARGETS[campus].orEmpty()
+        if (targets.isEmpty()) return
         Handler(Looper.getMainLooper()).post {
             val manager = CookieManager.getInstance()
-            manager.removeAllCookies {
-                manager.flush()
+            // 各校区走不同的 WebView 宿主：深圳分 aTrust 代理域与直连域两套
+            // （代理域是 SESSION，直连域是 JSESSIONID + route），本部与威海走
+            // vpn/webvpn 网关。逐条按 Max-Age=0 定点删除，不用 removeAllCookies，
+            // 以免波及 CAS 的设备信任指纹。
+            targets.forEach { (origin, names) ->
+                names.forEach { name ->
+                    manager.setCookie(origin, "$name=; Path=/; Max-Age=0; Secure; HttpOnly")
+                }
             }
+            manager.flush()
         }
     }
-
-
 }

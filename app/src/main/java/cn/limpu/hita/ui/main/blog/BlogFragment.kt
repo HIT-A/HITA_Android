@@ -82,6 +82,7 @@ import cn.limpu.hita.ui.design.hitaGlassCardModifier
 import cn.limpu.hita.ui.design.hitaStyleCardShape
 import cn.limpu.hita.ui.design.hitaUsesMainBackdrop
 import cn.limpu.hita.ui.notice.InfoPortalLoginActivity
+import cn.limpu.hita.utils.LogUtils
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
 import kotlinx.coroutines.launch
@@ -102,6 +103,26 @@ class BlogFragment : androidx.fragment.app.Fragment() {
         if (result.resultCode == Activity.RESULT_OK) {
             noticeViewModel.refresh(EASToken.Campus.SHENZHEN)
         }
+    }
+
+    /** 门户会话过期后先自动重登一次；失败才让用户手点登录。 */
+    private val silentLoginLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            noticeViewModel.refresh(EASToken.Campus.SHENZHEN)
+        } else {
+            LogUtils.d("notice portal silent renewal failed, asking user")
+        }
+    }
+
+    private fun launchPortalLogin(silent: Boolean) {
+        val activity = activity ?: return
+        val intent = Intent(activity, InfoPortalLoginActivity::class.java)
+        if (silent) intent.putExtra(InfoPortalLoginActivity.EXTRA_SILENT_MODE, true)
+        runCatching {
+            (if (silent) silentLoginLauncher else loginLauncher).launch(intent)
+        }.onFailure { LogUtils.e("cannot launch notice portal login", it) }
     }
 
     override fun onCreateView(
@@ -126,11 +147,8 @@ class BlogFragment : androidx.fragment.app.Fragment() {
                                             .putExtra(BlogReaderActivity.EXTRA_GUID, article.guid)
                                     )
                                 },
-                                onLoginPortal = {
-                                    loginLauncher.launch(
-                                        Intent(requireContext(), InfoPortalLoginActivity::class.java)
-                                    )
-                                },
+                                onLoginPortal = { launchPortalLogin(silent = false) },
+                                onSilentLoginPortal = { launchPortalLogin(silent = true) },
                             )
                         } else {
                             CampusNoticeScreen(
@@ -164,6 +182,7 @@ private fun InfoTabScreen(
     noticeViewModel: CampusNoticeViewModel,
     onOpenArticle: (BlogArticle) -> Unit,
     onLoginPortal: () -> Unit,
+    onSilentLoginPortal: () -> Unit,
 ) {
     val pagerState = rememberPagerState(pageCount = { 2 })
     val scope = rememberCoroutineScope()
@@ -204,7 +223,12 @@ private fun InfoTabScreen(
             if (page == 0) {
                 BlogScreen(viewModel = blogViewModel, onOpenArticle = onOpenArticle)
             } else {
-                CampusNoticeScreen(viewModel = noticeViewModel, campus = campus, onLogin = onLoginPortal)
+                CampusNoticeScreen(
+                    viewModel = noticeViewModel,
+                    campus = campus,
+                    onLogin = onLoginPortal,
+                    onSilentLogin = onSilentLoginPortal,
+                )
             }
         }
     }
@@ -217,6 +241,7 @@ private fun CampusNoticeScreen(
     campus: EASToken.Campus,
     onLogin: () -> Unit,
     refreshOnEnter: Boolean = false,
+    onSilentLogin: (() -> Unit)? = null,
 ) {
     val notices by remember(campus) { viewModel.noticesFor(campus) }.observeAsState(emptyList())
     val refreshing by viewModel.refreshing.observeAsState(false)
@@ -225,6 +250,15 @@ private fun CampusNoticeScreen(
     val context = LocalContext.current
     LaunchedEffect(campus) {
         if (refreshOnEnter) viewModel.syncOnPageOpen(campus)
+    }
+    // 会话失效时先无感重登一次：能复用已保存凭据就悄悄恢复，失败才露出登录按钮。
+    // 每次进入该校区只自动尝试一次，避免失败后无限弹登录窗口。
+    val silentRetry = remember(campus) { mutableStateOf(false) }
+    LaunchedEffect(error, campus) {
+        if (error == CampusNoticeSyncError.NEED_LOGIN && onSilentLogin != null && !silentRetry.value) {
+            silentRetry.value = true
+            onSilentLogin()
+        }
     }
     val failureText = when (error) {
         CampusNoticeSyncError.NEED_LOGIN -> stringResource(R.string.campus_notice_need_login)

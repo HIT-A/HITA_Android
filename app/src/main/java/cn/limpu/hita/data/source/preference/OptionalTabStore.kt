@@ -3,7 +3,7 @@ package cn.limpu.hita.data.source.preference
 import android.content.Context
 import android.content.SharedPreferences
 
-/** 待办、资讯、助手三个底栏模块的独立开关。待办默认开启，资讯与助手默认关闭。 */
+/** 待办、资讯与助手三个底栏模块的独立开关。待办默认开启，资讯与助手默认关闭。 */
 data class OptionalTabFeatures(
     val homework: Boolean = true,
     val info: Boolean = false,
@@ -11,7 +11,7 @@ data class OptionalTabFeatures(
 )
 
 /**
- * 待办、资讯、助手是否出现在底部导航。三者独立。
+ * 待办、资讯与助手是否出现在底部导航。三者独立。
  * 待办未设置过时按开启处理；用户显式关闭后以保存值为准。
  */
 class OptionalTabStore(context: Context) {

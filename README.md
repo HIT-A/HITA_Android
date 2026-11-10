@@ -79,12 +79,6 @@ flowchart LR
 - 课程资料来源 HOA（校内民间开源组织），欢迎同学参与贡献。官网：hoa.moe
 - 如有问题请联系：2720649216@qq.com、2916118707@qq.com 或 859635282@qq.com，或通过应用内"用户反馈"提交
 
-## 用到第三方开源库
-- 加载效果按钮：[LoadingButtonAndroid](https://github.com/leandroBorgesFerreira/LoadingButtonAndroid)
-- 显示多行的 CollapsingToolbarLayout：[multiline-collapsingtoolbar](https://github.com/opacapp/multiline-collapsingtoolbar)
-- θ 社区上传图片压缩：[Luban](https://github.com/Curzibn/Luban)
-- 今日页下拉交互：[PullLoadXiaochengxu](https://github.com/LucianZhang/PullLoadXiaochengxu)
-
 ## License
 
 [MIT](LICENSE) © Stupid Tree, Jiao Ziang, Chami, SpeechlessPanda, purple3899

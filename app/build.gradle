@@ -182,43 +182,12 @@ dependencies {
     //jsoup爬虫
     implementation(libs.jsoup)
 
-    //buttonLoading
-    implementation(libs.loadingButton)
-    //折叠布局
-    implementation(libs.expandableLayout)
-
-    //时间轴
-    implementation(libs.timelineView)
-    //圆形进度
-    implementation(libs.circleProgress)
-
-    //多行collapsingToolbar
-    implementation(libs.multilineToolbar)
-
-    implementation(libs.chipsLayoutManager) {
-        // Preserve the former @aar artifact-only dependency.
-        transitive = false
-        artifact {
-            type = 'aar'
-            extension = 'aar'
-        }
-    }
-
     implementation(libs.wheelView)//滚轮选择器
 
     implementation(libs.ical4j)
 
-    //文档解析库 - PDF本地解析，Office使用4.x版本兼容Android
+    //文档解析库 - PDF本地解析
     implementation(libs.pdfboxAndroid) //PDF解析（已添加资源文件）
-    implementation(libs.poiOoxml) //Word/Excel/PowerPoint解析
-    implementation(libs.poi)
-
-    // StAX API for Android 8.0+ (Apache POI dependency)
-    implementation(libs.staxApi)
-    implementation(libs.aaltoXml)
-
-    //爆炸效果
-    implementation(libs.explosionField)
 
     // WorkManager for periodic course-snatching
     implementation(libs.workRuntimeKtx)

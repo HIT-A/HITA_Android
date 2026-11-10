@@ -19,6 +19,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.livedata.observeAsState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -28,24 +29,35 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import cn.limpu.hita.R
+import cn.limpu.hita.data.repository.EASRepository
 import cn.limpu.hita.data.source.preference.OptionalTabStore
 import cn.limpu.hita.ui.design.HitaComposeTheme
 import cn.limpu.hita.ui.design.HitaTheme
+import cn.limpu.hita.ui.main.MainTab
+import dagger.hilt.android.AndroidEntryPoint
+import javax.inject.Inject
 
-/** 更多功能页：独立开关底部导航的待办、资讯、助手三个模块。返回即回到设置页。 */
+/** 更多功能页：独立开关底部导航的待办、资讯与助手三个模块。返回即回到设置页。 */
+@AndroidEntryPoint
 class MoreFeaturesActivity : AppCompatActivity() {
+
+    @Inject lateinit var easRepository: EASRepository
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val store = OptionalTabStore(this)
+        // 资讯开关与底栏共用同一个可见性判定（MainTab.showsInfo）：未登录不展示。
+        val initialToken = easRepository.getEasToken()
         setContentView(ComposeView(this).apply {
             setContent {
                 HitaComposeTheme {
+                    val easToken by easRepository.observeEasToken().observeAsState(initialToken)
                     var homework by remember { mutableStateOf(store.features().homework) }
                     var info by remember { mutableStateOf(store.features().info) }
                     var agent by remember { mutableStateOf(store.features().agent) }
                     MoreFeaturesScreen(
                         homeworkEnabled = homework,
+                        infoVisible = MainTab.showsInfo(easToken),
                         infoEnabled = info,
                         agentEnabled = agent,
                         onHomework = { homework = it; store.setHomework(it) },
@@ -63,6 +75,7 @@ class MoreFeaturesActivity : AppCompatActivity() {
 @Composable
 private fun MoreFeaturesScreen(
     homeworkEnabled: Boolean,
+    infoVisible: Boolean,
     infoEnabled: Boolean,
     agentEnabled: Boolean,
     onHomework: (Boolean) -> Unit,
@@ -106,12 +119,15 @@ private fun MoreFeaturesScreen(
                     checked = homeworkEnabled,
                     onChecked = onHomework,
                 )
-                featureSwitch(
-                    title = stringResource(R.string.title_blog),
-                    subtitle = stringResource(R.string.more_features_info_hint),
-                    checked = infoEnabled,
-                    onChecked = onInfo,
-                )
+                // 未登录时不渲染资讯开关，也不留下空行：Column 的 spacedBy 只在相邻子项之间留隙。
+                if (infoVisible) {
+                    featureSwitch(
+                        title = stringResource(R.string.title_blog),
+                        subtitle = stringResource(R.string.more_features_info_hint),
+                        checked = infoEnabled,
+                        onChecked = onInfo,
+                    )
+                }
                 featureSwitch(
                     title = stringResource(R.string.title_agent),
                     subtitle = stringResource(R.string.more_features_agent_hint),

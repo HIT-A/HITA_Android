@@ -8,7 +8,14 @@ import java.util.Locale
 import java.util.TimeZone
 
 object CampusNoticeParser {
-    const val PORTAL_URL = "https://info.hitsz.edu.cn/"
+    /**
+     * 深圳校园通知门户。
+     *
+     * 服务端只在 `http://info.hitsz.edu.cn/` 上工作：https 由另一个前置
+     * （`VAppServer/6.0.0`）应答，登录回跳的 service 参数也是 http，改为 https
+     * 会让 CAS 回跳与 cookie 落在不同 scheme 上。v3.2.1 起统一用 http。
+     */
+    const val PORTAL_URL = "http://info.hitsz.edu.cn/"
     const val LIST_PATH = "list.jsp?urltype=tree.TreeTempUrl&wbtreeid=1053"
     const val LIST_URL = PORTAL_URL + LIST_PATH
     const val SHENZHEN_CAMPUS = "SHENZHEN"

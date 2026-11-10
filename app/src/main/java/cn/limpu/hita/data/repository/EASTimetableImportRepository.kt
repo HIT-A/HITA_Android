@@ -926,7 +926,7 @@ internal class EASTimetableImportRepository(
         return job
     }
 
-    /** 重新登录后调用：清空「记住忽略」指纹，让上游现状重新提示一次。 */
+    /** 显式登出或切换账号后调用：清空「记住忽略」指纹，让上游现状重新提示一次。同一账号续期不清。 */
     fun clearIgnoredTimetableChangeFingerprints() {
         timetableChangeStore.clearIgnoredFingerprints()
     }

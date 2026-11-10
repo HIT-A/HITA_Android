@@ -21,6 +21,7 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.widget.Toast
 import android.net.http.SslError
 import cn.limpu.hita.data.model.eas.EASToken
 import cn.limpu.hita.data.source.preference.EasCredential
@@ -175,12 +176,19 @@ class WebViewLoginActivity : AppCompatActivity() {
         /** aTrust 门户登录页是 SPA，等它渲染出「登录」按钮再自动点击。 */
         private const val TRUST_PORTAL_AUTO_LOGIN_DELAY_MS = 900L
 
+        /** aTrust 门户自动推进的有界重试次数：勾选协议后按钮解禁有一个 tick 的延迟。 */
+        private const val TRUST_PORTAL_AUTO_LOGIN_ATTEMPTS = 4
+
         /** 单次登录内自动提交 CAS 表单的上限，避免密码失效时反复提交换来风控。 */
         private const val MAX_AUTO_SUBMIT = 2
-        private const val SHENZHEN_DESKTOP_USER_AGENT =
+        /** 教务浏览器路由只认桌面 UA；移动 UA 会被服务端按「浏览器已过时」拦截。 */
+        private const val EAS_DESKTOP_USER_AGENT =
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
                 "AppleWebKit/537.36 (KHTML, like Gecko) " +
                 "Chrome/134.0.0.0 Safari/537.36"
+
+        /** 「浏览器已过时」拦截页兜底：第 1 次退回登录入口，第 2 次明确失败收尾。 */
+        private const val MAX_OUTDATED_BROWSER_FALLBACK = 1
         private val BENBU_REQUIRED_COOKIES = setOf("JSESSIONID", "HIT")
         private val BENBU_PORTAL_HOSTS = setOf(
             "i-hit-edu-cn.vpn.hit.edu.cn",
@@ -225,8 +233,9 @@ class WebViewLoginActivity : AppCompatActivity() {
     private var mfaError by mutableStateOf<String?>(null)
     private var mfaInputValue by mutableStateOf("")
     private var mfaDetectionGeneration = 0
-    private var shenzhenMobileUserAgent = ""
-    private var shenzhenDesktopUserAgentApplied = false
+    private var easMobileUserAgent = ""
+    private var easDesktopUserAgentApplied = false
+    private var outdatedBrowserPageHits = 0
     private var shenzhenForceWebModeApplied = false
     private var shenzhenPreferredStudentType = ShenzhenWebAutoLogin.UNDERGRAD
     private val isWeihaiGraduate: Boolean
@@ -375,14 +384,22 @@ class WebViewLoginActivity : AppCompatActivity() {
             settings.saveFormData = false
             @Suppress("DEPRECATION")
             settings.savePassword = false
-            if (config.campus == EASToken.Campus.SHENZHEN) {
-                // The aTrust mobile route requires its native UEM client. Use its browser
-                // route here, then switch back to the mobile UA on the university CAS page.
-                shenzhenMobileUserAgent = settings.userAgentString
-                settings.userAgentString = SHENZHEN_DESKTOP_USER_AGENT
-                shenzhenDesktopUserAgentApplied = true
-                setLayerType(View.LAYER_TYPE_SOFTWARE, null)
-                LogUtils.d("using browser user agent and software layer for Shenzhen aTrust portal")
+            if (needsEasDesktopUserAgent(config.loginUrl)) {
+                // 教务浏览器路由只认桌面 UA：深圳 aTrust 门户、威海研究生 yjsgl 教务页
+                // 都会按移动 UA 下发「浏览器已过时」拦截页。统一身份认证（CAS）登录页
+                // 由 switchEasUserAgentForNavigation 切回移动 UA，登录表单渲染与自动
+                // 填充行为不随本次改动变化。
+                easMobileUserAgent = settings.userAgentString
+                settings.userAgentString = EAS_DESKTOP_USER_AGENT
+                easDesktopUserAgentApplied = true
+                if (config.campus == EASToken.Campus.SHENZHEN) {
+                    // The aTrust mobile route requires its native UEM client. Use its browser
+                    // route here; software rendering is an aTrust-route requirement only.
+                    setLayerType(View.LAYER_TYPE_SOFTWARE, null)
+                    LogUtils.d("using desktop user agent and software layer for Shenzhen aTrust portal")
+                } else {
+                    LogUtils.d("using desktop user agent for Weihai WebVPN EAS pages")
+                }
             }
             settings.mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -511,7 +528,7 @@ class WebViewLoginActivity : AppCompatActivity() {
                                 "url=${safeUrl(url)}"
                         )
                     }
-                    if (view != null && url != null && switchShenzhenUserAgentForNavigation(view, url)) {
+                    if (view != null && url != null && switchEasUserAgentForNavigation(view, url)) {
                         return
                     }
                     mfaDetectionGeneration++
@@ -582,9 +599,10 @@ class WebViewLoginActivity : AppCompatActivity() {
                         return
                     }
                     schedulePageDiagnostics(view, url)
-                    if (ensureShenzhenDesktopUserAgentForProxy(view, url)) {
+                    if (ensureEasDesktopUserAgentForProxy(view, url)) {
                         return
                     }
+                    detectOutdatedBrowserPage(view, url)
                     if (isMfaPage(url)) {
                         applyMfaViewportUnitWorkaround(view)
                         scheduleMfaDetection(view, url)
@@ -1986,38 +2004,87 @@ class WebViewLoginActivity : AppCompatActivity() {
         attempt(0)
     }
 
-    private fun switchShenzhenUserAgentForNavigation(view: WebView, url: String): Boolean {
-        if (config.campus != EASToken.Campus.SHENZHEN) return false
-        val host = Uri.parse(url).host.orEmpty()
-        val proxyHost = Uri.parse(CampusUrls.SHENZHEN_PROXY_BASE).host.orEmpty()
-        val needsDesktopUserAgent =
-            host.equals(proxyHost, ignoreCase = true) ||
-                host.equals("trust.hitsz.edu.cn", ignoreCase = true)
+    /**
+     * 该 URL 是否必须以桌面 UA 请求：
+     * - 深圳 aTrust 浏览器路由/教务代理域只认桌面 UA；
+     * - 威海研究生 yjsgl 教务页（WebVPN 反代）按移动 UA 下发「浏览器已过时」拦截页，
+     *   本科 jwts 链路无拦截页报告，维持移动 UA 不变。
+     * 统一身份认证（CAS，路径含 /authserver/）一律保持移动 UA：登录表单渲染与
+     * 自动填充行为不随本次改动变化。
+     */
+    private fun needsEasDesktopUserAgent(url: String): Boolean {
+        return when (config.campus) {
+            EASToken.Campus.WEIHAI -> isWeihaiGraduate && isWeihaiGraduateAcademicPage(url)
+            EASToken.Campus.SHENZHEN -> {
+                val host = Uri.parse(url).host.orEmpty()
+                host.equals(Uri.parse(CampusUrls.SHENZHEN_PROXY_BASE).host.orEmpty(), ignoreCase = true) ||
+                    host.equals("trust.hitsz.edu.cn", ignoreCase = true)
+            }
+            else -> false
+        }
+    }
 
-        if (!needsDesktopUserAgent && shenzhenDesktopUserAgentApplied) {
-            shenzhenDesktopUserAgentApplied = false
-            view.settings.userAgentString = shenzhenMobileUserAgent
+    /**
+     * 威海研究生教务系统（yjsgl.hitwh.edu.cn 经 WebVPN 反代）的页面。CAS/统一认证页
+     * （路径含 /authserver/）即使被反代在同一前缀下也不在其列：它们必须留在移动 UA 上。
+     */
+    private fun isWeihaiGraduateAcademicPage(url: String): Boolean {
+        val uri = Uri.parse(url)
+        if (!uri.host.equals("webvpn.hitwh.edu.cn", ignoreCase = true)) return false
+        val path = uri.path.orEmpty()
+        val basePath = Uri.parse(
+            cn.limpu.hita.data.source.web.eas.WeihaiGraduateSessionPolicy.BASE_URL
+        ).path.orEmpty()
+        return path.startsWith(basePath, ignoreCase = true) &&
+            !path.contains("/authserver/", ignoreCase = true)
+    }
+
+    private fun switchEasUserAgentForNavigation(view: WebView, url: String): Boolean {
+        if (config.campus != EASToken.Campus.SHENZHEN &&
+            config.campus != EASToken.Campus.WEIHAI
+        ) return false
+        val host = Uri.parse(url).host.orEmpty()
+        val needsDesktopUserAgent = needsEasDesktopUserAgent(url)
+        // CAS service ticket 之类的单程票参数不能整页重载：票已被消费，重放只会换来
+        // 重新认证或错误页。这里只切换后续请求的 UA，让本页自然走完；落点若仍是
+        // 「浏览器已过时」拦截页，由 detectOutdatedBrowserPage 兜底。
+        val reloadable = !url.contains("ticket=", ignoreCase = true)
+
+        if (!needsDesktopUserAgent && easDesktopUserAgentApplied) {
+            easDesktopUserAgentApplied = false
+            view.settings.userAgentString = easMobileUserAgent
             // Software rendering is required by the desktop aTrust route, but on the mobile CAS
             // form it offsets Chromium's native IME caret from the HTML input. Restore the normal
             // hardware-composited WebView layer before reloading the mobile page.
-            view.setLayerType(View.LAYER_TYPE_NONE, null)
+            if (config.campus == EASToken.Campus.SHENZHEN) {
+                view.setLayerType(View.LAYER_TYPE_NONE, null)
+            }
             LogUtils.d(
-                "switching Shenzhen login navigation back to mobile user agent and default layer: " +
-                    "host=$host"
+                "switching EAS login navigation back to mobile user agent: " +
+                    "campus=${config.campus} host=$host"
             )
-            view.stopLoading()
-            view.post { if (!finished) view.loadUrl(url) }
-            return true
+            if (reloadable) {
+                view.stopLoading()
+                view.post { if (!finished) view.loadUrl(url) }
+            }
+            return reloadable
         }
 
-        if (needsDesktopUserAgent && !shenzhenDesktopUserAgentApplied) {
-            shenzhenDesktopUserAgentApplied = true
-            view.settings.userAgentString = SHENZHEN_DESKTOP_USER_AGENT
-            view.setLayerType(View.LAYER_TYPE_SOFTWARE, null)
-            LogUtils.d("switching Shenzhen browser portal navigation to desktop user agent and software layer")
-            view.stopLoading()
-            view.post { if (!finished) view.loadUrl(url) }
-            return true
+        if (needsDesktopUserAgent && !easDesktopUserAgentApplied) {
+            easDesktopUserAgentApplied = true
+            view.settings.userAgentString = EAS_DESKTOP_USER_AGENT
+            if (config.campus == EASToken.Campus.SHENZHEN) {
+                view.setLayerType(View.LAYER_TYPE_SOFTWARE, null)
+            }
+            LogUtils.d(
+                "switching EAS login navigation to desktop user agent: " +
+                    "campus=${config.campus} host=$host"
+            )
+            if (reloadable) {
+                view.stopLoading()
+                view.post { if (!finished) view.loadUrl(url) }
+            }
+            return reloadable
         }
         return false
     }
@@ -2039,22 +2106,81 @@ class WebViewLoginActivity : AppCompatActivity() {
         }
     }
 
-    private fun ensureShenzhenDesktopUserAgentForProxy(view: WebView, url: String): Boolean {
+    private fun ensureEasDesktopUserAgentForProxy(view: WebView, url: String): Boolean {
         if (
-            config.campus != EASToken.Campus.SHENZHEN ||
-            !isShenzhenProxyJwPage(url) ||
-            // 失效页马上会被转到 /cas，这里再 reload 一次只会打断那条跳转。
+            (config.campus != EASToken.Campus.SHENZHEN &&
+                config.campus != EASToken.Campus.WEIHAI) ||
+            !needsEasDesktopUserAgent(url) ||
+            // 失效页马上会被转到 /cas，这里再 reload 一次只会打断它的跳转。
             WebLoginSuccessPolicy.isShenzhenReauthenticationPage(url) ||
-            shenzhenDesktopUserAgentApplied
+            easDesktopUserAgentApplied
         ) {
             return false
         }
-        shenzhenDesktopUserAgentApplied = true
-        view.settings.userAgentString = SHENZHEN_DESKTOP_USER_AGENT
-        view.setLayerType(View.LAYER_TYPE_SOFTWARE, null)
-        LogUtils.d("reloading Shenzhen proxy with desktop user agent")
+        easDesktopUserAgentApplied = true
+        view.settings.userAgentString = EAS_DESKTOP_USER_AGENT
+        if (config.campus == EASToken.Campus.SHENZHEN) {
+            view.setLayerType(View.LAYER_TYPE_SOFTWARE, null)
+        }
+        LogUtils.d("reloading EAS page with desktop user agent campus=${config.campus}")
         view.post { if (!finished) view.reload() }
         return true
+    }
+
+    /**
+     * 教务服务端按 UA 下发「浏览器已过时」拦截页（特征文案见 eas_outdated_browser_marker）：
+     * 页内「关闭」只会 window.close()/跳空白页，WebView 里表现为白屏死路。这里在页面
+     * 加载完成后探测拦截页：命中即退回登录入口重来；再命中说明服务端仍不接受当前 UA，
+     * 明确失败收尾，禁止静默白屏。
+     */
+    private fun detectOutdatedBrowserPage(view: WebView, url: String) {
+        if (finished) return
+        // 「关闭」按钮走 window.close()/跳空白页：空白落点视为拦截页余波，直接兜底，
+        // 不让用户停在白屏上。
+        if (url == "about:blank" || url.isBlank()) {
+            if (outdatedBrowserPageHits > 0) handleOutdatedBrowserPage(view)
+            return
+        }
+        val pageKey = url.substringBefore('#')
+        val marker = getString(R.string.eas_outdated_browser_marker)
+        val markerEn = getString(R.string.eas_outdated_browser_marker_en)
+        val markerUpgrade = getString(R.string.eas_outdated_browser_marker_upgrade)
+        view.evaluateJavascript(
+            "(function(){try{var t=(document.body&&document.body.innerText||'').toLowerCase();" +
+                "return t.indexOf('$marker')>=0||t.indexOf('$markerEn')>=0||" +
+                "t.indexOf('$markerUpgrade')>=0}catch(e){return false}})()"
+        ) { raw ->
+            if (finished || raw != "true") return@evaluateJavascript
+            val current = view.url.orEmpty()
+            // 回调到达时用户可能已点「关闭」落到空白页：此时同样兜底，不能因为
+            // URL 对不上就放弃，否则又回到静默白屏。
+            if (current.isNotBlank() && current != "about:blank" &&
+                current.substringBefore('#') != pageKey
+            ) {
+                return@evaluateJavascript
+            }
+            handleOutdatedBrowserPage(view)
+        }
+    }
+
+    private fun handleOutdatedBrowserPage(view: WebView) {
+        outdatedBrowserPageHits++
+        LogUtils.w(
+            "outdated browser interstitial detected campus=${config.campus} " +
+                "hit=$outdatedBrowserPageHits/${MAX_OUTDATED_BROWSER_FALLBACK + 1} " +
+                "url=${safeUrl(view.url.orEmpty())}"
+        )
+        if (outdatedBrowserPageHits > MAX_OUTDATED_BROWSER_FALLBACK) {
+            if (!silentMode) {
+                Toast.makeText(this, R.string.eas_outdated_browser_persistent, Toast.LENGTH_LONG).show()
+            }
+            finishWithCancelledResult()
+            return
+        }
+        if (!silentMode) {
+            Toast.makeText(this, R.string.eas_outdated_browser_retry_hint, Toast.LENGTH_LONG).show()
+        }
+        view.loadUrl(config.loginUrl)
     }
 
     private fun parseJavascriptJson(raw: String): JSONObject {
@@ -2761,10 +2887,24 @@ class WebViewLoginActivity : AppCompatActivity() {
         val pageKey = url.substringBefore('#')
         if (trustPortalAutoLoginPage == pageKey) return
         trustPortalAutoLoginPage = pageKey
+        // 勾选协议后按钮的 disabled 是在下一个 tick 才解除的，单次注入必然撞上
+        // 「按钮仍禁用」而放弃。给一个有界重试窗口，成功推进后自然离开本页。
+        advanceTrustPortalLoginAttempt(view, pageKey, attempt = 0)
+    }
+
+    private fun advanceTrustPortalLoginAttempt(view: WebView, pageKey: String, attempt: Int) {
         view.postDelayed({
             if (finished || view.url.orEmpty().substringBefore('#') != pageKey) return@postDelayed
+            if (attempt >= TRUST_PORTAL_AUTO_LOGIN_ATTEMPTS) {
+                LogUtils.d("aTrust portal auto login gave up after $attempt attempts")
+                return@postDelayed
+            }
             view.evaluateJavascript(ShenzhenTrustPortalAutoLogin.buildLoginScript()) { raw ->
                 LogUtils.d("aTrust portal auto login result: ${raw?.take(120) ?: "null"}")
+                val clicked = raw.orEmpty().contains("\"clicked\":true")
+                if (!clicked) {
+                    advanceTrustPortalLoginAttempt(view, pageKey, attempt + 1)
+                }
             }
         }, TRUST_PORTAL_AUTO_LOGIN_DELAY_MS)
     }
