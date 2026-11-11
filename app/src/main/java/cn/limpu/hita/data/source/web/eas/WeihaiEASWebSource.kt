@@ -37,6 +37,23 @@ class WeihaiEASWebSource internal constructor(
     constructor(onCookiesUpdated: ((EASToken) -> Unit)? = null) : this(null, onCookiesUpdated)
 
     override val hostName = "https://webvpn.hitwh.edu.cn/http/77726476706e69737468656265737421fae0558f693861446900c7a99c406d3667"
+
+    /**
+     * 本次会话实际应使用的教务 host。
+     *
+     * 登录侧（`WebViewLoginActivity`）可能因校园网直连而选了另一个入口，并把该入口的
+     * base 写进 `EASToken.webBaseUrl`。这里优先用它，保证「登录走的哪条路，请求就走哪条路」；
+     * 缺省回落到 WebVPN 反代，与历史行为一致。
+     *
+     * 注意：`webBaseUrl` 只在能通过白名单校验时才采用，避免被异常数据带到任意域名。
+     */
+    private fun hostFor(token: EASToken): String {
+        val base = token.webBaseUrl.orEmpty().trimEnd('/')
+        if (base.isEmpty()) return hostName
+        val candidate = runCatching { java.net.URI(base) }.getOrNull() ?: return hostName
+        if (!candidate.host.orEmpty().equals("jwts.hitwh.edu.cn", ignoreCase = true)) return hostName
+        return base
+    }
     override val teachingBuildingsHostName: String
         get() = teachingBuildingsHostOverride?.trimEnd('/') ?: hostName
     override val termsHostName: String
@@ -55,6 +72,22 @@ class WeihaiEASWebSource internal constructor(
 
     companion object {
         private const val WEBVPN_JWTS_QUERY_HINT = "vpn-12-o1-jwts.hitwh.edu.cn"
+    }
+
+    /**
+     * 登录侧通过 `login(cookiesJson, metadata, ...)` 传回入口信息。
+     *
+     * 威海本科历史上把 `electronicExpToken` 当作可选补充信息，实际不使用；直连模式下
+     * 这里改为承载「本次登录选中的教务 base」。只有能解析成 `jwts.hitwh.edu.cn` 的
+     * http(s) 地址才被采用，其余一律回落 WebVPN，避免异常数据把请求带到任意域名。
+     */
+    private fun resolveHostFromLoginMetadata(metadata: String?): String {
+        val raw = metadata.orEmpty().trim()
+        if (raw.isEmpty()) return hostName
+        val uri = runCatching { java.net.URI(raw) }.getOrNull() ?: return hostName
+        if (uri.scheme?.lowercase() !in setOf("http", "https")) return hostName
+        if (!uri.host.orEmpty().equals("jwts.hitwh.edu.cn", ignoreCase = true)) return hostName
+        return raw.trimEnd('/')
     }
 
     override fun login(
@@ -79,7 +112,7 @@ class WeihaiEASWebSource internal constructor(
                     return@execute
                 }
 
-                val url = "$hostName/kjscx/queryJxlListBySjid?sf_request_type=ajax"
+                val url = "${resolveHostFromLoginMetadata(password)}/kjscx/queryJxlListBySjid?sf_request_type=ajax"
                 LogUtils.d("login: validating cookies, url=$url")
 
                 val response = Jsoup.connect(url)
@@ -98,11 +131,15 @@ class WeihaiEASWebSource internal constructor(
                 LogUtils.d("login: validation response, status=${response.statusCode()}")
 
                 if (response.statusCode() == 200) {
+                    val resolvedHost = resolveHostFromLoginMetadata(password)
                     val token = EASToken().apply {
                         cookies.putAll(cookiesMap)
                         campus = EASToken.Campus.WEIHAI
                         this.username = extractLoginIdentity(cookiesMap)
                         this.password = password.ifBlank { username }
+                        // 直连时把入口固化到 token：后续所有请求都会读它，
+                        // 保证「登录走哪条路，拉课表就走哪条路」。
+                        if (resolvedHost != hostName) webBaseUrl = resolvedHost
                     }
                     LogUtils.success("login: Weihai login ok, username=${token.username}")
                     result.postValue(DataState(token, DataState.STATE.SUCCESS))
@@ -126,7 +163,7 @@ class WeihaiEASWebSource internal constructor(
 
         executor.execute {
             try {
-                val response = Jsoup.connect("$hostName/reAuth")
+                val response = Jsoup.connect("${hostFor(token)}/reAuth")
                     .cookies(token.cookies)
                     .header("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15")
                     .header("Accept", "application/json, text/javascript, */*; q=0.01")
@@ -762,7 +799,7 @@ class WeihaiEASWebSource internal constructor(
         LogUtils.d( "requestScores: term=${term.getCode()} name=${term.termName} testType=$testType path=$path params=$params")
 
         fun executeOnce(): Connection.Response {
-            val resp = Jsoup.connect(hostName + path)
+            val resp = Jsoup.connect(hostFor(token) + path)
                 .cookies(token.cookies)
                 .header("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15")
                 .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
@@ -831,7 +868,7 @@ class WeihaiEASWebSource internal constructor(
 
     override fun fetchScoreSummary(token: EASToken): ScoreSummary? {
         return try {
-            val response = Jsoup.connect("$hostName/xfj/queryListXfj")
+            val response = Jsoup.connect("${hostFor(token)}/xfj/queryListXfj")
                 .cookies(token.cookies)
                 .header("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15")
                 .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")

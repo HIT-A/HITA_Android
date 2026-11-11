@@ -229,8 +229,13 @@ class EASRepository @Inject internal constructor(
 
         /**
          * WebViewLoginActivity hands the campus-specific extra back in `web_base_url` (Shenzhen,
-         * Weihai graduate) or `electronic_exp_token` (Benbu, Weihai undergraduate). Keep the
-         * mapping in one place so interactive and silent renewal authenticate identically.
+         * Weihai graduate, Weihai undergraduate direct entry) or `electronic_exp_token`
+         * (Benbu, Weihai undergraduate VPN entry). Keep the mapping in one place so interactive
+         * and silent renewal authenticate identically.
+         *
+         * 威海本科有两种入口：走 WebVPN 时沿用历史上的 `electronic_exp_token` 槽位；
+         * 校园网直连时该槽位承载教务 base，由 [WeihaiEASWebSource] 解析后决定请求 host。
+         * 判据是 base 是否指向直连 host，而不是校区或学生类型——两者都用同一个传参通道。
          */
         fun webSessionLoginMetadata(
             campus: EASToken.Campus,
@@ -241,8 +246,20 @@ class EASRepository @Inject internal constructor(
             (campus == EASToken.Campus.WEIHAI && studentType == EASToken.TYPE.GRAD)
         ) {
             webBaseUrl.orEmpty()
+        } else if (campus == EASToken.Campus.WEIHAI &&
+            isWeihaiDirectEntryBase(webBaseUrl)
+        ) {
+            // 威海本科直连：优先用 base 覆盖 electronic_exp_token 槽位。
+            webBaseUrl.orEmpty()
         } else {
             electronicExpToken.orEmpty()
+        }
+
+        /** 是否是把请求指向直连教务的 base（只有校园网直连才会出现）。 */
+        private fun isWeihaiDirectEntryBase(webBaseUrl: String?): Boolean {
+            val uri = runCatching { java.net.URI(webBaseUrl.orEmpty()) }.getOrNull() ?: return false
+            if (uri.scheme?.lowercase() !in setOf("http", "https")) return false
+            return uri.host.orEmpty().equals("jwts.hitwh.edu.cn", ignoreCase = true)
         }
     }
 

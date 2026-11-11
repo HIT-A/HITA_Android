@@ -10,6 +10,41 @@ import org.junit.Test
 
 class EasWebCredentialPolicyTest {
     @Test
+    fun `weihai direct academic login form is autofillable`() {
+        // 校园网直连时，教务系统自己渲染登录表单，不经过 CAS。
+        assertTrue(
+            EasWebCredentialPolicy.matchesLoginPage(
+                EASToken.Campus.WEIHAI,
+                "http://jwts.hitwh.edu.cn/xtgl/login_slogin.html",
+                isMainFrame = true,
+            )
+        )
+        assertTrue(
+            EasWebCredentialPolicy.matchesLoginPage(
+                EASToken.Campus.WEIHAI,
+                "https://yjsgl.hitwh.edu.cn/xtgl/login_slogin.html",
+                isMainFrame = true,
+            )
+        )
+        // 教务系统的业务页不是登录页，不应被当作表单自动填充。
+        assertFalse(
+            EasWebCredentialPolicy.matchesLoginPage(
+                EASToken.Campus.WEIHAI,
+                "http://jwts.hitwh.edu.cn/xtgl/index_initMenu.html",
+                isMainFrame = true,
+            )
+        )
+        // 其它校区不受这条扩展影响。
+        assertFalse(
+            EasWebCredentialPolicy.matchesLoginPage(
+                EASToken.Campus.BENBU,
+                "http://jwts.hitwh.edu.cn/xtgl/login_slogin.html",
+                isMainFrame = true,
+            )
+        )
+    }
+
+    @Test
     fun `remember me script covers both native checkbox and custom control`() {
         val script = EasWebCredentialPolicy.rememberMeScript()
         // 原生 checkbox 与自定义 label 两条路径都要覆盖，否则某些校区勾不上

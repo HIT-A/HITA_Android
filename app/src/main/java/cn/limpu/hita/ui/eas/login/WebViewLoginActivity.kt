@@ -24,6 +24,10 @@ import android.webkit.WebViewClient
 import android.widget.Toast
 import android.net.http.SslError
 import cn.limpu.hita.data.model.eas.EASToken
+import cn.limpu.hita.data.source.web.eas.HttpCampusReachabilityProbe
+import cn.limpu.hita.data.source.web.eas.WeihaiEasEntryPolicy
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.launch
 import cn.limpu.hita.data.source.preference.EasCredential
 import cn.limpu.hita.data.source.preference.EasCredentialStore
 import androidx.activity.OnBackPressedCallback
@@ -227,6 +231,11 @@ class WebViewLoginActivity : AppCompatActivity() {
     private var leftForExternalVpn = false
     private var silentMode = false
     private lateinit var config: CampusWebConfig
+    /**
+     * 威海本次登录选中的入口。默认 VPN（与历史行为一致），探测成功后可能切成直连。
+     * 成功判定必须读这个值，否则直连会被旧规则（要求 VPN 票据）判成未登录。
+     */
+    private var weihaiEntry: WeihaiEasEntryPolicy.Entry = WeihaiEasEntryPolicy.Entry.VPN
     private var navigatingToEelab = false
     private var collectedEasCookies: Map<String, String>? = null
     private var eelabTokenFetching = false
@@ -270,7 +279,8 @@ class WebViewLoginActivity : AppCompatActivity() {
         shenzhenPreferredStudentType = ShenzhenWebAutoLogin.normalizeStudentType(
             intent?.getStringExtra(EXTRA_STUDENT_TYPE)
         )
-        config = configFor(campus)
+        // 初始按默认入口（VPN）建立配置；威海会在 initViews 里探测后按结果重建。
+        config = configFor(campus, WeihaiEasEntryPolicy.Entry.VPN)
 
         setTheme(
             if (silentMode) {
@@ -331,12 +341,52 @@ class WebViewLoginActivity : AppCompatActivity() {
                 }
             }, SILENT_TIMEOUT_MS)
         }
-        LogUtils.d( "load login url=${config.loginUrl} campus=${config.campus}")
-        webView.loadUrl(config.loginUrl)
+        if (config.campus == EASToken.Campus.WEIHAI) {
+            // 校园网内直连教务比走 WebVPN 少一层认证；先探测再决定加载哪个入口。
+            // 探测失败一律回落 VPN（与历史行为一致），不会把用户挡在门外。
+            lifecycleScope.launch {
+                val entry = resolveWeihaiEntry()
+                if (finished) return@launch
+                applyWeihaiEntry(entry)
+                LogUtils.d(
+                    "weihai entry resolved=${entry} url=${config.loginUrl}"
+                )
+                webView.loadUrl(config.loginUrl)
+            }
+        } else {
+            LogUtils.d( "load login url=${config.loginUrl} campus=${config.campus}")
+            webView.loadUrl(config.loginUrl)
+        }
         onBackPressedDispatcher.addCallback(this, onBackPressedCallback)
     }
 
-    private fun configFor(campus: EASToken.Campus): CampusWebConfig {
+    /**
+     * 探测并选定威海教务入口。
+     *
+     * 只探测直连：VPN 可达性不影响决策（VPN 是兜底），少一次网络往返也少一次等待。
+     */
+    private suspend fun resolveWeihaiEntry(): WeihaiEasEntryPolicy.Entry {
+        val graduate = shenzhenPreferredStudentType == ShenzhenWebAutoLogin.POSTGRAD
+        val directUrl = WeihaiEasEntryPolicy.probeUrl(WeihaiEasEntryPolicy.Entry.DIRECT, graduate)
+        val directReachable = runCatching {
+            HttpCampusReachabilityProbe().isReachable(directUrl)
+        }.getOrDefault(false)
+        return WeihaiEasEntryPolicy.choose(
+            directReachable = directReachable,
+            vpnReachable = true,
+        )
+    }
+
+    /** 把选定的入口应用到 config，并记住它以便成功判定使用同一套规则。 */
+    private fun applyWeihaiEntry(entry: WeihaiEasEntryPolicy.Entry) {
+        weihaiEntry = entry
+        config = configFor(config.campus, entry)
+    }
+
+    private fun configFor(
+        campus: EASToken.Campus,
+        weihaiEntry: WeihaiEasEntryPolicy.Entry,
+    ): CampusWebConfig {
         return when (campus) {
             EASToken.Campus.BENBU -> CampusWebConfig(
                 campus = campus,
@@ -344,20 +394,29 @@ class WebViewLoginActivity : AppCompatActivity() {
                 jwtsUrl = CampusUrls.BENBU_JWTS,
                 cookieProbeUrls = CampusUrls.BENBU_PROBE_URLS
             )
-            EASToken.Campus.WEIHAI -> CampusWebConfig(
-                campus = campus,
-                loginUrl = if (shenzhenPreferredStudentType == ShenzhenWebAutoLogin.POSTGRAD)
-                    cn.limpu.hita.data.source.web.eas.WeihaiGraduateSessionPolicy.BASE_URL + "/cas"
-                    else CampusUrls.WEIHAI_LOGIN,
-                jwtsUrl = if (shenzhenPreferredStudentType == ShenzhenWebAutoLogin.POSTGRAD)
-                    cn.limpu.hita.data.source.web.eas.WeihaiGraduateSessionPolicy.BASE_URL + "/cas"
-                    else CampusUrls.WEIHAI_JWTS,
-                cookieProbeUrls = if (shenzhenPreferredStudentType == ShenzhenWebAutoLogin.POSTGRAD)
-                    listOf(cn.limpu.hita.data.source.web.eas.WeihaiGraduateSessionPolicy.BASE_URL,
-                        cn.limpu.hita.data.source.web.eas.WeihaiGraduateSessionPolicy.BASE_URL + "/authentication/main",
-                        "https://webvpn.hitwh.edu.cn/")
-                    else CampusUrls.WEIHAI_PROBE_URLS
-            )
+            EASToken.Campus.WEIHAI -> {
+                // 校园网内直连教务，校外回落 WebVPN：两者的登录页、教务入口与
+                // 成功判定都不同，必须成套切换，不能只换其中一个。
+                val graduate = shenzhenPreferredStudentType == ShenzhenWebAutoLogin.POSTGRAD
+                val loginUrl = WeihaiEasEntryPolicy.loginUrl(weihaiEntry, graduate)
+                CampusWebConfig(
+                    campus = campus,
+                    loginUrl = loginUrl,
+                    jwtsUrl = loginUrl,
+                    cookieProbeUrls = if (weihaiEntry == WeihaiEasEntryPolicy.Entry.DIRECT) {
+                        listOf(loginUrl)
+                    } else if (graduate) {
+                        listOf(
+                            cn.limpu.hita.data.source.web.eas.WeihaiGraduateSessionPolicy.BASE_URL,
+                            cn.limpu.hita.data.source.web.eas.WeihaiGraduateSessionPolicy.BASE_URL +
+                                "/authentication/main",
+                            "https://webvpn.hitwh.edu.cn/",
+                        )
+                    } else {
+                        CampusUrls.WEIHAI_PROBE_URLS
+                    }
+                )
+            }
             EASToken.Campus.SHENZHEN -> CampusWebConfig(
                 campus = campus,
                 // Enter the authenticated application directly. If Trust/CAS is still
@@ -702,6 +761,18 @@ class WebViewLoginActivity : AppCompatActivity() {
                         }
                         isJwtsPage(url) -> {
                             LogUtils.d("jwts login page detected, polling for session cookies")
+                            startCookiePolling()
+                        }
+                        config.campus == EASToken.Campus.WEIHAI &&
+                            weihaiEntry == WeihaiEasEntryPolicy.Entry.DIRECT &&
+                            !isAuthenticationPage(url) &&
+                            !isSuccessPage(url) -> {
+                            // 直连同样需要兜底：教务系统的成功落点不止一个，
+                            // 若只靠 URL 判定，用户会在已登录的页面上卡住。
+                            LogUtils.d(
+                                "weihai direct page, starting cookie polling: path=${uri.path} " +
+                                    "host=${uri.host}"
+                            )
                             startCookiePolling()
                         }
                         config.campus == EASToken.Campus.WEIHAI &&
@@ -2223,11 +2294,20 @@ class WebViewLoginActivity : AppCompatActivity() {
                 WebLoginSuccessPolicy.isBenbuAuthenticatedPage(url, collectCookies())
             EASToken.Campus.WEIHAI -> {
                 val cookies = collectCookies()
-                val authenticated = if (isWeihaiGraduate)
-                    cn.limpu.hita.data.source.web.eas.WeihaiGraduateSessionPolicy.isAuthenticatedLanding(url, cookies)
-                    else WebLoginSuccessPolicy.isWeihaiAuthenticatedPage(url, cookies)
+                val authenticated = if (isWeihaiGraduate) {
+                    if (weihaiEntry == WeihaiEasEntryPolicy.Entry.DIRECT) {
+                        // 研究生直连时落点是 yjsgl 自己的 landing 页，且没有 VPN 票据，
+                        // 不能复用依赖 wengine_vpn_ticket 的判定。
+                        WeihaiEasEntryPolicy.isDirectGraduateLanding(url, cookies)
+                    } else {
+                        cn.limpu.hita.data.source.web.eas.WeihaiGraduateSessionPolicy
+                            .isAuthenticatedLanding(url, cookies)
+                    }
+                } else {
+                    WeihaiEasEntryPolicy.isAuthenticated(weihaiEntry, url, cookies)
+                }
                 LogUtils.d(
-                    "isSuccessPage(weihai): path=$path authenticated=$authenticated " +
+                    "isSuccessPage(weihai): entry=$weihaiEntry path=$path authenticated=$authenticated " +
                         "hasVpnTicket=${hasWeihaiVpnTicket(cookies)} " +
                         "hasJsession=${WebLoginSuccessPolicy.hasJsessionIdCookie(cookies)} " +
                         "keys=${cookies.keys.sorted()}"
@@ -2397,18 +2477,33 @@ class WebViewLoginActivity : AppCompatActivity() {
             LogUtils.d("checkCookies: retry=$cookieRetryCount cookieNames=${LogRedaction.cookieNames(cookies.keys)} host=${Uri.parse(currentUrl).host}")
         }
 
-        if (isWeihaiGraduate &&
-            cn.limpu.hita.data.source.web.eas.WeihaiGraduateSessionPolicy.isAuthenticatedLanding(currentUrl, cookies)) {
-            finishWithCookies(cookies)
-            return
-        }
-        if (config.campus == EASToken.Campus.WEIHAI && !isWeihaiGraduate && hasVpnTicket && hasJsessionid) {
-            fetchVpnEasCookies { vpnCookies ->
-                val mergedCookies = LinkedHashMap(cookies)
-                vpnCookies.forEach { (key, value) -> mergedCookies.putIfAbsent(key, value) }
-                finishWithCookies(mergedCookies)
+        if (isWeihaiGraduate) {
+            val graduateDone = if (weihaiEntry == WeihaiEasEntryPolicy.Entry.DIRECT) {
+                WeihaiEasEntryPolicy.isDirectGraduateLanding(currentUrl, cookies)
+            } else {
+                cn.limpu.hita.data.source.web.eas.WeihaiGraduateSessionPolicy
+                    .isAuthenticatedLanding(currentUrl, cookies)
             }
-            return
+            if (graduateDone) {
+                finishWithCookies(cookies)
+                return
+            }
+        }
+        if (config.campus == EASToken.Campus.WEIHAI && !isWeihaiGraduate) {
+            if (weihaiEntry == WeihaiEasEntryPolicy.Entry.DIRECT) {
+                // 直连没有反代票据：业务会话就绪即可收尾，不能等 wengine_vpn_ticket。
+                if (hasJsessionid) {
+                    finishWithCookies(cookies)
+                    return
+                }
+            } else if (hasVpnTicket && hasJsessionid) {
+                fetchVpnEasCookies { vpnCookies ->
+                    val mergedCookies = LinkedHashMap(cookies)
+                    vpnCookies.forEach { (key, value) -> mergedCookies.putIfAbsent(key, value) }
+                    finishWithCookies(mergedCookies)
+                }
+                return
+            }
         }
 
         if (config.campus == EASToken.Campus.BENBU
@@ -2808,7 +2903,22 @@ class WebViewLoginActivity : AppCompatActivity() {
             putExtra("cookies", cookiesJson)
             putExtra(EXTRA_CAMPUS, config.campus.name)
             putExtra(EXTRA_STUDENT_TYPE, shenzhenPreferredStudentType)
-            if (isWeihaiGraduate) putExtra("web_base_url", webView.url.orEmpty())
+            if (isWeihaiGraduate) {
+                // 数据层必须用与登录时相同的入口，否则「登录成功但拉不到课表」。
+                // 直连时 webView.url 是具体 landing 路径，这里取策略给出的 base。
+                putExtra(
+                    "web_base_url",
+                    WeihaiEasEntryPolicy.timetableBaseUrl(weihaiEntry, graduate = true),
+                )
+            } else if (config.campus == EASToken.Campus.WEIHAI &&
+                weihaiEntry == WeihaiEasEntryPolicy.Entry.DIRECT
+            ) {
+                // 威海本科直连：把 base 交给数据层，它会在同一个槽位里被识别。
+                putExtra(
+                    "web_base_url",
+                    WeihaiEasEntryPolicy.timetableBaseUrl(weihaiEntry, graduate = false),
+                )
+            }
             if (config.campus == EASToken.Campus.SHENZHEN) {
                 putExtra(
                     "web_base_url",
