@@ -1,6 +1,7 @@
 package cn.limpu.hita.data.source.web.eas.graduate
 
 import cn.limpu.hita.data.model.eas.EASToken
+import cn.limpu.hita.data.source.web.eas.WeihaiEasEntryPolicy
 import cn.limpu.hita.data.source.web.eas.WeihaiGraduateSessionPolicy
 import org.jsoup.Connection
 import org.jsoup.Jsoup
@@ -66,6 +67,16 @@ internal class GraduateJsoupTransport(
             request.header("Accept", "application/json")
         }
 
+    /**
+     * 本次会话的请求根地址。
+     *
+     * 走 WebVPN 时是固定的反代根；校园网直连时登录侧会把 `https://yjsgl.hitwh.edu.cn`
+     * 写进 `token.webBaseUrl`，这里优先采用。判定与白名单集中在
+     * [WeihaiEasEntryPolicy.graduateBaseUrlFor] 里，便于离线测试。
+     */
+    private fun proxyRoot(): String =
+        WeihaiEasEntryPolicy.graduateBaseUrlFor(token.webBaseUrl)
+
     private fun send(
         path: String,
         method: Connection.Method,
@@ -75,13 +86,20 @@ internal class GraduateJsoupTransport(
         require(path.startsWith("/") && !path.startsWith("//")) {
             "Graduate paths are relative to the fixed proxy root"
         }
-        val request = Jsoup.connect(WeihaiGraduateSessionPolicy.BASE_URL + path)
+        val root = proxyRoot()
+        // VPN 专用查询提示只对反代有意义；直连时带着它会让服务端困惑。
+        val effectivePath = if (root == WeihaiGraduateSessionPolicy.BASE_URL) {
+            path
+        } else {
+            path.substringBefore("?vpn-")
+        }
+        val request = Jsoup.connect(root + effectivePath)
             .cookies(token.cookies)
             .userAgent(GraduateHttpTransport.DESKTOP_USER_AGENT)
             .header("Accept", GraduateHttpTransport.ACCEPT)
             .header("RoleCode", GraduateHttpTransport.ROLE_CODE)
             .header("X-Requested-With", "XMLHttpRequest")
-            .header("Referer", WeihaiGraduateSessionPolicy.BASE_URL + referer)
+            .header("Referer", root + referer)
             .method(method)
             .ignoreContentType(true)
             .ignoreHttpErrors(true)

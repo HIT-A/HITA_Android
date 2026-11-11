@@ -11,9 +11,19 @@ internal object EasWebCredentialPolicy {
         "ids-hit-edu-cn-s.ivpn.hit.edu.cn"
     )
 
+    /** 威海校园网内直连的教务主机（只有 http，无 TLS）。 */
+    private val weihaiDirectHosts = setOf("jwts.hitwh.edu.cn", "yjsgl.hitwh.edu.cn")
+
     private val approvedHosts = mapOf(
         EASToken.Campus.BENBU to (benbuIdsGatewayHosts + setOf("ids.hit.edu.cn")),
-        EASToken.Campus.WEIHAI to setOf("webvpn.hitwh.edu.cn", "ids.hit.edu.cn"),
+        // 威海有两条入口：WebVPN 反代，以及校园网内直连的教务主机。
+        // 直连时登录表单直接由 jwts 自己渲染，不走 CAS，因此主机也要在凭据白名单里。
+        EASToken.Campus.WEIHAI to setOf(
+            "webvpn.hitwh.edu.cn",
+            "jwts.hitwh.edu.cn",
+            "yjsgl.hitwh.edu.cn",
+            "ids.hit.edu.cn",
+        ),
         // 深圳统一身份认证 CAS：aTrust 放行后由 jw 代理 302 到这里，是三校区里
         // 唯一还要再输一次账号密码的页面，因此同样需要自动填充。
         EASToken.Campus.SHENZHEN to setOf("ids-hit-edu-cn-s.hitsz.edu.cn")
@@ -23,7 +33,22 @@ internal object EasWebCredentialPolicy {
         if (!isMainFrame) return false
         val uri = runCatching { URI(url) }.getOrNull() ?: return false
         val path = uri.path?.lowercase() ?: return false
-        return matchesLoginOrigin(campus, uri) && path.trimEnd('/').endsWith("/authserver/login")
+        return matchesLoginOrigin(campus, uri) && isLoginFormPath(campus, path)
+    }
+
+    /**
+     * 登录表单页的路径判据。
+     *
+     * 统一身份认证（CAS）用 `/authserver/login`；威海教务直连由教务系统自己渲染表单，
+     * 路径是 `/xtgl/login_slogin.html`。两套都要能自动填充，否则直连时用户得手输。
+     */
+    private fun isLoginFormPath(campus: EASToken.Campus, path: String): Boolean {
+        val trimmed = path.trimEnd('/')
+        if (trimmed.endsWith("/authserver/login")) return true
+        return campus == EASToken.Campus.WEIHAI && (
+            trimmed.contains("/xtgl/login") ||
+                trimmed.contains("login_slogin")
+            )
     }
 
     fun matchesLoginOrigin(campus: EASToken.Campus, origin: String): Boolean {
@@ -254,6 +279,9 @@ internal object EasWebCredentialPolicy {
         val host = uri.host?.lowercase() ?: return false
         val approvedScheme = when {
             campus == EASToken.Campus.BENBU && host in benbuIdsGatewayHosts -> scheme == "http"
+            // 威海教务直连只有 http（校内网，无 TLS）：http://jwts.hitwh.edu.cn。
+            // 走 WebVPN 时仍是 https，两种都要放行。
+            campus == EASToken.Campus.WEIHAI && host in weihaiDirectHosts -> scheme == "http" || scheme == "https"
             else -> scheme == "https"
         }
         return approvedScheme && host in approvedHosts[campus].orEmpty()
