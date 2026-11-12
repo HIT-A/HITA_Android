@@ -112,7 +112,9 @@ app 通过项目依赖使用 timetable-core 产出的 JAR；分享协议与比�
 
 ## 文档与构建产物
 
-完整架构与开发约定见 `CLAUDE.md`（Codex 适配副本为 `AGENTS.md`，内容一致）。使用统计契约和验证范围见 [统计 v2](docs/analytics-v2.md)。课表分享、双人对比与课表管理重构的交付说明见 [docs/timetable-sharing.md](docs/timetable-sharing.md)、[docs/timetable-comparison.md](docs/timetable-comparison.md) 和 [docs/timetable-display-management.md](docs/timetable-display-management.md)。设计说明保留在 `docs/superpowers/specs/`；已完成的用户反馈实施清单已从当前树移除，未实施的字体计划保留。
+文档入口见 [docs/README.md](docs/README.md)：`docs/` 根目录只放当前有效的功能说明与协议约定，已完成的一次性审计、重构台账与测试体系建设期记录归入 [docs/archive/](docs/archive/README.md)（分 `refactor/`、`audits/`、`testing/` 三类，不再随代码更新）。
+
+完整架构与开发约定见 `CLAUDE.md`（Codex 适配副本为 `AGENTS.md`，内容一致）。使用统计契约和验证范围见 [统计 v2](docs/analytics-v2.md)。课表分享、双人对比与课表管理重构的交付说明见 [docs/timetable-sharing.md](docs/timetable-sharing.md)、[docs/timetable-comparison.md](docs/timetable-comparison.md) 和 [docs/timetable-display-management.md](docs/timetable-display-management.md)。登录态与网络入口见 [登录态持久化](docs/login-session-persistence.md)、[通知门户登录](docs/notice-portal-login.md) 和 [威海教务入口](docs/weihai-eas-network-entry.md)。设计说明保留在 `docs/superpowers/specs/`。
 
 APK 和构建元信息从 CI / Release 获取；源码树不保存旧 `app/debug/` 安装包。`app/schemas/` 和 `hitauser/schemas/` 是 Room 数据库历史结构，供迁移验证使用，不能作为旧生成数据删除。
 
@@ -120,7 +122,7 @@ APK 和构建元信息从 CI / Release 获取；源码树不保存旧 `app/debug
 
 PDF 依赖自带资源的约定、去重依据和回归命令见 [PDF 资源](docs/pdf-resources.md)。
 
-测试分层、六个测试集、报告聚合与模拟机 E2E 的入口见 [测试体系](docs/testing/README.md)；测试台账、有效性审查、缺口清单、清理依据与耗时对比同目录。
+测试分层、六个测试集、报告聚合与模拟机 E2E 的入口见 [测试体系](docs/testing/README.md)；该目录保留分层设计、架构决策、测试台账、功能映射、不稳定测试治理与删除依据。建设期的执行结果、基线报告、缺口清单与耗时对比已归档到 [docs/archive/testing/](docs/archive/testing/)。
 
 ### 分层依赖检查
 

@@ -1,6 +1,6 @@
 # 全仓优化交接（2026-10-28，#84 合并后；2026-11-09 六分支集成）
 
-本文记录分阶段优化的已交付结果、证据和剩余范围。项目约定见 [AGENTS.md](../AGENTS.md)，阶段 3–5 的完整验收台账见 [refactor-stage345-plan.md](refactor-stage345-plan.md)。历史测试数对应各 PR head，不代表合并后的 main 已另行验证。
+本文记录分阶段优化的已交付结果、证据和剩余范围。项目约定见 [AGENTS.md](../../../AGENTS.md)，阶段 3–5 的完整验收台账见 [refactor-stage345-plan.md](refactor-stage345-plan.md)。历史测试数对应各 PR head，不代表合并后的 main 已另行验证。
 
 ## 0. 2026-11-09 六分支集成（当前最新状态）
 
@@ -127,7 +127,7 @@
 
 用户确认的补强：`scripts/layer_allowlist.txt` 按「文件路径 + 完整引用」精确豁免；不绑定行号。同文件新增其他引用、重复/无效/过期例外均报错。PR CI 使用 base SHA 比较例外集合，只能删减，不能新增或替换；首次建立名单时从基线源码核验已有引用，不能直接放行当前源码中的新增依赖。基线读取失败即检查失败。本地用 `--base-ref origin/main` 启用相同比较，普通检查仅校验当前状态。
 
-已在 `scripts/test_check_repository.py` 补检查器用例，同步 CI、README_DEV 和 AGENTS/CLAUDE；本项未改 Android 业务代码。8 个文件共新增 398 行、删除 13 行，规则与测试同一提交，commit/push/PR 均已获用户确认并完成。具体运行命令见 [开发指南](../README_DEV.md)。
+已在 `scripts/test_check_repository.py` 补检查器用例，同步 CI、README_DEV 和 AGENTS/CLAUDE；本项未改 Android 业务代码。8 个文件共新增 398 行、删除 13 行，规则与测试同一提交，commit/push/PR 均已获用户确认并完成。具体运行命令见 [开发指南](../../../README_DEV.md)。
 
 本地验证（2026-10-25）：Python 测试 21 项通过（原有 4 项 + 新增 17 项）；带 `--base-ref origin/main` 的仓库检查、`project_health_check.sh`、`code_consistency_check.sh` 通过；修改的 CI YAML 可解析、Bash 片段语法通过。`./gradlew :app:testDebugUnitTest :app:assembleDebug --console=plain` 成功，125 个任务均为 `UP-TO-DATE`，复用了现有单测/构建结果，没有重新执行 JVM 测试。
 

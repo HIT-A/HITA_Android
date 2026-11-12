@@ -4,12 +4,12 @@
 
 | # | 要求 | 文件 | 状态 |
 |---|---|---|---|
-| 1 | 全量测试台账 | [test-ledger.md](test-ledger.md) | ✅ 已交付（含实测统计） |
-| 2 | 功能—模块—测试映射 | [feature-test-mapping.md](feature-test-mapping.md) | ✅ 已交付 |
+| 1 | 全量测试台账 | [../../testing/test-ledger.md](../../testing/test-ledger.md) | ✅ 已交付（含实测统计） |
+| 2 | 功能—模块—测试映射 | [../../testing/feature-test-mapping.md](../../testing/feature-test-mapping.md) | ✅ 已交付 |
 | 3 | 测试有效性审查报告 | [test-effectiveness-review.md](test-effectiveness-review.md) | ✅ 已交付（问题 ID T-A*/T-B*/T-C*/T-D*/T-E*/T-F*） |
-| 4 | 测试删除与替代依据 | [deletion-rationale.md](deletion-rationale.md) | ✅ 已交付（五要素表） |
-| 5 | Flaky Test 治理报告 | [flaky-test-governance.md](flaky-test-governance.md) | ✅ 已交付（F1–F12） |
-| 6 | 四类测试体系及执行命令 | [four-tier-design.md](four-tier-design.md)、[execution-results.md](execution-results.md) | ✅ 已交付 |
+| 4 | 测试删除与替代依据 | [../../testing/deletion-rationale.md](../../testing/deletion-rationale.md) | ✅ 已交付（五要素表） |
+| 5 | Flaky Test 治理报告 | [../../testing/flaky-test-governance.md](../../testing/flaky-test-governance.md) | ✅ 已交付（F1–F12） |
+| 6 | 四类测试体系及执行命令 | [../../testing/four-tier-design.md](../../testing/four-tier-design.md)、[execution-results.md](execution-results.md) | ✅ 已交付 |
 | 7 | 测试前后耗时对比 | [timing-comparison.md](timing-comparison.md) | ✅ 已交付（基线实测 849s/147s/16.9s） |
 | 8 | 覆盖率与变异测试结果 | [coverage-and-mutation.md](coverage-and-mutation.md) | ⚠️ 未产出数据（项目无 JaCoCo/PIT，引入属构建级变更），已说明原因与落地命令 |
 | 9 | 模拟机验证记录 | [emulator-verification.md](emulator-verification.md) | ✅ 环境已验证；5 项 E2E **全部通过**（62.1s）；8 组流程中 4 组有真实用例执行 |
@@ -19,12 +19,12 @@
 
 | 文件 | 内容 |
 |---|---|
-| [README.md](README.md) | 测试体系入口与硬约束 |
+| [../../testing/README.md](../../testing/README.md) | 测试体系入口与硬约束 |
 | [test-gaps.md](test-gaps.md) | 缺口清单 G1–G24 |
 | [test-cleanup-plan.md](test-cleanup-plan.md) | 清理计划 |
 | [speed-optimization.md](speed-optimization.md) | 速度优化方案 P1–P6 |
 | [emulator-e2e-plan.md](emulator-e2e-plan.md) | 模拟机方案 |
-| [architecture-decision.md](architecture-decision.md) | 架构方案对比与决策（brainstorming 记录） |
+| [../../testing/architecture-decision.md](../../testing/architecture-decision.md) | 架构方案对比与决策（brainstorming 记录） |
 | [implementation-plan.md](implementation-plan.md) | 实施计划（Task 1–7） |
 | [baseline-report.md](baseline-report.md) | 基线执行报告（由 XML 聚合生成） |
 | [actual-changes.md](actual-changes.md) | 本轮实际变更清单 |

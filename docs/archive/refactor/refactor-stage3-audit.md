@@ -150,7 +150,7 @@
 
 六分支集成后在本机重跑的四类测试见 [交接文档 §12](refactor-handoff.md#12-2026-11-09-集成后完整验证)，与本节审计相关的实际变化只有一处：
 
-- 本部研究生课表包装 JSON（`data`/`rows`/`content`/`result`）不再被当作空课表，由 `BenbuGraduateScheduleParser` 递归取第一层课表数组；错误对象与登录页仍返回空。见 [数据层一致性审查](data-layer-consistency-audit.md)。
+- 本部研究生课表包装 JSON（`data`/`rows`/`content`/`result`）不再被当作空课表，由 `BenbuGraduateScheduleParser` 递归取第一层课表数组；错误对象与登录页仍返回空。见 [数据层一致性审查](../audits/data-layer-consistency-audit.md)。
 
 本节其余结论不变。特别地：
 

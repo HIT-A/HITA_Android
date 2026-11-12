@@ -2,7 +2,7 @@
 
 基线 `5992ba3` · 1896 个 `@Test`（文本计数）/ 1856 个可解析测试体
 
-> 统计口径为**基线 commit 时的树**，不含本轮新增的 17 个用例（见 [test-ledger.md](test-ledger.md) 增量列）。
+> 统计口径为**基线 commit 时的树**，不含本轮新增的 17 个用例（见 [../../testing/test-ledger.md](../../testing/test-ledger.md) 增量列）。
 
 ## 统计口径
 
