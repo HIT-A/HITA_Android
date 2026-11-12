@@ -216,7 +216,13 @@ gh release create v<version> --repo HIT-A/HITA_Android --target <branch> \
 > gh api -X PUT repos/HIT-A/HITA_Android/immutable-releases     # 开启
 > ```
 > 开关用 DELETE/PUT 端点，**不是** PATCH `-F enabled=...`（会报 `"enabled" is not a permitted key`）。
-> 若误操作已把 tag 用掉，只能临时关闭该设置后重建，完成后立即恢复为开启。
+> **注意：关闭该设置也不能复用已用过的 tag 名**——占用是永久的。误操作后只能换 tag
+> （如 `v3.2.0-release`）重新发布，并把设置恢复为开启。
+
+**换 tag 时的命名约束**：应用内更新检查按 tag 名解析版本
+（`UpdateRepository.ParsedVersion.parse`）。`-release` / `-final` / `-ga` / `-stable`
+被识别为发布标记，按正式版处理；其它后缀（`-alpha` / `-beta` / `-rc` / 任意词）会被当作
+**预发布**，导致版本号退化、已装同号正式版的用户收不到更新。换 tag 时只用上述四个标记之一。
 
 **Release notes 模板**：
 ```

@@ -205,7 +205,7 @@ class UpdateRepository @Inject constructor(
 
     private data class RepoInfo(val owner: String, val repo: String)
 
-    private data class ParsedVersion(
+    internal data class ParsedVersion(
         val major: Int,
         val minor: Int,
         val patch: Int,
@@ -267,6 +267,15 @@ class UpdateRepository @Inject constructor(
             private val coreRegex = Regex("(\\d+)\\.(\\d+)(?:\\.(\\d+))?")
             private val preRegex = Regex("-([0-9A-Za-z]+)(?:[\\.-]?(\\d+))?")
 
+            /**
+             * 只表示「这是正式发布」的后缀，不是预发布标签。
+             *
+             * GitHub 的 immutable releases 会把用过的 tag 名永久占用，误操作后只能改用
+             * `v3.2.0-release` 这类 tag 重新发布。若把它当预发布，`toVersionCode()` 会退化、
+             * `compareTo` 会认为它低于同号正式版，已装正式版的用户就再也收不到修复更新。
+             */
+            private val releaseMarkers = setOf("release", "final", "ga", "stable")
+
             fun parse(input: String?): ParsedVersion? {
                 if (input.isNullOrBlank()) return null
                 val core = coreRegex.find(input) ?: return null
@@ -277,6 +286,10 @@ class UpdateRepository @Inject constructor(
                 val pre = preRegex.find(rest)
                 val label = pre?.groupValues?.getOrNull(1)?.lowercase(Locale.ROOT)
                 val num = pre?.groupValues?.getOrNull(2)?.toIntOrNull()
+                // 发布标记按正式版处理：版本号与显示名都回到 major.minor.patch。
+                if (label != null && label in releaseMarkers) {
+                    return ParsedVersion(major, minor, patch, null, null)
+                }
                 return ParsedVersion(major, minor, patch, label, num)
             }
         }
