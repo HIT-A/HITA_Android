@@ -191,13 +191,32 @@ refactor/xxx    # 重构（不改行为）
 1. 更新 `app/build.gradle` 中的 `appVersionCodeValue` 和 `appVersionNameValue`，并同步 `README.md` 的版本徽标与「最新版本」文字
    - 若本版升了 `AppDatabase.VERSION`，把新版本号加入 `AppDatabaseUpgradePathTest.SHIPPED_VERSIONS`（升级测试覆盖所有已发布旧版本）
 2. `git commit` + `git push origin` + `git push fork`（`fork` 远端为 `Chami537/HITA_Agent`，本地未配置时先 `git remote add fork git@github.com:Chami537/HITA_Agent.git`）
-3. 两侧创建 release + 上传 APK（注意加版本化文件名）：
+3. 两侧创建 release，**创建时一次性附上全部资产**（注意加版本化文件名）：
 ```bash
-gh release create v<version> --repo Chami537/HITA_Agent --target <branch> --title "v<version>" --notes "..."
-gh release create v<version> --repo HIT-A/HITA_Android --target <branch> --title "v<version>" --notes "..."
-gh release upload v<version> app/build/outputs/apk/release/app-release.apk#HITA_v<version>.apk --repo Chami537/HITA_Agent
-gh release upload v<version> app/build/outputs/apk/release/app-release.apk#HITA_v<version>.apk --repo HIT-A/HITA_Android
+# 先把 APK 复制成版本化文件名，并生成校验和
+cp app/build/outputs/apk/release/app-release.apk HITA_v<version>.apk
+sha256sum HITA_v<version>.apk > SHA256SUMS.txt
+
+gh release create v<version> --repo Chami537/HITA_Agent --target <branch> \
+  --title "HITA v<version>" --notes-file <正文文件> HITA_v<version>.apk SHA256SUMS.txt
+gh release create v<version> --repo HIT-A/HITA_Android --target <branch> \
+  --title "HITA v<version>" --notes-file <正文文件> HITA_v<version>.apk SHA256SUMS.txt
 ```
+
+> **`HIT-A/HITA_Android` 启用了 immutable releases，务必一次创建到位。**
+> 该策略下 release 创建即锁定：`gh release upload` 会被拒
+> （`Cannot upload assets to an immutable release`）；删除后重建同名 tag 也会被拒
+> （`tag_name was used by an immutable release`）——**tag 被永久占用，无法补救**。
+> 因此不要「先 create 再 upload」，资产必须写在 `gh release create` 的参数里。
+>
+> 查询与开关（仅管理员，`enforced_by_owner=false` 时可调整）：
+> ```bash
+> gh api repos/HIT-A/HITA_Android/immutable-releases           # {"enabled":true,...}
+> gh api -X DELETE repos/HIT-A/HITA_Android/immutable-releases  # 关闭
+> gh api -X PUT repos/HIT-A/HITA_Android/immutable-releases     # 开启
+> ```
+> 开关用 DELETE/PUT 端点，**不是** PATCH `-F enabled=...`（会报 `"enabled" is not a permitted key`）。
+> 若误操作已把 tag 用掉，只能临时关闭该设置后重建，完成后立即恢复为开启。
 
 **Release notes 模板**：
 ```
