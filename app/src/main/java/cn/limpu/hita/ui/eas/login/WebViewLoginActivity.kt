@@ -2328,7 +2328,14 @@ class WebViewLoginActivity : AppCompatActivity() {
         )
         EASToken.Campus.WEIHAI -> setOf(
             "https://webvpn.hitwh.edu.cn",
-            "https://ids.hit.edu.cn"
+            "https://ids.hit.edu.cn",
+            // 校园网直连时登录表单由教务自己渲染，走的是这两个宿主
+            // （与 EasWebCredentialPolicy 的直连白名单同一口径）。漏掉它们会让直连
+            // 场景下手动输入的账号密码永远捕获不到，下次无感续期只能重新手输。
+            "https://yjsgl.hitwh.edu.cn",
+            "http://yjsgl.hitwh.edu.cn",
+            "https://jwts.hitwh.edu.cn",
+            "http://jwts.hitwh.edu.cn",
         )
         // 深圳统一身份认证 CAS：三校区都要能捕获用户手动输入的账号密码，
         // 否则深圳 Web 会话一旦过期就只能每次重输。
@@ -2705,11 +2712,22 @@ class WebViewLoginActivity : AppCompatActivity() {
             EASToken.Campus.SHENZHEN ->
                 EASToken.hasShenzhenWebSessionCookies(cookies)
             EASToken.Campus.WEIHAI -> {
-                if (isWeihaiGraduate) return cn.limpu.hita.data.source.web.eas.WeihaiGraduateSessionPolicy
-                    .isAuthenticatedLanding(currentUrl, cookies)
-                // 威海校区：需要 VPN ticket + JSESSIONID
+                if (isWeihaiGraduate) {
+                    // 研究生两条入口的凭据不同，不能沿用本科的「VPN 票据 + JSESSIONID」。
+                    return if (weihaiEntry == WeihaiEasEntryPolicy.Entry.DIRECT) {
+                        WeihaiEasEntryPolicy.isDirectGraduateLanding(currentUrl, cookies)
+                    } else {
+                        cn.limpu.hita.data.source.web.eas.WeihaiGraduateSessionPolicy
+                            .isAuthenticatedLanding(currentUrl, cookies)
+                    }
+                }
+                if (weihaiEntry == WeihaiEasEntryPolicy.Entry.DIRECT) {
+                    // 直连没有反代票据：业务会话就绪即可收尾。
+                    return WebLoginSuccessPolicy.hasJsessionIdCookie(cookies)
+                }
+                // 威海本科走 WebVPN：需要 VPN ticket + JSESSIONID
                 val hasVpnTicket = hasWeihaiVpnTicket(cookies)
-                val hasJsession = cookies.containsKey("JSESSIONID")
+                val hasJsession = WebLoginSuccessPolicy.hasJsessionIdCookie(cookies)
                 hasVpnTicket && hasJsession
             }
         }
@@ -2885,9 +2903,18 @@ class WebViewLoginActivity : AppCompatActivity() {
 
     private fun finishWithCookies(cookies: Map<String, String>, eelabToken: String? = null) {
         if (finished) return
-        if (isWeihaiGraduate &&
-            !cn.limpu.hita.data.source.web.eas.WeihaiGraduateSessionPolicy
-                .isAuthenticatedLanding(webView.url.orEmpty(), cookies)) return
+        // 收尾前的最后一道闸：必须用到与本次入口一致的落地判据。
+        // 直连时落点在 yjsgl 自己的 `/authentication/main`（没有反代票据），
+        // 若沿用反代判据（要求 wengine_vpn_ticket 且路径在反代前缀下）会永远拦住直连。
+        if (isWeihaiGraduate) {
+            val landingOk = if (weihaiEntry == WeihaiEasEntryPolicy.Entry.DIRECT) {
+                WeihaiEasEntryPolicy.isDirectGraduateLanding(webView.url.orEmpty(), cookies)
+            } else {
+                cn.limpu.hita.data.source.web.eas.WeihaiGraduateSessionPolicy
+                    .isAuthenticatedLanding(webView.url.orEmpty(), cookies)
+            }
+            if (!landingOk) return
+        }
         finished = true
         stopCookiePolling()
         // 只要本次登录成功，无论从哪条路径收尾（URL 判定 / cookie 轮询 / eelab 回调），

@@ -10,11 +10,26 @@ internal object WeihaiGraduateSessionPolicy {
     private val base = URI(BASE_URL)
     private val landingPaths = setOf(base.path + "/authentication/main", base.path + "/student_index")
 
+    /** 校园网直连 `yjsgl` 与 WebVPN 反代根并列的第二个合法宿主。 */
+    const val DIRECT_HOST = "yjsgl.hitwh.edu.cn"
+
     fun isAuthenticatedLanding(url: String, cookies: Map<String, String>): Boolean {
         val uri = runCatching { URI(url) }.getOrNull() ?: return false
         return uri.scheme == "https" && uri.host == base.host && uri.port == -1 &&
             uri.userInfo == null && uri.path in landingPaths && !cookies[TICKET_COOKIE].isNullOrBlank()
     }
+
+    /**
+     * 是否存在非空 `JSESSIONID`（大小写不敏感）。
+     *
+     * 反代入口的业务会话由 WebVPN 服务端代管，浏览器只拿得到 `wengine_vpn_ticket`；
+     * 校园网直连时没有这层网关，业务会话就是 `JSESSIONID` 本身。两条入口的凭据不同，
+     * 判定必须分开，否则直连永远被判成「未登录」。
+     */
+    fun hasJsessionId(cookies: Map<String, String>): Boolean =
+        cookies.any { (key, value) ->
+            key.equals("JSESSIONID", ignoreCase = true) && value.isNotBlank()
+        }
 
     data class Profile(val account: String, val name: String?)
 
@@ -55,10 +70,14 @@ internal object WeihaiGraduateSessionPolicy {
      */
     fun needsDesktopUserAgentFor(url: String): Boolean {
         val uri = runCatching { URI(url) }.getOrNull() ?: return false
-        if (!uri.host.orEmpty().equals(base.host, ignoreCase = true)) return false
         val path = uri.path.orEmpty()
-        if (!path.startsWith(base.path, ignoreCase = true)) return false
         // 只在 CAS 表单页本页保留移动 UA；`/cas` 登录入口与登录后的教务页都要桌面 UA。
-        return !path.contains("/authserver/", ignoreCase = true)
+        if (path.contains("/authserver/", ignoreCase = true)) return false
+        val host = uri.host.orEmpty()
+        // 校园网直连（`https://yjsgl.hitwh.edu.cn`）：同一个应用、同一套服务端 UA 判定，
+        // 漏掉这条宿主会让直连整条链路退回移动 UA 并立刻拿到「浏览器已过时」拦截页。
+        if (host.equals(DIRECT_HOST, ignoreCase = true)) return true
+        if (!host.equals(base.host, ignoreCase = true)) return false
+        return path.startsWith(base.path, ignoreCase = true)
     }
 }

@@ -50,7 +50,9 @@ internal class WeihaiGraduateEASWebSource internal constructor(
 
         /** 阻塞登录校验；WebView 返回 RESULT_OK 前也会调用。 */
         fun validate(token: EASToken): DataState<EASToken> {
-            if (token.cookies[WeihaiGraduateSessionPolicy.TICKET_COOKIE].isNullOrBlank()) {
+            // 凭据要求随入口变化：反代只有 wengine_vpn_ticket，直连只有 JSESSIONID。
+            // 这里不能写死反代票据，否则校园网直连必然被判成「登录已失效」。
+            if (!WeihaiEasEntryPolicy.hasGraduateSessionCredential(token.webBaseUrl, token.cookies)) {
                 return DataState(DataState.STATE.NOT_LOGGED_IN, "登录已失效，请重新登录")
             }
             return try {
@@ -123,10 +125,23 @@ internal class WeihaiGraduateEASWebSource internal constructor(
             val json = org.json.JSONObject(username)
             json.keys().asSequence().associateWith { json.getString(it) }
         }.getOrNull()
-        if (cookies == null || !WeihaiGraduateSessionPolicy.isAuthenticatedLanding(password, cookies)) {
+        if (cookies == null) {
             DataState(DataState.STATE.NOT_LOGGED_IN, "研究生登录会话无效")
         } else {
-            validate(EASToken().apply { this.cookies.putAll(cookies) })
+            // `password` 槽位承载登录入口 base（不是落地页 URL，见 EASRepository.webSessionLoginMetadata）。
+            // 历史实现把它当落地页喂给 isAuthenticatedLanding()，而该函数要求 path 精确等于
+            // `/authentication/main` 或 `/student_index`——入口根地址必然不匹配，于是无论
+            // 登录是否真的成功都恒定返回「会话无效」。这里改为按入口判定凭据种类：
+            // 反代看 wengine_vpn_ticket，直连看 JSESSIONID。
+            val baseUrl = password.trimEnd('/')
+            if (baseUrl.isNotBlank() && !WeihaiEasEntryPolicy.hasGraduateSessionCredential(baseUrl, cookies)) {
+                DataState(DataState.STATE.NOT_LOGGED_IN, "研究生登录会话无效")
+            } else {
+                validate(EASToken().apply {
+                    this.cookies.putAll(cookies)
+                    webBaseUrl = baseUrl.takeIf { it.isNotBlank() }
+                })
+            }
         }
     }
 

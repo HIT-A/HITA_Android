@@ -132,11 +132,9 @@ object WeihaiEasEntryPolicy {
         return hasJsessionId(cookies)
     }
 
-    /** 大小写不敏感地判断是否存在非空 `JSESSIONID`（不同 WebVPN 节点大小写不一致）。 */
+    /** 与 [WeihaiGraduateSessionPolicy.hasJsessionId] 同一口径，避免两条链路判定分叉。 */
     private fun hasJsessionId(cookies: Map<String, String>): Boolean =
-        cookies.any { (key, value) ->
-            key.equals("JSESSIONID", ignoreCase = true) && value.isNotBlank()
-        }
+        WeihaiGraduateSessionPolicy.hasJsessionId(cookies)
 
     private const val WEIHAI_TICKET_COOKIE_PREFIX = "wengine_vpn_ticket"
 
@@ -145,15 +143,43 @@ object WeihaiEasEntryPolicy {
      *
      * 走 WebVPN 时落点是反代后的 `authentication/main` 或 `student_index`，且必然带
      * `wengine_vpn_ticket`；直连时 host 是 `yjsgl.hitwh.edu.cn`、**没有** VPN 票据，
-     * 只能看落点路径与业务会话。
+     * 只能看业务会话与「是不是登录页」。
+     *
+     * 直连不能沿用反代的精确路径白名单：反代固定暴露 `/authentication/main` 与
+     * `/student_index`，而直连时教务自己也有一套入口路由（`/xtgl/login_slogin.html`
+     * 登录、登录后落 `index_initMenu` 之类），钉死路径会让登录成功后永远判不出来。
+     * 因此这里与本科直连口径一致：**不是登录/认证页 + 已有业务会话**即算登录完成。
      */
     fun isDirectGraduateLanding(url: String, cookies: Map<String, String>): Boolean {
         val uri = runCatching { URI(url) }.getOrNull() ?: return false
         if (!uri.scheme.orEmpty().equals("https", ignoreCase = true)) return false
-        if (!uri.host.orEmpty().equals("yjsgl.hitwh.edu.cn", ignoreCase = true)) return false
+        if (!uri.host.orEmpty().equals(WeihaiGraduateSessionPolicy.DIRECT_HOST, ignoreCase = true)) return false
         val path = uri.path.orEmpty().trimEnd('/').lowercase()
-        if (!path.endsWith("/authentication/main") && !path.endsWith("/student_index")) return false
+        if (path.isEmpty()) return false
+        // 登录表单页与统一认证页本身不算成功，否则会在还没登录时误判并收尾。
+        if (path.contains("login") || path.contains("/cas") ||
+            path.contains("authserver") || path.contains("authentication/require")
+        ) return false
         return hasJsessionId(cookies)
+    }
+
+    /**
+     * 研究生会话是否具备该入口必需的凭据。
+     *
+     * 两条入口的会话凭据互斥，不能共用一套判据：
+     * - WebVPN 反代的业务会话由网关代管，浏览器只拿得到 `wengine_vpn_ticket`；
+     * - 校园网直连没有反代层，业务会话就是 `JSESSIONID`。
+     *
+     * 该函数只回答「凭据齐不齐」，不代表凭据仍然有效——那要由 `/user/me` 实测，
+     * 见 [cn.limpu.hita.data.source.web.eas.WeihaiGraduateEASWebSource.validate]。
+     */
+    fun hasGraduateSessionCredential(
+        baseUrl: String?,
+        cookies: Map<String, String>,
+    ): Boolean = if (graduateBaseUrlFor(baseUrl) == WeihaiGraduateSessionPolicy.BASE_URL) {
+        !cookies[WeihaiGraduateSessionPolicy.TICKET_COOKIE].isNullOrBlank()
+    } else {
+        WeihaiGraduateSessionPolicy.hasJsessionId(cookies)
     }
 
     private fun isDirectHost(host: String): Boolean =
