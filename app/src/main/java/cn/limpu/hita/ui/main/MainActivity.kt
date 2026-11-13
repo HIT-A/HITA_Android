@@ -167,7 +167,9 @@ class MainActivity : HiltBaseActivity<MainViewBinding>(),
                         ThemeTools.MODE.FOLLOW -> R.drawable.ic_moon_auto
                     },
                     themeStyle = HitaTheme.preferenceStyle,
-                    tabContent = { selected, visible, modifier -> MainFragmentPager(tabHost, selected, visible, modifier) },
+                    tabContent = { selected, visible, modifier ->
+                        MainFragmentPager(tabHost, selected, visible, ::selectTabForSwipe, modifier)
+                    },
                 )
             }
         }
@@ -232,6 +234,12 @@ class MainActivity : HiltBaseActivity<MainViewBinding>(),
 
     fun refreshOptionalTabs() {
         viewModel.refreshVisibleTabs()
+    }
+
+    /** 滑动切页：按 Tab 身份换算成当前可见列表里的索引再交给 ViewModel。 */
+    private fun selectTabForSwipe(tab: MainTab) {
+        val index = viewModel.state.value.navigation.visibleTabs.indexOf(tab)
+        if (index >= 0) viewModel.selectTab(index)
     }
     override fun onStop() { easRepository.observeEasToken().removeObserver(tokenObserver); super.onStop() }
     override fun onDestroy() {

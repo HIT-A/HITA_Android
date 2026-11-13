@@ -99,6 +99,7 @@ private val usefulLinkGroups = listOf(
             UsefulLink(R.string.useful_link_mycos, "https://hitsz.mycospxk.com/", R.drawable.ic_baseline_edit_24),
             UsefulLink(R.string.useful_link_grader, "https://grader.hitsz.edu.cn/home", R.drawable.ic_baseline_done_24),
             UsefulLink(R.string.useful_link_cslab, "https://git.cs-lab.top/cslab", R.drawable.ic_baseline_cloud_download_24),
+            UsefulLink(R.string.useful_link_geniusta, "https://geniusta.hitsz.edu.cn:10086/", R.drawable.ic_baseline_email_24),
         )
     ),
     UsefulLinkGroup(

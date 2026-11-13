@@ -30,9 +30,10 @@ class MainNavigationStateTest {
 
     @Test fun appearingBlogPreservesNavigationIdentityInsteadOfItsOldPosition() {
         val state = MainNavigationState.restore(signedOutTabs).selectIndex(2).withVisibleTabs(signedInTabs)
-        assertEquals(MainTab.TIMETABLE, state.selectedTab)
+        // 底栏顺序是 今日 → 时间表 → 待办：索引 2 是待办，登录后仍按身份保持选中。
+        assertEquals(MainTab.HOMEWORK, state.selectedTab)
         assertEquals(2, state.selectedIndex)
-        assertEquals(MainTab.TIMETABLE, state.withVisibleTabs(signedOutTabs).selectedTab)
+        assertEquals(MainTab.HOMEWORK, state.withVisibleTabs(signedOutTabs).selectedTab)
     }
 
     @Test fun disappearingSelectedTabReturnsToToday() {

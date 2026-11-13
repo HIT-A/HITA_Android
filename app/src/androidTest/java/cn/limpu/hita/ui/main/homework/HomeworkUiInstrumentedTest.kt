@@ -15,7 +15,9 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import cn.limpu.hita.R
 import cn.limpu.hita.data.repository.homework.HomeworkRepository
+import cn.limpu.hita.data.repository.grader.GraderError
 import cn.limpu.hita.data.repository.grader.GraderRepository
+import cn.limpu.hita.data.repository.grader.GraderState
 import cn.limpu.hita.ui.design.HitaComposeTheme
 import androidx.activity.ComponentActivity
 import java.time.LocalDate
@@ -67,11 +69,13 @@ class HomeworkUiInstrumentedTest {
                         }
                     })
                 }
+                // 所有日期的待办常驻显示：不再因为选中日期而隐藏其它日子。
                 awaitText("fixture-today")
-                assertFalse(hasText("fixture-yesterday"))
-                assertFalse(hasText("fixture-tomorrow"))
-                assertFalse(hasText("fixture-undated"))
+                awaitText("fixture-yesterday")
+                awaitText("fixture-tomorrow")
+                awaitText("fixture-undated")
 
+                // 快捷添加落在当前选中日期（默认今天），并立刻出现在今天的分组里。
                 val quickInput = awaitNode { it.isEnabled && it.isVisibleToUser && it.className?.toString() == "android.widget.EditText" }
                 assertTrue(quickInput.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, Bundle().apply {
                     putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, "fixture-quick")
@@ -81,12 +85,14 @@ class HomeworkUiInstrumentedTest {
                 }
                 clickText(base.getString(R.string.homework_add))
                 awaitText("fixture-quick")
+
+                // 切换目标日期只改变新增落点，不影响既有列表。
                 clickText(base.getString(R.string.homework_next))
-                awaitText("fixture-tomorrow")
-                assertFalse(hasText("fixture-today"))
-                assertFalse(hasText("fixture-quick"))
-                clickText(base.getString(R.string.homework_today))
                 awaitText("fixture-today")
+                awaitText("fixture-quick")
+                clickText(base.getString(R.string.homework_today))
+
+                // 编辑
                 clickText("fixture-today", matchDescription = false)
                 awaitText(base.getString(R.string.homework_cancel))
                 val input = awaitNode { it.className?.toString() == "android.widget.EditText" }
@@ -99,8 +105,8 @@ class HomeworkUiInstrumentedTest {
                 awaitText("fixture-edited")
                 clickText(base.getString(R.string.homework_save))
                 awaitText("fixture-edited")
-                assertFalse(hasText("fixture-today"))
 
+                // 完成 + 撤销
                 val checkbox = awaitNode { it.isCheckable && it.contentDescription?.toString() == "fixture-edited" }
                 assertTrue(checkbox.performAction(AccessibilityNodeInfo.ACTION_CLICK))
                 awaitText(base.getString(R.string.homework_marked_done))
@@ -109,19 +115,75 @@ class HomeworkUiInstrumentedTest {
                 assertTrue(awaitNode {
                     it.isCheckable && it.contentDescription?.toString() == "fixture-edited"
                 }.performAction(AccessibilityNodeInfo.ACTION_CLICK))
-                val completedLabel = base.getString(R.string.homework_completed_count, 1)
-                awaitText(completedLabel)
-                clickText(completedLabel)
+
+                // 已完成整块默认收起：折叠头可见，条目不可见；展开后条目出现。
+                val completedHeader = base.getString(R.string.homework_completed_section, 1)
+                awaitText(completedHeader)
+                assertFalse("已完成项在折叠态不应出现", hasText("fixture-edited"))
+                clickText(completedHeader)
                 awaitText("fixture-edited")
                 assertTrue(awaitNode { it.isCheckable && it.contentDescription?.toString() == "fixture-edited" }.isChecked)
+                // 再收起，条目重新隐藏（收起有动画，轮询等待它消失）。
+                clickText(base.getString(R.string.homework_collapse))
+                val collapseDeadline = System.nanoTime() + 5_000_000_000L
+                while (hasText("fixture-edited") && System.nanoTime() < collapseDeadline) {
+                    instrumentation.waitForIdleSync()
+                    Thread.sleep(50)
+                }
+                assertFalse("收起后已完成项应隐藏", hasText("fixture-edited"))
+            }
+        } finally {
+            base.deleteSharedPreferences("$preferenceName-timeline_homework_v1")
+            base.deleteSharedPreferences("$preferenceName-grader_secure_v1")
+        }
+    }
 
-                clickText(base.getString(R.string.homework_undated_count, 1))
-                awaitText("fixture-undated")
-                assertFalse(hasText("fixture-edited"))
-                assertFalse(hasText("fixture-yesterday"))
-                clickText(base.getString(R.string.homework_previous))
-                awaitText("fixture-yesterday")
-                assertFalse(hasText("fixture-undated"))
+    @Test fun graderCardShowsTrimmedHintAndReloginOnRefreshFailure() = runBlocking {
+        val preferenceName = "homework-grader-" + UUID.randomUUID()
+        val isolatedApp = object : Application() {
+            init { attachBaseContext(base) }
+            override fun getApplicationContext(): Context = this
+            override fun getSharedPreferences(name: String, mode: Int): SharedPreferences =
+                base.getSharedPreferences("$preferenceName-$name", mode)
+        }
+        val repository = HomeworkRepository(isolatedApp)
+        try {
+            ActivityScenario.launch(ComponentActivity::class.java).use { scenario ->
+                scenario.onActivity { activity ->
+                    val easRepository = dagger.hilt.android.EntryPointAccessors.fromApplication(
+                        base, cn.limpu.hita.data.repository.EasRepositoryWiringEntryPoint::class.java,
+                    ).easRepository()
+                    val model = ViewModelProvider(activity, object : ViewModelProvider.Factory {
+                        @Suppress("UNCHECKED_CAST")
+                        override fun <T : ViewModel> create(modelClass: Class<T>): T =
+                            HomeworkViewModel(repository, GraderRepository(isolatedApp), easRepository) as T
+                    })[HomeworkViewModel::class.java]
+                    activity.setContentView(ComposeView(activity).apply {
+                        setContent {
+                            HitaComposeTheme {
+                                HomeworkScreen(
+                                    model,
+                                    graderVisibleOverride = true,
+                                    graderStateOverride = GraderState(
+                                        accountId = "account",
+                                        accountName = "学号 20230001",
+                                        ready = true,
+                                        error = GraderError.NETWORK,
+                                    ),
+                                )
+                            }
+                        }
+                    })
+                }
+                // 已连接用户下的说明只保留前半句，后半句已删除。
+                val hint = base.getString(R.string.grader_local_completion_hint)
+                awaitText(hint)
+                assertEquals("已在 Grader 提交过的作业会自动隐藏。", hint)
+
+                // 刷新失败：只显示错误文本 + 就地「重新登录」，不弹任何对话框。
+                awaitText(base.getString(R.string.grader_network_error))
+                awaitText(base.getString(R.string.grader_relogin))
+                assertFalse("不得为重新登录弹窗", hasText(base.getString(R.string.grader_login_title)))
             }
         } finally {
             base.deleteSharedPreferences("$preferenceName-timeline_homework_v1")

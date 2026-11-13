@@ -5,8 +5,11 @@ import android.os.Bundle
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.FragmentContainerView
@@ -122,23 +125,42 @@ internal fun MainFragmentPager(
     host: MainTabHost,
     selectedTab: MainTab,
     visibleTabs: List<MainTab>,
+    onSelectTab: (MainTab) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    // 时间表自身的左右拖动用于切换周次，不参与翻页；其余页都可左右滑。
+    val swipeEnabled = selectedTab != MainTab.TIMETABLE && visibleTabs.size > 1
+    val swipe = rememberTabSwipe(
+        enabled = swipeEnabled,
+        currentIndex = visibleTabs.indexOf(selectedTab),
+        pageCount = visibleTabs.size,
+        onSelect = { index -> visibleTabs.getOrNull(index)?.let(onSelectTab) },
+    )
     // Tab 显隐完全由 MainTabHost 的容器 visibility 决定。
     // 之前这里还叠了一层 animateFloatAsState → containers[tab].alpha，
     // 一旦动画停在 0（切 Tab/登录返回/首帧竞态都可能），容器仍 VISIBLE 但内容全透明：
     // 表现为“整页空白，但点击还能触发功能”，而且只能靠切换 Tab 或旋转屏幕恢复。
-    AndroidView(
-        modifier = modifier,
-        factory = { context ->
-            host.createView(context).also { view ->
-                (view.parent as? ViewGroup)?.removeView(view)
-                view.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
-                    override fun onViewAttachedToWindow(v: View) = host.resume()
-                    override fun onViewDetachedFromWindow(v: View) = Unit
-                })
+    Box(
+        modifier = modifier
+            .then(swipe.modifier)
+            // 只在 layer 阶段读取动画状态：逐帧只失效绘制层，不重组整棵页面树。
+            .graphicsLayer {
+                translationX = swipe.offset.value
+                alpha = swipe.alpha.value
             }
-        },
-        update = { host.render(selectedTab, visibleTabs) },
-    )
+    ) {
+        AndroidView(
+            modifier = Modifier.fillMaxSize(),
+            factory = { context ->
+                host.createView(context).also { view ->
+                    (view.parent as? ViewGroup)?.removeView(view)
+                    view.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
+                        override fun onViewAttachedToWindow(v: View) = host.resume()
+                        override fun onViewDetachedFromWindow(v: View) = Unit
+                    })
+                }
+            },
+            update = { host.render(selectedTab, visibleTabs) },
+        )
+    }
 }

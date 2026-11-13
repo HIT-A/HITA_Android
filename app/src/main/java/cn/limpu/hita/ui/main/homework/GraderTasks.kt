@@ -63,6 +63,9 @@ internal fun GraderConnectionCard(
             if (state.ready && state.accountId != null && empty && state.error == null && !state.syncing) {
                 Text(stringResource(R.string.grader_empty), style = MaterialTheme.typography.bodyMedium)
             }
+            // 刷新失败（网络/响应异常）时也给一个就地重新登录入口：
+            // 会话可能已经失效，但用户不该被弹窗打断，只是多一个可选按钮。
+            val failedRefresh = state.accountId != null && !state.needsLogin && state.error != null
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (state.accountId == null || state.needsLogin) {
                     TextButton(onClick = onLogin, enabled = !state.syncing) {
@@ -73,6 +76,11 @@ internal fun GraderConnectionCard(
                     if (!state.needsLogin) {
                         TextButton(onClick = onRefresh, enabled = !state.syncing) {
                             Text(stringResource(R.string.grader_refresh))
+                        }
+                    }
+                    if (failedRefresh) {
+                        TextButton(onClick = onLogin, enabled = !state.syncing) {
+                            Text(stringResource(R.string.grader_relogin))
                         }
                     }
                     TextButton(onClick = onDisconnect, enabled = !state.syncing) {
