@@ -31,8 +31,6 @@ internal class MainTabHost(
     }
     private val containers = mutableMapOf<MainTab, FragmentContainerView>()
     private var root: FrameLayout? = null
-    /** 滑动过程中提前显示的目标页；渲染时保持它可见，避免拖动时页面消失。 */
-    private var previewing: MainTab? = null
     private var selected = MainTab.TIMELINE
     private var visible = MainTab.visibleFor(null)
     private var lastActivated: MainTab? = null
@@ -86,8 +84,7 @@ internal class MainTabHost(
             val fragment = if (tab == selected) active else manager.findFragmentByTag(tag(tab))
             val isSelected = tab == selected && tab in visible
             containers.getValue(tab).apply {
-                val keepVisible = isSelected || tab == previewing
-                visibility = if (keepVisible) View.VISIBLE else View.INVISIBLE
+                visibility = if (isSelected) View.VISIBLE else View.INVISIBLE
                 isEnabled = isSelected
                 if (isSelected) bringToFront()
             }
@@ -103,43 +100,10 @@ internal class MainTabHost(
             }
         }
         if (changed) transaction.commitNow()
-        // 选中的页已经换掉，预览态自然结束。
-        previewing = null
         lastRendered = selection
         if (lastActivated != selected) {
             lastActivated = selected
             activate(active)
-        }
-    }
-
-    /**
-     * 滑动过程中提前显示目标页：容器可见、Fragment 提升到 STARTED 但不 RESUMED，
-     * 因此用户“看到”下一页跟着手指走，却不会误触它的交互，也不会触发它的数据刷新。
-     */
-    fun previewTab(tab: MainTab): Boolean {
-        if (closed || manager.isDestroyed || manager.isStateSaved) return false
-        val container = containers[tab] ?: return false
-        previewing = tab
-        val transaction = manager.beginTransaction().setReorderingAllowed(true)
-        val fragment = manager.findFragmentByTag(tag(tab)) ?: factory(tab).also {
-            transaction.add(container.id, it, tag(tab))
-        }
-        // STARTED 而不是 RESUMED：跟手预览可见，但不恢复交互，也不触发该页的数据刷新。
-        transaction.setMaxLifecycle(fragment, Lifecycle.State.STARTED)
-        transaction.commitNow()
-        container.visibility = View.VISIBLE
-        container.isEnabled = false
-        return true
-    }
-
-    /** 手势取消：目标页回到隐藏态；不触碰 Fragment 生命周期，下次渲染会重算。 */
-    fun restoreHidden(tab: MainTab) {
-        if (previewing == tab) previewing = null
-        if (tab == selected) return
-        containers[tab]?.let {
-            it.visibility = View.INVISIBLE
-            it.isEnabled = false
-            it.translationX = 0f
         }
     }
 
@@ -179,7 +143,11 @@ internal fun MainFragmentPager(
     Box(
         modifier = modifier
             .then(swipe.modifier)
-            .graphicsLayer { translationX = swipe.offsetPx }
+            // 只在 layer 阶段读取动画状态：逐帧只失效绘制层，不重组整棵页面树。
+            .graphicsLayer {
+                translationX = swipe.offset.value
+                alpha = swipe.alpha.value
+            }
     ) {
         AndroidView(
             modifier = Modifier.fillMaxSize(),

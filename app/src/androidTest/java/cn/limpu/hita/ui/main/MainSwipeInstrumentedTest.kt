@@ -19,12 +19,13 @@ import org.junit.runner.RunWith
 /**
  * 主界面左右滑动切页的仪器测试。
  *
- * 只断言无时序竞争的结构约束：时间表页滑不动、首尾页不回绕、关掉的 Tab 不出现在可切列表。
+ * 断言两类约束：
+ * - 结构：时间表页滑不动、首尾页不回绕、关掉的 Tab 不出现在可切列表。
+ * - 步进：一次滑动只推进/回退一页。收尾动画期间手势会被忽略（`settling` 闸门），
+ *   因此 `input swipe` 注入的连续事件不会叠加出两页。
  *
- * 精确的「一次滑动只翻一页」不在这里验证：`executeShellCommand("input swipe")` 与
- * `ActivityScenario` 的 idle 同步会让事件序列在测试进程里重排，实测会推进两页，
- * 而真机与手动注入均只翻一页。该语义由 `TabSwipeTest` 用纯函数覆盖
- * （`commitDirection` 只返回 -1/0/1），产品代码也只在每次手势里调用一次 `selectState`。
+ * 精确的判定阈值由 `TabSwipeTest` 用纯函数覆盖（`commitDirection` 只返回 -1/0/1），
+ * 这里只验证端到端的落点。
  */
 @RunWith(AndroidJUnit4::class)
 class MainSwipeInstrumentedTest {
@@ -56,6 +57,25 @@ class MainSwipeInstrumentedTest {
         SystemClock.sleep(600)
         assertEquals(MainTab.NAVIGATION, awaitSelectedTab(scenario, MainTab.NAVIGATION))
         assertEquals(visible.last(), MainTab.NAVIGATION)
+    }
+
+    @Test fun oneSwipeAdvancesExactlyOnePage() = launch { scenario ->
+        val visible = selectTab(scenario, MainTab.TIMETABLE)
+        val neighbours = visible.takeLast(2)
+        // 时间表自身不参与翻页，从它的右邻起测：该页两侧都有真实相邻页。
+        selectTabDirect(scenario, neighbours.first())
+        assertEquals(neighbours.first(), awaitSelectedTab(scenario, neighbours.first()))
+        swipe(scenario, left = true)
+        assertEquals(neighbours.last(), awaitSelectedTab(scenario, neighbours.last()))
+    }
+
+    @Test fun oneSwipeGoesBackExactlyOnePage() = launch { scenario ->
+        val visible = selectTab(scenario, MainTab.TIMETABLE)
+        val neighbours = visible.takeLast(2)
+        selectTabDirect(scenario, neighbours.last())
+        assertEquals(neighbours.last(), awaitSelectedTab(scenario, neighbours.last()))
+        swipe(scenario, left = false)
+        assertEquals(neighbours.first(), awaitSelectedTab(scenario, neighbours.first()))
     }
 
     @Test fun disabledOptionalTabNeverAppearsAsSwipeTarget() = launch { scenario ->
@@ -121,7 +141,7 @@ class MainSwipeInstrumentedTest {
         return selected
     }
 
-    /** 切页有 200ms 收尾动画、状态经 ViewModel 回流，且 Fragment 随后要切到 RESUMED。 */
+    /** 切页含两段 150ms 收尾动画、状态经 ViewModel 回流，且 Fragment 随后要切到 RESUMED。 */
     private fun awaitSelectedTab(
         scenario: ActivityScenario<MainActivity>,
         expected: MainTab? = null,
@@ -165,8 +185,8 @@ class MainSwipeInstrumentedTest {
         instrumentation.uiAutomation.executeShellCommand(
             "input swipe $from $y $to $y $SWIPE_DURATION_MS"
         ).close()
-        // 收尾动画 200ms + 状态回流，等它走完再断言，避免读到中间态。
-        SystemClock.sleep(700)
+        // 两段 150ms 收尾 + 状态回流与 Fragment 事务，等它走完再断言，避免读到中间态。
+        SystemClock.sleep(900)
     }
 
     private companion object {
