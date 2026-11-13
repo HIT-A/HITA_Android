@@ -234,6 +234,19 @@ CAS 认证（且可能触发多因子），失败面明显更大。这与用户�
 而 `EasWebCredentialPolicy` 早已把 `yjsgl.hitwh.edu.cn` / `jwts.hitwh.edu.cn` 列为直连登录表单页。
 两者不一致导致**直连场景下手动输入的账号密码永远捕获不到**，下次无感续期只能重新手输。已对齐。
 
+### 7.4 回归测试的可判别性验证
+
+成功标准要求断言「能在旧实现上失败」。因为修复同时引入了新符号，
+直接回退整个文件会让测试类编译失败（已实测：`compileDebugUnitTestKotlin FAILED`），
+无法区分「编译不过」与「断言失败」。因此采用**单点回退**，只移除一条判定、保留其余新 API：
+
+| 探针 | 改动 | 结果 |
+|---|---|---|
+| bug 1 | 删除 `needsDesktopUserAgentFor()` 中的直连宿主分支 | `direct graduate entry requires desktop user agent` **FAILED** |
+| bug 2 | `hasGraduateSessionCredential()` 入口判定恒真（等同旧口径恒看反代票据） | `session credential follows the entry` **FAILED** |
+
+两次探针都在跑完后立即逐字节还原，`git status` 为空。
+
 ### 7.4 仍未验证（需要校内网/真机）
 
 1. `yjsgl.hitwh.edu.cn` 在校园网内的实际解析地址与 443 可达性。
