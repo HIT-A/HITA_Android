@@ -138,6 +138,7 @@ PDF 依赖自带资源的约定、去重依据和回归命令见 [PDF 资源](do
 
 ```bash
 python3 scripts/test_check_repository.py
+python3 scripts/check_dark_contrast.py                    # 暗色模式对比度（WCAG AA）
 python3 scripts/check_repository.py                       # 检查当前文件与例外是否一致
 git fetch origin
 python3 scripts/check_repository.py --base-ref origin/main # 另外校验例外只能删减

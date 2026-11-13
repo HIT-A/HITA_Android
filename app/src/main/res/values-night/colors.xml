@@ -9,7 +9,7 @@
     <color name="on_primary">#FF001A33</color>
     <color name="primary_container">#FF003355</color>
     <color name="on_primary_container">#FFD0E7FF</color>
-    <color name="primary_disabled">#776BB5F7</color>
+    <color name="primary_disabled">#996BB5F7</color>
 
     <!-- Secondary -->
     <color name="secondary">#FF33AAEE</color>
@@ -43,7 +43,7 @@
 
     <!-- Outline -->
     <color name="outline">#FF938F99</color>
-    <color name="outline_variant">#FF49454F</color>
+    <color name="outline_variant">#FF66636B</color>
 
     <!-- ========================================== -->
     <!-- 基础颜色 (夜间不变)                           -->
@@ -63,8 +63,8 @@
     <!-- 半透明功能色（夜间）                        -->
     <!-- ========================================== -->
     <color name="primary_subtle">#117B8CFF</color>
-    <color name="on_surface_hint">#77ffffff</color>
-    <color name="surface_disabled">#66FFFFFF</color>
+    <color name="on_surface_hint">#8Affffff</color>
+    <color name="surface_disabled">#99FFFFFF</color>
 
     <!-- ========================================== -->
     <!-- 兼容别名 (旧命名保留)                        -->
@@ -115,10 +115,10 @@
     <color name="season_autumn">#ffb157</color>
     <color name="season_winter">#3381ff</color>
 
-    <color name="season_spring_text">#60af17</color>
-    <color name="season_summer_text">#37a7df</color>
-    <color name="season_autumn_text">#ffb157</color>
-    <color name="season_winter_text">#01579B</color>
+    <color name="season_spring_text">#235600</color>
+    <color name="season_summer_text">#003348</color>
+    <color name="season_autumn_text">#4d2900</color>
+    <color name="season_winter_text">#001428</color>
 
     <!-- ========================================== -->
     <!-- 小部件颜色（夜间）                            -->

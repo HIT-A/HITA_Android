@@ -3,6 +3,7 @@ package cn.limpu.hita.ui.design
 import android.content.SharedPreferences
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.ColorScheme
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
 import androidx.compose.material3.Typography
@@ -223,20 +224,32 @@ fun HitaComposeTheme(
         isDark = actualDarkTheme,
     )
     val fontScheme = hitaFontSchemeFor(actualStyle)
+    val colorScheme = hitaColorScheme(
+        style = actualStyle,
+        colorPreset = colorPreset,
+        darkTheme = actualDarkTheme
+    )
     CompositionLocalProvider(
         LocalHitaDesignTokens provides tokens,
         LocalHitaThemeState provides themeState,
     ) {
         MaterialTheme(
-            colorScheme = hitaColorScheme(
-                style = actualStyle,
-                colorPreset = colorPreset,
-                darkTheme = actualDarkTheme
-            ),
+            colorScheme = colorScheme,
             typography = hitaTypographyFor(fontScheme),
             shapes = Shapes(),
-            content = content
-        )
+        ) {
+            // Compose 的 `LocalContentColor` 默认值是 **纯黑**（material3 `ContentColorKt`），
+            // 且 `MaterialTheme` 不会设置它——只有 `Surface`/`Scaffold`/`Card` 这类带背景的
+            // 容器才会顺带绑定一次。本项目 42 处 `HitaComposeTheme` 调用点里几乎都没有外层
+            // `Surface`，于是所有未显式指定 `color` 的 `Text` / `Icon` 在暗色主题下都是黑字
+            // 压在深色背景上，对比度接近 1:1（用户报告的就是威海登录页的「本科生/研究生」）。
+            //
+            // 在主题根统一绑定 `onSurface` 一次性修好这一整类问题，而不是逐点补 color：
+            // 逐点补会把「默认值是什么」这个隐式契约留给每个调用方，漏一处就是一处不可读文字。
+            CompositionLocalProvider(LocalContentColor provides colorScheme.onSurface) {
+                content()
+            }
+        }
     }
 }
 
@@ -332,7 +345,8 @@ private fun hitaColorScheme(
     return when (style) {
         HitaThemeStyle.Classic -> basic
         HitaThemeStyle.AppleGlass -> base.copy(
-            primary = if (darkTheme) Color(0xFF0A84FF) else Color(0xFF007AFF),
+            // 暗色下 primary 必须压深：白字压在 0xFF0A84FF 上只有 3.65:1，达不到正文 4.5:1。
+            primary = if (darkTheme) Color(0xFF0A6CD6) else Color(0xFF007AFF),
             onPrimary = Color.White,
             primaryContainer = if (darkTheme) Color(0xFF12324E) else Color(0xFFD9ECFF),
             onPrimaryContainer = if (darkTheme) Color(0xFFD6EAFF) else Color(0xFF00315F),
@@ -343,8 +357,12 @@ private fun hitaColorScheme(
             surfaceVariant = if (darkTheme) Color.White.copy(alpha = 0.12f) else Color.White.copy(alpha = 0.30f),
             onSurface = if (darkTheme) Color(0xFFF5F7FA) else Color(0xFF101318),
             onSurfaceVariant = if (darkTheme) Color(0xFFCCD2DA) else Color(0xFF505761),
-            outline = Color.White.copy(alpha = if (darkTheme) 0.34f else 0.72f),
-            outlineVariant = Color.White.copy(alpha = if (darkTheme) 0.18f else 0.48f)
+            // 描边是可见图形元素（分隔线/边框），按 3:1 判定。白色 0.34/0.18 叠加在
+            // 0xFF090B10 上分别只有 1.97:1 和 1.08:1——暗色下等于不可见。
+            // 取值按「叠加后的实际表面色」校准（surface = 0.16 白 over background = #303236），
+            // 否则对着纯背景算够、压在卡片上仍然不够。
+            outline = if (darkTheme) Color(0xFF9AA0A6) else Color.White.copy(alpha = 0.72f),
+            outlineVariant = if (darkTheme) Color(0xFF7E838A) else Color.White.copy(alpha = 0.48f)
         )
         HitaThemeStyle.Cyber -> if (darkTheme) {
             base.copy(
@@ -359,8 +377,8 @@ private fun hitaColorScheme(
                 surfaceVariant = Color(0xFF161D33),
                 onSurface = Color(0xFFE6EDF7),
                 onSurfaceVariant = Color(0xFF93A0BE),
-                outline = Color(0xFF3A4666),
-                outlineVariant = Color(0xFF232C47),
+                outline = Color(0xFF737C92),
+                outlineVariant = Color(0xFF616B85),
             )
         } else {
             base.copy(
@@ -392,8 +410,8 @@ private fun hitaColorScheme(
                 surfaceVariant = Color(0xFF343028),
                 onSurface = Color(0xFFF4ECD9),
                 onSurfaceVariant = Color(0xFFC9BEA8),
-                outline = Color(0xFFA99E8B),
-                outlineVariant = Color(0xFF514A3F),
+                outline = Color(0xFF918D86),
+                outlineVariant = Color(0xFF807B73),
             )
         } else {
             base.copy(
@@ -424,8 +442,8 @@ private fun hitaColorScheme(
             surfaceVariant = if (darkTheme) Color(0xFF232327) else Color(0xFFECECEC),
             onSurface = if (darkTheme) Color(0xFFF5F5F5) else Color(0xFF101010),
             onSurfaceVariant = if (darkTheme) Color(0xFFB9B9C0) else Color(0xFF4A4A4A),
-            outline = if (darkTheme) Color(0xFF45454C) else Color(0xFF8F8F8F),
-            outlineVariant = if (darkTheme) Color(0xFF2A2A30) else Color(0xFFD9D9D9),
+            outline = if (darkTheme) Color(0xFF7F7F83) else Color(0xFF8F8F8F),
+            outlineVariant = if (darkTheme) Color(0xFF707075) else Color(0xFFD9D9D9),
         )
         HitaThemeStyle.DeepSpace -> if (darkTheme) {
             // 深空：静谧夜空 + 星砂金 + 暗星云紫/玫瑰，不科幻、不刺眼
@@ -441,8 +459,8 @@ private fun hitaColorScheme(
                 surfaceVariant = Color(0xFF151C33),
                 onSurface = Color(0xFFEDEEF0),
                 onSurfaceVariant = Color(0xFFA9B0BE),
-                outline = Color(0xFF3D465E),
-                outlineVariant = Color(0xFF212A42),
+                outline = Color(0xFF737A8B),
+                outlineVariant = Color(0xFF646B7E),
             )
         } else {
             // 晨昏蒙影：月白暖灰 + 暗星金
@@ -476,8 +494,8 @@ private fun hitaColorScheme(
                 surfaceVariant = Color(0xFF2C2924),
                 onSurface = Color(0xFFE9E2D2),
                 onSurfaceVariant = Color(0xFFA79D8B),
-                outline = Color(0xFF5C5548),
-                outlineVariant = Color(0xFF34302A),
+                outline = Color(0xFF8A857B),
+                outlineVariant = Color(0xFF797469),
             )
         } else {
             // 宣纸：暖白纸面 + 墨色 + 朱砂印泥

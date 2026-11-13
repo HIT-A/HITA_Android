@@ -115,10 +115,10 @@
     <color name="season_autumn">#ffb157</color>
     <color name="season_winter">#3381ff</color>
 
-    <color name="season_spring_text">#60af17</color>
-    <color name="season_summer_text">#37a7df</color>
-    <color name="season_autumn_text">#ffb157</color>
-    <color name="season_winter_text">#01579B</color>
+    <color name="season_spring_text">#235600</color>
+    <color name="season_summer_text">#003348</color>
+    <color name="season_autumn_text">#4d2900</color>
+    <color name="season_winter_text">#001428</color>
 
     <!-- ========================================== -->
     <!-- 小部件颜色（日间）                            -->

@@ -186,3 +186,58 @@ CAS 认证（且可能触发多因子），失败面明显更大。这与用户�
 1. 校园网环境下访问 `https://webvpn.hitwh.edu.cn/` 的实际表现（能否打开、跳转链、错误页文案）。
 2. 校园网环境下 `jwts.hitwh.edu.cn` / `yjsgl.hitwh.edu.cn` 是否可直连（浏览器直接打开即可判断）。
 3. HITA 在该场景下的失败表现（HITA 日志里 `outdated browser` / `isSuccessPage(weihai)` 等埋点输出）。
+
+## 七、2026-11-13 修复：两个已报告的登录故障
+
+代码级根因已定位并修复，全部落在纯函数层，可用单测锁死。
+回归用例见 `app/src/test/java/cn/limpu/hita/data/source/web/eas/WeihaiGraduateSessionRegressionTest.kt`。
+
+### 7.1 校园网内报「浏览器版本过旧」
+
+**成因**：`WeihaiGraduateSessionPolicy.needsDesktopUserAgentFor()` 只对
+`webvpn.hitwh.edu.cn` 且路径以反代前缀开头才返回 `true`。校园网直连时登录页是
+`https://yjsgl.hitwh.edu.cn/`，判定恒为 `false`，WebView 全程保持移动 UA，
+被 yjsgl 服务端按 UA 判成过时浏览器并下发拦截页。
+
+**修复**：把直连宿主 `yjsgl.hitwh.edu.cn` 纳入桌面 UA 判定（`/authserver/` 表单页仍保留移动 UA，
+否则原生输入法与 HTML input 会错位）。同一个应用、同一套服务端 UA 判定，两条入口必须一致。
+
+**证据边界**：服务端到底按 `Mobile` token、Chrome 大版本号还是 UA 白名单判定，属**未验证**。
+已记录被拒的是 `Jsoup/*` 与 `Chrome Mobile 144`，已接受的是桌面 Chrome 134/146。
+仓储内 iOS 端的实验记录显示 iOS Safari 18 移动 UA 可用，说明拒绝集不是「全部移动 UA」，
+但对 Android WebView 统一用桌面 UA 是保守且与现有数据层一致的选择。
+
+### 7.2 校外（WebVPN）走完验证码后报「会话无效」
+
+**成因**：`5aa5fe6` 把 `finishWithCookies()` 写入 `web_base_url` 的值从「实际落地页 URL」
+改成「入口根地址」（`WeihaiEasEntryPolicy.timetableBaseUrl`），而数据层
+`WeihaiGraduateEASWebSource.login()` 仍把它当落地页传给
+`WeihaiGraduateSessionPolicy.isAuthenticatedLanding()`。该函数要求 path 精确等于
+`/authentication/main` 或 `/student_index`，入口根地址必然不匹配——于是**无论登录是否成功**
+都恒定返回「研究生登录会话无效」。这与用户描述的「验证码之后才报会话无效」且与入口无关完全吻合。
+
+**修复**：把「落地页判定」与「凭据判定」分开。
+
+| 关注点 | 旧实现 | 新实现 |
+|---|---|---|
+| 凭据种类 | 恒要求 `wengine_vpn_ticket` | 按入口：反代看票据，直连看 `JSESSIONID` |
+| 数据层校验 | 把 base 当落地页 | 只看入口对应凭据，再由 `/user/me` 实测 |
+| 收尾闸门 | 恒用反代落点判据 | 按 `weihaiEntry` 选择落点判据 |
+| 直连连通判定 | 精确路径白名单 | 非登录/认证页 + 有业务会话 |
+
+新增 `WeihaiEasEntryPolicy.hasGraduateSessionCredential(baseUrl, cookies)` 承担入口相关的凭据判定；
+`validate()` 不再写死反代票据。
+
+### 7.3 顺带修掉的第三处缺陷
+
+`approvedCredentialOrigins()` 只允许 `webvpn.hitwh.edu.cn` 与 `ids.hit.edu.cn` 的凭据桥消息，
+而 `EasWebCredentialPolicy` 早已把 `yjsgl.hitwh.edu.cn` / `jwts.hitwh.edu.cn` 列为直连登录表单页。
+两者不一致导致**直连场景下手动输入的账号密码永远捕获不到**，下次无感续期只能重新手输。已对齐。
+
+### 7.4 仍未验证（需要校内网/真机）
+
+1. `yjsgl.hitwh.edu.cn` 在校园网内的实际解析地址与 443 可达性。
+2. 直连研究生的登录表单究竟由 yjsgl 自己渲染（`/xtgl/login_slogin.html`）还是跳 `ids.hit.edu.cn` CAS。
+   两条路径当前都能走：前者由 `EasWebCredentialPolicy` 自动填充，后者走既有 CAS 流程。
+3. 直连是否需要额外 `route` cookie（当前只要求 `JSESSIONID`）。
+4. 服务端 UA 拒绝集的确切边界（见 7.1）。

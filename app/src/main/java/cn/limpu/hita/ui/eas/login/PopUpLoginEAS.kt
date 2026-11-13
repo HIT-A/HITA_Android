@@ -555,7 +555,16 @@ private fun LoginEASScreen(
                         onClick = { if (!isLoading) onStudentTypeChange(type) },
                         enabled = !isLoading,
                     )
-                    Text(stringResource(label))
+                    Text(
+                        text = stringResource(label),
+                        fontSize = 14.sp,
+                        // 与上面的校区标签同一口径显式取色。此处历史上没写 color，靠
+                        // LocalContentColor 的默认值（纯黑）落到界面上——暗色主题下就是
+                        // 黑字压深背景，用户看到「本科生/研究生」几乎看不见。
+                        // 主题根已统一绑定 LocalContentColor，这里再显式声明一次，
+                        // 让该行的可读性不依赖任何外层容器的隐式行为。
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
                 }
             }
         }
