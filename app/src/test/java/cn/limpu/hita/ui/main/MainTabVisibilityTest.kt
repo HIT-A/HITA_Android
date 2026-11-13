@@ -24,7 +24,7 @@ class MainTabVisibilityTest {
         }
         val defaults = MainTab.visibleFor(loggedIn)
         assertEquals(
-            listOf(MainTab.TIMELINE, MainTab.HOMEWORK, MainTab.TIMETABLE, MainTab.NAVIGATION),
+            listOf(MainTab.TIMELINE, MainTab.TIMETABLE, MainTab.HOMEWORK, MainTab.NAVIGATION),
             defaults
         )
         assertTrue(MainTab.HOMEWORK in defaults)
@@ -37,7 +37,7 @@ class MainTabVisibilityTest {
             OptionalTabFeatures(homework = true, info = true, agent = true)
         )
         assertEquals(
-            listOf(MainTab.TIMELINE, MainTab.HOMEWORK, MainTab.TIMETABLE, MainTab.AGENT, MainTab.BLOG, MainTab.NAVIGATION),
+            listOf(MainTab.TIMELINE, MainTab.TIMETABLE, MainTab.HOMEWORK, MainTab.AGENT, MainTab.BLOG, MainTab.NAVIGATION),
             enabled
         )
         assertEquals(
@@ -45,7 +45,7 @@ class MainTabVisibilityTest {
             MainTab.visibleFor(null, OptionalTabFeatures(homework = false))
         )
         assertEquals(
-            listOf(MainTab.TIMELINE, MainTab.HOMEWORK, MainTab.TIMETABLE, MainTab.NAVIGATION),
+            listOf(MainTab.TIMELINE, MainTab.TIMETABLE, MainTab.HOMEWORK, MainTab.NAVIGATION),
             MainTab.visibleFor(null, OptionalTabFeatures(info = true))
         )
     }

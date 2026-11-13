@@ -9,8 +9,8 @@ enum class MainTab(
     val iconRes: Int,
 ) {
     TIMELINE(R.string.title_timeline, R.drawable.ic_nav_today),
-    HOMEWORK(R.string.title_homework, R.drawable.ic_baseline_check_24),
     TIMETABLE(R.string.title_timetable, R.drawable.ic_nav_timetable),
+    HOMEWORK(R.string.title_homework, R.drawable.ic_baseline_check_24),
     AGENT(R.string.title_agent, R.drawable.ic_baseline_toys_24),
     BLOG(R.string.title_blog, R.drawable.ic_nav_blog),
     NAVIGATION(R.string.title_navigation, R.drawable.ic_nav_navigation);

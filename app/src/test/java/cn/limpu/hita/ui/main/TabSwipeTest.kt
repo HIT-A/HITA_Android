@@ -1,0 +1,79 @@
+package cn.limpu.hita.ui.main
+
+import org.junit.Assert.assertEquals
+import org.junit.Test
+
+class TabSwipeTest {
+    private val width = 1000f
+    private val velocity = 500f
+
+    @Test fun `distance past the fraction commits to the next page`() {
+        val direction = TabSwipe.commitDirection(
+            travelled = -width * TabSwipe.COMMIT_FRACTION - 1f,
+            widthPx = width,
+            velocityPxPerSecond = 0f,
+            velocityThresholdPxPerSecond = velocity,
+            canPrevious = true,
+            canNext = true,
+        )
+        assertEquals(1, direction)
+    }
+
+    @Test fun `distance past the fraction backwards commits to the previous page`() {
+        val direction = TabSwipe.commitDirection(
+            travelled = width * TabSwipe.COMMIT_FRACTION + 1f,
+            widthPx = width,
+            velocityPxPerSecond = 0f,
+            velocityThresholdPxPerSecond = velocity,
+            canPrevious = true,
+            canNext = true,
+        )
+        assertEquals(-1, direction)
+    }
+
+    @Test fun `a flick commits even when the drag is short`() {
+        assertEquals(
+            1,
+            TabSwipe.commitDirection(-40f, width, -900f, velocity, canPrevious = true, canNext = true),
+        )
+        assertEquals(
+            -1,
+            TabSwipe.commitDirection(40f, width, 900f, velocity, canPrevious = true, canNext = true),
+        )
+    }
+
+    @Test fun `a short slow drag rebounds`() {
+        assertEquals(0, TabSwipe.commitDirection(-30f, width, 120f, velocity, canPrevious = true, canNext = true))
+        assertEquals(0, TabSwipe.commitDirection(0f, width, 0f, velocity, canPrevious = true, canNext = true))
+    }
+
+    @Test fun `velocity wins over distance when it passes the threshold`() {
+        // 与 PagerSnapHelper 一致：越过速度阈值时以速度方向为准，
+        // 因此「向左拖出去再向右甩」会回到上一页，而不是停在下一页。
+        assertEquals(-1, TabSwipe.commitDirection(-width * 0.4f, width, 800f, velocity, canPrevious = true, canNext = true))
+        assertEquals(1, TabSwipe.commitDirection(width * 0.4f, width, -800f, velocity, canPrevious = true, canNext = true))
+    }
+
+    @Test fun `velocity below the threshold falls back to distance`() {
+        assertEquals(1, TabSwipe.commitDirection(-width * 0.4f, width, 480f, velocity, canPrevious = true, canNext = true))
+        assertEquals(0, TabSwipe.commitDirection(-width * 0.1f, width, 480f, velocity, canPrevious = true, canNext = true))
+    }
+
+    @Test fun `edges never slide outward`() {
+        assertEquals(
+            0,
+            TabSwipe.commitDirection(-width, width, -2000f, velocity, canPrevious = true, canNext = false),
+        )
+        assertEquals(
+            0,
+            TabSwipe.commitDirection(width, width, 2000f, velocity, canPrevious = false, canNext = true),
+        )
+    }
+
+    @Test fun `rubber band is damped and capped in both directions`() {
+        assertEquals(-width * TabSwipe.RUBBER_LIMIT_FRACTION, TabSwipe.rubberBand(-width, width), 0.001f)
+        assertEquals(width * TabSwipe.RUBBER_LIMIT_FRACTION, TabSwipe.rubberBand(width, width), 0.001f)
+        assertEquals(-80f * TabSwipe.RUBBER_DAMPING, TabSwipe.rubberBand(-80f, width), 0.001f)
+        assertEquals(0f, TabSwipe.rubberBand(-80f, 0f), 0f)
+    }
+}
