@@ -79,13 +79,16 @@ class LoggedOutVisibilityE2eTest {
      * `content-desc` 上；而 `MainPillTabBar` 仍暴露 Text。两种都要认。
      */
     private fun hasNavTab(title: String): Boolean =
-        device.hasObject(By.textContains(title)) ||
-            device.hasObject(By.descContains(title))
+        device.hasObject(By.text(title)) ||
+            device.hasObject(By.desc(title))
 
     /** 轮询直到给定标签全部出现；返回是否全部就绪，不抛异常，交由调用方统一断言。 */
     private fun waitForTabs(titles: List<String>, budgetMs: Long): Boolean {
         val deadline = SystemClock.uptimeMillis() + budgetMs
         while (SystemClock.uptimeMillis() < deadline) {
+            // A notice can arrive after the network timeout, or its first click can race
+            // the dialog gaining input focus. Keep handling it within the same UI budget.
+            dismissStartupNoticeIfPresent()
             if (titles.all(::hasNavTab)) return true
             SystemClock.sleep(TAB_POLL_MS)
         }
@@ -99,8 +102,8 @@ class LoggedOutVisibilityE2eTest {
         // 底栏是 Compose 首帧后才出现，先等标签就绪再找，避免启动时序竞争。
         waitForTabs(listOf("时间表"), TAB_BUDGET_MS)
         // 标签可能只在 content-desc 上（DockTabBar 合并了语义），两种都要找。
-        val tab = device.wait(Until.findObject(By.textContains("时间表")), SHORT_MS)
-            ?: device.wait(Until.findObject(By.descContains("时间表")), SHORT_MS)
+        val tab = device.wait(Until.findObject(By.text("时间表")), SHORT_MS)
+            ?: device.wait(Until.findObject(By.desc("时间表")), SHORT_MS)
         assertNotNull("未登录时底栏必须存在「时间表」入口", tab)
         tab!!.click()
         device.waitForIdle()
@@ -151,19 +154,15 @@ class LoggedOutVisibilityE2eTest {
     /** 若存在启动公告弹窗，点「知道了」关闭；没有就什么都不做。 */
     private fun dismissStartupNoticeIfPresent() {
         val ack = context.getString(R.string.notice_popup_ack)
-        val button = device.wait(Until.findObject(By.text(ack)), NOTICE_MS) ?: return
+        val button = device.findObject(By.res("android", "button1").text(ack)) ?: return
         button.click()
         device.waitForIdle()
-        device.wait(Until.gone(By.text(ack)), NOTICE_MS)
     }
 
     private companion object {
         const val LAUNCH_MS = 15_000L
         const val SHORT_MS = 6_000L
         const val SETTLE_MS = 2_000L
-
-        /** 启动公告弹窗出现与消失的等待窗口。 */
-        const val NOTICE_MS = 8_000L
 
         /** 冷启动到 Compose 底栏首帧的总预算。CI 只用 2 核 4G 且串行跑四模块，冷启动明显更慢。 */
         const val TAB_BUDGET_MS = 45_000L

@@ -896,6 +896,8 @@ internal class EASTimetableImportRepository(
                         return@whileCurrent
                     }
                     if (examState.state != DataState.STATE.SUCCESS) return@whileCurrent
+                    // A failed local exam transaction must report failure even after courses committed.
+                    result = AutoImportResult.FAILED
                     val coroutine = currentCoroutineContext()
                     val timetableCode = EASTimetableCode.of(session.campus, term, session.token.stutype)
                     val importedExamCount = synchronized(tokenStateLock) {

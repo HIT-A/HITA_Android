@@ -131,7 +131,9 @@ class TimetableHostInstrumentedTest {
             fun find(node: android.view.accessibility.AccessibilityNodeInfo?): android.view.accessibility.AccessibilityNodeInfo? {
                 if (node == null) return null
                 val nodeBounds = Rect().also(node::getBoundsInScreen)
-                if (node.isVisibleToUser && node.text?.toString() == text && nodeBounds.width() > 0) return node
+                // Dock themes merge the label into contentDescription; pill themes expose text.
+                val matchesLabel = node.text?.toString() == text || node.contentDescription?.toString() == text
+                if (node.isVisibleToUser && matchesLabel && nodeBounds.width() > 0) return node
                 for (index in 0 until node.childCount) find(node.getChild(index))?.let { return it }
                 return null
             }

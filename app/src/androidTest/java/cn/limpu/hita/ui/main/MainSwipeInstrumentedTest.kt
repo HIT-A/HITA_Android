@@ -3,6 +3,7 @@ package cn.limpu.hita.ui.main
 import android.app.Application
 import android.content.Intent
 import android.os.SystemClock
+import android.os.ParcelFileDescriptor
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -156,7 +157,9 @@ class MainSwipeInstrumentedTest {
                 var attached = false
                 scenario.onActivity { activity ->
                     attached = activity.supportFragmentManager
-                        .findFragmentByTag(MainTabHost.tag(tab))?.view?.isAttachedToWindow == true
+                        .findFragmentByTag(MainTabHost.tag(tab))?.view?.let { view ->
+                            view.isAttachedToWindow && view.hasWindowFocus()
+                        } == true
                 }
                 attached
             }
@@ -182,9 +185,12 @@ class MainSwipeInstrumentedTest {
         // 走 `input swipe`：与真机手测同一条路径，能稳定驱动 Compose 手势。
         // `UiDevice.swipe` 与手工 injectInputEvent 在这台模拟器上会与活动生命周期
         // 竞争（ActivityScenario 的 idle 等待插在 MOVE 之间），事件序列被打断。
-        instrumentation.uiAutomation.executeShellCommand(
+        ParcelFileDescriptor.AutoCloseInputStream(instrumentation.uiAutomation.executeShellCommand(
             "input swipe $from $y $to $y $SWIPE_DURATION_MS"
-        ).close()
+        )).use { stream ->
+            val buffer = ByteArray(1024)
+            while (stream.read(buffer) != -1) Unit
+        }
         // 两段 150ms 收尾 + 状态回流与 Fragment 事务，等它走完再断言，避免读到中间态。
         SystemClock.sleep(900)
     }
@@ -201,7 +207,19 @@ class MainSwipeInstrumentedTest {
         try {
             ActivityScenario.launch<MainActivity>(
                 Intent(app, MainActivity::class.java).putExtra("live_course_id", "external-course")
-            ).use(block)
+            ).use { scenario ->
+                scenario.onActivity { activity ->
+                    // Swipe tests exercise the real content gesture. Live startup messages
+                    // have their own tests and must not steal this window's input focus.
+                    listOf("noticePresenter", "updatePresenter").forEach { name ->
+                        val field = MainActivity::class.java.getDeclaredField(name).apply { isAccessible = true }
+                        (field.get(activity) as AutoCloseable).close()
+                    }
+                    (activity.supportFragmentManager.findFragmentByTag("update") as? androidx.fragment.app.DialogFragment)
+                        ?.dismissNow()
+                }
+                block(scenario)
+            }
         } finally {
             settings.setAutoReimport(enabled)
         }

@@ -137,7 +137,17 @@ class TimetableLegacyBoundaryInstrumentedTest {
                     activity.supportFragmentManager.beginTransaction().add(container.id, fragment, "boundary-fixture").commitNow()
                     model = ViewModelProvider(fragment)[TimetableViewModel::class.java]
                 }
-                instrumentation.waitForIdleSync()
+                // Compose starts observing the scope after the Fragment is attached. Its first
+                // resolved window invalidates earlier selections, just like a real scope change.
+                // Open the picker only once that initial load has reached the rendered screen.
+                waitUntil {
+                    var ready = false
+                    scenario.onActivity {
+                        ready = fragment.requireView().hasWindowFocus() &&
+                            model.currentWindow.hasActiveObservers() && model.currentWindow.value != null
+                    }
+                    ready
+                }
                 block(scenario, fragment, model, event)
             }
         } finally {
