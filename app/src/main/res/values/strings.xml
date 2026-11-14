@@ -291,7 +291,6 @@
     <string name="score_local_estimated_average">加权均分（估）</string>
     <string name="score_local_numeric_credits">计入学分</string>
     <string name="score_local_numeric_courses">课程数</string>
-    <string name="score_local_estimate_note">仅按当前列表中可解析的百分制数字成绩 × 学分估算；不含学校的计入、重修替代等规则，不等同于教务平均学分绩或 GPA。</string>
     <string name="navi_campus_vote_p">态度墙</string>
     <string name="navi_campus_billboard_p">食堂排行</string>
     <string name="navi_mood_greet">Hi, 今天心情如何？</string>
