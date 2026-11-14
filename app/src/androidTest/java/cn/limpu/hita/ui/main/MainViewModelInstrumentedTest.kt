@@ -156,6 +156,53 @@ class MainViewModelInstrumentedTest {
         assertEquals(0L, h.settings.getLastAutoReimportTs())
     }
 
+    @Test fun staleRenewalFailureCannotExpireNewAccountEvenBeforeHostObservesChange() = Harness(loggedInEas = true).use { h ->
+        h.start()
+        h.main { h.requests.imports.single().complete(AutoImportResult.NOT_LOGGED_IN) }
+        h.flush()
+        h.main {
+            assertTrue(h.model.silentRenewalLaunched())
+            h.eas.saveEasTokenSync(token("new-account"))
+            assertNull(h.model.activeSilentRenewal())
+            h.model.silentRenewalFailed()
+        }
+        h.flush()
+        assertFalse(h.eas.isSessionExpired())
+        assertTrue(h.accepted.none { it.value == MainEffect.SessionExpired })
+    }
+
+    @Test fun successfulManualLoginInvalidatesTheOlderRenewalCallback() = Harness(loggedInEas = true).use { h ->
+        h.start()
+        h.main { h.requests.imports.single().complete(AutoImportResult.NOT_LOGGED_IN) }
+        h.flush()
+        h.main {
+            assertTrue(h.model.silentRenewalLaunched())
+            // The same account may retain the same generation after credential renewal.
+            h.model.reloginSucceeded()
+            h.model.silentRenewalFailed()
+        }
+        h.flush()
+        assertFalse(h.eas.isSessionExpired())
+        assertTrue(h.accepted.none { it.value == MainEffect.SessionExpired })
+        assertEquals(2, h.requests.imports.size)
+    }
+
+    @Test fun duplicateRenewalLaunchDoesNotDiscardTheInFlightRequest() = Harness(loggedInEas = true).use { h ->
+        h.start()
+        h.main { h.requests.imports.single().complete(AutoImportResult.NOT_LOGGED_IN) }
+        h.flush()
+        h.main {
+            assertTrue(h.model.silentRenewalLaunched())
+            val active = h.model.activeSilentRenewal()
+            assertNotNull(active)
+            assertFalse(h.model.silentRenewalLaunched())
+            assertEquals(active, h.model.activeSilentRenewal())
+            h.model.silentRenewalFailed()
+        }
+        h.flush()
+        assertEquals(1, h.accepted.count { it.value == MainEffect.SessionExpired })
+    }
+
     private class Requests : MainRequests {
         val updates = mutableListOf<CompletableDeferred<DataState<CheckUpdateResult>>>()
         val imports = mutableListOf<CompletableDeferred<AutoImportResult>>()

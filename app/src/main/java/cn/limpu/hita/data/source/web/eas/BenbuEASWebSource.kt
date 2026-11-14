@@ -90,7 +90,7 @@ class BenbuEASWebSource internal constructor(
 
                 val isGraduate = password == "graduate"
                 val requiredCookies = if (isGraduate) listOf("JSESSIONID", "sdp_user_token") else listOf("JSESSIONID", "HIT")
-                val missingCookies = requiredCookies.filter { !cookiesMap.containsKey(it) }
+                val missingCookies = requiredCookies.filter { cookiesMap[it].isNullOrBlank() }
                 if (missingCookies.isNotEmpty()) {
                     LogUtils.e("login: missing required cookies: $missingCookies")
                     result.postValue(DataState(DataState.STATE.FETCH_FAILED, "缺少必需的cookies: $missingCookies"))
@@ -118,8 +118,14 @@ class BenbuEASWebSource internal constructor(
                 }.getOrDefault(false)
                 // A CAS/VPN login page may also return HTTP 200 after redirects.
                 // Do not persist stale cookies as a successful undergraduate login.
-                val undergraduateLoginValid = isGraduate ||
-                    !isAuthExpiredResponse(response, response.body())
+                val undergraduateLoginValid = isGraduate || (
+                    !isAuthExpiredResponse(response, response.body()) && runCatching {
+                        // This probe returns a JSON building array, including [] for an empty list.
+                        // A maintenance page or a JSON error with HTTP 200 is not proof of login.
+                        val buildings = org.json.JSONArray(response.body())
+                        (0 until buildings.length()).all { buildings.optJSONObject(it) != null }
+                    }.getOrDefault(false)
+                )
                 if (response.statusCode() == 200 && graduateLoginValid && undergraduateLoginValid) {
                     val token = EASToken().apply {
                         cookies.putAll(cookiesMap)

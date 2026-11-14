@@ -74,6 +74,8 @@ internal object EasWebCredentialPolicy {
           var user = firstVisible('input[autocomplete="username"], input[name*="user" i], input[id*="user" i], input[type="text"]');
           var pass = firstVisible('input[autocomplete="current-password"], input[type="password"]');
           if (!user || !pass) return false;
+          // A delayed autofill must not replace an account/password already entered by the user.
+          if ((user.value && user.value !== username) || (pass.value && pass.value !== password)) return false;
           var setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
           setter.call(user, username);
           setter.call(pass, password);
@@ -112,64 +114,51 @@ internal object EasWebCredentialPolicy {
     fun rememberMeScript(): String = """
         (function() {
           function visible(element) {
-            if (!element || element.disabled) return false;
-            return !!(element.offsetWidth || element.offsetHeight || element.getClientRects().length);
+            return element && !element.disabled &&
+              !!(element.offsetWidth || element.offsetHeight || element.getClientRects().length);
           }
           function labelOf(element) {
-            return String(
-              element.innerText || element.textContent || element.value ||
-              element.getAttribute('aria-label') || element.getAttribute('title') || ''
-            ).replace(/\s+/g, '');
+            return element ? String(element.innerText || element.textContent ||
+              element.getAttribute('aria-label') || '').replace(/\s+/g, '') : '';
           }
           function isRememberLabel(text) {
-            if (!text) return false;
-            if (text.indexOf('免登录') >= 0) return true;
-            if (text.indexOf('记住我') >= 0) return true;
-            return /^(\d+天)?.*(免登录|记住|保持不变)/.test(text) || text.toLowerCase().indexOf('remember') >= 0;
+            // CAS 免登录与 MFA 信任设备是两种选择，不能替用户确认后者。
+            if (/信任|设备|trust|device/i.test(text)) return false;
+            return /免登录|记住我|保持登录|rememberme|keepmesignedin/i.test(text);
           }
-          function fire(element, type) {
-            element.dispatchEvent(new Event(type, {bubbles:true}));
+          function ensureChecked(control, readChecked, action) {
+            var checked = readChecked();
+            // 重试只等待控件出现，不反复点击异步控件，也不覆盖用户随后取消的选择。
+            if (control.getAttribute('data-hita-remember-handled') !== 'true') {
+              control.setAttribute('data-hita-remember-handled', 'true');
+              if (!checked) control.click();
+            }
+            return JSON.stringify({checked: readChecked(), action: action});
           }
-          function setChecked(input) {
-            if (!input) return false;
-            if (input.checked) return true;
-            var setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'checked').set;
-            if (setter) setter.call(input, true); else input.checked = true;
-            fire(input, 'input');
-            fire(input, 'change');
-            fire(input, 'click');
-            return !!input.checked;
-          }
-
           var boxes = document.querySelectorAll('input[type="checkbox"]');
           for (var i = 0; i < boxes.length; i++) {
             var box = boxes[i];
-            if (!visible(box)) continue;
-            var wrapper = box.closest('label, li, div, span');
-            var text = labelOf(wrapper && wrapper !== box ? wrapper : box) +
-              ' ' + String(box.name || '') + ' ' + String(box.id || '');
-            if (isRememberLabel(text.replace(/\s+/g, ''))) {
-              return JSON.stringify({
-                checked: setChecked(box),
-                action: 'checkbox',
-                label: text.trim().slice(0, 40)
-              });
+            if (box.disabled) continue;
+            var labels = Array.from(box.labels || []);
+            if (!visible(box) && !labels.some(visible)) continue;
+            var text = labels.map(labelOf).join('') + labelOf(box) +
+              String(box.name || '') + String(box.id || '');
+            if (isRememberLabel(text)) {
+              return ensureChecked(box, function() { return box.checked; }, 'checkbox');
             }
           }
-
-          var nodes = document.querySelectorAll('label,span,div,li,p,a');
-          for (var j = 0; j < nodes.length; j++) {
-            var node = nodes[j];
-            if (!visible(node)) continue;
-            var own = labelOf(node).replace(/\s+/g, '');
-            if (!own || own.length > 12 || !isRememberLabel(own)) continue;
-            var inner = node.querySelector ? node.querySelector('input[type="checkbox"]') : null;
-            if (inner) {
-              return JSON.stringify({checked: setChecked(inner), action: 'label-checkbox', label: own});
+          // 仅处理能够读取真实状态的自定义复选框；未知状态的 label 不盲目点击。
+          var controls = document.querySelectorAll('[role="checkbox"][aria-checked]');
+          for (var j = 0; j < controls.length; j++) {
+            var control = controls[j];
+            if (!visible(control) || control.getAttribute('aria-disabled') === 'true') continue;
+            var state = control.getAttribute('aria-checked');
+            if (state !== 'true' && state !== 'false') continue;
+            if (isRememberLabel(labelOf(control))) {
+              return ensureChecked(control, function() {
+                return control.getAttribute('aria-checked') === 'true';
+              }, 'aria-checkbox');
             }
-            var clicked = node.closest('label') || node;
-            clicked.click();
-            return JSON.stringify({checked: true, action: 'label-click', label: own});
           }
           return JSON.stringify({checked: false, action: 'none'});
         })();

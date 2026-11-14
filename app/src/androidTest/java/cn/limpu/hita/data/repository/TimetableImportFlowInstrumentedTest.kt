@@ -247,4 +247,79 @@ class TimetableImportFlowInstrumentedTest {
             assertEquals(DataState.STATE.FETCH_FAILED, fixture.importer.restoreTimetableSnapshot(fixture.session(), snapshot.id).state)
         }
     }
+    @Test fun examNetworkExceptionDoesNotReportCommittedTimetableAsFailed() = runBlocking {
+        TimetableImportFlowHarness().use { fixture ->
+            fixture.fetchExams = { throw java.io.IOException("Synthetic exam outage") }
+            val completed = CompletableDeferred<AutoImportResult>()
+            fixture.importer.startAutoImportCurrentTimetable(true) { completed.complete(it) }!!.join()
+            assertEquals(AutoImportResult.SUCCESS, completed.await())
+            assertEquals(1, fixture.tables().size)
+            assertEquals(2, fixture.events().size)
+            assertFalse(fixture.inProgress.get())
+        }
+    }
+
+    @Test fun invalidTokenAtEveryAutoImportStageRequestsLogin() = runBlocking {
+        for (stage in listOf("terms", "date", "schedule", "timetable", "exams")) {
+            TimetableImportFlowHarness().use { fixture ->
+                when (stage) {
+                    "terms" -> fixture.fetchTerms = { DataState(DataState.STATE.TOKEN_INVALID) }
+                    "date" -> fixture.fetchDate = { DataState(DataState.STATE.TOKEN_INVALID) }
+                    "schedule" -> fixture.fetchSchedule = { DataState(DataState.STATE.TOKEN_INVALID) }
+                    "timetable" -> fixture.fetchCourses = { DataState(DataState.STATE.TOKEN_INVALID) }
+                    "exams" -> fixture.fetchExams = { DataState(DataState.STATE.TOKEN_INVALID) }
+                }
+                val completed = CompletableDeferred<AutoImportResult>()
+                fixture.importer.startAutoImportCurrentTimetable(true) { completed.complete(it) }!!.join()
+                assertEquals(stage, AutoImportResult.NOT_LOGGED_IN, completed.await())
+                assertEquals(stage, if (stage == "exams") 1 else 0, fixture.tables().size)
+                assertFalse(fixture.inProgress.get())
+            }
+        }
+    }
+
+    @Test fun failedExamResponseCannotImportItsStalePayload() = runBlocking {
+        TimetableImportFlowHarness().use { fixture ->
+            fixture.fetchExams = {
+                DataState(listOf(ExamItem().apply {
+                    courseName = "Stale exam"
+                    examDate = "2026-03-30"
+                    examTime = "09:00-11:00"
+                }), DataState.STATE.FETCH_FAILED)
+            }
+            val completed = CompletableDeferred<AutoImportResult>()
+            fixture.importer.startAutoImportCurrentTimetable(true) { completed.complete(it) }!!.join()
+            assertEquals(AutoImportResult.SUCCESS, completed.await())
+            assertTrue(fixture.events().none { it.name == "Stale exam" })
+        }
+    }
+
+    @Test fun failedMetadataWithRetainedDataCannotChooseAnImportTermOrDate() = runBlocking {
+        for (stage in listOf("terms", "date")) {
+            TimetableImportFlowHarness().use { fixture ->
+                if (stage == "terms") fixture.fetchTerms = { DataState(listOf(term()), DataState.STATE.FETCH_FAILED) }
+                else fixture.fetchDate = { DataState(date(), DataState.STATE.FETCH_FAILED) }
+                val completed = CompletableDeferred<AutoImportResult>()
+                fixture.importer.startAutoImportCurrentTimetable(true) { completed.complete(it) }!!.join()
+                assertEquals(stage, AutoImportResult.FAILED, completed.await())
+                assertTrue(stage, fixture.tables().isEmpty())
+                assertFalse(stage, fixture.calls.contains("timetable"))
+            }
+        }
+    }
+
+    @Test fun failedSchedulePayloadUsesLocalFallbackInsteadOfStaleClockTimes() = runBlocking {
+        TimetableImportFlowHarness().use { fixture ->
+            val expected = fixture.timetablePreferences.getSchedule(true).first().from.hour
+            val stale = Timetable().getDefaultTimeStructure().toMutableList()
+            stale[0].from.hour = 23
+            fixture.fetchSchedule = { DataState(stale, DataState.STATE.FETCH_FAILED) }
+            val completed = CompletableDeferred<AutoImportResult>()
+            fixture.importer.startAutoImportCurrentTimetable(true) { completed.complete(it) }!!.join()
+            assertEquals(AutoImportResult.SUCCESS, completed.await())
+            assertEquals(expected, fixture.tables().single().scheduleStructure.first().from.hour)
+        }
+    }
+
+
 }

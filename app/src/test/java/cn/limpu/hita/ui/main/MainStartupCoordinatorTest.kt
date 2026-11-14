@@ -194,5 +194,40 @@ class MainStartupCoordinatorTest {
         assertEquals(null, MainSession.from(token).key)
     }
 
+    @Test fun successfulReloginBypassesRecentImportThrottleExactlyOnce() {
+        settings.last = clock - 1_000
+        assertTrue(coordinator.accountChanged(account, false).imports().isEmpty())
+        coordinator.reloginSucceeded()
+        val renewed = account.copy(generation = 2)
+        val request = coordinator.accountChanged(renewed, false).imports().single()
+        assertEquals(renewed, request.session)
+        assertTrue(coordinator.start(true, 100).imports().isEmpty())
+        coordinator.importFinished(request, AutoImportResult.SUCCESS)
+        assertEquals(listOf(clock), settings.saved)
+        assertTrue(coordinator.start(true, 100).imports().isEmpty())
+    }
+
+    @Test fun reloginDoesNotOverrideDisabledAutoImportOrRefillRenewalBudget() {
+        val request = coordinator.accountChanged(account, false).imports().single()
+        coordinator.silentRenewalConsumed()
+        settings.enabled = false
+        coordinator.reloginSucceeded()
+        val renewed = account.copy(generation = 2)
+        assertTrue(coordinator.accountChanged(renewed, false).imports().isEmpty())
+        settings.enabled = true
+        val retry = coordinator.start(true, 100).imports().single()
+        assertFalse(coordinator.silentRenewalNeeded(retry, AutoImportResult.NOT_LOGGED_IN))
+        assertFalse(coordinator.importFinished(request, AutoImportResult.NOT_LOGGED_IN))
+        assertTrue(coordinator.importFinished(retry, AutoImportResult.NOT_LOGGED_IN))
+    }
+
+    @Test fun logoutClearsPendingPostLoginImportBypass() {
+        settings.last = clock
+        coordinator.accountChanged(account, false)
+        coordinator.reloginSucceeded()
+        coordinator.accountChanged(MainSession(null, 2, true), false)
+        assertTrue(coordinator.accountChanged(account.copy(generation = 3), false).imports().isEmpty())
+    }
+
     private fun List<MainStartupAction>.imports() = filterIsInstance<MainStartupAction.Import>()
 }

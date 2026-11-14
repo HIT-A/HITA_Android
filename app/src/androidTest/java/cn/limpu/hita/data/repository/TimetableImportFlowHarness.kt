@@ -49,6 +49,10 @@ internal class TimetableImportFlowHarness(campus: EASToken.Campus = EASToken.Cam
     var fetchCourses: suspend (TermItem) -> DataState<List<CourseItem>> = { DataState(listOf(course())) }
     var fetchSubjects: suspend () -> DataState<MutableList<TermSubject>> = { DataState(mutableListOf()) }
     var fetchTerms: suspend () -> DataState<List<TermItem>> = { DataState(listOf(term())) }
+    var fetchDate: suspend () -> DataState<Calendar> = { DataState(date()) }
+    var fetchSchedule: suspend () -> DataState<MutableList<cn.limpu.hita.data.model.timetable.TimePeriodInDay>> = {
+        DataState(Timetable().getDefaultTimeStructure().toMutableList())
+    }
     var fetchExams: suspend () -> DataState<List<ExamItem>> = { DataState(emptyList()) }
 
     @Suppress("UNCHECKED_CAST")
@@ -61,8 +65,8 @@ internal class TimetableImportFlowHarness(campus: EASToken.Campus = EASToken.Cam
                 suspend { fetchCourses(args[0] as TermItem) }
             }
             "getSubjectsOfTermOnce" -> { calls += "subjects"; suspend { fetchSubjects() } }
-            "getStartDateOnce" -> { calls += "date"; suspend { DataState(date()) } }
-            "getScheduleStructureOnce" -> { calls += "schedule"; suspend { DataState(Timetable().getDefaultTimeStructure().toMutableList()) } }
+            "getStartDateOnce" -> { calls += "date"; suspend { fetchDate() } }
+            "getScheduleStructureOnce" -> { calls += "schedule"; suspend { fetchSchedule() } }
             "getExamItemsOnce" -> { calls += "exams"; suspend { fetchExams() } }
             else -> null
         }

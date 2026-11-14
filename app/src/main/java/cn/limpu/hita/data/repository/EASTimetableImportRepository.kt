@@ -839,20 +839,22 @@ internal class EASTimetableImportRepository(
                 session.whileCurrent {
                     val termsState = withTimeoutOrNull(remoteTimeout) { queryTerms(session) }
                         ?: return@whileCurrent
-                    if (termsState.state == DataState.STATE.NOT_LOGGED_IN) {
+                    if (termsState.state in setOf(DataState.STATE.NOT_LOGGED_IN, DataState.STATE.TOKEN_INVALID)) {
                         result = AutoImportResult.NOT_LOGGED_IN
                         return@whileCurrent
                     }
+                    if (termsState.state != DataState.STATE.SUCCESS) return@whileCurrent
                     val term = (termsState.data?.firstOrNull { it.isCurrent }
                         ?: termsState.data?.firstOrNull())?.copyForQuery() ?: return@whileCurrent
                     val startState = withTimeoutOrNull(remoteTimeout) {
                         session.service.getStartDateOnce(token, term)
                     } ?: DataState(DataState.STATE.FETCH_FAILED)
                     session.ensureCurrent()
-                    if (startState.state == DataState.STATE.NOT_LOGGED_IN) {
+                    if (startState.state in setOf(DataState.STATE.NOT_LOGGED_IN, DataState.STATE.TOKEN_INVALID)) {
                         result = AutoImportResult.NOT_LOGGED_IN
                         return@whileCurrent
                     }
+                    if (startState.state != DataState.STATE.SUCCESS) return@whileCurrent
                     val startDate = (startState.data?.clone() as? Calendar) ?: return@whileCurrent
                     if (session.campus == EASToken.Campus.BENBU) {
                         cn.limpu.hita.data.source.preference.BenbuStartDatePreferenceSource(appContext)
@@ -862,32 +864,38 @@ internal class EASTimetableImportRepository(
                         session.service.getScheduleStructureOnce(term, isUndergraduate, token)
                     } ?: DataState(DataState.STATE.FETCH_FAILED)
                     session.ensureCurrent()
-                    if (scheduleState.state == DataState.STATE.NOT_LOGGED_IN) {
+                    if (scheduleState.state in setOf(DataState.STATE.NOT_LOGGED_IN, DataState.STATE.TOKEN_INVALID)) {
                         result = AutoImportResult.NOT_LOGGED_IN
                         return@whileCurrent
                     }
                     val schedule = if (graduate) {
                         // 研究生作息必须来自教务 `kbjclist`：本科/研究生 SP 兜底表会把课次写成错误钟点。
+                        if (scheduleState.state != DataState.STATE.SUCCESS) return@whileCurrent
                         scheduleState.data.orEmpty().takeIf { it.isNotEmpty() } ?: return@whileCurrent
                     } else if (timetablePreferenceSource.hasSavedSchedule()) {
                         timetablePreferenceSource.getSchedule(isUndergraduate)
-                    } else scheduleState.data ?: timetablePreferenceSource.getSchedule(isUndergraduate)
+                    } else scheduleState.takeIf { it.state == DataState.STATE.SUCCESS }
+                        ?.data?.takeIf { it.isNotEmpty() } ?: timetablePreferenceSource.getSchedule(isUndergraduate)
                     val importState = importTimetableOfTerm(
                         session, term, startDate, schedule, TimetableImportMode.MERGE, operation, importBudget
                     )
                     session.ensureCurrent()
-                    if (importState.state == DataState.STATE.NOT_LOGGED_IN) {
+                    if (importState.state in setOf(DataState.STATE.NOT_LOGGED_IN, DataState.STATE.TOKEN_INVALID)) {
                         result = AutoImportResult.NOT_LOGGED_IN
                         return@whileCurrent
                     }
+                    // The timetable has already committed; an optional exam request must not
+                    // turn that successful write into a generic import failure.
+                    if (importState.state == DataState.STATE.SUCCESS) result = AutoImportResult.SUCCESS
                     val examTimeout = if (graduate) remoteTimeout else DEFAULT_EXAM_TIMEOUT_MILLIS
                     val examState = withTimeoutOrNull(examTimeout) { session.service.getExamItemsOnce(token, term) }
                         ?: DataState(DataState.STATE.FETCH_FAILED)
                     session.ensureCurrent()
-                    if (examState.state == DataState.STATE.NOT_LOGGED_IN) {
+                    if (examState.state in setOf(DataState.STATE.NOT_LOGGED_IN, DataState.STATE.TOKEN_INVALID)) {
                         result = AutoImportResult.NOT_LOGGED_IN
                         return@whileCurrent
                     }
+                    if (examState.state != DataState.STATE.SUCCESS) return@whileCurrent
                     val coroutine = currentCoroutineContext()
                     val timetableCode = EASTimetableCode.of(session.campus, term, session.token.stutype)
                     val importedExamCount = synchronized(tokenStateLock) {
