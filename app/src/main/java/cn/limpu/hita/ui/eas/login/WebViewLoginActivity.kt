@@ -183,8 +183,6 @@ class WebViewLoginActivity : AppCompatActivity() {
         /** aTrust 门户自动推进的有界重试次数：勾选协议后按钮解禁有一个 tick 的延迟。 */
         private const val TRUST_PORTAL_AUTO_LOGIN_ATTEMPTS = 4
 
-        /** 单次登录内自动提交 CAS 表单的上限，避免密码失效时反复提交换来风控。 */
-        private const val MAX_AUTO_SUBMIT = 2
         /**
          * 教务浏览器路由只认桌面 UA；移动 UA 会被服务端按「浏览器已过时」拦截。
          *
@@ -265,7 +263,7 @@ class WebViewLoginActivity : AppCompatActivity() {
     private var credentialCaptureState = EasWebCredentialCaptureState()
     private val credentialBridgeName = "hitaCredentialBridge"
     /** 本次登录里已自动提交过的 CAS 页面，避免验证失败后无限重试触发风控。 */
-    private val autoSubmittedLoginPages = mutableSetOf<String>()
+    private val credentialPageState = EasLoginPageState()
     /** aTrust 门户登录页是否已自动推进（每张页面最多一次）。 */
     private var trustPortalAutoLoginPage: String? = null
 
@@ -587,6 +585,7 @@ class WebViewLoginActivity : AppCompatActivity() {
 
                 override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
                     super.onPageStarted(view, url, favicon)
+                    credentialPageState.navigated()
                     shenzhenAutoAdvanceGeneration++
                     if (config.campus == EASToken.Campus.SHENZHEN) {
                         LogUtils.d(
@@ -2375,12 +2374,16 @@ class WebViewLoginActivity : AppCompatActivity() {
     }
 
     private fun prepareLoginPageCredentials(view: WebView, url: String) {
+        val page = credentialPageState.capture(config.campus, url) ?: return
+        fun isCurrentPage() = !finished &&
+            credentialPageState.isCurrent(page, config.campus, view.url.orEmpty())
+        if (!isCurrentPage()) return
         // 免登录勾选必须对三端都执行：不勾选时 CAS 只会下发会话级 CASTGC。
         // 页面可能在 onPageFinished 之后才渲染出勾选框，因此多轮尝试。
         if (isCasLoginPage(url)) {
             CAS_REMEMBER_ME_DELAYS_MS.forEachIndexed { index, delay ->
                 view.postDelayed({
-                    if (finished) return@postDelayed
+                    if (!isCurrentPage()) return@postDelayed
                     view.evaluateJavascript(EasWebCredentialPolicy.rememberMeScript()) { raw ->
                         LogUtils.d(
                             "rememberMe round=$index url=${safeUrl(url)} result=${raw?.take(80) ?: "null"}"
@@ -2391,25 +2394,21 @@ class WebViewLoginActivity : AppCompatActivity() {
         }
         // 深圳的 CAS 页在 ids-hit-edu-cn-s.hitsz.edu.cn，与本部/威海同一套表单结构，
         // 因此三校区共用这条自动填充 + 自动提交路径。
-        if (!EasWebCredentialPolicy.matchesLoginPage(config.campus, url, isMainFrame = true)) return
         view.evaluateJavascript(EasWebCredentialPolicy.captureScript(), null)
         val credential = EasWebCredentialPolicy.readOptionalCredential {
             easCredentialStore.get(config.campus)
         } ?: return
         if (credential.username.isBlank() || credential.password.isBlank()) return
-        val loginKey = url.substringBefore('#')
-        if (loginKey in autoSubmittedLoginPages || autoSubmittedLoginPages.size > MAX_AUTO_SUBMIT) {
-            // 同一张登录页只自动提交一次；累计到上限（例如密码已改）就把控制权还给用户，
-            // 避免反复提交触发学校风控。这里不写入集合，否则集合会随页面数量无限增长。
-            view.evaluateJavascript(
-                EasWebCredentialPolicy.autofillScript(credential.username, credential.password),
-                null
-            )
-            return
-        }
-        autoSubmittedLoginPages.add(loginKey)
         view.postDelayed({
-            if (finished || view.url.orEmpty().substringBefore('#') != loginKey) return@postDelayed
+            if (!isCurrentPage()) return@postDelayed
+            // Reserve a submission only when it will run; a navigation-cancelled timer spends none.
+            if (!credentialPageState.claimSubmission(page)) {
+                view.evaluateJavascript(
+                    EasWebCredentialPolicy.autofillScript(credential.username, credential.password),
+                    null
+                )
+                return@postDelayed
+            }
             view.evaluateJavascript(
                 EasWebCredentialPolicy.autofillAndSubmitScript(
                     credential.username,
@@ -2418,7 +2417,7 @@ class WebViewLoginActivity : AppCompatActivity() {
             ) { raw ->
                 LogUtils.d("auto submit login (${config.campus}): ${raw?.take(120) ?: "null"}")
                 // 静默续期没有用户在场：填不上或提交不了就别空等到超时，立刻交回宿主提示。
-                if (silentMode && !EasWebCredentialPolicy.submittedFromResult(raw)) {
+                if (silentMode && isCurrentPage() && !EasWebCredentialPolicy.submittedFromResult(raw)) {
                     LogUtils.w("silent auto submit failed, cancelling: ${raw?.take(80) ?: "null"}")
                     finishWithCancelledResult()
                 }

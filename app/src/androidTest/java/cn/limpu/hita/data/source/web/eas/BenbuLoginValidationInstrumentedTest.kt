@@ -75,12 +75,25 @@ class BenbuLoginValidationInstrumentedTest {
         assertEquals(DataState.STATE.SUCCESS, login().state)
     }
 
+    @Test fun successfulHttpStatusWithMaintenanceOrErrorPayloadIsRejected() {
+        for (body in listOf("<html><body>系统维护中</body></html>", "{\"success\":false,\"message\":\"会话无效\"}", "[null]", "")) {
+            server.enqueue(MockResponse().setBody(body))
+            assertRejected(login())
+        }
+    }
+
+    @Test fun blankSessionCookiesAreRejectedBeforeSendingARequest() {
+        server.enqueue(MockResponse().setBody("[]"))
+        assertRejected(login("{\"JSESSIONID\":\"\",\"HIT\":\"test-hit\"}"))
+        assertEquals(0, server.requestCount)
+    }
+
     private fun assertRejected(result: DataState<EASToken>) {
         assertEquals(DataState.STATE.FETCH_FAILED, result.state)
         assertNull(result.data)
     }
 
-    private fun login(): DataState<EASToken> {
+    private fun login(cookies: String = """{"JSESSIONID":"test-session","HIT":"test-hit"}"""): DataState<EASToken> {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val latch = CountDownLatch(1)
         var result: DataState<EASToken>? = null
@@ -90,7 +103,7 @@ class BenbuLoginValidationInstrumentedTest {
             latch.countDown()
         }
         instrumentation.runOnMainSync {
-            live = source.login("""{"JSESSIONID":"test-session","HIT":"test-hit"}""", "", null)
+            live = source.login(cookies, "", null)
             live.observeForever(observer)
         }
         try {

@@ -567,12 +567,6 @@ private fun ScoreSummaryCard(
                     modifier = Modifier.weight(1f)
                 )
             }
-            Text(
-                text = stringResource(R.string.score_local_estimate_note),
-                modifier = Modifier.padding(top = tokens.spacing.sm),
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 11.sp
-            )
         }
     }
 }

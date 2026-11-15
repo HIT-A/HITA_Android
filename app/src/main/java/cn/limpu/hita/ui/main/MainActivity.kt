@@ -307,7 +307,7 @@ class MainActivity : HiltBaseActivity<MainViewBinding>(),
     }
 
     private fun launchSilentRenewal(effect: MainEffect.SilentRenewal) {
-        viewModel.silentRenewalLaunched()
+        if (!viewModel.silentRenewalLaunched()) return
         LogUtils.d("silent session renewal start campus=${effect.campus}")
         silentRenewalLauncher.launch(
             Intent(this, cn.limpu.hita.ui.eas.login.WebViewLoginActivity::class.java).apply {

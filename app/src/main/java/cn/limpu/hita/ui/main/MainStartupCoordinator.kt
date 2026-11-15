@@ -38,6 +38,7 @@ internal class MainStartupCoordinator(
 ) {
     private var session = MainSession(null, 0, true)
     private var attempted = false
+    private var importAfterRelogin = false
     private var importSequence = 0L
     private var activeImport: MainStartupAction.Import? = null
     private var blogVisible = false
@@ -50,6 +51,7 @@ internal class MainStartupCoordinator(
 
     fun accountChanged(next: MainSession, showsBlogTab: Boolean): List<MainStartupAction> {
         if (closed) return emptyList()
+        if (next.key == null) importAfterRelogin = false
         if (next.key != session.key) {
             attempted = false
             expiredPromptShown = false
@@ -78,8 +80,9 @@ internal class MainStartupCoordinator(
 
     private fun initialActions(): List<MainStartupAction> = buildList {
         if (settings.autoImportEnabled() && session.key != null && !attempted &&
-            now() - settings.lastSuccessfulImport() >= 10 * 60 * 1000L
+            (importAfterRelogin || now() - settings.lastSuccessfulImport() >= 10 * 60 * 1000L)
         ) {
+            importAfterRelogin = false
             attempted = true
             val request = MainStartupAction.Import(session, ++importSequence)
             activeImport = request
@@ -124,6 +127,7 @@ internal class MainStartupCoordinator(
      * another import; the silent-renewal budget itself is not refilled.
      */
     fun reloginSucceeded() {
+        importAfterRelogin = true
         expiredPromptShown = false
         attempted = false
         activeImport = null

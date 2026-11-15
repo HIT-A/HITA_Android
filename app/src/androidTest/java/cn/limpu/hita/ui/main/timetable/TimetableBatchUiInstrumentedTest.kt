@@ -199,7 +199,16 @@ class TimetableBatchUiInstrumentedTest {
                     activity.supportFragmentManager.beginTransaction().add(container.id, fragment, "batch-ui-fixture").commitNow()
                     model = ViewModelProvider(fragment)[TimetableViewModel::class.java]
                 }
-                instrumentation.waitForIdleSync()
+                // Wait for the initial scope/window emission before creating a batch session;
+                // that emission deliberately cancels selections made for an older scope.
+                waitUntil {
+                    var ready = false
+                    scenario.onActivity {
+                        ready = fragment.requireView().hasWindowFocus() &&
+                            model.currentWindow.hasActiveObservers() && model.currentWindow.value != null
+                    }
+                    ready
+                }
                 block(Fixture(scenario, fragment, model, table, first, second))
             }
         } finally {
