@@ -17,6 +17,7 @@ import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -24,10 +25,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -71,24 +74,19 @@ import cn.limpu.hita.data.repository.CampusCardLedgerStore
 import cn.limpu.hita.data.repository.CampusCardLedger
 import java.io.File
 import java.time.Instant
+import java.time.YearMonth
+import java.time.ZoneId
 import java.text.DateFormat
 import java.util.Date
 import cn.limpu.hita.data.source.web.campus.CampusCardHistoryRange
-import cn.limpu.hita.data.source.web.campus.CampusCardClient
-import cn.limpu.hita.data.source.web.campus.CampusCardNetworkException
-import cn.limpu.hita.data.source.web.campus.CampusCardParseException
 import cn.limpu.hita.data.source.web.campus.CampusCardSessionPolicy
-import cn.limpu.hita.data.source.web.campus.CampusCardSignInRequiredException
 import cn.limpu.hita.ui.design.HitaComposeTheme
 import cn.limpu.hita.ui.design.HitaTheme
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.async
-import kotlinx.coroutines.coroutineScope
 
 /**
  * 校园卡入口（深圳校区）。
@@ -167,25 +165,40 @@ class CampusCardActivity : AppCompatActivity() {
 /**
  * 页面的状态持有者。
  *
- * Cookie 由 Activity 提供，凭据不落盘。首次初始化后仅查询本地流水；
- * 用户点击更新才联网，初次历史同步按页保存检查点，服务端会话失效仍保留本地记录。
+ * 读取本地流水并观察应用级同步任务；凭据不落盘，筛选和翻页不触发请求。
  */
 class CampusCardViewModel(application: Application) : AndroidViewModel(application) {
-    private val client = CampusCardClient()
+    private val controller = CampusCardSyncController.get(application)
     private val store = CampusCardLedgerStore(File(application.noBackupFilesDir, "campus-card-history"))
     private var ledger: CampusCardLedger? = null
     private var sessionKey = ""
     private var pageNumber = 1
-    private var loadGeneration = 0
     private var syncing = false
     private var syncFailed = false
     private var cookies: CampusCardCookies? = null
-    private var token: String? = null
     private var job: Job? = null
+    private val _historyPeriod = MutableStateFlow(YearMonth.now(ZoneId.of("Asia/Shanghai")))
+    internal val historyPeriod = _historyPeriod.asStateFlow()
     private val _historyRange = MutableStateFlow(CampusCardHistoryRange.MONTH)
     internal val historyRange = _historyRange.asStateFlow()
     private val _state = MutableStateFlow<CampusServiceUiState<CampusCardPage>>(CampusServiceUiState.Loading)
     val state: StateFlow<CampusServiceUiState<CampusCardPage>> = _state.asStateFlow()
+
+    init {
+        viewModelScope.launch {
+            controller.state.collect { sync ->
+                if (cookies != null && sync.key == sessionKey) {
+                    ledger = sync.ledger ?: ledger
+                    syncing = sync.running
+                    syncFailed = sync.failed
+                    if (ledger != null) showLocal()
+                    else if (sync.requiresSignIn) _state.value = CampusServiceUiState.RequiresSignIn
+                    else if (sync.failed) _state.value = CampusServiceUiState.Failed(
+                        getApplication<Application>().getString(R.string.campus_card_initial_sync_failed))
+                }
+            }
+        }
+    }
 
     internal fun changeHistoryRange(range: CampusCardHistoryRange) {
         _historyRange.value = range
@@ -193,9 +206,15 @@ class CampusCardViewModel(application: Application) : AndroidViewModel(applicati
         showLocal()
     }
 
+    internal fun changeHistoryPeriod(period: YearMonth) {
+        _historyPeriod.value = period
+        pageNumber = 1
+        showLocal()
+    }
+
     internal fun changePage(page: Int) {
         val data = ledger ?: return
-        val total = data.query(historyRange.value == CampusCardHistoryRange.MONTH, 1, Instant.now()).total
+        val total = data.query(historyRange.value, historyPeriod.value, 1).total
         if (page < 1 || page.toLong() > ((total.toLong() + 19) / 20).coerceAtLeast(1)) return
         pageNumber = page
         showLocal()
@@ -203,135 +222,54 @@ class CampusCardViewModel(application: Application) : AndroidViewModel(applicati
 
     private fun showLocal() {
         val data = ledger ?: return
-        var rows = data.query(historyRange.value == CampusCardHistoryRange.MONTH, pageNumber, Instant.now())
+        var rows = data.query(historyRange.value, historyPeriod.value, pageNumber)
         val maxPage = ((rows.total + 19) / 20).coerceAtLeast(1)
         if (pageNumber > maxPage) {
             pageNumber = maxPage
-            rows = data.query(historyRange.value == CampusCardHistoryRange.MONTH, pageNumber, Instant.now())
+            rows = data.query(historyRange.value, historyPeriod.value, pageNumber)
         }
         _state.value = CampusServiceUiState.Ready(CampusCardPage(
-            summary = data.summary, transactions = rows, transactionsFailed = syncFailed,
+            summary = data.summary.copy(spending = data.spending(Instant.now())), transactions = rows, transactionsFailed = syncFailed,
             transactionsLoading = syncing && data.rows.isEmpty(), transactionsUpdatedAt = data.updatedAt,
             historyPage = pageNumber, summaryCached = true, historySyncing = syncing,
             initialHistoryComplete = data.initialComplete, historySavedCount = data.rows.size,
-            historyRemoteTotal = data.remoteTotal,
+            historyRemoteTotal = data.remoteTotal, historyYears = data.availableYears(Instant.now()),
+            periodSpending = data.periodSpending(historyRange.value, historyPeriod.value),
         ))
     }
 
     /** Reopening, filtering and paging never trigger network calls when a local ledger exists. */
     internal fun load(session: CampusCardCookies?, portalTicket: String? = null) {
-        loadGeneration++
         job?.cancel()
         syncing = false
         syncFailed = false
         pageNumber = 1
-        token = null
         cookies = session
         ledger = null
         if (session == null || (!session.hasSession && portalTicket == null)) {
             _state.value = CampusServiceUiState.RequiresSignIn
             return
         }
-        val identity = session.casHeader.split(';').map { it.trim() }
-            .firstOrNull { it.substringBefore('=').equals("CASTGC", true) }
-            ?: session.portalHeader.split(';').map { it.trim() }.sorted().joinToString(";")
-        sessionKey = CampusCardLedgerStore.digest(identity)
+        sessionKey = CampusCardSyncController.key(session)
         _state.value = CampusServiceUiState.Loading
         job = viewModelScope.launch {
             ledger = store.read(sessionKey)
-            if (ledger == null) store.migrateLegacy(identity, Instant.now())?.let {
-                store.write(sessionKey, it)
-                ledger = it
+            val sync = controller.state.value
+            if (sync.key == sessionKey) {
+                ledger = sync.ledger ?: ledger
+                syncing = sync.running
+                syncFailed = sync.failed
             }
-            if (ledger != null) showLocal() else synchronize(portalTicket)
+            if (ledger != null) showLocal()
+            if (ledger == null) controller.start(session, portalTicket)
         }
     }
 
     internal fun update() {
-        if (syncing || cookies == null) return
-        job?.cancel()
-        job = viewModelScope.launch { synchronize(null) }
-    }
-
-    private suspend fun save(value: CampusCardLedger) {
-        store.write(sessionKey, value)
-        ledger = value
-        showLocal()
-    }
-
-    /** First initialization is sequential and checkpointed; later updates only query the recent interval. */
-    private suspend fun synchronize(portalTicket: String?) {
         val session = cookies ?: return
-        val generation = loadGeneration
-        syncing = true
-        syncFailed = false
-        showLocal()
-        try {
-            val activeToken = token ?: client.acquireToken(session::headerFor, portalTicket).also { token = it }
-            val now = Instant.now()
-            val initial = ledger?.initialComplete != true
-            val until = if (initial) ledger?.initialCutoff?.let(Instant::ofEpochMilli) ?: now else now
-            val since = if (initial) null else ledger?.updateSince()
-            var remotePage = if (initial) ledger?.nextInitialPage ?: 1 else 1
-            val batch = mutableListOf<CampusCardTransaction>()
-            val existing = if (initial) ledger?.initialRows.orEmpty() else ledger?.rows.orEmpty()
-            val visibleRows = ledger?.rows.orEmpty()
-            coroutineScope {
-                // Start the first history request immediately, concurrently with the small summary requests.
-                val first = async { client.fetchTransactions(activeToken, remotePage, range = CampusCardHistoryRange.ALL,
-                    since = since, until = until) }
-                val spending = async {
-                    try { client.fetchSpending(activeToken) }
-                    catch (cancelled: CancellationException) { throw cancelled }
-                    catch (_: Exception) { null }
-                }
-                val balance = async { client.fetchBalance(activeToken) }
-                val freshBalance = balance.await()
-                save((ledger ?: CampusCardLedger(freshBalance, initialCutoff = until.toEpochMilli()))
-                    .copy(summary = freshBalance, pendingSinceMillis = since?.toEpochMilli()))
-                val prepared = ledger ?: return@coroutineScope
-                save(prepared.copy(summary = prepared.summary.copy(spending = spending.await())))
-                var response = first.await()
-                while (true) {
-                    val before = batch.size
-                    batch.addAll(response.items)
-                    val prefix = if (initial) CampusCardLedger.merge(emptyList(), existing + batch) else emptyList()
-                    val merged = if (initial) CampusCardLedger.merge(visibleRows, prefix)
-                        else CampusCardLedger.merge(existing, batch)
-                    val complete = (remotePage.toLong() - 1) * 20 + response.items.size >= response.total
-                    if (!complete && (batch.size == before || remotePage >= 5000)) {
-                        throw CampusCardNetworkException(getApplication<Application>().getString(R.string.campus_card_sync_incomplete))
-                    }
-                    val current = ledger ?: return@coroutineScope
-                    save(current.copy(rows = merged, updatedAt = System.currentTimeMillis(),
-                        initialComplete = !initial || complete,
-                        nextInitialPage = if (initial) remotePage + 1 else current.nextInitialPage,
-                        remoteTotal = if (initial) response.total else current.remoteTotal,
-                        pendingSinceMillis = if (complete) null else current.pendingSinceMillis,
-                        initialRows = if (initial && !complete) prefix else emptyList()))
-                    if (complete) break
-                    remotePage++
-                    response = client.fetchTransactions(activeToken, remotePage, range = CampusCardHistoryRange.ALL,
-                        since = since, until = until)
-                }
-            }
-        } catch (cancelled: CancellationException) {
-            throw cancelled
-        } catch (_: CampusCardSignInRequiredException) {
-            token = null
-            // Retain the local ledger; the user may still read it after a server session expires.
-            if (ledger == null) _state.value = CampusServiceUiState.RequiresSignIn else syncFailed = true
-        } catch (_: Exception) {
-            syncFailed = true
-            if (ledger == null) _state.value = CampusServiceUiState.Failed(
-                getApplication<Application>().getString(R.string.campus_card_initial_sync_failed))
-        } finally {
-            if (generation == loadGeneration) {
-                syncing = false
-                showLocal()
-            }
-        }
+        controller.start(session)
     }
+
 }
 
 /**
@@ -380,6 +318,7 @@ private fun CampusCardScreen(
 ) {
     val state by viewModel.state.collectAsState()
     val range by viewModel.historyRange.collectAsState()
+    val period by viewModel.historyPeriod.collectAsState()
     Scaffold(
         topBar = {
             TopAppBar(
@@ -426,7 +365,7 @@ private fun CampusCardScreen(
                 is CampusServiceUiState.Loading -> LoadingCard()
                 is CampusServiceUiState.RequiresSignIn -> SignInCard(onSignIn = onSignIn)
                 is CampusServiceUiState.Failed -> FailedCard(reason = current.reason, onRetry = onReload)
-                is CampusServiceUiState.Ready -> CampusCardContent(page = current.value, range = range, onRangeChanged = viewModel::changeHistoryRange, onPageChanged = viewModel::changePage)
+                is CampusServiceUiState.Ready -> CampusCardContent(page = current.value, range = range, onRangeChanged = viewModel::changeHistoryRange, onPageChanged = viewModel::changePage, period = period, onPeriodChanged = viewModel::changeHistoryPeriod)
             }
         }
     }
@@ -508,9 +447,11 @@ private fun CampusCardContent(
     range: CampusCardHistoryRange,
     onRangeChanged: (CampusCardHistoryRange) -> Unit,
     onPageChanged: (Int) -> Unit,
+    period: YearMonth,
+    onPeriodChanged: (YearMonth) -> Unit,
 ) {
     val tokens = HitaTheme.tokens
-    val listState = remember(range, page.historyPage) { LazyListState() }
+    val listState = rememberLazyListState()
     LazyColumn(
         state = listState,
         modifier = Modifier.fillMaxSize(),
@@ -522,7 +463,7 @@ private fun CampusCardContent(
         ),
         verticalArrangement = Arrangement.spacedBy(tokens.spacing.md),
     ) {
-        item { BalanceCard(page) }
+        item(key = "balance") { BalanceCard(page) }
         if (!page.initialHistoryComplete) {
             item { Text(stringResource(R.string.campus_card_initial_guide), style = MaterialTheme.typography.bodyMedium) }
             item { Text(stringResource(if (page.historySyncing) R.string.campus_card_sync_progress else R.string.campus_card_sync_paused,
@@ -531,9 +472,20 @@ private fun CampusCardContent(
             item { Text(stringResource(R.string.campus_card_incremental_sync)) }
         }
         if (page.historySyncing) item { LinearProgressIndicator(modifier = Modifier.fillMaxWidth()) }
-        item {
+        item(key = "spending") {
             if (page.spendingLoading) Text(stringResource(R.string.campus_card_spending_loading))
-            else SpendingCard(page.summary.spending)
+            else {
+                val currentMonth = YearMonth.now(ZoneId.of("Asia/Shanghai"))
+                val historical = range == CampusCardHistoryRange.YEAR ||
+                    (range == CampusCardHistoryRange.MONTH && period != currentMonth)
+                val label = if (range == CampusCardHistoryRange.YEAR)
+                    stringResource(R.string.campus_card_selected_year, period.year)
+                    else stringResource(R.string.campus_card_year_month, period.year, period.monthValue)
+                SpendingCard(page.summary.spending,
+                    periodLabel = label.takeIf { historical },
+                    periodAmount = page.periodSpending,
+                    currentMonthLabel = stringResource(R.string.campus_card_year_month, currentMonth.year, currentMonth.monthValue))
+            }
         }
         item {
             Text(
@@ -542,15 +494,21 @@ private fun CampusCardContent(
                 color = MaterialTheme.colorScheme.onSurface,
             )
         }
-        item {
+        item(key = "range") {
             Row(horizontalArrangement = Arrangement.spacedBy(tokens.spacing.sm)) {
                 FilterChip(selected = range == CampusCardHistoryRange.MONTH,
                     onClick = { onRangeChanged(CampusCardHistoryRange.MONTH) },
                     label = { Text(stringResource(R.string.campus_card_range_month)) })
+                FilterChip(selected = range == CampusCardHistoryRange.YEAR,
+                    onClick = { onRangeChanged(CampusCardHistoryRange.YEAR) },
+                    label = { Text(stringResource(R.string.campus_card_range_year)) })
                 FilterChip(selected = range == CampusCardHistoryRange.ALL,
                     onClick = { onRangeChanged(CampusCardHistoryRange.ALL) },
                     label = { Text(stringResource(R.string.campus_card_range_all)) })
             }
+        }
+        if (range != CampusCardHistoryRange.ALL) {
+            item(key = "period") { CampusCardPeriodSelector(range, period, page.historyYears, onPeriodChanged) }
         }
         if (page.transactionsFailed) {
             item {
@@ -566,7 +524,7 @@ private fun CampusCardContent(
                 DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(updatedAt))),
                 style = MaterialTheme.typography.bodySmall) }
         }
-        item {
+        item(key = "pagination") {
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically) {
                 OutlinedButton(enabled = page.historyPage > 1,
@@ -611,6 +569,41 @@ private fun CampusCardContent(
 }
 
 @Composable
+private fun CampusCardPeriodSelector(
+    range: CampusCardHistoryRange,
+    period: YearMonth,
+    years: List<Int>,
+    onChanged: (YearMonth) -> Unit,
+) {
+    var yearMenu by remember { mutableStateOf(false) }
+    var monthMenu by remember { mutableStateOf(false) }
+    Row(horizontalArrangement = Arrangement.spacedBy(HitaTheme.tokens.spacing.sm)) {
+        Box {
+            OutlinedButton(onClick = { yearMenu = true }) {
+                Text(stringResource(R.string.campus_card_selected_year, period.year))
+            }
+            DropdownMenu(expanded = yearMenu, onDismissRequest = { yearMenu = false }) {
+                (years + period.year).distinct().sortedDescending().forEach { year ->
+                    DropdownMenuItem(text = { Text(stringResource(R.string.campus_card_selected_year, year)) },
+                        onClick = { yearMenu = false; onChanged(period.withYear(year)) })
+                }
+            }
+        }
+        if (range == CampusCardHistoryRange.MONTH) Box {
+            OutlinedButton(onClick = { monthMenu = true }) {
+                Text(stringResource(R.string.campus_card_selected_month, period.monthValue))
+            }
+            DropdownMenu(expanded = monthMenu, onDismissRequest = { monthMenu = false }) {
+                (1..12).forEach { month ->
+                    DropdownMenuItem(text = { Text(stringResource(R.string.campus_card_selected_month, month)) },
+                        onClick = { monthMenu = false; onChanged(period.withMonth(month)) })
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun BalanceCard(page: CampusCardPage) {
     val tokens = HitaTheme.tokens
     Card(
@@ -634,8 +627,6 @@ private fun BalanceCard(page: CampusCardPage) {
                 style = MaterialTheme.typography.displaySmall,
                 color = MaterialTheme.colorScheme.onPrimaryContainer,
             )
-            if (page.summaryCached) Text(stringResource(R.string.campus_card_balance_cached),
-                style = MaterialTheme.typography.bodySmall)
             val status = page.summary.statusText
             if (status != null) {
                 Text(
@@ -657,7 +648,7 @@ private fun BalanceCard(page: CampusCardPage) {
 }
 
 @Composable
-private fun SpendingCard(spending: CampusCardSpending?) {
+private fun SpendingCard(spending: CampusCardSpending?, periodLabel: String?, periodAmount: String?, currentMonthLabel: String) {
     val tokens = HitaTheme.tokens
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -665,7 +656,10 @@ private fun SpendingCard(spending: CampusCardSpending?) {
             containerColor = MaterialTheme.colorScheme.surfaceVariant,
         ),
     ) {
-        if (spending == null) {
+        if (periodLabel != null) {
+            SpendingCell(label = periodLabel, value = periodAmount,
+                modifier = Modifier.fillMaxWidth().padding(tokens.spacing.lg))
+        } else if (spending == null) {
             Text(
                 text = stringResource(R.string.campus_card_spending_unavailable),
                 style = MaterialTheme.typography.bodyMedium,
@@ -690,7 +684,7 @@ private fun SpendingCard(spending: CampusCardSpending?) {
                     modifier = Modifier.weight(1f),
                 )
                 SpendingCell(
-                    label = stringResource(R.string.campus_card_spending_month),
+                    label = currentMonthLabel,
                     value = spending.monthText,
                     modifier = Modifier.weight(1f),
                 )

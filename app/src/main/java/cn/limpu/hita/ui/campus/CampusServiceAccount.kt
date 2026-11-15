@@ -38,6 +38,7 @@ internal enum class CampusServiceAccount(
     }
 
     suspend fun signOut(context: Context) {
+        if (this == CARD) CampusCardSyncController.get(context.applicationContext as android.app.Application).cancel()
         // Persist before touching cookies so a retained SSO ticket cannot silently sign the service back in.
         preferences(context).edit().putBoolean(name, true).apply()
         val manager = CookieManager.getInstance()

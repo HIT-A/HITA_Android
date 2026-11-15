@@ -44,6 +44,7 @@ class HApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        cn.limpu.hita.ui.campus.CampusCardSyncController.install(this)
 
         // 启用 Material You 动态配色（Android 12+ 自动跟随系统壁纸颜色）
         DynamicColors.applyToActivitiesIfAvailable(this)
