@@ -207,7 +207,13 @@ class AgentChatLifecycleInstrumentedTest {
             val cancelled = CompletableDeferred<Unit>()
         }
         val calls = Channel<Call>(Channel.UNLIMITED)
-        override suspend fun run(history: List<ChatMessage>, media: ChatMediaContent?, provider: AgentProvider<TimetableAgentInput, TimetableAgentOutput>, onTrace: (AgentTraceEvent) -> Unit): LlmChatResult {
+        override suspend fun run(
+            history: List<ChatMessage>,
+            media: ChatMediaContent?,
+            provider: AgentProvider<TimetableAgentInput, TimetableAgentOutput>,
+            onTrace: (AgentTraceEvent) -> Unit,
+            confirmationGate: cn.limpu.hita.agent.tools.ConfirmationGate,
+        ): LlmChatResult {
             val call = Call(history, onTrace)
             onTrace(AgentTraceEvent("react_step", "thinking", history.last().content))
             calls.send(call)

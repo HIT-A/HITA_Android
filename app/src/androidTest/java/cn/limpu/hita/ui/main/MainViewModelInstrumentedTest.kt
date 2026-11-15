@@ -246,7 +246,8 @@ class MainViewModelInstrumentedTest {
             main {
                 if (loggedInEas) eas.saveEasTokenSync(token("first"))
                 model = MainViewModel(isolated, LocalUserRepository(userPreference, database), eas,
-                    requests, settings, WallpaperStore(isolated), DisplayScopeSelector {})
+                    requests, settings, WallpaperStore(isolated), DisplayScopeSelector {},
+                    cn.limpu.hita.data.repository.TimetableRepository(isolated))
                 store.put("main", model)
                 model.initialize(null, 0)
             }

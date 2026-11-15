@@ -1,6 +1,8 @@
 package cn.limpu.hita.agent.remote
 
 import cn.limpu.hita.BuildConfig
+import cn.limpu.hita.data.source.web.hoa.SubmissionIdempotencyKey
+import cn.limpu.hita.data.source.web.hoa.SubmissionOpCanonicalizer
 import okhttp3.OkHttpClient
 import retrofit2.Call
 import retrofit2.Retrofit
@@ -23,13 +25,22 @@ internal fun buildPrHttpError(code: Int, rawBody: String?): PrError {
     return PrError("HTTP_$code", message)
 }
 
-internal fun buildSubmitIdempotencyKey(courseCode: String, uniqueSuffix: Long = System.nanoTime()): String {
-    val normalizedCourseCode = courseCode
-        .lowercase()
-        .replace(Regex("[^a-z0-9]+"), "-")
-        .trim('-')
-        .ifBlank { "course" }
-    return "android-$normalizedCourseCode-$uniqueSuffix"
+/**
+ * 投稿幂等键：由校区、课程码与规范化 ops 内容派生。
+ *
+ * 之前使用 `System.nanoTime()` 后缀，同一份内容在超时重试时会产生新键，
+ * 服务端视为新请求并可能建出重复 PR。现在与 UI 投稿路径共用
+ * [SubmissionIdempotencyKey]。
+ */
+internal fun buildSubmitIdempotencyKey(
+    courseCode: String,
+    campus: String = "shenzhen",
+    ops: List<Map<String, Any>> = emptyList(),
+): String {
+    val canonical = SubmissionIdempotencyKey.canonicalOps(
+        ops.map { SubmissionOpCanonicalizer.canonicalize(it) }
+    )
+    return SubmissionIdempotencyKey.derive(campus, courseCode, canonical)
 }
 
 data class PreviewRequest(
@@ -107,7 +118,7 @@ object PrServerClient {
     }
 
     fun submitSync(courseCode: String, ops: List<Map<String, Any>>): PrResponse {
-        val key = buildSubmitIdempotencyKey(courseCode)
+        val key = buildSubmitIdempotencyKey(courseCode, "shenzhen", ops)
         val request = SubmitRequest(
             target = PreviewRequest.Target(campus = "shenzhen", course_code = courseCode),
             ops = ops,
