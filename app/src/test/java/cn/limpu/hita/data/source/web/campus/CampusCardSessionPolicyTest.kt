@@ -123,6 +123,16 @@ class CampusCardSessionPolicyTest {
     }
 
     @Test
+    fun `ticket from insecure or unrelated paths is rejected`() {
+        listOf(
+            "http://dxcdp.hitsz.edu.cn/portal/?t=secret",
+            "https://user@dxcdp.hitsz.edu.cn/portal/?t=secret",
+            "https://dxcdp.hitsz.edu.cn:8443/portal/?t=secret",
+            "https://dxcdp.hitsz.edu.cn/other/?t=secret",
+        ).forEach { assertNull(CampusCardSessionPolicy.portalTicket(it)) }
+    }
+
+    @Test
     fun `ticket is percent decoded`() {
         assertEquals(
             "A B",
@@ -173,7 +183,7 @@ class CampusCardSessionPolicyTest {
             CampusCardSessionPolicy.originOf("https://dxcdp.hitsz.edu.cn/portal-api/ssologin?t=x"),
         )
         assertEquals(
-            "https://dxcdp.hitsz.edu.cn:443",
+            "https://dxcdp.hitsz.edu.cn",
             CampusCardSessionPolicy.originOf("https://dxcdp.hitsz.edu.cn:443/portal/"),
         )
         assertEquals("", CampusCardSessionPolicy.originOf("not a url"))

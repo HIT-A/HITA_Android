@@ -78,7 +78,10 @@ internal object CampusCardSessionPolicy {
      */
     fun portalTicket(url: String): String? {
         val uri = runCatching { URI(url) }.getOrNull() ?: return null
+        if (!uri.scheme.equals("https", ignoreCase = true) || uri.rawUserInfo != null) return null
+        if (uri.port != -1 && uri.port != 443) return null
         if (!uri.host.orEmpty().equals(PORTAL_HOST, ignoreCase = true)) return null
+        if (!uri.path.orEmpty().startsWith("/portal/")) return null
         return listOfNotNull(uri.rawQuery, uri.rawFragment).firstNotNullOfOrNull { raw ->
             ticketFromQuery(raw)
         }
@@ -116,7 +119,7 @@ internal object CampusCardSessionPolicy {
         val scheme = uri.scheme?.lowercase() ?: return ""
         val host = uri.host?.lowercase() ?: return ""
         if (scheme.isEmpty() || host.isEmpty()) return ""
-        return if (uri.port == -1) "$scheme://$host" else "$scheme://$host:${uri.port}"
+        return if (uri.port == -1 || (scheme == "https" && uri.port == 443)) "$scheme://$host" else "$scheme://$host:${uri.port}"
     }
 
     private fun ticketFromQuery(raw: String): String? {

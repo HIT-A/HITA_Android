@@ -3,9 +3,10 @@ package cn.limpu.hita.data.source.web.campus
 import cn.limpu.hita.data.model.campus.CampusCardSpending
 import cn.limpu.hita.data.model.campus.CampusCardSummary
 import cn.limpu.hita.data.model.campus.CampusCardTransactions
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import okhttp3.Cookie
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
@@ -35,41 +36,60 @@ internal class CampusCardClient(
      * @param cookieHeader 传入 origin（`https://dxcdp.hitsz.edu.cn` 或
      *   `https://ids.hit.edu.cn`），返回该 origin 的 Cookie 原文
      */
-    suspend fun acquireToken(cookieHeader: (String) -> String): String = withContext(Dispatchers.IO) {
-        exchangeToken(followLoginRedirects(cookieHeader), cookieHeader)
+    suspend fun acquireToken(
+        cookieHeader: (String) -> String,
+        portalTicket: String? = null,
+    ): String = withContext(Dispatchers.IO) {
+        val hopCookies = mutableListOf<Cookie>()
+        val ticket = portalTicket ?: followLoginRedirects(cookieHeader, hopCookies)
+        exchangeToken(ticket, cookieHeader, hopCookies)
     }
 
-    /** 余额 + 卡状态 + 消费汇总。消费汇总失败时 `spending` 为 null，余额仍然有效。 */
-    suspend fun fetchSummary(token: String): CampusCardSummary = withContext(Dispatchers.IO) {
-        val summary = CampusCardParser.billSummary(getText("$API_BASE/index/getBillSummaryBySno", token))
-        val spending: CampusCardSpending? = try {
-            CampusCardParser.spending(getText("$API_BASE/index/getCountYkt", token))
-        } catch (cancelled: CancellationException) {
-            throw cancelled
-        } catch (_: Exception) {
-            // 消费汇总只是附加信息，任何失败都不影响余额展示。
-            null
-        }
-        summary.copy(spending = spending)
+    /** The mandatory balance request can render without waiting for supplementary data. */
+    suspend fun fetchBalance(token: String): CampusCardSummary = withContext(Dispatchers.IO) {
+        CampusCardParser.billSummary(getText("$API_BASE/index/getBillSummaryBySno", token))
+    }
+
+    suspend fun fetchSpending(token: String): CampusCardSpending? = withContext(Dispatchers.IO) {
+        CampusCardParser.spending(getText("$API_BASE/index/getCountYkt", token))
     }
 
     /** 消费流水：`status=1`（全部）+ 指定分页。 */
-    suspend fun fetchTransactions(token: String, page: Int = 1, pageSize: Int = 20): CampusCardTransactions =
+    suspend fun fetchTransactions(
+        token: String,
+        page: Int = 1,
+        pageSize: Int = 20,
+        range: CampusCardHistoryRange = CampusCardHistoryRange.MONTH,
+        now: java.time.Instant = java.time.Instant.now(),
+        since: java.time.Instant? = null,
+        until: java.time.Instant? = null,
+    ): CampusCardTransactions =
         withContext(Dispatchers.IO) {
             val safePage = page.coerceAtLeast(1)
             val safeSize = pageSize.coerceAtLeast(1)
-            val url = "$API_BASE/index/getBillDetailList?status=1&pageNum=$safePage&pageSize=$safeSize"
+            val builder = "$API_BASE/index/getBillDetailList".toHttpUrl().newBuilder()
+                .addQueryParameter("status", "1")
+                .addQueryParameter("pageNum", safePage.toString())
+                .addQueryParameter("pageSize", safeSize.toString())
+            range.parameters(now).forEach { (name, value) -> builder.addQueryParameter(name, value) }
+            val format = java.time.format.DateTimeFormatter.ofPattern("yyyy/MM/dd HH:mm:ss", java.util.Locale.ROOT)
+                .withZone(java.time.ZoneId.of("Asia/Shanghai"))
+            since?.let { builder.setQueryParameter("beginTime", format.format(it)) }
+            until?.let { builder.setQueryParameter("endTime", format.format(it)) }
+            val url = builder.build().toString()
             CampusCardParser.transactions(getText(url, token), safePage)
         }
 
-    private fun followLoginRedirects(cookieHeader: (String) -> String): String {
+    private fun followLoginRedirects(cookieHeader: (String) -> String, hopCookies: MutableList<Cookie>): String {
         var currentUrl = CampusCardSessionPolicy.CAS_LOGIN_URL
-        var hopCookies = emptyMap<String, String>()
         repeat(MAX_REDIRECT_HOPS) {
             CampusCardSessionPolicy.portalTicket(currentUrl)?.let { return it }
-            execute(currentUrl, token = null, cookieHeader = mergeCookies(baseCookie(currentUrl, cookieHeader), hopCookies))
+            execute(currentUrl, token = null, cookieHeader = mergeCookies(baseCookie(currentUrl, cookieHeader), hopCookies, currentUrl))
                 .use { response ->
-                    hopCookies = hopCookies + setCookies(response)
+                    Cookie.parseAll(response.request.url, response.headers).forEach { cookie ->
+                        hopCookies.removeAll { it.name == cookie.name && it.domain == cookie.domain && it.path == cookie.path }
+                        hopCookies.add(cookie)
+                    }
                     val location = response.header("Location")
                     if (response.code in 300..399 && !location.isNullOrBlank()) {
                         val next = resolve(currentUrl, location)
@@ -86,9 +106,9 @@ internal class CampusCardClient(
         throw CampusCardNetworkException("登录重定向次数过多，无法完成门户登录")
     }
 
-    private fun exchangeToken(ticket: String, cookieHeader: (String) -> String): String {
+    private fun exchangeToken(ticket: String, cookieHeader: (String) -> String, hopCookies: List<Cookie>): String {
         val url = "$API_BASE/ssologin?t=${URLEncoder.encode(ticket, "UTF-8")}"
-        return CampusCardParser.token(getText(url, token = null, cookieHeader = baseCookie(url, cookieHeader)))
+        return CampusCardParser.token(getText(url, token = null, cookieHeader = mergeCookies(baseCookie(url, cookieHeader), hopCookies, url)))
     }
 
     private fun getText(url: String, token: String?, cookieHeader: String? = null): String =
@@ -130,20 +150,7 @@ internal class CampusCardClient(
         return cookieHeader(origin).ifEmpty { null }
     }
 
-    /** 收集本次跳转链的 `Set-Cookie`，只用于后续 hop，不写回系统 CookieManager。 */
-    private fun setCookies(response: Response): Map<String, String> {
-        val result = linkedMapOf<String, String>()
-        response.headers.forEach { header ->
-            if (!header.first.equals("Set-Cookie", ignoreCase = true)) return@forEach
-            val pair = header.second.substringBefore(';').trim()
-            val name = pair.substringBefore('=', "").trim()
-            val value = pair.substringAfter('=', "").trim()
-            if (name.isNotEmpty() && value.isNotEmpty()) result[name] = value
-        }
-        return result
-    }
-
-    private fun mergeCookies(base: String?, overlay: Map<String, String>): String? {
+    private fun mergeCookies(base: String?, overlay: List<Cookie>, url: String): String? {
         val ordered = linkedMapOf<String, String>()
         base.orEmpty().split(';').forEach { segment ->
             val trimmed = segment.trim()
@@ -152,7 +159,9 @@ internal class CampusCardClient(
             val value = trimmed.substringAfter('=')
             if (name.isNotEmpty() && value.isNotEmpty()) ordered[name] = value
         }
-        ordered.putAll(overlay)
+        overlay.filter { it.matches(url.toHttpUrl()) && it.expiresAt > System.currentTimeMillis() }
+            .sortedBy { it.path.length }
+            .forEach { ordered[it.name] = it.value }
         if (ordered.isEmpty()) return null
         return ordered.entries.joinToString("; ") { "${it.key}=${it.value}" }
     }

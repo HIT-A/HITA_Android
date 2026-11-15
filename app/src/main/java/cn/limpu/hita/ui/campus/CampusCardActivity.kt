@@ -24,12 +24,14 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -38,6 +40,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -45,6 +48,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -63,6 +67,13 @@ import cn.limpu.hita.data.model.campus.CampusCardSpending
 import cn.limpu.hita.data.model.campus.CampusCardTransaction
 import cn.limpu.hita.data.model.campus.CampusCardTransactions
 import cn.limpu.hita.data.model.campus.campusCardYuan
+import cn.limpu.hita.data.repository.CampusCardLedgerStore
+import cn.limpu.hita.data.repository.CampusCardLedger
+import java.io.File
+import java.time.Instant
+import java.text.DateFormat
+import java.util.Date
+import cn.limpu.hita.data.source.web.campus.CampusCardHistoryRange
 import cn.limpu.hita.data.source.web.campus.CampusCardClient
 import cn.limpu.hita.data.source.web.campus.CampusCardNetworkException
 import cn.limpu.hita.data.source.web.campus.CampusCardParseException
@@ -76,6 +87,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 
 /**
  * 校园卡入口（深圳校区）。
@@ -92,24 +105,58 @@ class CampusCardActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         // 有历史会话（统一认证票据或门户 Cookie）才发请求；否则直接进未登录态。
-        viewModel.load(readCampusCardCookies())
+        viewModel.load(if (CampusServiceAccount.CARD.isSignedOut(this)) null else readCampusCardCookies())
         setContent {
             HitaComposeTheme {
                 var showLogin by remember { mutableStateOf(false) }
+                var resetting by remember { mutableStateOf(false) }
+                val scope = rememberCoroutineScope()
+                val signOut: () -> Unit = {
+                    if (!resetting) {
+                        resetting = true
+                        showLogin = false
+                        viewModel.load(null)
+                        scope.launch {
+                            try { CampusServiceAccount.CARD.signOut(this@CampusCardActivity) }
+                            finally { resetting = false }
+                        }
+                    }
+                }
                 if (showLogin) {
                     CampusCardLoginScreen(
+                        onSignOut = signOut,
                         onCancel = { showLogin = false },
-                        onLoggedIn = {
-                            showLogin = false
-                            viewModel.load(readCampusCardCookies())
+                        onLoggedIn = { ticket ->
+                            if (!resetting && !CampusServiceAccount.CARD.isSignedOut(this@CampusCardActivity)) {
+                                showLogin = false
+                                viewModel.load(readCampusCardCookies(), ticket)
+                            }
                         },
                     )
                 } else {
                     CampusCardScreen(
                         viewModel = viewModel,
-                        onSignIn = { showLogin = true },
+                        onSignIn = {
+                            if (!resetting) {
+                                resetting = true
+                                scope.launch {
+                                    try {
+                                        // An expired/anonymous business cookie must not immediately close the login page.
+                                        CampusServiceAccount.CARD.signOut(this@CampusCardActivity)
+                                        CampusServiceAccount.CARD.beginSignIn(this@CampusCardActivity)
+                                        showLogin = true
+                                    } finally { resetting = false }
+                                }
+                            }
+                        },
+                        onSignOut = signOut,
+                        resetting = resetting,
                         onBack = { finish() },
-                        onReload = { viewModel.load(readCampusCardCookies()) },
+                        onReload = {
+                            if (!resetting && !CampusServiceAccount.CARD.isSignedOut(this@CampusCardActivity)) {
+                                viewModel.update()
+                            }
+                        },
                     )
                 }
             }
@@ -120,80 +167,171 @@ class CampusCardActivity : AppCompatActivity() {
 /**
  * 页面的状态持有者。
  *
- * Cookie 每次由 Activity 传入，不缓存到内存；`token` 只在本次页面存活期间复用。
- * 服务端判定登录失效时立刻丢弃 `token` 并回到未登录态，而不是反复重试。
+ * Cookie 由 Activity 提供，凭据不落盘。首次初始化后仅查询本地流水；
+ * 用户点击更新才联网，初次历史同步按页保存检查点，服务端会话失效仍保留本地记录。
  */
 class CampusCardViewModel(application: Application) : AndroidViewModel(application) {
-
     private val client = CampusCardClient()
-
-    private val _state = MutableStateFlow<CampusServiceUiState<CampusCardPage>>(
-        CampusServiceUiState.Loading,
-    )
-    val state: StateFlow<CampusServiceUiState<CampusCardPage>> = _state.asStateFlow()
-
+    private val store = CampusCardLedgerStore(File(application.noBackupFilesDir, "campus-card-history"))
+    private var ledger: CampusCardLedger? = null
+    private var sessionKey = ""
+    private var pageNumber = 1
+    private var loadGeneration = 0
+    private var syncing = false
+    private var syncFailed = false
     private var cookies: CampusCardCookies? = null
     private var token: String? = null
     private var job: Job? = null
+    private val _historyRange = MutableStateFlow(CampusCardHistoryRange.MONTH)
+    internal val historyRange = _historyRange.asStateFlow()
+    private val _state = MutableStateFlow<CampusServiceUiState<CampusCardPage>>(CampusServiceUiState.Loading)
+    val state: StateFlow<CampusServiceUiState<CampusCardPage>> = _state.asStateFlow()
 
-    /** 用当前浏览器会话加载；完全没有会话线索时直接进入未登录，不发请求。 */
-    internal fun load(session: CampusCardCookies?) {
+    internal fun changeHistoryRange(range: CampusCardHistoryRange) {
+        _historyRange.value = range
+        pageNumber = 1
+        showLocal()
+    }
+
+    internal fun changePage(page: Int) {
+        val data = ledger ?: return
+        val total = data.query(historyRange.value == CampusCardHistoryRange.MONTH, 1, Instant.now()).total
+        if (page < 1 || page.toLong() > ((total.toLong() + 19) / 20).coerceAtLeast(1)) return
+        pageNumber = page
+        showLocal()
+    }
+
+    private fun showLocal() {
+        val data = ledger ?: return
+        var rows = data.query(historyRange.value == CampusCardHistoryRange.MONTH, pageNumber, Instant.now())
+        val maxPage = ((rows.total + 19) / 20).coerceAtLeast(1)
+        if (pageNumber > maxPage) {
+            pageNumber = maxPage
+            rows = data.query(historyRange.value == CampusCardHistoryRange.MONTH, pageNumber, Instant.now())
+        }
+        _state.value = CampusServiceUiState.Ready(CampusCardPage(
+            summary = data.summary, transactions = rows, transactionsFailed = syncFailed,
+            transactionsLoading = syncing && data.rows.isEmpty(), transactionsUpdatedAt = data.updatedAt,
+            historyPage = pageNumber, summaryCached = true, historySyncing = syncing,
+            initialHistoryComplete = data.initialComplete, historySavedCount = data.rows.size,
+            historyRemoteTotal = data.remoteTotal,
+        ))
+    }
+
+    /** Reopening, filtering and paging never trigger network calls when a local ledger exists. */
+    internal fun load(session: CampusCardCookies?, portalTicket: String? = null) {
+        loadGeneration++
+        job?.cancel()
+        syncing = false
+        syncFailed = false
+        pageNumber = 1
         token = null
-        if (session == null || !session.hasSession) {
-            cookies = null
-            job?.cancel()
+        cookies = session
+        ledger = null
+        if (session == null || (!session.hasSession && portalTicket == null)) {
             _state.value = CampusServiceUiState.RequiresSignIn
             return
         }
-        cookies = session
-        fetch()
-    }
-
-    private fun fetch() {
-        val session = cookies ?: return
-        job?.cancel()
+        val identity = session.casHeader.split(';').map { it.trim() }
+            .firstOrNull { it.substringBefore('=').equals("CASTGC", true) }
+            ?: session.portalHeader.split(';').map { it.trim() }.sorted().joinToString(";")
+        sessionKey = CampusCardLedgerStore.digest(identity)
         _state.value = CampusServiceUiState.Loading
         job = viewModelScope.launch {
-            try {
-                val activeToken = token ?: client.acquireToken(session::headerFor).also { token = it }
-                val summary = client.fetchSummary(activeToken)
-                // 流水是独立请求：失败时保留余额与汇总，只把流水区标为失败。
-                var transactions = CampusCardTransactions(items = emptyList(), total = 0)
-                var transactionsFailed = false
-                try {
-                    transactions = client.fetchTransactions(activeToken)
-                } catch (cancelled: CancellationException) {
-                    throw cancelled
-                } catch (_: Exception) {
-                    transactionsFailed = true
-                }
-                _state.value = CampusServiceUiState.Ready(
-                    CampusCardPage(
-                        summary = summary,
-                        transactions = transactions,
-                        transactionsFailed = transactionsFailed,
-                    ),
-                )
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (_: CampusCardSignInRequiredException) {
-                token = null
-                _state.value = CampusServiceUiState.RequiresSignIn
-            } catch (failure: CampusCardNetworkException) {
-                // 余额与流水是两条独立请求的前后两步，失败原因原样展示便于用户判断。
-                _state.value = CampusServiceUiState.Failed(failure.reason())
-            } catch (failure: CampusCardParseException) {
-                _state.value = CampusServiceUiState.Failed(failure.reason())
-            } catch (_: Exception) {
-                _state.value = CampusServiceUiState.Failed(
-                    getApplication<Application>().getString(R.string.campus_card_error_unknown),
-                )
+            ledger = store.read(sessionKey)
+            if (ledger == null) store.migrateLegacy(identity, Instant.now())?.let {
+                store.write(sessionKey, it)
+                ledger = it
             }
+            if (ledger != null) showLocal() else synchronize(portalTicket)
         }
     }
 
-    private fun Throwable.reason(): String = message?.takeIf { it.isNotBlank() }
-        ?: getApplication<Application>().getString(R.string.campus_card_error_unknown)
+    internal fun update() {
+        if (syncing || cookies == null) return
+        job?.cancel()
+        job = viewModelScope.launch { synchronize(null) }
+    }
+
+    private suspend fun save(value: CampusCardLedger) {
+        store.write(sessionKey, value)
+        ledger = value
+        showLocal()
+    }
+
+    /** First initialization is sequential and checkpointed; later updates only query the recent interval. */
+    private suspend fun synchronize(portalTicket: String?) {
+        val session = cookies ?: return
+        val generation = loadGeneration
+        syncing = true
+        syncFailed = false
+        showLocal()
+        try {
+            val activeToken = token ?: client.acquireToken(session::headerFor, portalTicket).also { token = it }
+            val now = Instant.now()
+            val initial = ledger?.initialComplete != true
+            val until = if (initial) ledger?.initialCutoff?.let(Instant::ofEpochMilli) ?: now else now
+            val since = if (initial) null else ledger?.updateSince()
+            var remotePage = if (initial) ledger?.nextInitialPage ?: 1 else 1
+            val batch = mutableListOf<CampusCardTransaction>()
+            val existing = if (initial) ledger?.initialRows.orEmpty() else ledger?.rows.orEmpty()
+            val visibleRows = ledger?.rows.orEmpty()
+            coroutineScope {
+                // Start the first history request immediately, concurrently with the small summary requests.
+                val first = async { client.fetchTransactions(activeToken, remotePage, range = CampusCardHistoryRange.ALL,
+                    since = since, until = until) }
+                val spending = async {
+                    try { client.fetchSpending(activeToken) }
+                    catch (cancelled: CancellationException) { throw cancelled }
+                    catch (_: Exception) { null }
+                }
+                val balance = async { client.fetchBalance(activeToken) }
+                val freshBalance = balance.await()
+                save((ledger ?: CampusCardLedger(freshBalance, initialCutoff = until.toEpochMilli()))
+                    .copy(summary = freshBalance, pendingSinceMillis = since?.toEpochMilli()))
+                val prepared = ledger ?: return@coroutineScope
+                save(prepared.copy(summary = prepared.summary.copy(spending = spending.await())))
+                var response = first.await()
+                while (true) {
+                    val before = batch.size
+                    batch.addAll(response.items)
+                    val prefix = if (initial) CampusCardLedger.merge(emptyList(), existing + batch) else emptyList()
+                    val merged = if (initial) CampusCardLedger.merge(visibleRows, prefix)
+                        else CampusCardLedger.merge(existing, batch)
+                    val complete = (remotePage.toLong() - 1) * 20 + response.items.size >= response.total
+                    if (!complete && (batch.size == before || remotePage >= 5000)) {
+                        throw CampusCardNetworkException(getApplication<Application>().getString(R.string.campus_card_sync_incomplete))
+                    }
+                    val current = ledger ?: return@coroutineScope
+                    save(current.copy(rows = merged, updatedAt = System.currentTimeMillis(),
+                        initialComplete = !initial || complete,
+                        nextInitialPage = if (initial) remotePage + 1 else current.nextInitialPage,
+                        remoteTotal = if (initial) response.total else current.remoteTotal,
+                        pendingSinceMillis = if (complete) null else current.pendingSinceMillis,
+                        initialRows = if (initial && !complete) prefix else emptyList()))
+                    if (complete) break
+                    remotePage++
+                    response = client.fetchTransactions(activeToken, remotePage, range = CampusCardHistoryRange.ALL,
+                        since = since, until = until)
+                }
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: CampusCardSignInRequiredException) {
+            token = null
+            // Retain the local ledger; the user may still read it after a server session expires.
+            if (ledger == null) _state.value = CampusServiceUiState.RequiresSignIn else syncFailed = true
+        } catch (_: Exception) {
+            syncFailed = true
+            if (ledger == null) _state.value = CampusServiceUiState.Failed(
+                getApplication<Application>().getString(R.string.campus_card_initial_sync_failed))
+        } finally {
+            if (generation == loadGeneration) {
+                syncing = false
+                showLocal()
+            }
+        }
+    }
 }
 
 /**
@@ -225,8 +363,8 @@ internal data class CampusCardCookies(
 internal fun readCampusCardCookies(): CampusCardCookies {
     runCatching { CookieManager.getInstance().flush() }
     return CampusCardCookies(
-        portalHeader = CampusCookieJar.header(CampusCardSessionPolicy.PORTAL_ORIGIN),
-        casHeader = CampusCookieJar.header(CampusCardSessionPolicy.CAS_ORIGIN),
+        portalHeader = CampusCookieJar.header("${CampusCardSessionPolicy.PORTAL_ORIGIN}/portal-api/ssologin"),
+        casHeader = CampusCookieJar.header(CampusCardSessionPolicy.CAS_LOGIN_URL),
     )
 }
 
@@ -235,10 +373,13 @@ internal fun readCampusCardCookies(): CampusCardCookies {
 private fun CampusCardScreen(
     viewModel: CampusCardViewModel,
     onSignIn: () -> Unit,
+    onSignOut: () -> Unit,
+    resetting: Boolean,
     onBack: () -> Unit,
     onReload: () -> Unit,
 ) {
     val state by viewModel.state.collectAsState()
+    val range by viewModel.historyRange.collectAsState()
     Scaffold(
         topBar = {
             TopAppBar(
@@ -259,14 +400,14 @@ private fun CampusCardScreen(
                     }
                 },
                 actions = {
-                    IconButton(onClick = onReload) {
+                    CampusSignOutButton(enabled = !resetting, onSignOut = onSignOut)
+                    TextButton(onClick = onReload,
+                        enabled = state !is CampusServiceUiState.Loading &&
+                            (state as? CampusServiceUiState.Ready)?.value?.historySyncing != true) {
                         if (state is CampusServiceUiState.Loading) {
                             CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.dp)
                         } else {
-                            Icon(
-                                painter = painterResource(R.drawable.ic_baseline_settings_backup_restore_24),
-                                contentDescription = stringResource(R.string.campus_card_refresh),
-                            )
+                            Text(stringResource(R.string.campus_card_update))
                         }
                     }
                 },
@@ -285,7 +426,7 @@ private fun CampusCardScreen(
                 is CampusServiceUiState.Loading -> LoadingCard()
                 is CampusServiceUiState.RequiresSignIn -> SignInCard(onSignIn = onSignIn)
                 is CampusServiceUiState.Failed -> FailedCard(reason = current.reason, onRetry = onReload)
-                is CampusServiceUiState.Ready -> CampusCardContent(page = current.value)
+                is CampusServiceUiState.Ready -> CampusCardContent(page = current.value, range = range, onRangeChanged = viewModel::changeHistoryRange, onPageChanged = viewModel::changePage)
             }
         }
     }
@@ -307,6 +448,9 @@ private fun LoadingCard() {
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+        Text(stringResource(R.string.campus_card_initial_guide),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
@@ -359,9 +503,16 @@ private fun FailedCard(reason: String, onRetry: () -> Unit) {
 }
 
 @Composable
-private fun CampusCardContent(page: CampusCardPage) {
+private fun CampusCardContent(
+    page: CampusCardPage,
+    range: CampusCardHistoryRange,
+    onRangeChanged: (CampusCardHistoryRange) -> Unit,
+    onPageChanged: (Int) -> Unit,
+) {
     val tokens = HitaTheme.tokens
+    val listState = remember(range, page.historyPage) { LazyListState() }
     LazyColumn(
+        state = listState,
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(
             start = tokens.spacing.lg,
@@ -372,13 +523,34 @@ private fun CampusCardContent(page: CampusCardPage) {
         verticalArrangement = Arrangement.spacedBy(tokens.spacing.md),
     ) {
         item { BalanceCard(page) }
-        item { SpendingCard(page.summary.spending) }
+        if (!page.initialHistoryComplete) {
+            item { Text(stringResource(R.string.campus_card_initial_guide), style = MaterialTheme.typography.bodyMedium) }
+            item { Text(stringResource(if (page.historySyncing) R.string.campus_card_sync_progress else R.string.campus_card_sync_paused,
+                page.historySavedCount, page.historyRemoteTotal), style = MaterialTheme.typography.bodySmall) }
+        } else if (page.historySyncing) {
+            item { Text(stringResource(R.string.campus_card_incremental_sync)) }
+        }
+        if (page.historySyncing) item { LinearProgressIndicator(modifier = Modifier.fillMaxWidth()) }
+        item {
+            if (page.spendingLoading) Text(stringResource(R.string.campus_card_spending_loading))
+            else SpendingCard(page.summary.spending)
+        }
         item {
             Text(
                 text = stringResource(R.string.campus_card_transactions_title),
                 style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.onSurface,
             )
+        }
+        item {
+            Row(horizontalArrangement = Arrangement.spacedBy(tokens.spacing.sm)) {
+                FilterChip(selected = range == CampusCardHistoryRange.MONTH,
+                    onClick = { onRangeChanged(CampusCardHistoryRange.MONTH) },
+                    label = { Text(stringResource(R.string.campus_card_range_month)) })
+                FilterChip(selected = range == CampusCardHistoryRange.ALL,
+                    onClick = { onRangeChanged(CampusCardHistoryRange.ALL) },
+                    label = { Text(stringResource(R.string.campus_card_range_all)) })
+            }
         }
         if (page.transactionsFailed) {
             item {
@@ -389,7 +561,29 @@ private fun CampusCardContent(page: CampusCardPage) {
                 )
             }
         }
-        if (page.transactions.items.isEmpty()) {
+        page.transactionsUpdatedAt?.let { updatedAt ->
+            item { Text(stringResource(R.string.campus_card_history_updated,
+                DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(updatedAt))),
+                style = MaterialTheme.typography.bodySmall) }
+        }
+        item {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically) {
+                OutlinedButton(enabled = page.historyPage > 1,
+                    onClick = { onPageChanged(page.historyPage - 1) }) {
+                    Text(stringResource(R.string.campus_card_previous_page))
+                }
+                Text(stringResource(R.string.campus_card_history_page, page.historyPage,
+                    ((page.transactions.total.toLong() + 19) / 20).coerceAtLeast(page.historyPage.toLong()).toInt()))
+                OutlinedButton(enabled = page.historyPage.toLong() * 20 < page.transactions.total,
+                    onClick = { onPageChanged(page.historyPage + 1) }) {
+                    Text(stringResource(R.string.campus_card_next_page))
+                }
+            }
+        }
+        if (page.transactionsLoading && page.transactions.items.isEmpty()) {
+            // An uncached page has no rows until its first response.
+        } else if (page.transactions.items.isEmpty() && !page.transactionsFailed) {
             item {
                 Text(
                     text = stringResource(R.string.campus_card_transactions_empty),
@@ -440,6 +634,8 @@ private fun BalanceCard(page: CampusCardPage) {
                 style = MaterialTheme.typography.displaySmall,
                 color = MaterialTheme.colorScheme.onPrimaryContainer,
             )
+            if (page.summaryCached) Text(stringResource(R.string.campus_card_balance_cached),
+                style = MaterialTheme.typography.bodySmall)
             val status = page.summary.statusText
             if (status != null) {
                 Text(
@@ -563,8 +759,9 @@ private fun TransactionRow(transaction: CampusCardTransaction) {
  */
 @Composable
 private fun CampusCardLoginScreen(
+    onSignOut: () -> Unit,
     onCancel: () -> Unit,
-    onLoggedIn: () -> Unit,
+    onLoggedIn: (String?) -> Unit,
 ) {
     var loading by remember { mutableStateOf(true) }
     var failed by remember { mutableStateOf(false) }
@@ -593,6 +790,7 @@ private fun CampusCardLoginScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+            CampusSignOutButton(onSignOut = onSignOut)
             OutlinedButton(onClick = onCancel) {
                 Text(stringResource(R.string.campus_card_login_cancel))
             }
@@ -622,7 +820,7 @@ private fun CampusCardLoginScreen(
                 incomplete = false
                 // 页面上的“完成”按钮是兜底：门户页面已落定但 Cookie 还没被读到。
                 if (readCampusCardCookies().hasSession) {
-                    onLoggedIn()
+                    onLoggedIn(null)
                 } else {
                     incomplete = true
                 }
@@ -648,7 +846,7 @@ private fun CampusCardLoginWebView(
     modifier: Modifier,
     onPageFinished: () -> Unit,
     onError: () -> Unit,
-    onSessionReady: () -> Unit,
+    onSessionReady: (String?) -> Unit,
 ) {
     var webView by remember { mutableStateOf<WebView?>(null) }
 
@@ -685,23 +883,42 @@ private fun CampusCardLoginWebView(
                     override fun onProgressChanged(view: WebView?, newProgress: Int) = Unit
                 }
                 webViewClient = object : WebViewClient() {
+                    private var delivered = false
+
+                    private fun captureTicket(url: String?): Boolean {
+                        if (webView == null) return false
+                        val ticket = CampusCardSessionPolicy.portalTicket(url.orEmpty()) ?: return false
+                        if (!delivered) {
+                            delivered = true
+                            onSessionReady(ticket)
+                        }
+                        return true
+                    }
+
+                    override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
+                        // Capture before the SPA consumes the one-time ticket.
+                        if (captureTicket(url)) view?.stopLoading()
+                    }
+
+                    override fun doUpdateVisitedHistory(view: WebView?, url: String?, isReload: Boolean) {
+                        captureTicket(url)
+                    }
+
                     override fun shouldOverrideUrlLoading(
                         view: WebView?,
                         request: WebResourceRequest?,
-                    ): Boolean = !isCampusSecureUrl(request?.url?.toString())
+                    ): Boolean = captureTicket(request?.url?.toString()) || !isCampusSecureUrl(request?.url?.toString())
 
                     @Deprecated("Deprecated in Java")
                     override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean =
-                        !isCampusSecureUrl(url)
+                        captureTicket(url) || !isCampusSecureUrl(url)
 
                     override fun onPageFinished(view: WebView?, url: String?) {
                         if (url == null) return
                         onPageFinished()
-                        val state = CampusCardSessionPolicy.state(
-                            url = url,
-                            cookieNames = readCampusCardCookies().portalCookieNames,
-                        )
-                        if (state == CampusCardSessionPolicy.State.SignedIn) onSessionReady()
+                        captureTicket(url)
+                        // A route/session cookie alone is not proof of successful authentication.
+                        // Without a ticket keep the browser open; the explicit completion button remains available.
                     }
 
                     override fun onReceivedError(
@@ -734,5 +951,6 @@ private fun isCampusSecureUrl(url: String?): Boolean {
     val uri = runCatching { java.net.URI(url.orEmpty()) }.getOrNull() ?: return false
     if (!uri.scheme.equals("https", ignoreCase = true)) return false
     val host = uri.host?.lowercase() ?: return false
-    return host.endsWith("hitsz.edu.cn") || host.endsWith("hit.edu.cn")
+    return host == "hitsz.edu.cn" || host.endsWith(".hitsz.edu.cn") ||
+        host == "hit.edu.cn" || host.endsWith(".hit.edu.cn")
 }

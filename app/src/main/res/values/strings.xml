@@ -1906,7 +1906,7 @@
     <string name="campus_card_spending_month">本月</string>
     <string name="campus_card_transactions_title">最近消费流水</string>
     <string name="campus_card_transactions_empty">暂无消费流水。</string>
-    <string name="campus_card_transactions_failed">消费流水读取失败；余额与消费汇总仍然有效。</string>
+    <string name="campus_card_transactions_failed">流水更新失败；已有记录会保留，请稍后重试。</string>
     <string name="campus_card_transactions_total">共 %1$d 条记录</string>
     <string name="campus_card_login_title">登录统一身份认证</string>
     <string name="campus_card_login_hint">在下方页面完成统一身份认证登录，成功后会自动返回。</string>
@@ -1991,4 +1991,20 @@
     <string name="library_refresh">刷新</string>
     <string name="library_retry">重试</string>
     <string name="library_sign_in">去登录</string>
+    <string name="campus_service_sign_out_message">退出此服务并清除其本地会话。教务和统一身份认证登录态将保留；下次主动登录时可能使用统一身份认证自动登录。</string>
+    <string name="campus_card_spending_loading">正在加载消费汇总…</string>
+    <string name="campus_card_range_month">本月</string>
+    <string name="campus_card_range_all">全部</string>
+    <string name="campus_card_history_updated">上次更新：%1$s（本地保存）</string>
+    <string name="campus_card_previous_page">上一页</string>
+    <string name="campus_card_next_page">下一页</string>
+    <string name="campus_card_history_page">第 %1$d / %2$d 页</string>
+    <string name="campus_card_balance_cached">本地保存的余额；点击“更新”获取最新数据</string>
+    <string name="campus_card_update">更新</string>
+    <string name="campus_card_initial_guide">首次读取流水通常需要约 15 秒，请耐心等待。第一页会优先显示，其余历史记录在后台保存；完成后，打开、筛选和翻页均使用本地数据，不会自动联网更新。</string>
+    <string name="campus_card_sync_progress">正在保存历史流水：已保存 %1$d 条，预计共 %2$d 条。中断后可点击“更新”继续。</string>
+    <string name="campus_card_sync_paused">历史同步未完成：已保存 %1$d 条，预计共 %2$d 条。点击“更新”继续同步。</string>
+    <string name="campus_card_incremental_sync">正在更新新增流水，已有记录可继续查看。</string>
+    <string name="campus_card_sync_incomplete">历史同步未完成，请点击更新继续。</string>
+    <string name="campus_card_initial_sync_failed">首次读取失败，请检查网络并点击更新重试。</string>
 </resources>

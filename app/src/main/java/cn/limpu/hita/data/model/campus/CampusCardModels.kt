@@ -54,6 +54,15 @@ data class CampusCardPage(
     val transactions: CampusCardTransactions,
     /** 流水单独失败时为 true：余额与汇总仍然有效。 */
     val transactionsFailed: Boolean = false,
+    val transactionsLoading: Boolean = false,
+    val spendingLoading: Boolean = false,
+    val transactionsUpdatedAt: Long? = null,
+    val historyPage: Int = 1,
+    val summaryCached: Boolean = false,
+    val historySyncing: Boolean = false,
+    val initialHistoryComplete: Boolean = true,
+    val historySavedCount: Int = 0,
+    val historyRemoteTotal: Int = 0,
 )
 
 /** 分 → 元的定点文本，固定两位小数（不做本地化分节，避免与金额解析混淆）。 */
