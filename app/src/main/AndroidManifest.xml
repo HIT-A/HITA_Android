@@ -15,6 +15,9 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- Android 16+: allows this app to request promoted ongoing notifications. -->
     <uses-permission android:name="android.permission.POST_PROMOTED_NOTIFICATIONS" />
+    <!-- 课表 / 考试写入系统日历；运行时申请，拒绝后功能自动隐藏。 -->
+    <uses-permission android:name="android.permission.READ_CALENDAR" />
+    <uses-permission android:name="android.permission.WRITE_CALENDAR" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <application
@@ -64,6 +67,17 @@
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="User-enabled live course guard that checks the on-device timetable each minute and maintains the user's ongoing course status notification." />
         </service>
+
+        <activity
+            android:name=".ui.settings.CourseReminderSettingsActivity"
+            android:exported="false"
+            android:theme="@style/Theme.HITA" />
+
+        <activity
+            android:name=".ui.widgets.WidgetConfigureActivity"
+            android:exported="false"
+            android:theme="@style/Theme.HITA">
+        </activity>
 
         <receiver
             android:name=".ui.widgets.today.normal.TodayWidget"
@@ -171,6 +185,11 @@
             android:theme="@style/Theme.HITA.WebViewLogin" />
         <activity android:name=".ui.eas.imp.ImportTimetableActivity" />
         <activity android:name=".ui.eas.classroom.EmptyClassroomActivity" />
+        <activity android:name=".ui.campus.CampusCardActivity" />
+        <activity android:name=".ui.campus.SilentPodActivity" />
+        <activity android:name=".ui.campus.UniversityTownLibraryActivity" />
+        <activity android:name=".ui.campus.LabCenterActivity" />
+        <activity android:name=".ui.campus.LabCenterLoginActivity" />
         <activity android:name=".ui.profile.ProfileActivity" />
         <activity android:name=".ui.eas.exam.ExamActivity" />
         <activity android:name=".ui.about.ActivityAbout" />
