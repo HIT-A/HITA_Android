@@ -1,6 +1,11 @@
 package cn.limpu.hita.data.repository
 
 import cn.limpu.hita.data.model.campus.*
+import cn.limpu.hita.data.source.web.campus.CampusCardHistoryRange
+import java.time.YearMonth
+import java.time.temporal.TemporalAdjusters
+import java.time.DayOfWeek
+import java.math.BigDecimal
 import com.google.gson.Gson
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
@@ -23,13 +28,58 @@ internal data class CampusCardLedger(
     val pendingSinceMillis: Long? = null,
     val initialRows: List<CampusCardTransaction> = emptyList(),
 ) {
-    fun query(monthOnly: Boolean, page: Int, now: Instant): CampusCardTransactions {
-        val date = now.atZone(ZONE).toLocalDate().withDayOfMonth(1)
+    fun query(monthOnly: Boolean, page: Int, now: Instant): CampusCardTransactions = query(
+        if (monthOnly) CampusCardHistoryRange.MONTH else CampusCardHistoryRange.ALL,
+        YearMonth.from(now.atZone(ZONE)), page,
+    )
+
+    fun query(range: CampusCardHistoryRange, period: YearMonth, page: Int): CampusCardTransactions {
+        val date = if (range == CampusCardHistoryRange.YEAR) period.withMonth(1).atDay(1) else period.atDay(1)
         val start = date.atStartOfDay(ZONE).toInstant().toEpochMilli()
-        val end = date.plusMonths(1).atStartOfDay(ZONE).toInstant().toEpochMilli()
-        val selected = rows.asSequence().filter { !monthOnly || it.occurredAtMillis?.let { time -> time >= start && time < end } == true }
+        val end = (if (range == CampusCardHistoryRange.YEAR) date.plusYears(1) else date.plusMonths(1))
+            .atStartOfDay(ZONE).toInstant().toEpochMilli()
+        val selected = rows.asSequence().filter { range == CampusCardHistoryRange.ALL ||
+            it.occurredAtMillis?.let { time -> time >= start && time < end } == true }
             .sortedWith(compareByDescending<CampusCardTransaction> { it.occurredAtMillis ?: Long.MIN_VALUE }.thenBy { it.id }).toList()
         return CampusCardTransactions(selected.drop((page.coerceAtLeast(1) - 1) * 20).take(20), selected.size)
+    }
+
+    fun periodSpending(range: CampusCardHistoryRange, period: YearMonth): String {
+        val date = if (range == CampusCardHistoryRange.YEAR) period.withMonth(1).atDay(1) else period.atDay(1)
+        val start = date.atStartOfDay(ZONE).toInstant().toEpochMilli()
+        val end = (if (range == CampusCardHistoryRange.YEAR) date.plusYears(1) else date.plusMonths(1))
+            .atStartOfDay(ZONE).toInstant().toEpochMilli()
+        val cents = rows.asSequence().filter { row -> row.amountCents < 0 &&
+            row.occurredAtMillis?.let { it >= start && it < end } == true }
+            .sumOf { -it.amountCents.toLong() }
+        return BigDecimal.valueOf(cents, 2).toPlainString()
+    }
+
+    fun availableYears(now: Instant): List<Int> = (rows.mapNotNull { row ->
+        row.occurredAtMillis?.let { Instant.ofEpochMilli(it).atZone(ZONE).year }
+    } + now.atZone(ZONE).year).distinct().sortedDescending()
+
+    /** Gross debit spending from real local rows; credits, top-ups and undated rows are excluded. */
+    fun spending(now: Instant): CampusCardSpending {
+        val today = now.atZone(ZONE).toLocalDate()
+        val startToday = today.atStartOfDay(ZONE).toInstant().toEpochMilli()
+        val startYesterday = today.minusDays(1).atStartOfDay(ZONE).toInstant().toEpochMilli()
+        val startWeek = today.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
+            .atStartOfDay(ZONE).toInstant().toEpochMilli()
+        val startMonth = today.withDayOfMonth(1).atStartOfDay(ZONE).toInstant().toEpochMilli()
+        var yesterday = 0L
+        var week = 0L
+        var month = 0L
+        for (row in rows) {
+            val time = row.occurredAtMillis ?: continue
+            if (row.amountCents >= 0 || time > now.toEpochMilli()) continue
+            val debit = -row.amountCents.toLong()
+            if (time >= startYesterday && time < startToday) yesterday += debit
+            if (time >= startWeek) week += debit
+            if (time >= startMonth) month += debit
+        }
+        fun yuan(cents: Long) = BigDecimal.valueOf(cents, 2).toPlainString()
+        return CampusCardSpending(yuan(yesterday), yuan(week), yuan(month))
     }
 
     /** Inclusive overlap covers equal timestamps and recently posted records; merging is idempotent. */
