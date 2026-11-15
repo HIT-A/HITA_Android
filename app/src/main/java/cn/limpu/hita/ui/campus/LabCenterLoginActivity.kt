@@ -76,11 +76,11 @@ class LabCenterLoginActivity : AppCompatActivity() {
             webChromeClient = WebChromeClient()
             webViewClient = object : WebViewClient() {
                 override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean =
-                    !LabCenterSessionPolicy.isLabUrl(request.url.toString())
+                    !LabCenterSessionPolicy.isLoginNavigationUrl(request.url.toString())
 
                 @Suppress("DEPRECATION")
                 override fun shouldOverrideUrlLoading(view: WebView, url: String?): Boolean =
-                    url == null || !LabCenterSessionPolicy.isLabUrl(url)
+                    url == null || !LabCenterSessionPolicy.isLoginNavigationUrl(url)
 
                 override fun onPageFinished(view: WebView, url: String) {
                     if (!closing) verify(url)
@@ -143,7 +143,7 @@ class LabCenterLoginActivity : AppCompatActivity() {
             retry.visibility = android.view.View.GONE
             return
         }
-        val cookie = CookieManager.getInstance().getCookie(LabCenterSessionPolicy.ORIGIN).orEmpty()
+        val cookie = CookieManager.getInstance().getCookie(LabCenterSessionPolicy.SCHEDULE_URL).orEmpty()
         val header = LabCenterSessionPolicy.cookieHeader(cookie) ?: return
         if (header == lastCookie) return
         lastCookie = header

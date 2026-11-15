@@ -115,7 +115,7 @@ class LabCenterViewModel : ViewModel() {
         _state.value = CampusServiceUiState.Loading
         viewModelScope.launch {
             _state.value = try {
-                val cookie = CampusCookieJar.header(LabCenterSessionPolicy.ORIGIN)
+                val cookie = CampusCookieJar.header(LabCenterSessionPolicy.SCHEDULE_URL)
                 CampusServiceUiState.Ready(client.fetch(cookie))
             } catch (_: LabCenterSessionExpiredException) {
                 CampusServiceUiState.RequiresSignIn

@@ -37,6 +37,22 @@ class LabCenterSessionPolicyTest {
     }
 
     @Test
+    fun `observed lab UAA redirect can reach campus CAS without broadening business URL policy`() {
+        val cas = "https://ids.hit.edu.cn/authserver/login?service=https%3A%2F%2Flab.hitsz.edu.cn%2Fuaa%2Flogin"
+        assertTrue(LabCenterSessionPolicy.isLoginNavigationUrl(cas))
+        assertFalse(LabCenterSessionPolicy.isLabUrl(cas))
+        assertTrue(LabCenterSessionPolicy.isLoginNavigationUrl(LabCenterSessionPolicy.ENTRY_URL))
+        assertTrue(LabCenterSessionPolicy.isLoginTransitPage("https://lab.hitsz.edu.cn/uaa/hitsz/login"))
+        listOf(
+            "http://ids.hit.edu.cn/authserver/login",
+            "https://ids.hit.edu.cn.evil.invalid/authserver/login",
+            "https://user@ids.hit.edu.cn/authserver/login",
+            "https://ids.hit.edu.cn:8443/authserver/login",
+            "https://ids.hit.edu.cn/unrelated",
+        ).forEach { assertFalse(LabCenterSessionPolicy.isLoginNavigationUrl(it)) }
+    }
+
+    @Test
     fun `login transit pages are recognized`() {
         assertTrue(LabCenterSessionPolicy.isLoginTransitPage("https://lab.hitsz.edu.cn/hitszlims/login"))
         assertTrue(LabCenterSessionPolicy.isLoginTransitPage("https://lab.hitsz.edu.cn/hitszlims/webapp/login"))

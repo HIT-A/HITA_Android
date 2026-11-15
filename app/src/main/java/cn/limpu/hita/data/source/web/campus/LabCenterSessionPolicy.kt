@@ -22,16 +22,29 @@ internal object LabCenterSessionPolicy {
     /** 只允许在实验中心这一个 host 上加载与判定，避免把会话带到别的站点。 */
     fun isLabUrl(url: String): Boolean {
         val uri = runCatching { URI(url) }.getOrNull() ?: return false
-        if (!uri.scheme.equals("https", ignoreCase = true)) return false
+        if (!uri.scheme.equals("https", ignoreCase = true) || uri.rawUserInfo != null) return false
         if (!uri.host.orEmpty().equals("lab.hitsz.edu.cn", ignoreCase = true)) return false
         return uri.port == -1 || uri.port == 443
+    }
+
+    /** Login navigation includes the real CAS redirect; API requests remain restricted to the lab host. */
+    fun isLoginNavigationUrl(url: String): Boolean {
+        if (isLabUrl(url)) return true
+        val uri = runCatching { URI(url) }.getOrNull() ?: return false
+        if (!uri.scheme.equals("https", true) || uri.rawUserInfo != null) return false
+        if (uri.port != -1 && uri.port != 443) return false
+        return when (uri.host.orEmpty().lowercase()) {
+            "ids.hit.edu.cn", "ids-hit-edu-cn-s.hitsz.edu.cn" -> uri.path.orEmpty().startsWith("/authserver/")
+            "trust.hitsz.edu.cn" -> true
+            else -> false
+        }
     }
 
     /** 登录中转页 / 失效页：到达这里说明**还没有**可用会话。 */
     fun isLoginTransitPage(url: String): Boolean {
         val path = runCatching { URI(url).path }.getOrNull().orEmpty().lowercase()
         return path.contains("/webapp/login") || path.endsWith("/hitszlims/login") ||
-            path.contains("/uaa/oauth/authorize")
+            path.startsWith("/uaa/")
     }
 
     /**
