@@ -1955,7 +1955,7 @@
     <string name="silent_pod_cancel_reason">取消原因：%1$s</string>
     <string name="silent_pod_need_sign">需签到</string>
     <string name="silent_pod_login_title">登录大学城图书馆</string>
-    <string name="silent_pod_login_hint">在下方页面完成图书馆账号登录，成功后会自动返回。</string>
+    <string name="silent_pod_login_hint">将通过哈工大统一身份认证登录图书馆，成功后自动返回。请使用校园网或已连通校园服务的网络。</string>
     <string name="silent_pod_login_cancel">取消</string>
     <string name="silent_pod_login_confirm">我已完成登录</string>
     <string name="silent_pod_login_error">页面加载失败，请检查网络或改用校园网后重试。</string>
@@ -1992,9 +1992,13 @@
     <string name="library_retry">重试</string>
     <string name="library_sign_in">去登录</string>
     <string name="campus_service_sign_out_message">退出此服务并清除其本地会话。教务和统一身份认证登录态将保留；下次主动登录时可能使用统一身份认证自动登录。</string>
+    <string name="campus_service_login_incomplete">尚未检测到预约服务登录态，请先完成图书馆登录。</string>
     <string name="campus_card_spending_loading">正在加载消费汇总…</string>
     <string name="campus_card_range_month">本月</string>
     <string name="campus_card_range_all">全部</string>
+    <string name="silent_pod_auth_callback_failed">统一身份认证未完成。可重新发起认证，或使用图书馆读者账号登录。</string>
+    <string name="silent_pod_auth_restart">重新发起统一身份认证</string>
+    <string name="silent_pod_reader_login">使用图书馆读者账号登录</string>
     <string name="campus_card_history_updated">上次更新：%1$s（本地保存）</string>
     <string name="campus_card_previous_page">上一页</string>
     <string name="campus_card_next_page">下一页</string>

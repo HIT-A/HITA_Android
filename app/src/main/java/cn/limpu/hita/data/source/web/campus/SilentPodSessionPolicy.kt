@@ -29,6 +29,21 @@ internal object SilentPodSessionPolicy {
 
     const val ENTRY_PATH = "/space-reservation-fg/"
 
+    // Official HIT icon target, read from the library CAS login page on device.
+    // Enter via the library so it creates and verifies the OAuth state itself.
+    const val HIT_LOGIN_URL = "https://cas.utszlib.edu.cn/channel-auth" +
+        "?channel=HARBIN_INSTITUTE_OF_TECHNOLOGY" +
+        "&service=https%3A%2F%2Fwww.utszlib.edu.cn%2Fspace-reservation-fg%2F"
+
+    fun isAuthenticationErrorPage(url: String): Boolean {
+        val uri = parse(url) ?: return false
+        if (!uri.scheme.equals("https", true) || uri.rawUserInfo != null) return false
+        if (uri.port != -1 && uri.port != 443) return false
+        if (!isCasPage(url)) return false
+        // The live server currently emits a double slash before channelAuthError.
+        return uri.path.orEmpty().trimStart('/') == "channelAuthError"
+    }
+
     /** 业务接口基地址（直连，校园网内）。 */
     const val API_BASE_URL = "$DIRECT_ORIGIN/space-reservation-fg/x-space-reservation-api"
 

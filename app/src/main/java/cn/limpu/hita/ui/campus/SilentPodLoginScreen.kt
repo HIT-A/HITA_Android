@@ -1,6 +1,8 @@
 package cn.limpu.hita.ui.campus
 
 import android.annotation.SuppressLint
+import android.view.ViewGroup
+import androidx.core.view.doOnLayout
 import android.webkit.CookieManager
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
@@ -8,6 +10,7 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -18,11 +21,13 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -46,10 +51,24 @@ import cn.limpu.hita.ui.design.HitaTheme
 internal fun SilentPodLoginScreen(
     onCancel: () -> Unit,
     onLoggedIn: () -> Unit,
+    onSignOut: () -> Unit,
 ) {
     var loading by remember { mutableStateOf(true) }
     var failed by remember { mutableStateOf(false) }
+    var incomplete by remember { mutableStateOf(false) }
+    var authFailed by remember { mutableStateOf(false) }
+    var loginUrl by remember { mutableStateOf(SilentPodSessionPolicy.HIT_LOGIN_URL) }
+    var attempt by remember { mutableStateOf(0) }
+    val restart: (String) -> Unit = { url ->
+        loginUrl = url
+        attempt++
+        loading = true
+        failed = false
+        incomplete = false
+        authFailed = false
+    }
     val tokens = HitaTheme.tokens
+    BackHandler { onCancel() }
 
     Column(modifier = Modifier.fillMaxSize()) {
         Row(
@@ -70,6 +89,7 @@ internal fun SilentPodLoginScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+            CampusSignOutButton(onSignOut = onSignOut)
             OutlinedButton(onClick = onCancel) {
                 Text(stringResource(R.string.silent_pod_login_cancel))
             }
@@ -85,21 +105,45 @@ internal fun SilentPodLoginScreen(
                 modifier = Modifier.padding(horizontal = tokens.spacing.lg),
             )
         }
+        if (authFailed) {
+            Text(stringResource(R.string.silent_pod_auth_callback_failed),
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.padding(horizontal = tokens.spacing.lg))
+        }
+        if (failed || authFailed) {
+            OutlinedButton(
+                onClick = { restart(SilentPodSessionPolicy.HIT_LOGIN_URL) },
+                modifier = Modifier.padding(horizontal = tokens.spacing.lg),
+            ) { Text(stringResource(R.string.silent_pod_auth_restart)) }
+        }
+        if (incomplete) {
+            Text(stringResource(R.string.campus_service_login_incomplete),
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.padding(horizontal = tokens.spacing.lg))
+        }
         Button(
             onClick = {
-                failed = false
-                if (hasSilentPodSession()) onLoggedIn()
+                incomplete = failed || authFailed || !hasSilentPodSession()
+                if (!incomplete) onLoggedIn()
             },
             modifier = Modifier.padding(horizontal = tokens.spacing.lg),
         ) {
             Text(stringResource(R.string.silent_pod_login_confirm))
         }
-        SilentPodLoginWebView(
-            modifier = Modifier.weight(1f).fillMaxWidth(),
-            onPageFinished = { loading = false },
-            onError = { failed = true },
-            onSessionReady = onLoggedIn,
-        )
+        TextButton(
+            onClick = { restart(SilentPodSessionPolicy.ENTRY_URL) },
+            modifier = Modifier.padding(horizontal = tokens.spacing.lg),
+        ) { Text(stringResource(R.string.silent_pod_reader_login)) }
+        key(loginUrl, attempt) {
+            SilentPodLoginWebView(
+                modifier = Modifier.weight(1f).fillMaxWidth(),
+                loginUrl = loginUrl,
+                onPageFinished = { loading = false },
+                onError = { loading = false; failed = true },
+                onAuthError = { loading = false; authFailed = true },
+                onSessionReady = onLoggedIn,
+            )
+        }
     }
 }
 
@@ -149,13 +193,13 @@ internal data class SilentPodSession(val cookieHeader: String, val baseUrl: Stri
 internal fun readSilentPodSession(): SilentPodSession? {
     val manager = runCatching { CookieManager.getInstance() }.getOrNull() ?: return null
     val direct = runCatching {
-        manager.getCookie(SilentPodSessionPolicy.DIRECT_ORIGIN).orEmpty()
+        manager.getCookie(SilentPodSessionPolicy.API_BASE_URL + "/web/reservations").orEmpty()
     }.getOrDefault("")
     SilentPodSessionPolicy.sessionCookie(direct)?.let {
         return SilentPodSession(it, SilentPodSessionPolicy.API_BASE_URL)
     }
     val gateway = runCatching {
-        manager.getCookie(SilentPodSessionPolicy.GATEWAY_ORIGIN).orEmpty()
+        manager.getCookie(SilentPodSessionPolicy.GATEWAY_API_BASE_URL + "/web/reservations").orEmpty()
     }.getOrDefault("")
     SilentPodSessionPolicy.sessionCookie(gateway)?.let {
         return SilentPodSession(it, SilentPodSessionPolicy.GATEWAY_API_BASE_URL)
@@ -170,6 +214,8 @@ internal fun hasSilentPodSession(): Boolean = readSilentPodSession() != null
 @Composable
 private fun SilentPodLoginWebView(
     modifier: Modifier,
+    loginUrl: String,
+    onAuthError: () -> Unit,
     onPageFinished: () -> Unit,
     onError: () -> Unit,
     onSessionReady: () -> Unit,
@@ -194,10 +240,13 @@ private fun SilentPodLoginWebView(
             val cookies = CookieManager.getInstance()
             cookies.setAcceptCookie(true)
             WebView(context).apply {
+                layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
                 setBackgroundColor(android.graphics.Color.WHITE)
                 settings.apply {
                     javaScriptEnabled = true
                     domStorageEnabled = true
+                    useWideViewPort = true
+                    loadWithOverviewMode = true
                     allowFileAccess = false
                     allowContentAccess = false
                     mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
@@ -223,17 +272,18 @@ private fun SilentPodLoginWebView(
                     override fun onPageFinished(view: WebView?, url: String?) {
                         onPageFinished()
                         val web = view ?: return
-                        if (hasSilentPodSession()) {
-                            onSessionReady()
+                        if (SilentPodSessionPolicy.isAuthenticationErrorPage(url.orEmpty())) {
+                            onAuthError()
                             return
                         }
+                        if (!SilentPodSessionPolicy.isReservationPage(url.orEmpty())) return
                         // Cookie 还没落盘时，用落定页内联的登录态做一次补充判定；
                         // 但只有 Cookie 真的出现才算完成（业务接口只认 Cookie）。
                         web.evaluateJavascript(LOGIN_STATE_SCRIPT) { result ->
                             if (SilentPodParser.loginStatusLoggedIn(unescapeJavascriptString(result)) == true) {
                                 CookieManager.getInstance().flush()
                                 web.postDelayed({
-                                    if (hasSilentPodSession()) onSessionReady()
+                                    if (web === webView && hasSilentPodSession()) onSessionReady()
                                 }, COOKIE_SETTLE_DELAY_MS)
                             }
                         }
@@ -257,7 +307,9 @@ private fun SilentPodLoginWebView(
                         onError()
                     }
                 }
-                loadUrl(SilentPodSessionPolicy.ENTRY_URL)
+                // The CAS page sizes its mobile container from the viewport during startup.
+                // Loading before Compose has laid out the WebView can permanently size it to zero.
+                doOnLayout { loadUrl(loginUrl) }
                 webView = this
             }
         },

@@ -26,6 +26,8 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.collectAsState
@@ -61,12 +63,28 @@ class SilentPodActivity : AppCompatActivity() {
                 val state by viewModel.state.collectAsState()
                 // 登录页是整页覆盖：页面内的 WebView 需要完整高度，塞进卡片里无法输入。
                 var showLogin by remember { mutableStateOf(false) }
+                var resetting by remember { mutableStateOf(false) }
+                val scope = rememberCoroutineScope()
+                val signOut: () -> Unit = {
+                    if (!resetting) {
+                        resetting = true
+                        showLogin = false
+                        viewModel.load(null)
+                        scope.launch {
+                            try { CampusServiceAccount.POD.signOut(this@SilentPodActivity) }
+                            finally { resetting = false }
+                        }
+                    }
+                }
                 if (showLogin) {
                     SilentPodLoginHost(
+                        onSignOut = signOut,
                         onCancel = { showLogin = false },
                         onLoggedIn = {
-                            showLogin = false
-                            viewModel.load(readSilentPodSession())
+                            if (!resetting && !CampusServiceAccount.POD.isSignedOut(this@SilentPodActivity)) {
+                                showLogin = false
+                                viewModel.load(readSilentPodSession())
+                            }
                         },
                     )
                 } else {
@@ -81,10 +99,26 @@ class SilentPodActivity : AppCompatActivity() {
                     }
                     SilentPodScreen(
                         state = state,
-                        onSignIn = { showLogin = true },
+                        onSignIn = {
+                            if (!resetting) {
+                                resetting = true
+                                scope.launch {
+                                    try {
+                                        // An expired/anonymous business cookie must not immediately close the login page.
+                                        CampusServiceAccount.POD.signOut(this@SilentPodActivity)
+                                        CampusServiceAccount.POD.beginSignIn(this@SilentPodActivity)
+                                        showLogin = true
+                                    } finally { resetting = false }
+                                }
+                            }
+                        },
+                        onSignOut = signOut,
+                        resetting = resetting,
                         onRefresh = {
-                            val session = readSilentPodSession()
-                            if (session == null) showLogin = true else viewModel.load(session)
+                            if (!resetting) viewModel.load(
+                                if (CampusServiceAccount.POD.isSignedOut(this@SilentPodActivity)) null
+                                else readSilentPodSession(),
+                            )
                         },
                         onCreateReservation = { space, start, end, phone ->
                             viewModel.createReservation(
@@ -108,7 +142,7 @@ class SilentPodActivity : AppCompatActivity() {
         super.onResume()
         // 从别处登录回来（或首次进入）时按当前 Cookie 决定状态，不保留上次的假数据。
         if (viewModel.state.value == CampusServiceUiState.Loading) {
-            viewModel.load(readSilentPodSession())
+            viewModel.load(if (CampusServiceAccount.POD.isSignedOut(this)) null else readSilentPodSession())
         }
     }
 }
@@ -116,13 +150,14 @@ class SilentPodActivity : AppCompatActivity() {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SilentPodLoginHost(
+    onSignOut: () -> Unit,
     onCancel: () -> Unit,
     onLoggedIn: () -> Unit,
 ) {
     // 登录页是整页覆盖：页面内的 WebView 需要完整高度，塞进卡片里无法输入。
     Scaffold { padding ->
         Column(modifier = Modifier.padding(padding)) {
-            SilentPodLoginScreen(onCancel = onCancel, onLoggedIn = onLoggedIn)
+            SilentPodLoginScreen(onCancel = onCancel, onLoggedIn = onLoggedIn, onSignOut = onSignOut)
         }
     }
 }
@@ -132,13 +167,15 @@ private fun SilentPodLoginHost(
 private fun SilentPodScreen(
     state: CampusServiceUiState<SilentPodContent>,
     onSignIn: () -> Unit,
+    onSignOut: () -> Unit,
+    resetting: Boolean,
     onRefresh: () -> Unit,
     onCreateReservation: (SilentPodSpace, String, String, String) -> Unit,
     onCancelReservation: (SilentPodReservation) -> Unit,
 ) {
     Scaffold { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxSize()) {
-            SilentPodHeader(onRefresh = onRefresh, refreshEnabled = state !is CampusServiceUiState.Loading)
+            SilentPodHeader(onRefresh = onRefresh, refreshEnabled = !resetting && state !is CampusServiceUiState.Loading, onSignOut = onSignOut, resetting = resetting)
             when (state) {
                 is CampusServiceUiState.Loading -> SilentPodLoading()
                 is CampusServiceUiState.RequiresSignIn -> SilentPodSignInRequired(onSignIn = onSignIn)
@@ -154,7 +191,7 @@ private fun SilentPodScreen(
 }
 
 @Composable
-private fun SilentPodHeader(onRefresh: () -> Unit, refreshEnabled: Boolean) {
+private fun SilentPodHeader(onRefresh: () -> Unit, refreshEnabled: Boolean, onSignOut: () -> Unit, resetting: Boolean) {
     val tokens = HitaTheme.tokens
     Row(
         modifier = Modifier
@@ -174,6 +211,7 @@ private fun SilentPodHeader(onRefresh: () -> Unit, refreshEnabled: Boolean) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
+        CampusSignOutButton(enabled = !resetting, onSignOut = onSignOut)
         TextButton(onClick = onRefresh, enabled = refreshEnabled) {
             Text(stringResource(R.string.silent_pod_refresh))
         }

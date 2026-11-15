@@ -16,6 +16,34 @@ class SilentPodSessionPolicyTest {
     private val name = SilentPodSessionPolicy.SESSION_COOKIE
 
     @Test
+    fun `HIT entry lets library generate state and retains reservation service`() {
+        val uri = java.net.URI(SilentPodSessionPolicy.HIT_LOGIN_URL)
+        assertEquals("https", uri.scheme)
+        assertEquals("cas.utszlib.edu.cn", uri.host)
+        assertEquals("/channel-auth", uri.path)
+        val query = uri.rawQuery.split('&').associate {
+            it.substringBefore('=') to java.net.URLDecoder.decode(it.substringAfter('='), "UTF-8")
+        }
+        assertEquals("HARBIN_INSTITUTE_OF_TECHNOLOGY", query["channel"])
+        assertEquals("${SilentPodSessionPolicy.DIRECT_ORIGIN}${SilentPodSessionPolicy.ENTRY_PATH}", query["service"])
+        assertFalse(query.containsKey("state"))
+        assertFalse(query.containsKey("code"))
+    }
+
+    @Test
+    fun `callback errors are recognized without accepting arbitrary error pages`() {
+        assertTrue(SilentPodSessionPolicy.isAuthenticationErrorPage("https://cas.utszlib.edu.cn//channelAuthError?errorMsg=state"))
+        assertTrue(SilentPodSessionPolicy.isAuthenticationErrorPage("https://cas.utszlib.edu.cn/channelAuthError"))
+        listOf(
+            "https://cas.utszlib.edu.cn/login",
+            "https://cas.utszlib.edu.cn/channel-auth/callback?code=test&state=test",
+            "http://cas.utszlib.edu.cn/channelAuthError",
+            "https://user@cas.utszlib.edu.cn/channelAuthError",
+            "https://cas.utszlib.edu.cn.evil.invalid/channelAuthError",
+        ).forEach { assertFalse(SilentPodSessionPolicy.isAuthenticationErrorPage(it)) }
+    }
+
+    @Test
     fun `session cookie is extracted verbatim`() {
         assertEquals(
             "$name=abc123",

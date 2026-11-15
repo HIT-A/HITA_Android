@@ -10,6 +10,7 @@ import cn.limpu.hita.data.source.web.campus.SilentPodException
 import cn.limpu.hita.data.source.web.campus.SilentPodFailureKind
 import cn.limpu.hita.data.source.web.campus.SilentPodSessionPolicy
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -32,6 +33,8 @@ internal class SilentPodViewModel(application: Application) : AndroidViewModel(a
 
     /** 上一次成功的会话；刷新时复用，避免每刷新一次都要回 WebView 取。 */
     private var session: SilentPodSession? = null
+    private var loadJob: Job? = null
+    private var actionJob: Job? = null
 
     /** 写操作（创建/取消）的结果，只用于一次性提示，不参与页面主状态。 */
     private val _actionMessage = MutableStateFlow<String?>(null)
@@ -41,6 +44,9 @@ internal class SilentPodViewModel(application: Application) : AndroidViewModel(a
      * 用当前会话加载；会话缺失直接进入未登录，不发请求。
      */
     fun load(session: SilentPodSession?) {
+        loadJob?.cancel()
+        actionJob?.cancel()
+        _actionMessage.value = null
         this.session = session?.takeIf { SilentPodSessionPolicy.hasSession(it.cookieHeader) }
         if (this.session == null) {
             _state.value = CampusServiceUiState.RequiresSignIn
@@ -69,7 +75,8 @@ internal class SilentPodViewModel(application: Application) : AndroidViewModel(a
             _state.value = CampusServiceUiState.RequiresSignIn
             return
         }
-        viewModelScope.launch {
+        actionJob?.cancel()
+        actionJob = viewModelScope.launch {
             try {
                 client.createReservation(
                     cookieHeader = current.cookieHeader,
@@ -100,7 +107,8 @@ internal class SilentPodViewModel(application: Application) : AndroidViewModel(a
             _state.value = CampusServiceUiState.RequiresSignIn
             return
         }
-        viewModelScope.launch {
+        actionJob?.cancel()
+        actionJob = viewModelScope.launch {
             try {
                 client.cancelReservation(
                     cookieHeader = current.cookieHeader,
@@ -130,7 +138,8 @@ internal class SilentPodViewModel(application: Application) : AndroidViewModel(a
     private fun fetch() {
         val current = session ?: return
         _state.value = CampusServiceUiState.Loading
-        viewModelScope.launch {
+        loadJob?.cancel()
+        loadJob = viewModelScope.launch {
             try {
                 _state.value = CampusServiceUiState.Ready(
                     client.fetchContent(
