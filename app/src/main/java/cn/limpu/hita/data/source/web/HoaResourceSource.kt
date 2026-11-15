@@ -406,7 +406,17 @@ object HoaResourceSource {
                 }
                 requestBody.put("target", target)
                 requestBody.put("ops", ops)
-                requestBody.put("idempotency_key", UUID.randomUUID().toString())
+                // 幂等键由内容派生：同一份投稿在超时重试时复用同一个键，
+                // 服务端据此识别重复请求，避免建出重复 PR。
+                requestBody.put(
+                    "idempotency_key",
+                    cn.limpu.hita.data.source.web.hoa.SubmissionIdempotencyKey.derive(
+                        campus = resolvedCampus,
+                        courseCode = actualCourseCode,
+                        opsCanonical = cn.limpu.hita.data.source.web.hoa.SubmissionOpCanonicalizer
+                            .canonicalOpsFromJsonArray(ops),
+                    ),
+                )
 
                 // PR submit may take longer due to multiple GitHub API calls
                 val response = withHeaders(Jsoup.connect("$baseUrl/v1/course:submit"))

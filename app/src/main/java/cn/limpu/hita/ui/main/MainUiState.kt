@@ -17,6 +17,8 @@ internal data class MainUiState(
     val scopeOptions: List<DisplayScopeResolver.ScopeOption> = emptyList(),
     val currentScope: DisplayScope? = null,
     val blogDotVisible: Boolean = false,
+    /** 首页迷你课程条；null 表示暂无需要展示的课程。 */
+    val miniCourse: MiniCourseState? = null,
 )
 
 /** A bitmap belongs to the Activity's image loader, never the retained ViewModel. */
@@ -33,6 +35,10 @@ internal data class MainActions(
     val openDrawer: () -> Unit,
     val closeDrawer: () -> Unit,
     val selectTimetable: (Int) -> Unit,
+    val timetableTitleClick: () -> Unit = {},
+    /** 顶栏「按周跳转」的候选周次；按需读取，避免每次重组都查课表。 */
+    val weekOptions: () -> List<cn.limpu.hita.ui.main.timetable.WeekOption> = { emptyList() },
+    val pickWeek: (Long) -> Unit = {},
     val theme: () -> Unit,
     val wallpaper: () -> Unit,
     val wallpaperLongPress: () -> Unit,

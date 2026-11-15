@@ -1195,6 +1195,12 @@ class EASRepository @Inject internal constructor(
     // ===== 委托给 timetableImportRepository =====
     internal suspend fun getTimetableSnapshots(session: EasQuerySession, term: TermItem): DataState<List<TimetableVersionSnapshot>> = timetableImportRepository.getTimetableSnapshots(session, term)
     internal suspend fun restoreTimetableSnapshot(session: EasQuerySession, snapshotId: String): DataState<TimetableVersionSnapshot> = timetableImportRepository.restoreTimetableSnapshot(session, snapshotId)
+    internal suspend fun setTimetableSnapshotNote(session: EasQuerySession, term: TermItem, snapshotId: String, note: String): DataState<Boolean> =
+        timetableImportRepository.setTimetableSnapshotNote(session, term, snapshotId, note)
+    internal suspend fun deleteTimetableSnapshot(session: EasQuerySession, term: TermItem, snapshotId: String): DataState<Boolean> =
+        timetableImportRepository.deleteTimetableSnapshot(session, term, snapshotId)
+    internal suspend fun trimTimetableSnapshots(session: EasQuerySession, term: TermItem, limit: Int): DataState<Int> =
+        timetableImportRepository.trimTimetableSnapshots(session, term, limit)
 
     fun observeEasToken(): LiveData<EASToken> {
         return easTokenLiveData

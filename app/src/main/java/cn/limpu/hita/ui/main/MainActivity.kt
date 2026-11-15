@@ -104,6 +104,23 @@ class MainActivity : HiltBaseActivity<MainViewBinding>(),
         WindowCompat.setDecorFitsSystemWindows(window, false)
     }
 
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleWidgetDeepLink(intent)
+    }
+
+    /**
+     * 小组件列表项点击会带 (eventId, date)；能解析就切到今日页对齐到那一天。
+     *
+     * 解析失败不做任何跳转：宁可停在当前页，也不要打开一节不确定的课。
+     */
+    private fun handleWidgetDeepLink(intent: android.content.Intent?) {
+        // 只认合法的 (eventId, date)；解析失败就停在当前页。
+        if (cn.limpu.hita.ui.widgets.WidgetDeepLink.fromIntent(intent) == null) return
+        viewModel.selectTab(MainTab.TIMELINE)
+    }
+
     override fun initViews() {
         viewModel.initialize(savedState?.getString(STATE_SELECTED_TAB_NAME), savedState?.getInt(STATE_SELECTED_TAB) ?: 0)
         hostId = viewModel.attachHost()
@@ -138,6 +155,11 @@ class MainActivity : HiltBaseActivity<MainViewBinding>(),
             timetableSetting = { FragmentTimetablePanel().show(supportFragmentManager, "panel") },
             timetableSocial = { (tabHost.find(MainTab.TIMETABLE) as? TimetableFragment)?.openTimetableSocialSheet() },
             addEvent = { PopupAddEvent().show(supportFragmentManager, "add_event") },
+            // 周号跳转：候选来自课表学期的起止时间，选中后直接翻到那一周。
+            weekOptions = { (tabHost.find(MainTab.TIMETABLE) as? TimetableFragment)?.weekOptions().orEmpty() },
+            pickWeek = { monday ->
+                (tabHost.find(MainTab.TIMETABLE) as? TimetableFragment)?.navigateToWeek(monday)
+            },
             drawerHeader = ::openDrawerHeader, drawerAvatar = ::showAvatarPicker,
             themeStyle = ::showThemeStyleMenu,
             agreement = { UserAgreementDialog().show(supportFragmentManager, "ua") },
@@ -195,6 +217,15 @@ class MainActivity : HiltBaseActivity<MainViewBinding>(),
                             is MainEffect.Message -> Toast.makeText(this@MainActivity, value.stringId, Toast.LENGTH_SHORT).show()
                         }
                     }
+                }
+            }
+        }
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.RESUMED) {
+                // 迷你课程条按分钟刷新：边界精度足够，且只在前台运行。
+                while (true) {
+                    viewModel.refreshMiniCourse()
+                    kotlinx.coroutines.delay(60_000L)
                 }
             }
         }

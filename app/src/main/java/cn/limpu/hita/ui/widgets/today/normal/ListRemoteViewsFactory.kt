@@ -58,6 +58,12 @@ internal class ListRemoteViewsFactory(val mContext: Context, intent: Intent) :
 
         val lockIntent = Intent()
         lockIntent.putExtra(EVENT_EXTRA, event.id)
+        // 深链需要 (eventId, date) 才能定位到具体那一天。
+        cn.limpu.hita.ui.widgets.WidgetDeepLink.fillIn(
+            lockIntent,
+            event.id,
+            java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.CHINA).format(event.from),
+        )
         val bd = Bundle()
         bd.putString("eventId", event.id)
         bd.putInt(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)

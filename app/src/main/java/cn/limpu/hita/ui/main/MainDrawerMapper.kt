@@ -52,6 +52,9 @@ object MainDrawerMapper {
         eas: MainEasUserSnapshot,
         sessionExpired: Boolean,
         text: MainDrawerText,
+        hideIdentity: Boolean = false,
+        signedInTitle: String = "",
+        campusLabel: String = "",
     ): DrawerUserState {
         if (local.valid) return DrawerUserState(
             title = local.username.orEmpty(),
@@ -60,11 +63,12 @@ object MainDrawerMapper {
             loggedInLocalUser = true,
         )
         if (!eas.loggedIn) return DrawerUserState(text.notLoggedInTitle, text.notLoggedInSubtitle)
+        if (hideIdentity) return hiddenIdentity(local, sessionExpired, text, signedInTitle, campusLabel)
         val subtitle = buildString {
             append(eas.studentId?.trim().orEmpty())
             val secondary = listOf(eas.school, eas.major, eas.grade, eas.className)
                 .mapNotNull { it?.trim()?.takeIf(String::isNotBlank) }
-                .joinToString(" · ")
+                .joinToString(" \u00b7 ")
             if (secondary.isNotBlank()) {
                 if (isNotEmpty()) append("\n")
                 append(secondary)
@@ -77,6 +81,27 @@ object MainDrawerMapper {
                 ?: eas.studentId?.ifBlank { eas.username }
                 ?: eas.username
                 ?: text.notLoggedInTitle,
+            subtitle = subtitle,
+            avatar = local.avatar,
+        )
+    }
+
+    private fun hiddenIdentity(
+        local: MainLocalUserSnapshot,
+        sessionExpired: Boolean,
+        text: MainDrawerText,
+        signedInTitle: String,
+        campusLabel: String,
+    ): DrawerUserState {
+        val subtitle = buildString {
+            append(campusLabel.trim())
+            if (sessionExpired) {
+                if (isNotEmpty()) append("\n")
+                append(text.sessionExpiredShort)
+            }
+        }
+        return DrawerUserState(
+            title = signedInTitle.ifBlank { text.notLoggedInTitle },
             subtitle = subtitle,
             avatar = local.avatar,
         )

@@ -116,7 +116,7 @@ interface TimetableDao {
     @Query("select count(*) from timetable")
     fun geeTimetableCount(): LiveData<Int>
 
-    @Query("select DISTINCT place from events where place like :string ")
+    @Query("select DISTINCT place from events where place like :string AND hidden = 0")
     fun searchLocation(string: String): LiveData<List<String>>
 
 

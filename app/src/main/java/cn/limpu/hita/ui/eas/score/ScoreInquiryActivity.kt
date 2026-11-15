@@ -14,11 +14,13 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -52,6 +54,7 @@ import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -375,6 +378,12 @@ private fun ScoreInquiryScreen(
                 item {
                     ScoreSummaryCard(summary = summary, localEstimate = localEstimate)
                 }
+                val distribution = ScoreDistributionCalculator.calculate(scores)
+                if (distribution.isRenderable) {
+                    item {
+                        ScoreDistributionCard(distribution)
+                    }
+                }
                 item {
                     ScoreReminderCard(
                         enabled = reminderEnabled,
@@ -565,6 +574,88 @@ private fun ScoreSummaryCard(
                     value = if (hasLocalEstimate) localEstimate?.validCourses.toString() else "-",
                     primary = false,
                     modifier = Modifier.weight(1f)
+                )
+            }
+        }
+    }
+}
+
+/**
+ * 成绩分布卡：把当前筛选结果按 90-100 / 80-89 / 70-79 / <70 四档展示。
+ *
+ * 条宽按该档占已计分课程数的比例计算；颜色只取主题 primary 与 surfaceVariant，
+ * 深浅色由 MaterialTheme 决定，不做硬编码分叉。等级制/合格制课程不参与统计，
+ * 若存在则在右下角注明被排除的数量，避免用户以为漏算。
+ */
+@Composable
+private fun ScoreDistributionCard(distribution: ScoreDistribution) {
+    val tokens = HitaTheme.tokens
+    val maxCount = distribution.buckets.maxOfOrNull { it.count }?.coerceAtLeast(1) ?: 1
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        shape = RoundedCornerShape(tokens.radius.lg),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = tokens.spacing.lg, vertical = tokens.spacing.sm),
+    ) {
+        Column(modifier = Modifier.padding(tokens.spacing.lg)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = "成绩分布",
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontSize = 14.sp,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    text = "${distribution.scoredCount} 门已计分",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 11.sp,
+                )
+            }
+            Spacer(modifier = Modifier.height(tokens.spacing.sm))
+            distribution.buckets.forEach { bucket ->
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 3.dp),
+                ) {
+                    Text(
+                        text = bucket.label,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 11.sp,
+                        modifier = Modifier.width(56.dp),
+                    )
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(10.dp)
+                            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(5.dp)),
+                    ) {
+                        if (bucket.count > 0) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxHeight()
+                                    .fillMaxWidth(bucket.count.toFloat() / maxCount)
+                                    .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(5.dp)),
+                            )
+                        }
+                    }
+                    Text(
+                        text = bucket.count.toString(),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 11.sp,
+                        textAlign = TextAlign.End,
+                        modifier = Modifier.width(32.dp),
+                    )
+                }
+            }
+            if (distribution.excludedCount > 0) {
+                Spacer(modifier = Modifier.height(tokens.spacing.xs))
+                Text(
+                    text = "${distribution.excludedCount} 门等级制课程未计入分布",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 10.sp,
                 )
             }
         }

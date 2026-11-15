@@ -62,6 +62,8 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.launch
 import androidx.compose.ui.unit.sp
 import com.limpu.component.data.DataState
 import cn.limpu.hita.R
@@ -86,6 +88,22 @@ class ExamActivity : EASActivity<ExamViewModel, ComposeViewBinding>() {
     private var isRefreshing by mutableStateOf(false)
     private var importInProgress by mutableStateOf(false)
     private var showEmpty by mutableStateOf(false)
+
+    /** 权限对话框返回后要继续写入的条目；用户在系统里拒绝时保持为空即不再重试。 */
+    private var pendingCalendarEntries: List<cn.limpu.hita.data.repository.CalendarSyncEntry> = emptyList()
+
+    private val calendarPermissionLauncher = registerForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.RequestMultiplePermissions()
+    ) { granted ->
+        val entries = pendingCalendarEntries
+        pendingCalendarEntries = emptyList()
+        if (entries.isEmpty()) return@registerForActivityResult
+        if (granted.values.all { it }) {
+            runCalendarSync(cn.limpu.hita.data.repository.CalendarSyncRepository(this), entries)
+        } else {
+            Toast.makeText(this, "未授予日历权限，考试没有写入", Toast.LENGTH_LONG).show()
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -151,6 +169,7 @@ class ExamActivity : EASActivity<ExamViewModel, ComposeViewBinding>() {
                     onPickExamType = { pickExamType() },
                     onImportAll = { pickExamImportTarget { importAllExams(it) } },
                     onAddMemo = { openMemoEditor() },
+                    onSyncCalendar = { syncExamsToCalendar(viewModel.examInfoLiveData.value?.data.orEmpty()) },
                     onOpenExam = { exam ->
                         ExamDetailFragment(
                             exam = exam,
@@ -165,6 +184,89 @@ class ExamActivity : EASActivity<ExamViewModel, ComposeViewBinding>() {
                 )
             }
         }
+    }
+
+    /**
+     * 把当前列表里的考试写入系统日历。
+     *
+     * 时间解析失败的单条会被跳过并计数，不让一条脏数据挡住整批；
+     * 权限与「无可用日历」是本机状态，给出的是可操作提示而非泛化错误。
+     */
+    private fun syncExamsToCalendar(exams: List<ExamItem>) {
+        if (exams.isEmpty()) {
+            Toast.makeText(this, "当前没有可同步的考试", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val repository = cn.limpu.hita.data.repository.CalendarSyncRepository(this)
+        val entries = exams.mapNotNull { exam -> exam.toCalendarEntry() }
+        if (entries.isEmpty()) {
+            Toast.makeText(this, "考试时间格式无法识别，未写入日历", Toast.LENGTH_LONG).show()
+            return
+        }
+        if (!repository.hasPermission()) {
+            calendarPermissionLauncher.launch(
+                arrayOf(
+                    android.Manifest.permission.READ_CALENDAR,
+                    android.Manifest.permission.WRITE_CALENDAR,
+                )
+            )
+            pendingCalendarEntries = entries
+            return
+        }
+        runCalendarSync(repository, entries)
+    }
+
+    private fun runCalendarSync(
+        repository: cn.limpu.hita.data.repository.CalendarSyncRepository,
+        entries: List<cn.limpu.hita.data.repository.CalendarSyncEntry>,
+    ) {
+        lifecycleScope.launch {
+            val text = when (val result = repository.sync(entries)) {
+                is cn.limpu.hita.data.repository.CalendarSyncRepository.Result.Success ->
+                    "已写入日历：新增 ${result.inserted}，更新 ${result.updated}" +
+                        if (result.skipped > 0) "，跳过 ${result.skipped}" else ""
+                cn.limpu.hita.data.repository.CalendarSyncRepository.Result.PermissionDenied ->
+                    "没有日历权限，未写入"
+                cn.limpu.hita.data.repository.CalendarSyncRepository.Result.NoWritableCalendar ->
+                    "本机没有可写日历账户，请先在系统日历里添加账户"
+                is cn.limpu.hita.data.repository.CalendarSyncRepository.Result.Failed ->
+                    "写入日历失败：${result.message}"
+            }
+            Toast.makeText(this@ExamActivity, text, Toast.LENGTH_LONG).show()
+        }
+    }
+
+    /**
+     * 考试时间字段是「日期 + 时段」两段文本；任一段无法解析就返回 null。
+     *
+     * 解析放在这里而不是仓库层：格式属于教务接口约定，与日历写入无关。
+     */
+    private fun ExamItem.toCalendarEntry(): cn.limpu.hita.data.repository.CalendarSyncEntry? {
+        val date = examDate?.trim().orEmpty()
+        val time = examTime?.trim().orEmpty()
+        if (date.isEmpty() || time.isEmpty()) return null
+        val parts = time.split('-')
+        if (parts.size != 2) return null
+        val formatter = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.CHINA)
+        formatter.isLenient = false
+        val start = runCatching { formatter.parse("$date ${parts[0].trim()}")?.time }.getOrNull() ?: return null
+        val end = runCatching { formatter.parse("$date ${parts[1].trim()}")?.time }.getOrNull() ?: return null
+        if (end <= start) return null
+        // memo 没有服务端 id，用课程名+日期兜底，保证同一条记录幂等。
+        val key = memoId ?: "${courseName.orEmpty()}@$date"
+        return cn.limpu.hita.data.repository.CalendarSyncEntry(
+            eventId = key,
+            title = listOfNotNull(courseName, examType?.let { "($it)" }).joinToString(" "),
+            location = examLocation,
+            description = null,
+            startMillis = start,
+            endMillis = end,
+            idempotencyKey = cn.limpu.hita.data.repository.CalendarSyncPlanner.idempotencyKey(
+                timetableId = termId.orEmpty(),
+                eventId = key,
+                startMillis = start,
+            ),
+        )
     }
 
     private fun openMemoEditor(item: ExamItem? = null) {
@@ -326,6 +428,7 @@ private fun ExamScreen(
     onPickExamType: () -> Unit,
     onImportAll: () -> Unit,
     onAddMemo: () -> Unit,
+    onSyncCalendar: () -> Unit,
     onOpenExam: (ExamItem) -> Unit
 ) {
     val tokens = HitaTheme.tokens
@@ -366,6 +469,13 @@ private fun ExamScreen(
                     Icon(
                         painter = painterResource(R.drawable.ic_baseline_add_24),
                         contentDescription = "添加考试备忘录",
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                }
+                IconButton(onClick = onSyncCalendar) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_baseline_today_24),
+                        contentDescription = "考试加入系统日历",
                         tint = MaterialTheme.colorScheme.primary
                     )
                 }

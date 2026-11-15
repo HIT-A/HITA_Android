@@ -28,6 +28,13 @@ class TodayWidgetSlim : AppWidgetProvider() {
         const val EVENT_EXTRA2 = "cn.limpu.hita.EXTRA_ITEM2"
     }
 
+    override fun onDeleted(context: Context, appWidgetIds: IntArray) {
+        // 与普通小组件一致：删除实例时清掉它自己的配置。
+        val prefs = cn.limpu.hita.ui.widgets.WidgetPrefs(context)
+        appWidgetIds.forEach(prefs::delete)
+        super.onDeleted(context, appWidgetIds)
+    }
+
     override fun onUpdate(
         context: Context,
         appWidgetManager: AppWidgetManager,

@@ -28,7 +28,11 @@ internal class SubjectResourceLauncher(private val context: Context) {
         }
     }
 
-    private fun browser(url: String) = context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+    private fun browser(url: String) {
+        // 资源目录里的链接同样只允许白名单 https 目标。
+        val target = ExternalLinkPolicy.allowed(url) ?: return
+        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(target)))
+    }
 
     private fun download(url: String, name: String) {
         try {

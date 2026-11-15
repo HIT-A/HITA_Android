@@ -35,6 +35,8 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import cn.limpu.hita.R
 import cn.limpu.hita.data.model.homework.HomeworkItem
+import cn.limpu.hita.data.model.homework.HomeworkSubmissionFormat
+import cn.limpu.hita.data.model.homework.HomeworkSubmissionMethod
 import cn.limpu.hita.data.repository.grader.GraderState
 import cn.limpu.hita.data.repository.homework.HomeworkState
 import cn.limpu.hita.data.repository.homework.HomeworkStore
@@ -699,6 +701,37 @@ private fun HomeworkRow(item: HomeworkItem, busy: Boolean, onComplete: (Boolean)
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                if (item.subject.isNotBlank()) {
+                    Text(
+                        stringResource(R.string.homework_subject, item.subject),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                // 只在真的填过提交信息时补一行，避免每行都堆一排「未填写」。
+                if (item.hasSubmissionInfo) {
+                    val parts = buildList {
+                        when (item.submissionMethod) {
+                            HomeworkSubmissionMethod.ONLINE -> add(stringResource(R.string.homework_submission_online))
+                            HomeworkSubmissionMethod.PAPER -> add(stringResource(R.string.homework_submission_paper))
+                            HomeworkSubmissionMethod.EMAIL -> add(stringResource(R.string.homework_submission_email))
+                            HomeworkSubmissionMethod.UNKNOWN -> Unit
+                        }
+                        when (item.submissionFormat) {
+                            HomeworkSubmissionFormat.DOCUMENT -> add(stringResource(R.string.homework_format_document))
+                            HomeworkSubmissionFormat.PDF -> add(stringResource(R.string.homework_format_pdf))
+                            HomeworkSubmissionFormat.HANDWRITTEN -> add(stringResource(R.string.homework_format_handwritten))
+                            HomeworkSubmissionFormat.PRESENTATION -> add(stringResource(R.string.homework_format_presentation))
+                            HomeworkSubmissionFormat.UNKNOWN -> Unit
+                        }
+                        if (item.submissionDetail.isNotBlank()) add(item.submissionDetail)
+                    }
+                    Text(
+                        text = parts.joinToString(" · "),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
             IconButton(onClick = onEdit, enabled = !busy) {
                 Icon(

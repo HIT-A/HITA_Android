@@ -1,5 +1,6 @@
 package cn.limpu.hita.ui.main
 
+import cn.limpu.hita.ui.main.timetable.WeekOption
 import android.view.HapticFeedbackConstants
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
@@ -14,6 +15,9 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -21,6 +25,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -66,6 +72,9 @@ internal fun MainTopBar(
     timetableOptions: List<DisplayScopeResolver.ScopeOption>,
     currentScope: DisplayScope?,
     onTimetableSelected: (Int) -> Unit,
+    onTimetableTitleClick: () -> Unit = {},
+    weekOptionsProvider: () -> List<WeekOption> = { emptyList() },
+    onPickWeek: (Long) -> Unit = {},
     themeIcon: Int,
     wallpaperAlpha: Float,
     wallpaperTitleColor: Color,
@@ -116,6 +125,9 @@ internal fun MainTopBar(
                 timetableOptions = timetableOptions,
                 currentScope = currentScope,
                 onTimetableSelected = onTimetableSelected,
+                onTitleClick = onTimetableTitleClick,
+                weekOptionsProvider = weekOptionsProvider,
+                onPickWeek = onPickWeek,
                 titleColor = titleColor,
                 onWallpaper = onWallpaper,
                 onWallpaperLongPress = onWallpaperLongPress,
@@ -164,7 +176,10 @@ private fun TimetableToolbarTitle(
     timetableOptions: List<DisplayScopeResolver.ScopeOption>,
     currentScope: DisplayScope?,
     onTimetableSelected: (Int) -> Unit,
+    weekOptionsProvider: () -> List<WeekOption> = { emptyList() },
+    onPickWeek: (Long) -> Unit = {},
     titleColor: Color = MaterialTheme.colorScheme.onSurface,
+    onTitleClick: () -> Unit,
     onWallpaper: () -> Unit,
     onWallpaperLongPress: () -> Unit,
     onTimetableSetting: () -> Unit,
@@ -173,6 +188,9 @@ private fun TimetableToolbarTitle(
 ) {
     var nameMenuExpanded by remember { mutableStateOf(false) }
     var settingsExpanded by remember { mutableStateOf(false) }
+    var weekMenuExpanded by remember { mutableStateOf(false) }
+    // 只在需要时求值：周列表依赖课表学期区间，展开菜单才读一次。
+    var cachedWeeks by remember { mutableStateOf<List<WeekOption>>(emptyList()) }
     val isAppleGlass = HitaTheme.preferenceStyle == ThemeTools.STYLE.APPLE_GLASS
     val isSoraCloud = HitaTheme.preferenceStyle == ThemeTools.STYLE.SORA_CLOUD
     val nameChipShape = if (isSoraCloud) soraCloudCardShape(10.dp) else RoundedCornerShape(12.dp)
@@ -194,7 +212,13 @@ private fun TimetableToolbarTitle(
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(
-            modifier = Modifier.height(56.dp),
+            modifier = Modifier
+                .height(56.dp)
+                .clickable {
+                    // 标题与课表名称芯片共用同一个菜单：点标题即打开显示范围 / 周次选择，
+                    // 有可用范围时展开，没有时退回上层的默认处理。
+                    if (timetableOptions.isNotEmpty()) nameMenuExpanded = true else onTitleClick()
+                },
             contentAlignment = Alignment.CenterStart
         ) {
             Text(
@@ -273,6 +297,45 @@ private fun TimetableToolbarTitle(
                                 nameMenuExpanded = false
                                 onTimetableSelected(i)
                             }
+                        )
+                    }
+                    if (timetableOptions.isNotEmpty()) {
+                        androidx.compose.material3.HorizontalDivider()
+                        DropdownMenuItem(
+                            text = {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        text = "按周跳转",
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                    Text(
+                                        text = "按周查看",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                            },
+                            onClick = {
+                                // 先收起范围菜单再开周菜单：两个 DropdownMenu 同时展开会互相遮挡。
+                                nameMenuExpanded = false
+                                cachedWeeks = weekOptionsProvider()
+                                weekMenuExpanded = true
+                            }
+                        )
+                    }
+                }
+                DropdownMenu(
+                    expanded = weekMenuExpanded,
+                    onDismissRequest = { weekMenuExpanded = false },
+                ) {
+                    cachedWeeks.forEach { option ->
+                        DropdownMenuItem(
+                            text = { Text("第 ${option.week} 周") },
+                            onClick = {
+                                weekMenuExpanded = false
+                                onPickWeek(option.mondayMillis)
+                            },
                         )
                     }
                 }

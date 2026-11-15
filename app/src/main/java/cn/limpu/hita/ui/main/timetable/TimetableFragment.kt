@@ -50,6 +50,12 @@ class TimetableFragment : HiltBaseFragment<ComposeViewBinding>() {
     fun openTimetableSocialSheet() { socialSheetOpen = true }
     fun navigateToWeek(mondayMillis: Long) = viewModel.navigateToWeek(mondayMillis)
 
+    /**
+     * 顶栏周号选择器的候选：复用 ViewModel 已有的「当前页所属课表」周次计算，
+     * 保证候选周与 `navigateToWeek` 判定周号的依据一致。
+     */
+    fun weekOptions(): List<WeekOption> = viewModel.weekOptions()
+
     override fun initViewBinding() = ComposeViewBinding(ComposeView(requireContext()).apply {
         setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
     })

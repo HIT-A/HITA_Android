@@ -86,6 +86,16 @@ class TimetableViewModel @Inject constructor(
 
     private val pageStart = MutableLiveData(mondayOf(System.currentTimeMillis()))
     val currentPageStartDate: LiveData<Long> = pageStart
+    /**
+     * Weeks inside the timetable that owns the current page.
+     * Weeks before the term Monday or after the term end are omitted.
+     */
+    fun weekOptions(): List<WeekOption> {
+        val start = pageStart.value ?: return emptyList()
+        val table = TimetableTargetPolicy.hitTimetable(resolvedScope.value?.timetables.orEmpty(), start)
+            ?: return emptyList()
+        return weekOptions(mondayOf(table.startTime.time), table.endTime.time)
+    }
 
     fun navigateToWeek(mondayMillis: Long) {
         if (pageStart.value == mondayMillis) return
@@ -214,3 +224,14 @@ internal fun mondayOf(ts: Long): Long = Calendar.getInstance().apply {
     set(Calendar.SECOND, 0)
     set(Calendar.MILLISECOND, 0)
 }.timeInMillis
+data class WeekOption(val week: Int, val mondayMillis: Long)
+
+/** Inclusive Mondays from the term Monday through the last Monday that is still inside [endMillis]. */
+internal fun weekOptions(termMondayMillis: Long, endMillis: Long): List<WeekOption> {
+    if (endMillis < termMondayMillis) return emptyList()
+    val count = Math.floorDiv(endMillis - termMondayMillis, WEEK_MILLS).toInt() + 1
+    if (count <= 0) return emptyList()
+    return List(count) { index ->
+        WeekOption(week = index + 1, mondayMillis = termMondayMillis + index * WEEK_MILLS)
+    }
+}
