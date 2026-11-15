@@ -20,7 +20,9 @@ import cn.limpu.hita.data.model.timetable.TermSubject
 import cn.limpu.hita.data.model.timetable.Timetable
 import cn.limpu.hita.data.model.timetable.TimetableGroupEntity
 import cn.limpu.hita.data.model.timetable.TimetableChangeOutboxEntity
+import cn.limpu.hita.data.model.timetable.EventEditHistoryEntity
 import cn.limpu.hita.data.source.dao.TimetableChangeOutboxDao
+import cn.limpu.hita.data.source.dao.EventEditHistoryDao
 import cn.limpu.hita.data.model.timetable.share.ShareIdentityEntity
 import cn.limpu.hita.data.model.timetable.share.FriendTimetableEntity
 import cn.limpu.hita.data.source.dao.TimetableShareDao
@@ -42,7 +44,7 @@ import cn.limpu.hita.utils.ColorTools
 import java.util.UUID
 
 @Database(
-    entities = [EventItem::class, TermSubject::class, Timetable::class, ChatSession::class, ChatMessageEntity::class, ClassroomCacheEntity::class, ScoreCacheEntity::class, ScoreTermCacheEntity::class, ScoreDetailCacheEntity::class, BlogArticle::class, CampusNotice::class, ShareIdentityEntity::class, FriendTimetableEntity::class, TimetableGroupEntity::class, TimetableChangeOutboxEntity::class],
+    entities = [EventItem::class, TermSubject::class, Timetable::class, ChatSession::class, ChatMessageEntity::class, ClassroomCacheEntity::class, ScoreCacheEntity::class, ScoreTermCacheEntity::class, ScoreDetailCacheEntity::class, BlogArticle::class, CampusNotice::class, ShareIdentityEntity::class, FriendTimetableEntity::class, TimetableGroupEntity::class, TimetableChangeOutboxEntity::class, EventEditHistoryEntity::class],
     version = AppDatabase.VERSION
 )
 @androidx.room.TypeConverters(TypeConverters::class)
@@ -52,6 +54,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun timetableChangeOutboxDao(): TimetableChangeOutboxDao
     abstract fun timetableGroupDao(): TimetableGroupDao
     abstract fun eventItemDao(): EventItemDao
+    abstract fun eventEditHistoryDao(): EventEditHistoryDao
     abstract fun subjectDao(): SubjectDao
     abstract fun timetableDao(): TimetableDao
     abstract fun chatSessionDao(): ChatSessionDao
@@ -68,7 +71,7 @@ abstract class AppDatabase : RoomDatabase() {
         private const val DB_NAME = "hita"
 
         /** 当前 schema 版本；升级时同步新增迁移并导出 schema JSON。 */
-        const val VERSION = 18
+        const val VERSION = 19
 
         /** 完整迁移链（1 → [VERSION]），应用与升级测试共用同一份。 */
         internal val ALL_MIGRATIONS: Array<Migration>
@@ -90,6 +93,7 @@ abstract class AppDatabase : RoomDatabase() {
                 MIGRATION_15_16,
                 MIGRATION_16_17,
                 MIGRATION_17_18,
+                MIGRATION_18_19,
             )
 
         @JvmStatic
@@ -116,6 +120,23 @@ abstract class AppDatabase : RoomDatabase() {
                 // 修改 15→16 不会再执行，所以在这里删掉后按 schema 的原文重建。正常设备上是等价重建。
                 db.execSQL("DROP INDEX IF EXISTS `index_timetable_groupId`")
                 db.execSQL("CREATE INDEX IF NOT EXISTS `index_timetable_groupId` ON `timetable` (`groupId`)")
+            }
+        }
+        private val MIGRATION_18_19 = object : Migration(18, 19) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE events ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0")
+                db.execSQL(
+                    """CREATE TABLE IF NOT EXISTS event_edit_history (
+                        id TEXT NOT NULL PRIMARY KEY,
+                        timetableId TEXT NOT NULL,
+                        eventId TEXT NOT NULL,
+                        action TEXT NOT NULL,
+                        beforeJson TEXT,
+                        afterJson TEXT,
+                        createdAt INTEGER NOT NULL
+                    )"""
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_event_edit_history_timetableId` ON `event_edit_history` (`timetableId`)")
             }
         }
 

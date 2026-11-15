@@ -78,6 +78,8 @@ class ImportTimetableViewModel @Inject constructor(
     val snapshotsLiveData = MediatorLiveData<DataState<List<TimetableVersionSnapshot>>>()
     private var snapshotsSource: LiveData<DataState<List<TimetableVersionSnapshot>>>? = null
     val restoreSnapshotLiveData = MutableLiveData<DataState<TimetableVersionSnapshot>>()
+    /** 备注 / 删除 / 裁剪失败时的一次性提示；成功后为 null。 */
+    val snapshotActionErrorLiveData = MutableLiveData<String?>()
     private var restoreJob: Job? = null
     private var restoreGeneration = 0L
     private var importJob: Job? = null
@@ -253,6 +255,44 @@ class ImportTimetableViewModel @Inject constructor(
     }
 
     fun refreshSnapshots() = loadSnapshots()
+
+    /** 备注、删除与保留上限都只动本地快照文件，写完立即刷新列表。 */
+    fun setSnapshotNote(snapshotId: String, note: String) {
+        val term = selectedTermDisplay.current()?.copyForQuery() ?: return
+        val session = termSession
+        viewModelScope.launch {
+            val result = easRepo.setTimetableSnapshotNote(session, term, snapshotId, note)
+            if (session.isCurrent()) {
+                if (result.state == DataState.STATE.SUCCESS) refreshSnapshots() else notifySnapshotError(result.message)
+            }
+        }
+    }
+
+    fun deleteSnapshot(snapshotId: String) {
+        val term = selectedTermDisplay.current()?.copyForQuery() ?: return
+        val session = termSession
+        viewModelScope.launch {
+            val result = easRepo.deleteTimetableSnapshot(session, term, snapshotId)
+            if (session.isCurrent()) {
+                if (result.state == DataState.STATE.SUCCESS) refreshSnapshots() else notifySnapshotError(result.message)
+            }
+        }
+    }
+
+    fun trimSnapshots(limit: Int) {
+        val term = selectedTermDisplay.current()?.copyForQuery() ?: return
+        val session = termSession
+        viewModelScope.launch {
+            val result = easRepo.trimTimetableSnapshots(session, term, limit)
+            if (session.isCurrent()) {
+                if (result.state == DataState.STATE.SUCCESS) refreshSnapshots() else notifySnapshotError(result.message)
+            }
+        }
+    }
+
+    private fun notifySnapshotError(message: String?) {
+        snapshotActionErrorLiveData.value = message ?: "操作失败"
+    }
 
     fun setStructureData(periodInDay: TimePeriodInDay, position: Int) {
         val current = scheduleStructureLiveData.value ?: return

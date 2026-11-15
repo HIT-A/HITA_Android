@@ -959,6 +959,65 @@ internal class EASTimetableImportRepository(
         }
     }
 
+    /** 备注 / 删除 / 保留上限只动快照文件，不需要访问教务，因此不要求会话新鲜度。 */
+    suspend fun setTimetableSnapshotNote(
+        session: EasQuerySession,
+        term: TermItem,
+        snapshotId: String,
+        note: String,
+    ): DataState<Boolean> = withContext(Dispatchers.IO) {
+        try {
+            val ownerKey = FollowedTeachingSectionStore.ownerKey(session.token)
+            DataState(
+                timetableSnapshotStore.setNote(ownerKey, term.id, snapshotId, note),
+                DataState.STATE.SUCCESS,
+            )
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            DataState(DataState.STATE.FETCH_FAILED, error.message)
+        }
+    }
+
+    suspend fun deleteTimetableSnapshot(
+        session: EasQuerySession,
+        term: TermItem,
+        snapshotId: String,
+    ): DataState<Boolean> = withContext(Dispatchers.IO) {
+        try {
+            val ownerKey = FollowedTeachingSectionStore.ownerKey(session.token)
+            DataState(
+                timetableSnapshotStore.delete(ownerKey, term.id, snapshotId),
+                DataState.STATE.SUCCESS,
+            )
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            DataState(DataState.STATE.FETCH_FAILED, error.message)
+        }
+    }
+
+    /** @return 被裁掉的条数 */
+    suspend fun trimTimetableSnapshots(
+        session: EasQuerySession,
+        term: TermItem,
+        limit: Int,
+    ): DataState<Int> = withContext(Dispatchers.IO) {
+        try {
+            val ownerKey = FollowedTeachingSectionStore.ownerKey(session.token)
+            // 记住用户选的上限：否则下一次写快照又会按默认值裁回去，选择等于没生效。
+            timetableSnapshotStore.setRetentionLimit(limit)
+            DataState(
+                timetableSnapshotStore.trim(ownerKey, term.id, limit),
+                DataState.STATE.SUCCESS,
+            )
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            DataState(DataState.STATE.FETCH_FAILED, error.message)
+        }
+    }
+
     suspend fun restoreTimetableSnapshot(
         session: EasQuerySession,
         snapshotId: String,

@@ -45,6 +45,8 @@ class EventItem :Serializable,Comparable<EventItem>{
     @ColumnInfo(name = "created_at")
     var createdAt //创建时间
             : Timestamp = Timestamp(System.currentTimeMillis())
+    /** 1 means a teaching-source course was hidden instead of physically deleted. */
+    var hidden: Int = 0
 
 
     @Ignore

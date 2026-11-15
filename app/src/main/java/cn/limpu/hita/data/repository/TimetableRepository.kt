@@ -82,6 +82,12 @@ class TimetableRepository @Inject internal constructor(
         ApplicationDisplayScopeSelector(application),
     )
 
+    /** 课表编辑历史：删除写入可恢复记录，恢复时按历史行回放。 */
+    private val editHistoryStore = EventEditHistoryStore(
+        eventDao = database.eventItemDao(),
+        historyDao = database.eventEditHistoryDao(),
+    )
+
     companion object {
         private const val EXAM_REMINDER_DAYS = 30
     }
@@ -1153,16 +1159,19 @@ class TimetableRepository @Inject internal constructor(
         }
         is TimetableWriteOperation.Delete -> {
             if (operation.eventIds.isEmpty()) false else {
-                eventItemDao.deleteEventsInIdsSync(operation.eventIds)
-                true
+                // 隐藏/删除与历史写入必须同进同退：只写一半会让「误删可恢复」这个承诺在部分失败时失效。
+                database.runInTransaction(java.util.concurrent.Callable { editHistoryStore.delete(operation.eventIds) })
             }
         }
         is TimetableWriteOperation.DeleteSubjects -> {
             if (operation.subjects.isEmpty()) false else {
-                // Preserve the existing subject-then-events sequence; this is not a new transaction.
-                subjectDao.deleteSubjectsSync(operation.subjects)
-                eventItemDao.deleteEventsFromSubjectsSync(operation.subjects.map { it.id })
-                true
+                // 整门课删除与单条删除走同一套可恢复语义：教务课软隐藏、手动课物理删除，都保留历史行。
+                // 科目行本身不删——课次仍需要它来展示名称与教师，真正隐藏的是课次。
+                database.runInTransaction(java.util.concurrent.Callable {
+                    operation.subjects.all { subject ->
+                        editHistoryStore.deleteSubject(subject.id, subject.timetableId)
+                    }
+                })
             }
         }
         is TimetableWriteOperation.ChangeStartDate ->
