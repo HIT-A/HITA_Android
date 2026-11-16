@@ -45,10 +45,12 @@ import java.util.UUID
 
 import cn.limpu.hita.data.model.timetable.TimetableVersionEntity
 import cn.limpu.hita.data.model.timetable.TimetableSourceBaselineEntity
+import cn.limpu.hita.data.model.timetable.TeachingVisibilityEntity
+import cn.limpu.hita.data.source.dao.TeachingVisibilityDao
 import cn.limpu.hita.data.source.dao.TimetableVersionDao
 
 @Database(
-    entities = [EventItem::class, TermSubject::class, Timetable::class, ChatSession::class, ChatMessageEntity::class, ClassroomCacheEntity::class, ScoreCacheEntity::class, ScoreTermCacheEntity::class, ScoreDetailCacheEntity::class, BlogArticle::class, CampusNotice::class, ShareIdentityEntity::class, FriendTimetableEntity::class, TimetableGroupEntity::class, TimetableChangeOutboxEntity::class, EventEditHistoryEntity::class, TimetableVersionEntity::class, TimetableSourceBaselineEntity::class],
+    entities = [EventItem::class, TermSubject::class, Timetable::class, ChatSession::class, ChatMessageEntity::class, ClassroomCacheEntity::class, ScoreCacheEntity::class, ScoreTermCacheEntity::class, ScoreDetailCacheEntity::class, BlogArticle::class, CampusNotice::class, ShareIdentityEntity::class, FriendTimetableEntity::class, TimetableGroupEntity::class, TimetableChangeOutboxEntity::class, EventEditHistoryEntity::class, TimetableVersionEntity::class, TimetableSourceBaselineEntity::class, TeachingVisibilityEntity::class],
     version = AppDatabase.VERSION
 )
 @androidx.room.TypeConverters(TypeConverters::class)
@@ -58,6 +60,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun timetableChangeOutboxDao(): TimetableChangeOutboxDao
     abstract fun timetableGroupDao(): TimetableGroupDao
     abstract fun eventItemDao(): EventItemDao
+    abstract fun teachingVisibilityDao(): TeachingVisibilityDao
     abstract fun timetableVersionDao(): TimetableVersionDao
     abstract fun eventEditHistoryDao(): EventEditHistoryDao
     abstract fun subjectDao(): SubjectDao
@@ -76,7 +79,7 @@ abstract class AppDatabase : RoomDatabase() {
         private const val DB_NAME = "hita"
 
         /** 当前 schema 版本；升级时同步新增迁移并导出 schema JSON。 */
-        const val VERSION = 20
+        const val VERSION = 21
 
         /** 完整迁移链（1 → [VERSION]），应用与升级测试共用同一份。 */
         internal val ALL_MIGRATIONS: Array<Migration>
@@ -100,6 +103,7 @@ abstract class AppDatabase : RoomDatabase() {
                 MIGRATION_17_18,
                 MIGRATION_18_19,
                 MIGRATION_19_20,
+                MIGRATION_20_21,
             )
 
         @JvmStatic
@@ -128,6 +132,14 @@ abstract class AppDatabase : RoomDatabase() {
                 db.execSQL("CREATE INDEX IF NOT EXISTS `index_timetable_groupId` ON `timetable` (`groupId`)")
             }
         }
+        private val MIGRATION_20_21 = object : Migration(20, 21) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("CREATE TABLE IF NOT EXISTS `teaching_visibility` (`occurrenceKey` TEXT NOT NULL, `timetableId` TEXT NOT NULL, `preferenceId` TEXT NOT NULL, `hidden` INTEGER NOT NULL, PRIMARY KEY(`occurrenceKey`))")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_teaching_visibility_timetableId` ON `teaching_visibility` (`timetableId`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_teaching_visibility_preferenceId` ON `teaching_visibility` (`preferenceId`)")
+            }
+        }
+
         private val MIGRATION_19_20 = object : Migration(19, 20) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("CREATE TABLE IF NOT EXISTS `timetable_version` (`id` TEXT NOT NULL, `ownerKey` TEXT NOT NULL, `timetableId` TEXT NOT NULL, `revision` INTEGER NOT NULL, `parentId` TEXT, `committedAt` INTEGER NOT NULL, `reason` TEXT NOT NULL, `restoredFrom` TEXT, `fingerprint` TEXT NOT NULL, `payload` TEXT NOT NULL, PRIMARY KEY(`id`))")

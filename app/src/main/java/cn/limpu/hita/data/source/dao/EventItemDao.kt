@@ -11,6 +11,9 @@ import cn.limpu.hita.data.model.timetable.TeacherInfo
 
 @Dao
 interface EventItemDao {
+    @Query("SELECT * FROM events WHERE timetableId=:id")
+    fun allEventsIncludingHidden(id: String): List<EventItem>
+
     @Query("SELECT * FROM events WHERE timetableId=:id AND type='CLASS'")
     fun versionClasses(id: String): List<EventItem>
     @Query("DELETE FROM events WHERE timetableId=:id AND type='CLASS'")
@@ -83,6 +86,9 @@ interface EventItemDao {
 
     @Query("SELECT * FROM events WHERE subjectId is :subjectId AND hidden = 0")
     fun getClassesOfSubjectSync(subjectId: String): List<EventItem>
+
+    @Query("SELECT * FROM events WHERE subjectId = :subjectId")
+    fun getAllEventsOfSubjectSync(subjectId: String): List<EventItem>
 
 
     @Query("SELECT * FROM events WHERE subjectId is :subjectId AND hidden = 0 ORDER BY `from`")
@@ -172,6 +178,12 @@ interface EventItemDao {
     fun deleteEventsInIdsSync(ids: List<String>)
     @Query("UPDATE events SET hidden = 1 WHERE id IN (:ids) AND hidden = 0")
     fun hideEventsInIdsSync(ids: List<String>): Int
+
+    @Query("UPDATE events SET hidden = :hidden WHERE id IN (:ids)")
+    fun setHiddenSync(ids: List<String>, hidden: Int): Int
+
+    @Query("SELECT * FROM events WHERE timetableId = :table AND source = 'EAS_IMPORT' AND type = 'CLASS' AND hidden != 0 ORDER BY `from`")
+    fun hiddenTeachingClasses(table: String): LiveData<List<EventItem>>
 
     @Query("UPDATE events SET hidden = 0 WHERE id = :id")
     fun unhideEventSync(id: String): Int

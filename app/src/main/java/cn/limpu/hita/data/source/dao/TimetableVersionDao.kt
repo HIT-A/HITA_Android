@@ -14,6 +14,9 @@ interface TimetableVersionDao {
     fun summaries(owner: String, table: String): List<TimetableVersionSummary>
     @Query("SELECT * FROM timetable_version WHERE ownerKey=:owner AND timetableId=:table AND id=:id")
     fun get(owner: String, table: String, id: String): TimetableVersionEntity?
+    @Query("UPDATE timetable_version SET payload=:payload, fingerprint=:fingerprint WHERE id=:id")
+    fun normalize(id: String, payload: String, fingerprint: String)
+    @Query("DELETE FROM timetable_version WHERE id=:id") fun delete(id: String)
     @Insert fun insert(version: TimetableVersionEntity)
     @Query("DELETE FROM timetable_version WHERE ownerKey=:owner AND timetableId=:table AND id NOT IN (SELECT id FROM timetable_version WHERE ownerKey=:owner AND timetableId=:table ORDER BY revision DESC LIMIT 5)")
     fun trim(owner: String, table: String)

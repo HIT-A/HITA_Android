@@ -25,9 +25,9 @@ class TimetableVersionsInstrumentedTest {
         val app = ApplicationProvider.getApplicationContext<Application>()
         db = Room.inMemoryDatabaseBuilder(app, AppDatabase::class.java).build()
         repository = TimetableRepository(app, db, DisplayScopeSelector { error("No scope selection") })
-        versions = TimetableVersionStore(db)
+        versions = TimetableVersionStore.forApplication(app, db)
         db.timetableDao().saveTimetableSync(Timetable().apply {
-            id = "table"; name = "版本测试"; startTime = Timestamp(start); endTime = Timestamp(start + 7 * WEEK_MILLS)
+            id = "table"; name = "版本测试"; code = "BENBU:2026-2027-1"; startTime = Timestamp(start); endTime = Timestamp(start + 7 * WEEK_MILLS)
         })
         db.subjectDao().saveSubjectSync(TermSubject().apply { id = "subject"; timetableId = "table"; name = "数学"; code = "MATH" })
         db.eventItemDao().addEvents(listOf(event()))
@@ -36,16 +36,16 @@ class TimetableVersionsInstrumentedTest {
 
     @Test fun successfulEditsRetainFiveVersionsIncludingCurrentAndNoOpDoesNotCommit() {
         assertEquals(1, versions.list("table").size)
-        repeat(7) { i -> repository.writeSync(TimetableWriteOperation.Update(listOf(event().apply { place = "教室$i" }))) }
+        repeat(7) { i -> sourceEdit(event().apply { place = "教室$i" }) }
         val entries = versions.list("table")
         assertEquals(listOf(8L, 7L, 6L, 5L, 4L), entries.map { it.revision })
-        repository.writeSync(TimetableWriteOperation.Update(listOf(current())))
+        sourceEdit(current())
         assertEquals(entries, versions.list("table"))
     }
 
     @Test fun deletingLastClassHasAnEmptyCurrentVersionAndCanRestoreAsOneNewCommit() {
         val first = versions.list("table").single()
-        repository.writeSync(TimetableWriteOperation.Delete(listOf("lesson")))
+        versions.commit("SOURCE") { db.eventItemDao().deleteCourseFromTimetable("table") }
         val comparison = versions.compare("table", first.id)
         assertEquals(1, comparison.diff.count(VersionChangeKind.REMOVED))
         assertEquals(1, comparison.restoreDiff.count(VersionChangeKind.ADDED))
@@ -57,22 +57,35 @@ class TimetableVersionsInstrumentedTest {
         assertEquals(0, current().hidden)
     }
 
+    @Test fun metadataOnlyChangeIsExplainedAndRestoresWithoutResettingColor() {
+        val first = versions.list("table").single()
+        versions.commit("SOURCE") {
+            val subject = db.subjectDao().getSubjectsSync("table").single()
+            db.subjectDao().saveSubjectSync(subject.apply { credit += 1; color = 123 })
+        }
+        val preview = versions.compare("table", first.id)
+        assertTrue(preview.metadataChanged)
+        assertTrue(preview.diff.changes.isEmpty())
+        assertTrue(versions.restore("table", first.id, preview.currentRevision))
+        assertEquals(123, db.subjectDao().getSubjectsSync("table").single().color)
+    }
+
     @Test fun stalePreviewCannotOverwriteANewerEdit() {
         val first = versions.list("table").single()
-        repository.writeSync(TimetableWriteOperation.Delete(listOf("lesson")))
+        versions.commit("SOURCE") { db.eventItemDao().deleteCourseFromTimetable("table") }
         val preview = versions.compare("table", first.id)
-        repository.writeSync(TimetableWriteOperation.Update(listOf(event().apply { hidden = 1; place = "新的内容" })))
+        sourceEdit(event().apply { place = "新的内容" })
         assertThrows(IllegalStateException::class.java) {
             repository.writeSync(TimetableWriteOperation.RestoreVersion("table", first.id, preview.currentRevision))
         }
         assertEquals("新的内容", current().place)
-        assertEquals(1, current().hidden)
+        assertEquals(0, current().hidden)
     }
 
     @Test fun failedVersionInsertRollsBackCourseWrite() {
         versions.list("table")
         db.openHelper.writableDatabase.execSQL("CREATE TRIGGER fail_version BEFORE INSERT ON timetable_version BEGIN SELECT RAISE(ABORT,'injected'); END")
-        assertTrue(runCatching { repository.writeSync(TimetableWriteOperation.Delete(listOf("lesson"))) }.isFailure)
+        assertTrue(runCatching { versions.commit("SOURCE") { db.eventItemDao().deleteCourseFromTimetable("table") } }.isFailure)
         assertEquals(0, current().hidden)
         assertEquals(1, versions.list("table").size)
         assertEquals(0, db.eventEditHistoryDao().countSync())
@@ -82,7 +95,7 @@ class TimetableVersionsInstrumentedTest {
         val first = versions.list("table").single()
         val exam = event().apply { id = "exam"; type = EventItem.TYPE.EXAM; name = "独立考试" }
         db.eventItemDao().addEvents(listOf(exam))
-        repository.writeSync(TimetableWriteOperation.Update(listOf(event().apply { place = "新教室" })))
+        sourceEdit(event().apply { place = "新教室" })
         val table = requireNotNull(db.timetableDao().getTimetableByIdSync("table"))
         table.name = "用户改名"
         db.timetableDao().saveTimetableSync(table)
@@ -107,17 +120,19 @@ class TimetableVersionsInstrumentedTest {
     @Test fun sourceBaselineDoesNotGetTrimmedWithVersions() {
         db.timetableVersionDao().saveSource(TimetableSourceBaselineEntity("owner", "table", "baseline"))
         versions.list("table")
-        repeat(8) { i -> repository.writeSync(TimetableWriteOperation.Update(listOf(event().apply { name = "课$i" }))) }
+        repeat(8) { i -> sourceEdit(event().apply { name = "课$i" }) }
         assertEquals(5, versions.list("table").size)
         assertEquals("baseline", db.timetableVersionDao().source("owner", "table")?.payload)
     }
 
     @Test fun colorAndNameChangesDoNotCreateCourseVersions() {
         val first = versions.list("table")
-        db.subjectDao().saveSubjectSync(db.subjectDao().getSubjectsSync("table").single().apply { color = 42; code = "ENRICHED" })
+        db.subjectDao().saveSubjectSync(db.subjectDao().getSubjectsSync("table").single().apply { color = 42 })
         db.timetableDao().saveTimetableSync(requireNotNull(db.timetableDao().getTimetableByIdSync("table")).apply { name = "新课表名" })
         assertEquals(first, versions.list("table"))
     }
+
+    private fun sourceEdit(event: EventItem) = versions.commit("SOURCE") { db.eventItemDao().saveEvents(listOf(event)) }
 
     private fun current() = db.eventItemDao().getEventsInIdsIncludingHiddenSync(listOf("lesson")).single()
     private fun event() = EventItem().apply {

@@ -31,6 +31,8 @@ class SubjectRepository internal constructor(
     /**
      * 获取所有科目及其进度
      */
+    fun observeTeachingSource(id: String) = subjectDao.observeTeachingSource(id)
+
     fun getSubjects(timetableId: String): LiveData<List<TermSubject>> {
         return subjectDao.getSubjects(timetableId)
     }
@@ -123,7 +125,7 @@ class SubjectRepository internal constructor(
      */
     fun actionSaveSubjectInfo(subject: TermSubject) {
         executor.execute {
-            subjectDao.saveSubjectSync(subject)
+            saveSubjectSync(subject)
         }
     }
 
@@ -133,6 +135,7 @@ class SubjectRepository internal constructor(
             database.runInTransaction {
                 val current = subjectDao.getSubjectsInIdsSync(listOf(subjectId)).singleOrNull()
                     ?: return@runInTransaction
+                if (eventItemDao.versionClasses(current.timetableId).any { it.subjectId == current.id && it.isTeachingCourse() }) return@runInTransaction
                 when (update) {
                     is SubjectInfoUpdate.Credit -> current.credit = update.value
                     is SubjectInfoUpdate.FillCourseCode -> {
@@ -149,7 +152,14 @@ class SubjectRepository internal constructor(
 
     @androidx.annotation.WorkerThread
     fun saveSubjectSync(subject: TermSubject) {
-        subjectDao.saveSubjectSync(subject)
+        database.runInTransaction {
+            val existing = subjectDao.getSubjectsInIdsSync(listOf(subject.id)).singleOrNull()
+            if (existing != null && eventItemDao.versionClasses(existing.timetableId).any { it.subjectId == existing.id && it.isTeachingCourse() }) {
+                // Personal color is editable; source metadata is never accepted from a screen payload.
+                existing.color = subject.color
+                subjectDao.saveSubjectSync(existing)
+            } else subjectDao.saveSubjectSync(subject)
+        }
     }
 
     fun actionResetRecentSubjectColors() {

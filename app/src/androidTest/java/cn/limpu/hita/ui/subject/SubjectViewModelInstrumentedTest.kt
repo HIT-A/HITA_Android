@@ -198,7 +198,7 @@ class SubjectViewModelInstrumentedTest {
             subjects.getValue(id).value = this
         }
     }
-    private fun event(id: String) = EventItem().apply { this.id = id; subjectId = "A"; timetableId = "table"; place = "original" }
+    private fun event(id: String) = EventItem().apply { source = EventItem.SOURCE_MANUAL; this.id = id; subjectId = "A"; timetableId = "table"; place = "original" }
     private fun candidate() = CourseResourceItem(repoName = "COMP1001", courseName = "程序设计", courseCode = "COMP1001")
     private fun main(block: () -> Unit) = instrumentation.runOnMainSync(block)
 

@@ -141,7 +141,7 @@ class TimetableWriteStoreInstrumentedTest {
     }
 
     @Test
-    fun subjectEventDeleteFailurePreservesExistingNonTransactionalBehavior() {
+    fun subjectEventDeleteFailureRollsBackTheWholeOperation() {
         val removed = subject("removed-subject")
         db.subjectDao().saveSubjectSync(removed)
         db.eventItemDao().addEvents(listOf(event("session", subjectId = removed.id)))
@@ -155,8 +155,8 @@ class TimetableWriteStoreInstrumentedTest {
         }.exceptionOrNull()
 
         assertTrue("删除课次失败应传递给写入口", failure?.message.orEmpty().contains("injected delete failure"))
-        // 此次只统一入口；原来先删课程再删课次的两条语句不增加事务。
-        assertTrue(db.subjectDao().getAllSubjectsSync().isEmpty())
+        // Subject, personal events and deletion journal now share the write transaction.
+        assertEquals(listOf(removed.id), db.subjectDao().getAllSubjectsSync().map { it.id })
         assertEquals(listOf("session"), eventIds("table"))
     }
 

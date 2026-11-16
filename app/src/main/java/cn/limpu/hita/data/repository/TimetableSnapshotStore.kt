@@ -185,6 +185,10 @@ internal class TimetableSnapshotStore(
         snapshot
     }
 
+    fun hasSnapshots(ownerKey: String, timetableId: String): Boolean = synchronized(lock) {
+        payload().snapshots.orEmpty().any { it.ownerKey == ownerKey && it.timetable.id == timetableId }
+    }
+
     fun snapshots(ownerKey: String, termId: String): List<TimetableVersionSnapshot> = synchronized(lock) {
         payload().snapshots.orEmpty().filter { it.ownerKey == ownerKey && it.termId == termId }
             .sortedByDescending { it.createdAtMillis }
@@ -262,22 +266,14 @@ internal class TimetableSnapshotStore(
         ).commit {
             beforeCommit()
             val current = timetableDao.getTimetableByIdSync(snapshot.timetable.id)
-            if (current != null) {
-                val termParts = snapshot.termId.split('-')
-                val term = TermItem(
-                    yearCode = termParts.take(2).joinToString("-"),
-                    yearName = termParts.take(2).joinToString("-"),
-                    termCode = termParts.lastOrNull().orEmpty(),
-                    termName = ""
-                )
-                capture(ownerKey, term, current, TimetableSnapshotKind.BEFORE_RESTORE)
-            }
-            val oldSubjectIds = eventDao.getImportedClassEventsOfTimetableSync(snapshot.timetable.id)
-                .mapTo(hashSetOf()) { it.subjectId }
+            TimetableVersionStore.forApplication(appContext as Application, database).protectPersonalSubjects(
+                snapshot.timetable.id, snapshot.subjects.mapTo(hashSetOf()) { it.id })
+            val before = eventDao.versionClasses(snapshot.timetable.id).filter { it.isTeachingCourse() }
+            val visibility = TeachingVisibilityStore(database)
+            visibility.rememberExisting(before)
+            val colors = subjectDao.getSubjectsSync(snapshot.timetable.id).associate { it.id to it.color }
+            // Retain source profiles: later version restoration must still find personal colors.
             eventDao.deleteCourseFromTimetable(snapshot.timetable.id)
-            if (oldSubjectIds.isNotEmpty()) {
-                subjectDao.deleteUnusedSubjectsInTimetableSync(snapshot.timetable.id, oldSubjectIds.toList())
-            }
             val restored = snapshot.timetable.toEntity().apply {
                 // Source snapshots restore courses, not current local display management.
                 if (current != null) {
@@ -286,8 +282,8 @@ internal class TimetableSnapshotStore(
                 }
             }
             timetableDao.saveTimetableSync(restored)
-            subjectDao.saveSubjectsSync(snapshot.subjects.map { it.toEntity() })
-            eventDao.saveEvents(snapshot.events.map { it.toEntity() })
+            subjectDao.saveSubjectsSync(snapshot.subjects.map { it.toEntity().apply { color = colors[id] ?: color } })
+            eventDao.saveEvents(visibility.apply(before, snapshot.events.map { it.toEntity() }, snapshot.timetable.startMillis))
         }
         snapshot
     }

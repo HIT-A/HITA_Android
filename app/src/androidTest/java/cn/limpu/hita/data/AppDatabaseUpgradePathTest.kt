@@ -42,6 +42,11 @@ class AppDatabaseUpgradePathTest {
         }
     }
 
+    @Test fun version20UpgradesToPersonalVisibilityWithoutLosingData() {
+        seed(20)
+        assertMigratedDatabase(20)
+    }
+
     @Test fun version19UpgradesToCourseVersionStorageWithoutLosingData() {
         seed(19)
         assertMigratedDatabase(19)

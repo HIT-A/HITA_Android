@@ -22,6 +22,8 @@ interface TimetableWriteStore {
 
 sealed interface TimetableWriteOperation {
     data class Add(val result: ScheduleEventCreator.Result, val subject: TermSubject?) : TimetableWriteOperation
+    data class SetTeachingVisibility(val eventIds: List<String>, val hidden: Boolean) : TimetableWriteOperation
+    data class CopyAsPersonal(val eventId: String) : TimetableWriteOperation
     data class Update(val events: List<EventItem>) : TimetableWriteOperation
     data class Delete(val eventIds: List<String>) : TimetableWriteOperation
     data class DeleteSubjects(val subjects: List<TermSubject>) : TimetableWriteOperation

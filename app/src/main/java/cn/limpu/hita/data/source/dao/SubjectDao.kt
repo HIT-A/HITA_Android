@@ -8,6 +8,9 @@ import cn.limpu.hita.data.model.timetable.TermSubject
 @Dao
 interface SubjectDao {
 
+    @Query("SELECT EXISTS(SELECT 1 FROM events WHERE subjectId=:id AND type='CLASS' AND source='EAS_IMPORT')")
+    fun observeTeachingSource(id: String): LiveData<Boolean>
+
     @Query("SELECT * FROM subject WHERE id is :id")
     fun getSubjectById(id: String): LiveData<TermSubject>
 
@@ -21,7 +24,7 @@ interface SubjectDao {
     @Query("SELECT * FROM subject WHERE timetableId is :timetableId")
     fun getSubjectsSync(timetableId: String): List<TermSubject>
 
-    @Query("SELECT * FROM subject WHERE timetableId is :timetableId ORDER BY credit DESC")
+    @Query("SELECT * FROM subject WHERE timetableId is :timetableId AND EXISTS (SELECT 1 FROM events WHERE events.subjectId = subject.id) ORDER BY credit DESC")
     fun getSubjects(timetableId: String): LiveData<List<TermSubject>>
 
 

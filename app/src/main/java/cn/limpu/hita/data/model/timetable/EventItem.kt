@@ -160,6 +160,8 @@ class EventItem :Serializable,Comparable<EventItem>{
         return result
     }
 
+    fun isTeachingCourse(): Boolean = type == TYPE.CLASS && source == SOURCE_EAS_IMPORT
+
     companion object{
         const val SOURCE_EAS_IMPORT = "EAS_IMPORT"
         const val SOURCE_MANUAL = "MANUAL"

@@ -3,8 +3,6 @@ package cn.limpu.hita.data.repository
 import android.app.Application
 import androidx.annotation.WorkerThread
 import cn.limpu.hita.data.AppDatabase
-import cn.limpu.hita.data.model.eas.EASToken
-import cn.limpu.hita.data.model.eas.TermItem
 import cn.limpu.hita.data.model.timetable.EventItem
 import cn.limpu.hita.data.model.timetable.TermSubject
 import cn.limpu.hita.data.model.timetable.Timetable
@@ -21,7 +19,7 @@ import javax.inject.Singleton
  * 职责边界：
  * - [EASRepository] 负责"拉取 → 生成 → 按 [TimetableRefreshMergePolicy] 合并"的自动刷新链路；
  * - 本类负责"用户对挂起数据做出决策后的落库"：采用某门课的源端版本、删除某门课、
- *   或整批采用挂起的源端数据。写库前统一捕获 [TimetableSnapshotKind.BEFORE_USER_ADOPT] 快照兜底。
+ *   或整批采用挂起的源端数据。课程与教务版本在同一个 Room 事务中提交。
  *
  * 与自动刷新解耦：这里只处理用户在课表变更详情里显式确认过的数据。
  */
@@ -125,14 +123,14 @@ class TimetableSourceApplier internal constructor(
         adopted: Set<String>,
     ) {
         val timetable = timetableDao.getTimetableByIdSync(timetableId) ?: return
-        val termId = updates.firstOrNull()?.termId.orEmpty()
-        if (termId.isNotEmpty()) captureSnapshot(timetable, termId)
+        TimetableVersionStore.forApplication(appContext as Application, database).protectPersonalSubjects(
+            timetable.id, updates.mapTo(hashSetOf()) { it.subjectId })
         val localSubjects = subjectDao.getSubjectsSync(timetable.id).associateBy { it.id }
         var maxTo = timetable.endTime.time
         for (update in updates) {
             if (update.rows.none { it.fingerprint in adopted }) continue
             if (!update.ownerKey.isNullOrBlank()) check(update.ownerKey == FollowedTeachingSectionStore.ownerKey(easPreferenceSource.getEasToken()))
-            val currentLessons = eventItemDao.getImportedClassEventsOfTimetableSync(timetable.id)
+            val currentLessons = eventItemDao.versionClasses(timetable.id).filter { it.isTeachingCourse() }
                 .filter { it.subjectId == update.subjectId }.map { it.toMergeLesson(timetable.startTime.time) }
             val actual = update.local?.copy(lessons = currentLessons)
             val patched = CourseChangeConfirm.applyRows(
@@ -150,11 +148,10 @@ class TimetableSourceApplier internal constructor(
             subject.name = patched.name
             subject.timetableId = timetable.id
             if (!patched.code.isNullOrBlank()) subject.code = patched.code
-            val hidden = eventItemDao.versionClasses(timetable.id).filter { it.subjectId == subject.id && it.hidden != 0 }
             eventItemDao.deleteImportedClassesFromSubjectsSync(timetable.id, listOf(subject.id))
             subjectDao.saveSubjectsSync(listOf(subject))
             val events = patched.lessons.map { it.toEventItem(subject.id, timetable.id) }
-            eventItemDao.saveEvents(events + hidden)
+            eventItemDao.saveEvents(events)
             maxTo = maxOf(maxTo, events.maxOfOrNull { it.to.time } ?: 0L)
         }
         timetable.endTime = Timestamp(maxTo)
@@ -165,13 +162,14 @@ class TimetableSourceApplier internal constructor(
     private fun applyCourseDecision(item: TimetableDecisionItem) {
         val timetable = timetableDao.getTimetableByIdSync(item.timetableId)
             ?: error("课表不存在")
-        captureSnapshot(timetable, item.termId)
 
+        TimetableVersionStore.forApplication(appContext as Application, database).protectPersonalSubjects(
+            timetable.id, setOf(item.subjectId))
         val incoming = item.incoming
         if (incoming == null) {
-            // 用户确认该课真实取消：仅删除教务导入课次，无事件引用时清理科目
+            // 用户确认该课真实取消：仅删除教务导入课次，资料保留个人配色
             eventItemDao.deleteImportedClassesFromSubjectsSync(timetable.id, listOf(item.subjectId))
-            subjectDao.deleteUnusedSubjectsInTimetableSync(timetable.id, listOf(item.subjectId))
+            // Keep the source profile so personal colors survive disappearance and restoration.
             return
         }
         val localSubject = subjectDao.getSubjectsSync(timetable.id)
@@ -199,8 +197,9 @@ class TimetableSourceApplier internal constructor(
     private fun applyHeldBatch(batch: TimetableHeldBatch) {
         val timetable = timetableDao.getTimetableByIdSync(batch.timetableId)
             ?: error("课表不存在")
-        captureSnapshot(timetable, batch.termId)
 
+        TimetableVersionStore.forApplication(appContext as Application, database).protectPersonalSubjects(
+            timetable.id, batch.courses.mapTo(hashSetOf()) { it.subjectId })
         val localSubjects = subjectDao.getSubjectsSync(timetable.id).associateBy { it.id }
         val subjects = batch.courses.map { course ->
             val existing = localSubjects[course.subjectId]
@@ -233,28 +232,6 @@ class TimetableSourceApplier internal constructor(
         timetableDao.saveTimetableSync(timetable)
         // 本地已被源端整体替换：该学期的 veto 记忆与待确认项作废
         changeStore.clearTerm(batch.termId)
-    }
-
-    private fun captureSnapshot(timetable: Timetable, termId: String) {
-        val token: EASToken = easPreferenceSource.getEasToken()
-        snapshotStore.capture(
-            FollowedTeachingSectionStore.ownerKey(token),
-            termOf(termId),
-            timetable,
-            TimetableSnapshotKind.BEFORE_USER_ADOPT
-        )
-    }
-
-    /** termId 形如 "yearCode-termCode"（见 [TermItem.id]），快照捕获需要 TermItem。 */
-    private fun termOf(termId: String): TermItem {
-        val parts = termId.split('-')
-        val yearCode = parts.take(2).joinToString("-")
-        return TermItem(
-            yearCode = yearCode,
-            yearName = yearCode,
-            termCode = parts.lastOrNull().orEmpty(),
-            termName = ""
-        )
     }
 
     private fun MergeLesson.toEventItem(subjectId: String, timetableId: String): EventItem {

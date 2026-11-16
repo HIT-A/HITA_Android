@@ -43,6 +43,24 @@ class TimetableImportFlowInstrumentedTest {
     }
     @After fun closeTestHost() { host?.close() }
 
+    @Test fun hiddenTeachingOccurrencesStayHiddenAcrossRefreshAndSourceMoves() = runBlocking {
+        TimetableImportFlowHarness().use { fixture ->
+            fixture.import()
+            val table = fixture.tables().single()
+            fixture.database.runInTransaction {
+                TeachingVisibilityStore(fixture.database).set(fixture.events(), true)
+            }
+            assertEquals(DataState.STATE.SUCCESS, fixture.import(TimetableImportMode.MERGE).state)
+            assertTrue(fixture.changes.currentState().pendingUpdates.isEmpty())
+            fixture.fetchCourses = { DataState(listOf(course().apply { dow = 2 })) }
+            assertEquals(DataState.STATE.SUCCESS, fixture.import(TimetableImportMode.REPLACE).state)
+            val classes = fixture.database.eventItemDao().versionClasses(table.id)
+            assertEquals(2, classes.size)
+            assertTrue(classes.all { it.hidden == 1 && it.getDow() == 2 })
+            assertTrue(fixture.snapshots.snapshots(FollowedTeachingSectionStore.ownerKey(fixture.token), term().id).isEmpty())
+        }
+    }
+
     @Test fun unchangedSourceNeverRecreatesLocallyDeletedLessonsAcrossCampuses() = runBlocking {
         for (campus in EASToken.Campus.entries) {
             TimetableImportFlowHarness(campus).use { fixture ->
@@ -88,7 +106,7 @@ class TimetableImportFlowInstrumentedTest {
             assertEquals(3, fixture.events().size)
             assertEquals(2, fixture.events().count { it.name == "New title" })
             assertTrue(fixture.events().any { it.id == "manual" })
-            assertEquals(2, fixture.snapshots.snapshots(FollowedTeachingSectionStore.ownerKey(fixture.token), term().id).size)
+            assertEquals(0, fixture.snapshots.snapshots(FollowedTeachingSectionStore.ownerKey(fixture.token), term().id).size)
         }
     }
 
@@ -262,6 +280,9 @@ class TimetableImportFlowInstrumentedTest {
     @Test fun snapshotsRestoreCapturedOwnerAndPreserveLocalDisplayMetadata() = runBlocking {
         TimetableImportFlowHarness().use { fixture ->
             fixture.import()
+            // Seed an upgrade-era backup explicitly; new imports no longer create the legacy files.
+            fixture.snapshots.capture(FollowedTeachingSectionStore.ownerKey(fixture.token), term(),
+                fixture.tables().single(), TimetableSnapshotKind.IMPORTED)
             val listed = fixture.importer.getTimetableSnapshots(fixture.session(), term())
             val snapshot = listed.data!!.single()
             fixture.fetchCourses = { DataState(listOf(course("Changed"))) }; fixture.import()

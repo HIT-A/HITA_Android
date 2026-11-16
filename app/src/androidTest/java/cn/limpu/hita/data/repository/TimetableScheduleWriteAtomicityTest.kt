@@ -51,6 +51,7 @@ class TimetableScheduleWriteAtomicityTest {
     }
 
     private fun event(id: String, type: EventItem.TYPE, fromNumber: Int, lastNumber: Int) = EventItem().apply {
+        source = EventItem.SOURCE_MANUAL
         this.id = id; timetableId = "table"; subjectId = "subject"; name = id; this.type = type
         from = Timestamp(start + 8 * 3_600_000L)
         to = Timestamp(start + 10 * 3_600_000L)

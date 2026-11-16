@@ -184,7 +184,6 @@ internal class EASTimetableImportRepository(
                                         startDate.timeInMillis, data.schedule, data.isNewTimetable,
                                     )
                                 } else {
-                                    timetableSnapshotStore.capture(snapshotOwnerKey, term, timetable, TimetableSnapshotKind.BEFORE_REFRESH)
                                     eventItemDao.deleteCourseFromTimetable(timetable.id)
                                     subjectDao.saveSubjectsSync(data.pendingSubjects.values.toList())
                                     eventItemDao.saveEvents(data.events)
@@ -212,9 +211,6 @@ internal class EASTimetableImportRepository(
                                 DataState(DataState.STATE.FETCH_FAILED, if (emptyEvents) "empty events" else "导入超时，请重试")
                             } else {
                                 // Post-commit bookkeeping must not report an already persisted import as failed.
-                                runCatching {
-                                    timetableSnapshotStore.capture(snapshotOwnerKey, term, data.timetable, TimetableSnapshotKind.IMPORTED)
-                                }.onFailure { LogUtils.e("import: snapshot capture after commit failed", it) }
                                 if (data.isNewTimetable) {
                                     runCatching { autoGroupImportedTimetable(data.timetable.id) }
                                         .onFailure { LogUtils.e("import: auto-group failed", it) }
@@ -285,7 +281,12 @@ internal class EASTimetableImportRepository(
         val events = mutableListOf<EventItem>()
         val pendingSubjects = linkedMapOf<String, TermSubject>()
         val subjectsByKey = mutableMapOf<String, TermSubject>()
-        subjectDao.getSubjectsSync(timetable.id).forEach { subject ->
+        val existingRows = eventItemDao.allEventsIncludingHidden(timetable.id)
+        val teachingSubjects = existingRows.filter { it.isTeachingCourse() }.mapTo(hashSetOf()) { it.subjectId }
+        val personalSubjects = existingRows.filter { it.source != EventItem.SOURCE_EAS_IMPORT }.mapTo(hashSetOf()) { it.subjectId }
+        subjectDao.getSubjectsSync(timetable.id).filterNot {
+            it.id.startsWith("personal:") || (it.id in personalSubjects && it.id !in teachingSubjects)
+        }.forEach { subject ->
             EasImportIdentity.registerSubject(
                 subjectsByKey,
                 subject,
@@ -493,7 +494,7 @@ internal class EASTimetableImportRepository(
         isNewTimetable: Boolean
     ) = timetableMutationLock.exclusive {
         val existingSourceState = SourceTimetableStore(database).state(snapshotOwnerKey, timetable.id)
-        val localEvents = eventItemDao.getImportedClassEventsOfTimetableSync(timetable.id)
+        val localEvents = eventItemDao.versionClasses(timetable.id).filter { it.isTeachingCourse() }
         val localSubjectsById = subjectDao.getSubjectsSync(timetable.id).associateBy { it.id }
 
         // 字段级信息保护：教师/地点「有→无」视为课表源字段抖动（信息减少不可信），
@@ -593,16 +594,6 @@ internal class EASTimetableImportRepository(
         }
         timetableChangeStore.recordPendingUpdatesForTable(pending, snapshotOwnerKey, timetable.id)
 
-        // 只有真实落库（有采纳的课）才捕获刷新前快照；纯保留/无变化不改数据，不打快照
-        if (plan.adopt.isNotEmpty()) {
-            timetableSnapshotStore.capture(
-                snapshotOwnerKey,
-                term,
-                timetable,
-                TimetableSnapshotKind.BEFORE_REFRESH
-            )
-        }
-
         database.runInTransaction {
             val replacedSubjectIds = plan.replacedLocal.mapTo(HashSet()) { it.subjectId }
             if (replacedSubjectIds.isNotEmpty()) {
@@ -636,15 +627,6 @@ internal class EASTimetableImportRepository(
                 timetableDao.saveTimetableSync(timetable)
             }
         }
-        if (plan.adopt.isNotEmpty()) {
-            timetableSnapshotStore.capture(
-                snapshotOwnerKey,
-                term,
-                timetable,
-                TimetableSnapshotKind.IMPORTED
-            )
-        }
-
         if ((plan.hasChanges || pending.isNotEmpty()) && !firstImport) {
             timetableChangeStore.recordApplied(
                 TimetableChangeInfo(

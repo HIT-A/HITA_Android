@@ -33,6 +33,12 @@ class TimetableWriteUseCase internal constructor(
     fun deleteSubjects(subjects: Collection<TermSubject>, onResult: ((Result<Unit>) -> Unit)? = null) =
         submit(TimetableWriteOperation.DeleteSubjects(subjects.toList()), onResult)
 
+    fun setTeachingVisibility(events: Collection<EventItem>, hidden: Boolean, onResult: ((Result<Unit>) -> Unit)? = null) =
+        submit(TimetableWriteOperation.SetTeachingVisibility(events.map { it.id }, hidden), onResult)
+
+    fun copyAsPersonal(event: EventItem, onResult: ((Result<Unit>) -> Unit)? = null) =
+        submit(TimetableWriteOperation.CopyAsPersonal(event.id), onResult)
+
     fun restoreVersion(timetableId: String, versionId: String, revision: Long, onResult: (Result<Unit>) -> Unit) =
         submit(TimetableWriteOperation.RestoreVersion(timetableId, versionId, revision), onResult)
 
@@ -80,6 +86,8 @@ class TimetableWriteUseCase internal constructor(
 
     private fun TimetableWriteOperation.isEmpty(): Boolean = when (this) {
         is TimetableWriteOperation.Add -> result.events.isEmpty()
+        is TimetableWriteOperation.SetTeachingVisibility -> eventIds.isEmpty()
+        is TimetableWriteOperation.CopyAsPersonal -> eventId.isBlank()
         is TimetableWriteOperation.Update -> events.isEmpty()
         is TimetableWriteOperation.Delete -> eventIds.isEmpty()
         is TimetableWriteOperation.DeleteSubjects -> subjects.isEmpty()
