@@ -4,6 +4,8 @@
 分支：`feat/ios-parity-migration`
 上游审计：[docs/audit/2026-11-14-ios-android-feature-diff.md](../../audit/2026-11-14-ios-android-feature-diff.md)、[迁移方案与决策清单](../../audit/2026-11-14-migration-options.md)
 
+后续专题：[今日页信息层级与明日准备设计](2026-11-16-today-page-optimization-design.md)（设计阶段，按独立分期验收）。
+
 ## 一、范围
 
 用户批准的 26 项，按批次组织。批次编号用于提交/评审粒度，全部落在同一分支。
