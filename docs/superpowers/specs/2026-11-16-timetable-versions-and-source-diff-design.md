@@ -335,3 +335,9 @@
 `./gradlew :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest` 最终通过；app JVM 1361 项，0 失败、1 跳过。仓库检查与 `git diff --check` 通过。
 
 早期设备回归 65 项中有 5 项失败，涉及旧测试夹具、旧快照发布假设和个人课程删除事务；相应实现及断言已调整，最终代码尚未真机复测。设备暂不可用，按用户要求先完成本地验证。不能把测试 APK 编译成功视为教务只读、隐藏恢复、数据库升级或真实教务服务已验收。
+
+### 真机补验完成（2026-11-16）
+
+设备重新连接后，通过 `adb install -r` 安装最终诊断 APK 和测试 APK，未卸载或清空数据。直接运行插桩，74 项数据回归、12 项界面及 ViewModel 回归全部通过（共 86 项），包括上一轮失败项、教务写保护、个人复制与旧关联拆分、配色保留、调课后的隐藏偏好、五版历史、资料差异、v20 → v21 升级和旧库迁移链、导入/采纳/恢复事务，以及隐藏恢复和旧备份入口显隐。
+
+日志：仓库外 `/home/rinat/projects/HITA-artifacts/teaching-readonly-2026-11-16/device-final-data-tests.txt`、`device-final-ui-tests.txt`。这些是设备本地数据与合成界面测试，真实在线教务服务、真实上游变更通知和厂商后台提醒仍未验证。
