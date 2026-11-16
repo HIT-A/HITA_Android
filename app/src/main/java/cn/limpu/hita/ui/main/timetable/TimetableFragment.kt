@@ -57,7 +57,7 @@ class TimetableFragment : HiltBaseFragment<ComposeViewBinding>() {
     fun openDeletionHistory() {
         if (viewOwner == null) return
         val tables = viewModel.resolvedScope.value?.timetables.orEmpty()
-            .filterNot { cn.limpu.hita.data.repository.TimetableVersionStore.isProjection(it) }
+            .filter { !it.code.isNullOrBlank() && !cn.limpu.hita.data.repository.TimetableVersionStore.isProjection(it) }
         if (tables.isEmpty()) {
             Toast.makeText(context, R.string.timetable_versions_read_only, Toast.LENGTH_SHORT).show()
             return
@@ -219,10 +219,20 @@ class TimetableFragment : HiltBaseFragment<ComposeViewBinding>() {
         val open = Runnable {
             if (!viewModel.batches.owns(selection) || anchor !== target || target.parent == null) return@Runnable
             menu = PopupMenu(requireContext(), target, Gravity.NO_GRAVITY).apply {
-                menu.add(0, R.id.menu_edit_event, 0, R.string.menu_edit)
-                menu.add(0, R.id.menu_delete_event, 1, R.string.menu_delete).setIcon(R.drawable.ic_baseline_delete_24)
+                if (event.isTeachingCourse()) {
+                    menu.add(0, R.id.menu_edit_event, 0, R.string.teaching_copy_as_personal)
+                    menu.add(0, R.id.menu_delete_event, 1, R.string.teaching_hide)
+                } else {
+                    menu.add(0, R.id.menu_edit_event, 0, R.string.menu_edit)
+                    menu.add(0, R.id.menu_delete_event, 1, R.string.menu_delete).setIcon(R.drawable.ic_baseline_delete_24)
+                }
                 setOnMenuItemClickListener { item ->
-                    if (viewModel.batches.owns(selection)) showBatchScopePicker(owner, event, item.itemId == R.id.menu_edit_event)
+                    if (viewModel.batches.owns(selection)) {
+                        if (event.isTeachingCourse() && item.itemId == R.id.menu_edit_event) viewModel.copyTeachingAsPersonal(event) { result ->
+                            if (viewOwner == owner) Toast.makeText(context, if (result.isSuccess) R.string.teaching_copied else R.string.fail, Toast.LENGTH_SHORT).show()
+                        }
+                        else showBatchScopePicker(owner, event, item.itemId == R.id.menu_edit_event)
+                    }
                     true
                 }
                 setOnDismissListener { closeMenu() }

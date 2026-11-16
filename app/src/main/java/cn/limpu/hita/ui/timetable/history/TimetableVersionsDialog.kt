@@ -86,12 +86,14 @@ internal fun TimetableVersionsDialog(
                         }
                     }
                     TextButton(onClick = onSourceChanges) { Text(stringResource(R.string.timetable_versions_source_details)) }
-                    TextButton(onClick = onLegacy) { Text(stringResource(R.string.timetable_versions_legacy)) }
+                    if (state.hasLegacy) TextButton(onClick = onLegacy) { Text(stringResource(R.string.timetable_versions_legacy)) }
                 } else {
                     Text(stringResource(R.string.timetable_versions_direction, comparison.version.revision,
                         comparison.currentRevision), modifier = Modifier.padding(top = 12.dp))
                     Text(versionDiffSummary(comparison.diff), style = MaterialTheme.typography.labelLarge)
                     if (comparison.configurationChanged) Text(stringResource(R.string.timetable_versions_configuration_changed),
+                        style = MaterialTheme.typography.bodySmall)
+                    if (comparison.metadataChanged) Text(stringResource(R.string.timetable_versions_metadata_changed),
                         style = MaterialTheme.typography.bodySmall)
                     Row {
                         TextButton(onClick = { showWeek = false }) { Text(stringResource(R.string.timetable_versions_list)) }
@@ -111,8 +113,9 @@ internal fun TimetableVersionsDialog(
     if (confirmRestore && comparison != null) AlertDialog(
         onDismissRequest = { confirmRestore = false },
         title = { Text(stringResource(R.string.timetable_versions_restore_confirm)) },
-        text = { Text(stringResource(R.string.timetable_versions_restore_impact, versionDiffSummary(comparison.restoreDiff) + if (comparison.configurationChanged)
-            "；" + stringResource(R.string.timetable_versions_configuration_changed) else "")) },
+        text = { Text(stringResource(R.string.timetable_versions_restore_impact, versionDiffSummary(comparison.restoreDiff) +
+            (if (comparison.configurationChanged) "；" + stringResource(R.string.timetable_versions_configuration_changed) else "") +
+            (if (comparison.metadataChanged) "；" + stringResource(R.string.timetable_versions_metadata_changed) else ""))) },
         confirmButton = { TextButton(onClick = { confirmRestore = false; onRestore() }) {
             Text(stringResource(R.string.timetable_versions_restore)) } },
         dismissButton = { TextButton(onClick = { confirmRestore = false }) { Text(stringResource(R.string.button_cancel)) } },

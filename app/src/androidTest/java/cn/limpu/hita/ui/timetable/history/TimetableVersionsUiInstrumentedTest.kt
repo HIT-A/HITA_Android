@@ -103,4 +103,42 @@ class TimetableVersionsUiInstrumentedTest {
             assertEquals(1, kept.get())
         }
     }
+    @Test fun hiddenTeachingCoursesCanBeShownWithoutRestoringAVersion() {
+        val shown = AtomicInteger()
+        ActivityScenario.launch(ComponentActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                activity.window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                var events by mutableStateOf(listOf(cn.limpu.hita.data.model.timetable.EventItem().apply {
+                    id = "hidden"; name = "隐藏的测试数学"; hidden = 1
+                }))
+                activity.setContentView(ComposeView(activity).apply { setContent { HitaComposeTheme {
+                    cn.limpu.hita.ui.timetable.detail.HiddenTeachingCourses(events) {
+                        shown.incrementAndGet(); events = emptyList()
+                    }
+                } } })
+            }
+            device.wait(Until.findObject(By.text("隐藏的教务课程（1）")), 5000).click()
+            assertNotNull(device.wait(Until.findObject(By.text("隐藏的测试数学")), 5000))
+            device.findObject(By.text("重新显示")).click()
+            assertNotNull(device.wait(Until.findObject(By.text("没有隐藏的教务课程")), 5000))
+            assertEquals(1, shown.get())
+        }
+    }
+
+    @Test fun legacyBackupEntryOnlyAppearsWhenBackupsExist() {
+        val state = mutableStateOf(CourseVersionsUiState(timetableId = "table", versions = listOf(version("one", 1))))
+        ActivityScenario.launch(ComponentActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                activity.window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                activity.setContentView(ComposeView(activity).apply { setContent { HitaComposeTheme {
+                    TimetableVersionsDialog(state.value, {}, {}, {}, {}, {})
+                } } })
+            }
+            assertNotNull(device.wait(Until.findObject(By.text("教务版本")), 5000))
+            assertFalse(device.hasObject(By.textStartsWith("升级前的教务备份")))
+            scenario.onActivity { state.value = state.value.copy(hasLegacy = true) }
+            assertNotNull(device.wait(Until.findObject(By.textStartsWith("升级前的教务备份")), 5000))
+        }
+    }
+
 }

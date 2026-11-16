@@ -21,6 +21,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.livedata.observeAsState
@@ -318,6 +319,14 @@ private fun EventItemScreen(
             }
         }
 
+        if (event.isTeachingCourse()) {
+            Text(stringResource(R.string.teaching_read_only), modifier = Modifier.padding(horizontal = tokens.spacing.lg),
+                style = MaterialTheme.typography.labelMedium)
+            TextButton(onClick = { viewModel.copyAsPersonal { result ->
+                android.widget.Toast.makeText(context, if (result.isSuccess) R.string.teaching_copied else R.string.fail,
+                    android.widget.Toast.LENGTH_SHORT).show()
+            } }) { Text(stringResource(R.string.teaching_copy_as_personal)) }
+        }
         // Action buttons
         Row(
             modifier = Modifier
@@ -353,9 +362,10 @@ private fun EventItemScreen(
                 onClick = { showDeleteDialog = true },
                 modifier = Modifier.size(36.dp)
             ) {
-                Icon(
+                if (event.isTeachingCourse()) Text(stringResource(R.string.teaching_hide), style = MaterialTheme.typography.labelSmall)
+                else Icon(
                     painter = painterResource(R.drawable.ic_baseline_delete_24),
-                    contentDescription = null,
+                    contentDescription = stringResource(R.string.menu_delete),
                     tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(20.dp)
                 )
@@ -378,7 +388,8 @@ private fun EventItemScreen(
     if (showDeleteDialog) {
         AlertDialog(
             onDismissRequest = { showDeleteDialog = false },
-            title = { Text(stringResource(R.string.dialog_title_sure_delete)) },
+            title = { Text(stringResource(if (event.isTeachingCourse()) R.string.teaching_hide_confirm else R.string.dialog_title_sure_delete)) },
+            text = { if (event.isTeachingCourse()) Text(stringResource(R.string.teaching_hide_hint)) },
             confirmButton = {
                 Button(
                     onClick = {

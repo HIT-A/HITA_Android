@@ -360,13 +360,14 @@ internal fun SubjectBatchDeleteDialog(
     count: Int,
     onDismiss: () -> Unit,
     onConfirm: () -> Unit,
+    hiding: Boolean = false,
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.dialog_title_sure_delete), fontWeight = FontWeight.Bold) },
+        title = { Text(stringResource(if (hiding) R.string.teaching_hide_confirm else R.string.dialog_title_sure_delete), fontWeight = FontWeight.Bold) },
         text = {
             Text(
-                text = stringResource(
+                text = if (hiding) stringResource(R.string.teaching_hide_hint) else stringResource(
                     when (scope) {
                         SubjectBatchDeleteScope.ALL -> R.string.subject_batch_delete_all_message
                         SubjectBatchDeleteScope.THIS -> R.string.subject_batch_delete_this_message

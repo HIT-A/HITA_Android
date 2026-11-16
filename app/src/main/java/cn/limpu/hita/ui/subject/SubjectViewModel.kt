@@ -57,6 +57,8 @@ class SubjectViewModel internal constructor(
     val timetableLiveData: LiveData<Timetable> = subjectLiveData.switchMap {
         if (it == null || it.id != subjectController.value) MutableLiveData() else inputs.timetable(it.timetableId)
     }
+    private val sourceReadOnlyLiveData = subjectController.switchMap(inputs.teachingSource)
+    private val sourceReadOnlyObserver = Observer<Boolean> { readOnly -> mutableScreen.value = screen.value.copy(sourceReadOnly = readOnly == true) }
     val classesLiveData: LiveData<List<EventItem>> = subjectController.switchMap(inputs.classes)
     val teachersLiveData: LiveData<List<String>> = subjectLiveData.switchMap {
         if (it == null || it.id != subjectController.value) MutableLiveData() else inputs.teachers(it)
@@ -108,6 +110,7 @@ class SubjectViewModel internal constructor(
     }
 
     init {
+        sourceReadOnlyLiveData.observeForever(sourceReadOnlyObserver)
         subjectLiveData.observeForever(subjectObserver)
         classesLiveData.observeForever(classesObserver)
         timetableLiveData.observeForever(timetableObserver)
@@ -140,6 +143,7 @@ class SubjectViewModel internal constructor(
 
     private fun backfillCode(key: SubjectResourceKey, code: String) {
         val current = subjectLiveData.value ?: return
+        if (screen.value.sourceReadOnly) return
         if (key != resources.state.value.key || current.id != subjectController.value ||
             current.id != key.subjectId || current.name != key.name || current.code != key.code ||
             !current.code.isNullOrBlank() || inputs.campus().campus != key.campus) return
@@ -148,6 +152,7 @@ class SubjectViewModel internal constructor(
 
     fun saveCredit(key: SubjectResourceKey, credit: Float) {
         val current = subjectLiveData.value ?: return
+        if (screen.value.sourceReadOnly) return
         if (resources.state.value.key != key || current.id != key.subjectId || !screen.value.subjectMetaSupported) return
         inputs.saveSubject(current.id, SubjectInfoUpdate.Credit(credit))
     }
@@ -191,7 +196,7 @@ class SubjectViewModel internal constructor(
         if (resources.state.value.key != key || screen.value.writing) return
         val liveIds = screen.value.classes.map { it.id }.toSet()
         val targets = list.filter { it.id in liveIds && it.subjectId == key.subjectId }.map(EventItem::subjectEditCopy)
-        if (targets.isEmpty()) return
+        if (targets.isEmpty() || (updated && targets.any { it.isTeachingCourse() })) return
         val version = ownerVersion
         mutableScreen.value = screen.value.copy(writing = true)
         val completed: (Result<Unit>) -> Unit = { result ->
@@ -208,6 +213,7 @@ class SubjectViewModel internal constructor(
 
     override fun onCleared() {
         ownerVersion++
+        sourceReadOnlyLiveData.removeObserver(sourceReadOnlyObserver)
         subjectLiveData.removeObserver(subjectObserver)
         classesLiveData.removeObserver(classesObserver)
         timetableLiveData.removeObserver(timetableObserver)
@@ -225,6 +231,7 @@ class SubjectViewModel internal constructor(
                                factory: TimetableWriteUseCaseFactory, eas: EASRepository): SubjectPageInputs {
             val writes = factory.create(timetables)
             return SubjectPageInputs(
+                teachingSource = subjects::observeTeachingSource,
                 subject = subjects::getSubjectById,
                 timetable = timetables::getTimetablesById,
                 classes = timetables::getClassesOfSubject,

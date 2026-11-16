@@ -43,6 +43,8 @@ class TimetableViewModel @Inject constructor(
     private val academicCalendarRepository: cn.limpu.hita.data.repository.AcademicCalendarRepository,
     writeUseCaseFactory: TimetableWriteUseCaseFactory,
 ) : ViewModel() {
+    fun copyTeachingAsPersonal(event: EventItem, completed: (Result<Unit>) -> Unit) = timetableWrites.copyAsPersonal(event, completed)
+
     private val timetableWrites = writeUseCaseFactory.create(timetableRepository)
 
     private val timetableController = MutableLiveData<Trigger>()

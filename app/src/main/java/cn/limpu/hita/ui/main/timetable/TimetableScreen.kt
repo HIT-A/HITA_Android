@@ -311,6 +311,7 @@ internal fun TimetableScreen(
                 SubjectBatchDeleteDialog(
                     scope = session.deleteScope,
                     count = session.events.size,
+                hiding = session.events.all { it.isTeachingCourse() },
                     onDismiss = onCancelBatch,
                     onConfirm = onDeleteBatch,
                 )

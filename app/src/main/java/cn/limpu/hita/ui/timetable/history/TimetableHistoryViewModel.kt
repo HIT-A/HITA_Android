@@ -33,6 +33,7 @@ internal data class CourseVersionsUiState(
     val restoring: Boolean = false,
     val failed: Boolean = false,
     val restored: Boolean = false,
+    val hasLegacy: Boolean = false,
 )
 
 @HiltViewModel
@@ -55,8 +56,13 @@ class TimetableHistoryViewModel @Inject constructor(
         _versions.value = CourseVersionsUiState(timetableId = id, loading = true, restored = _versions.value.restored)
         job = viewModelScope.launch {
             try {
-                val result = withContext(Dispatchers.IO) { store().list(id) }
-                _versions.value = _versions.value.copy(versions = result, loading = false)
+                val result = withContext(Dispatchers.IO) {
+                    val owner = cn.limpu.hita.data.repository.FollowedTeachingSectionStore.ownerKey(
+                        cn.limpu.hita.data.source.preference.EasPreferenceSource(application).getEasToken())
+                    store().list(id) to cn.limpu.hita.data.repository.TimetableSnapshotStore(application,
+                        cn.limpu.hita.data.AppDatabase.getDatabase(application)).hasSnapshots(owner, id)
+                }
+                _versions.value = _versions.value.copy(versions = result.first, hasLegacy = result.second, loading = false)
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (_: Exception) { _versions.value = _versions.value.copy(loading = false, failed = true) }
         }

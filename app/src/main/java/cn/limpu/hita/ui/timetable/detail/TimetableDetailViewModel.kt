@@ -31,6 +31,11 @@ class TimetableDetailViewModel @Inject constructor(
      */
     private val timetableController: MutableLiveData<StringTrigger> = MutableLiveData()
 
+    val hiddenTeachingLiveData = timetableController.switchMap { timetableRepository.hiddenTeachingClasses(it.data) }
+    fun showTeachingCourse(event: cn.limpu.hita.data.model.timetable.EventItem) {
+        timetableWrites.setTeachingVisibility(listOf(event), false)
+    }
+
     val subjectsLiveData: LiveData<List<TermSubject>> =
         timetableController.switchMap{
             return@switchMap subjectsRepository.getSubjects(it.data)

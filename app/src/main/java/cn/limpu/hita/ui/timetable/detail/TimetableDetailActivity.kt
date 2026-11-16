@@ -226,6 +226,7 @@ class TimetableDetailActivity : HiltBaseActivity<ComposeViewBinding>() {
     }
 
     private fun editStartDate() {
+        if (!viewModel.timetableLiveData.value?.code.isNullOrBlank()) return
         PopUpCalendarPicker().setInitValue(viewModel.timetableLiveData.value?.startTime?.time)
             .setOnConfirmListener(object : PopUpCalendarPicker.OnConfirmListener {
                 override fun onConfirm(c: Calendar) {
@@ -266,12 +267,14 @@ private fun TimetableDetailScreen(
     onDeleteSelected: (List<TermSubject>) -> Unit,
     onAddSubject: () -> Unit,
     onResetColors: () -> Unit,
-    onEditPeriod: (TimePeriodInDay, Int) -> Unit
+    onEditPeriod: (TimePeriodInDay, Int) -> Unit,
+    editable: Boolean = true,
 ) {
     val tokens = HitaTheme.tokens
     val canEditCourseColors = HitaTheme.preferenceStyle == ThemeTools.STYLE.CLASSIC
     val timetable by viewModel.timetableLiveData.observeAsState()
     val subjects by viewModel.subjectsLiveData.observeAsState(emptyList())
+    val hiddenTeaching by viewModel.hiddenTeachingLiveData.observeAsState(emptyList())
     val teachers by viewModel.teacherInfoLiveData.observeAsState(emptyList())
     val selectionMode = selectedSubjectIds.isNotEmpty()
     var colorSubject by remember { mutableStateOf<TermSubject?>(null) }
@@ -337,7 +340,8 @@ private fun TimetableDetailScreen(
                 selectedCount = selectedSubjectIds.size,
                 subjects = subjects,
                 onClearSelection = onClearSelection,
-                onDeleteSelected = onDeleteSelected
+                onDeleteSelected = onDeleteSelected,
+                teaching = !timetable?.code.isNullOrBlank(),
             )
         }
 
@@ -358,6 +362,10 @@ private fun TimetableDetailScreen(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(bottom = tokens.spacing.xl)
         ) {
+            item { HiddenTeachingCourses(hiddenTeaching, viewModel::showTeachingCourse) }
+            if (!currentTimetable.code.isNullOrBlank()) item {
+                Text(stringResource(R.string.teaching_read_only), modifier = Modifier.padding(horizontal = tokens.spacing.lg))
+            }
             item {
                 Row(
                     modifier = Modifier
@@ -381,7 +389,7 @@ private fun TimetableDetailScreen(
                         modifier = Modifier
                             .weight(1f)
                             .height(144.dp)
-                            .clickable(onClick = onEditDate)
+                            .clickable(enabled = currentTimetable.code.isNullOrBlank(), onClick = onEditDate)
                     )
                 }
             }
@@ -442,7 +450,8 @@ private fun TimetableDetailScreen(
             item {
                 ScheduleStructureCard(
                     periods = currentTimetable.scheduleStructure,
-                    onEditPeriod = onEditPeriod
+                    onEditPeriod = onEditPeriod,
+                    editable = currentTimetable.code.isNullOrBlank(),
                 )
             }
         }
@@ -468,7 +477,8 @@ private fun SelectionBar(
     selectedCount: Int,
     subjects: List<TermSubject>,
     onClearSelection: () -> Unit,
-    onDeleteSelected: (List<TermSubject>) -> Unit
+    onDeleteSelected: (List<TermSubject>) -> Unit,
+    teaching: Boolean = false,
 ) {
     val tokens = HitaTheme.tokens
     Surface(color = MaterialTheme.colorScheme.surface) {
@@ -489,7 +499,7 @@ private fun SelectionBar(
                 shape = RoundedCornerShape(16.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
             ) {
-                Text(text = "删除")
+                Text(text = stringResource(if (teaching) R.string.teaching_hide else R.string.menu_delete))
             }
             IconButton(onClick = onClearSelection) {
                 Icon(
@@ -747,7 +757,8 @@ private fun SubjectCard(
 @Composable
 private fun ScheduleStructureCard(
     periods: List<TimePeriodInDay>,
-    onEditPeriod: (TimePeriodInDay, Int) -> Unit
+    onEditPeriod: (TimePeriodInDay, Int) -> Unit,
+    editable: Boolean = true,
 ) {
     val tokens = HitaTheme.tokens
     Card(
@@ -764,7 +775,7 @@ private fun ScheduleStructureCard(
                     index = index,
                     period = period,
                     showDivider = index != periods.lastIndex,
-                    onClick = { onEditPeriod(period, index) }
+                    onClick = { if (editable) onEditPeriod(period, index) }
                 )
             }
         }

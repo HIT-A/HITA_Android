@@ -33,7 +33,7 @@ internal object TimetableTargetPolicy {
         if (TimetableEventPolicy.isReadOnlyProjection(event)) return emptyList()
         val classes = all.filter {
             it.type == EventItem.TYPE.CLASS && it.subjectId == event.subjectId &&
-                it.timetableId == event.timetableId && !TimetableEventPolicy.isReadOnlyProjection(it)
+                it.timetableId == event.timetableId && it.source == event.source && !TimetableEventPolicy.isReadOnlyProjection(it)
         }
         return when (scope) {
             TimetableBatchScope.THIS -> listOf(event)
@@ -128,7 +128,7 @@ internal class TimetableBatchCoordinator(
         cancel()
         val request = generation
         val selected = event.subjectEditCopy()
-        if (TimetableEventPolicy.isReadOnlyProjection(selected)) {
+        if (TimetableEventPolicy.isReadOnlyProjection(selected) || (edit && selected.isTeachingCourse())) {
             notice(owner, request, TimetableNotice.ReadOnly)
             return
         }
@@ -172,7 +172,7 @@ internal class TimetableBatchCoordinator(
 
     private fun write(session: TimetableBatchSession, events: List<EventItem>, skippedTime: Boolean) {
         val owner = activeOwner ?: return
-        if (state.value.writing || events.any(TimetableEventPolicy::isReadOnlyProjection)) return
+        if (state.value.writing || events.any { TimetableEventPolicy.isReadOnlyProjection(it) || (session.edit && it.isTeachingCourse()) }) return
         val request = generation
         val attempt = ++writeAttempt
         mutableState.value = state.value.copy(writing = true)

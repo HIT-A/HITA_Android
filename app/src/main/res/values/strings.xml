@@ -2032,9 +2032,9 @@
     <string name="timetable_history_restore_success">已恢复课程</string>
     <string name="timetable_history_restore_failed">恢复失败，记录可能已失效或课程已有变化。请检查后重试。</string>
     <string name="timetable_history_load_failed">无法加载删除历史</string>
-    <string name="timetable_versions_title">课表版本</string>
+    <string name="timetable_versions_title">教务版本</string>
     <string name="timetable_versions_back">返回列表</string>
-    <string name="timetable_versions_scope">仅恢复课程，考试、普通日程和外观设置不变</string>
+    <string name="timetable_versions_scope">仅恢复教务课程；个人日程、隐藏状态、考试和外观设置保留</string>
     <string name="timetable_versions_retention">保留最近 5 个版本（包含当前版）</string>
     <string name="timetable_versions_current">当前版本 · v%1$d</string>
     <string name="timetable_versions_previous">历史版本 · v%1$d</string>
@@ -2067,9 +2067,20 @@
     <string name="timetable_source_removed">%1$s，本次未发现对应补课</string>
     <string name="timetable_source_selection_hint">勾选的变更将被采纳；未勾选的保留本地，并记住本次选择。</string>
     <string name="timetable_versions_source_details">查看教务变更</string>
-    <string name="timetable_versions_legacy">旧教务快照（仅教务课程）</string>
-    <string name="timetable_versions_read_only">当前没有可查看版本的可编辑课表</string>
+    <string name="timetable_versions_legacy">升级前的教务备份（仅教务课程）</string>
+    <string name="timetable_versions_read_only">当前没有教务课表，个人日程不参与版本管理</string>
     <string name="timetable_versions_recorded">记录时间：%1$s</string>
     <string name="timetable_versions_configuration_changed">开学日期或作息有变化，恢复时一并还原</string>
     <string name="timetable_source_local_conflict">部分课程已在本地修改，默认保留。采纳前请核对；本地课次不再匹配时需重新刷新。</string>
+    <string name="teaching_read_only">教务课程 · 数据由教务维护，可复制为个人日程后修改</string>
+    <string name="teaching_copy_as_personal">复制为个人日程</string>
+    <string name="teaching_copied">已复制为独立的个人日程，可长按修改</string>
+    <string name="teaching_hide">隐藏</string>
+    <string name="teaching_show">重新显示</string>
+    <string name="teaching_hide_confirm">隐藏所选教务课程？</string>
+    <string name="teaching_hide_hint">仅从课表中隐藏，教务数据不变。可在课表详情的“隐藏的教务课程”中重新显示。</string>
+    <string name="teaching_hidden_title">隐藏的教务课程</string>
+    <string name="teaching_hidden_count">隐藏的教务课程（%1$d）</string>
+    <string name="teaching_hidden_empty">没有隐藏的教务课程</string>
+    <string name="timetable_versions_metadata_changed">课程资料（如名称、学分或课程代码）有变化</string>
 </resources>
