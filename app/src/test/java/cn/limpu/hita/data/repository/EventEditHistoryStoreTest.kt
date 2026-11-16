@@ -104,6 +104,119 @@ class EventEditHistoryStoreTest {
         assertEquals(0, history.countSync())
     }
 
+    @Test
+    fun `restored deletion remains visible but cannot be replayed over later edits`() {
+        val dao = FakeEventItemDao()
+        val history = FakeHistoryDao()
+        val store = store(dao, history)
+        dao.seed(course("manual", EventItem.SOURCE_MANUAL))
+        store.delete(listOf("manual"))
+        val id = store.deletedHistory(timetableId).single().id
+        assertEquals(DeletedEventStatus.AVAILABLE, store.deletedHistory(timetableId).single().status)
+        assertNotNull(store.restore(id, timetableId))
+        dao.seed(course("manual", EventItem.SOURCE_MANUAL).apply { name = "后来修改的课程" })
+
+        assertEquals(DeletedEventStatus.RESTORED, store.deletedHistory(timetableId).single().status)
+        assertEquals(null, store.restore(id, timetableId))
+        assertEquals("后来修改的课程", dao.dao.getEventsInIdsIncludingHiddenSync(listOf("manual")).single().name)
+        assertEquals(2, history.countSync())
+    }
+
+    @Test
+    fun `changed hidden course is never overwritten by an older deletion`() {
+        val dao = FakeEventItemDao()
+        val history = FakeHistoryDao()
+        val store = store(dao, history)
+        val event = course("eas", EventItem.SOURCE_EAS_IMPORT)
+        dao.seed(event)
+        store.delete(listOf(event.id))
+        event.place = "新的教室"
+        val row = store.deletedHistory(timetableId).single()
+
+        assertEquals(DeletedEventStatus.CHANGED, row.status)
+        assertEquals(null, store.restore(row.id))
+        assertEquals(1, event.hidden)
+        assertEquals("新的教室", event.place)
+        assertEquals(1, history.countSync())
+    }
+
+    @Test
+    fun `recreated manual course blocks restoration even when its id matches`() {
+        val dao = FakeEventItemDao()
+        val history = FakeHistoryDao()
+        val store = store(dao, history)
+        val event = course("manual", EventItem.SOURCE_MANUAL)
+        dao.seed(event)
+        store.delete(listOf(event.id))
+        dao.seed(event)
+        val row = store.deletedHistory(timetableId).single()
+        assertEquals(DeletedEventStatus.CHANGED, row.status)
+        assertEquals(null, store.restore(row.id))
+        assertEquals(1, history.countSync())
+    }
+
+    @Test
+    fun `a newer delete prevents restoring an older version of the same absent event`() {
+        val dao = FakeEventItemDao()
+        val history = FakeHistoryDao()
+        val store = store(dao, history)
+        val event = course("manual", EventItem.SOURCE_MANUAL)
+        dao.seed(event)
+        store.delete(listOf(event.id))
+        val oldId = store.deletedHistory(timetableId).single().id
+        event.name = "新版课程"
+        dao.seed(event)
+        store.delete(listOf(event.id))
+        val rows = store.deletedHistory(timetableId)
+        assertEquals(DeletedEventStatus.CHANGED, rows.first { it.id == oldId }.status)
+        assertEquals(null, store.restore(oldId))
+        val latest = rows.first { it.id != oldId }
+        assertEquals(DeletedEventStatus.AVAILABLE, latest.status)
+        assertEquals("新版课程", store.restore(latest.id)?.name)
+    }
+
+    @Test
+    fun `hidden rows cannot be deleted repeatedly to create unsafe snapshots`() {
+        val dao = FakeEventItemDao()
+        val history = FakeHistoryDao()
+        val store = store(dao, history)
+        dao.seed(course("eas", EventItem.SOURCE_EAS_IMPORT))
+        assertTrue(store.delete(listOf("eas")))
+        assertEquals(false, store.delete(listOf("eas")))
+        assertEquals(1, history.countSync())
+        assertEquals(DeletedEventStatus.AVAILABLE, store.deletedHistory(timetableId).single().status)
+    }
+
+    @Test
+    fun `history from another timetable and non-delete actions cannot restore`() {
+        val dao = FakeEventItemDao()
+        val history = FakeHistoryDao()
+        val store = store(dao, history)
+        val event = course("manual", EventItem.SOURCE_MANUAL)
+        store.recordCreate(event)
+        val createId = history.historyOfTimetableSync(timetableId).single().id
+        assertEquals(null, store.restore(createId))
+        dao.seed(event)
+        store.delete(listOf(event.id))
+        val row = store.deletedHistory(timetableId).single()
+        assertEquals(null, store.restore(row.id, "another-table"))
+        assertEquals(null, dao.hiddenOf(event.id))
+        assertEquals(2, history.countSync())
+    }
+
+    @Test
+    fun `invalid stored JSON is listed as unavailable without aborting the list`() {
+        val dao = FakeEventItemDao()
+        val history = FakeHistoryDao()
+        val store = store(dao, history)
+        history.insert(EventEditHistoryEntity("broken", timetableId, "e", EventEditHistoryStore.ACTION_DELETE,
+            "{broken", null, clock()))
+        val row = store.deletedHistory(timetableId).single()
+        assertEquals(DeletedEventStatus.UNAVAILABLE, row.status)
+        assertEquals(null, store.restore(row.id))
+        assertEquals(1, history.countSync())
+    }
+
     private fun store(dao: FakeEventItemDao, history: FakeHistoryDao) = EventEditHistoryStore(
         eventDao = dao.dao,
         historyDao = history,
@@ -192,6 +305,13 @@ class EventEditHistoryStoreTest {
             rows.filter { it.timetableId == timetableId }
 
         override fun getByIdSync(id: String): EventEditHistoryEntity? = rows.firstOrNull { it.id == id }
+
+        override fun markDeletionRestoredSync(id: String): Int {
+            val index = rows.indexOfFirst { it.id == id && it.action == EventEditHistoryStore.ACTION_DELETE }
+            if (index < 0) return 0
+            rows[index] = rows[index].copy(action = EventEditHistoryStore.ACTION_DELETE_RESTORED)
+            return 1
+        }
 
         override fun deleteOldestSync(overflow: Int) {
             rows.sortBy { it.createdAt }

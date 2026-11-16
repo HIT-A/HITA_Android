@@ -44,6 +44,7 @@ internal data class MainActions(
     val wallpaperLongPress: () -> Unit,
     val timetableSetting: () -> Unit,
     val timetableSocial: () -> Unit,
+    val timetableHistory: () -> Unit = {},
     val addEvent: () -> Unit,
     val drawerHeader: () -> Unit,
     val drawerAvatar: () -> Unit,

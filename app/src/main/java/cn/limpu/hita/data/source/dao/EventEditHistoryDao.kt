@@ -16,6 +16,9 @@ interface EventEditHistoryDao {
     @Query("SELECT * FROM event_edit_history WHERE id = :id")
     fun getByIdSync(id: String): EventEditHistoryEntity?
 
+    @Query("UPDATE event_edit_history SET action = 'DELETE_RESTORED' WHERE id = :id AND action = 'DELETE'")
+    fun markDeletionRestoredSync(id: String): Int
+
     @Query(
         """DELETE FROM event_edit_history WHERE id IN (
             SELECT id FROM event_edit_history ORDER BY createdAt ASC, id ASC LIMIT :overflow

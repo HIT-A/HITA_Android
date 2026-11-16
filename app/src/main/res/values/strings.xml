@@ -2014,4 +2014,22 @@
     <string name="campus_card_selected_year">%1$d 年</string>
     <string name="campus_card_selected_month">%1$d 月</string>
     <string name="campus_card_year_month">%1$d年%2$d月</string>
+    <string name="timetable_history_select_table">选择要查看历史的课表</string>
+    <string name="timetable_deletion_history">删除历史</string>
+    <string name="timetable_history_hint">显示保留记录中的已删除课次，可逐次恢复。较早的记录可能已被清理。</string>
+    <string name="timetable_history_close">关闭</string>
+    <string name="timetable_history_retry">重试</string>
+    <string name="timetable_history_empty">暂无删除记录</string>
+    <string name="timetable_history_unknown_course">未知课程</string>
+    <string name="timetable_history_course_time">课程时间：%1$s</string>
+    <string name="timetable_history_deleted_time">删除时间：%1$s</string>
+    <string name="timetable_history_available">可恢复</string>
+    <string name="timetable_history_restored">已恢复</string>
+    <string name="timetable_history_changed">课程已有后续变化，无法恢复此记录</string>
+    <string name="timetable_history_unavailable">记录已失效</string>
+    <string name="timetable_history_restore">恢复</string>
+    <string name="timetable_history_restoring">恢复中…</string>
+    <string name="timetable_history_restore_success">已恢复课程</string>
+    <string name="timetable_history_restore_failed">恢复失败，记录可能已失效或课程已有变化。请检查后重试。</string>
+    <string name="timetable_history_load_failed">无法加载删除历史</string>
 </resources>

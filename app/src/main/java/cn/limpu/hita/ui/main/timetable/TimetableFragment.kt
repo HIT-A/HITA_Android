@@ -11,6 +11,7 @@ import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.widget.PopupMenu
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.ComposeView
@@ -31,6 +32,8 @@ import cn.limpu.hita.ui.main.timetable.compare.TimetableSocialSheet
 import cn.limpu.hita.ui.main.timetable.compare.TimetableComparisonActivity
 import cn.limpu.hita.ui.timetable.friend.FriendTimetableActivity
 import cn.limpu.hita.ui.timetable.share.TimetableShareActivity
+import cn.limpu.hita.ui.timetable.history.DeletionHistoryDialog
+import cn.limpu.hita.ui.timetable.history.TimetableHistoryViewModel
 import cn.limpu.hita.utils.ActivityUtils
 import cn.limpu.hita.utils.EventsUtils
 import dagger.hilt.android.AndroidEntryPoint
@@ -39,6 +42,8 @@ import kotlinx.coroutines.launch
 @AndroidEntryPoint
 class TimetableFragment : HiltBaseFragment<ComposeViewBinding>() {
     protected val viewModel: TimetableViewModel by viewModels()
+    private val historyViewModel: TimetableHistoryViewModel by viewModels()
+    private var historyOpen by mutableStateOf(false)
     private var socialSheetOpen by mutableStateOf(false)
     private var mainPageController: MainPageController? = null
     private var viewOwner: Long? = null
@@ -48,6 +53,30 @@ class TimetableFragment : HiltBaseFragment<ComposeViewBinding>() {
     private var scopeDialog: AlertDialog? = null
 
     fun openTimetableSocialSheet() { socialSheetOpen = true }
+    fun openDeletionHistory() {
+        if (viewOwner == null) return
+        val tables = viewModel.resolvedScope.value?.timetables.orEmpty()
+        if (tables.isEmpty()) {
+            Toast.makeText(context, R.string.add_timetable_first, Toast.LENGTH_SHORT).show()
+            return
+        }
+        fun open(id: String) {
+            historyViewModel.loadDeletionHistory(id)
+            historyOpen = true
+        }
+        if (tables.size == 1) {
+            open(tables.single().id)
+        } else {
+            scopeDialog?.dismiss()
+            scopeDialog = AlertDialog.Builder(requireContext())
+                .setTitle(R.string.timetable_history_select_table)
+                .setItems(tables.map { it.name.orEmpty() }.toTypedArray()) { _, which ->
+                    if (viewOwner != null) open(tables[which].id)
+                }
+                .setNegativeButton(R.string.button_cancel, null)
+                .show()
+        }
+    }
     fun navigateToWeek(mondayMillis: Long) = viewModel.navigateToWeek(mondayMillis)
 
     /**
@@ -67,6 +96,15 @@ class TimetableFragment : HiltBaseFragment<ComposeViewBinding>() {
         val owner = viewModel.attachView().also { viewOwner = it }
         (view as ComposeView).setContent {
             HitaComposeTheme {
+                if (historyOpen) {
+                    val historyState by historyViewModel.deletionHistory.collectAsState()
+                    DeletionHistoryDialog(
+                        state = historyState,
+                        onDismiss = { historyOpen = false },
+                        onRetry = { historyState.timetableId?.let(historyViewModel::loadDeletionHistory) },
+                        onRestore = historyViewModel::restoreDeletedEvent,
+                    )
+                }
                 if (socialSheetOpen) TimetableSocialSheet(
                     onDismiss = { socialSheetOpen = false },
                     onShare = { navigate(owner, Intent(requireContext(), TimetableShareActivity::class.java)) },
@@ -117,6 +155,7 @@ class TimetableFragment : HiltBaseFragment<ComposeViewBinding>() {
         viewOwner?.let(viewModel::detachView)
         viewOwner = null
         socialSheetOpen = false
+        historyOpen = false
         closeMenu()
         scopeDialog?.setOnCancelListener(null)
         scopeDialog?.dismiss()

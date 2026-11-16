@@ -11,6 +11,16 @@ import cn.limpu.hita.data.model.DateSerializer
 import java.sql.Timestamp
 import java.util.UUID
 
+enum class DeletedEventStatus { AVAILABLE, RESTORED, CHANGED, UNAVAILABLE }
+
+data class DeletedEventHistory(
+    val id: String,
+    val name: String?,
+    val startsAt: Long?,
+    val deletedAt: Long,
+    val status: DeletedEventStatus,
+)
+
 /** Records course edits and restores one history row without exposing hidden courses to readers. */
 class EventEditHistoryStore(
     private val eventDao: EventItemDao,
@@ -37,14 +47,14 @@ class EventEditHistoryStore(
 
     /** Teaching-source courses stay in the table; every other course is removed but remains recoverable. */
     fun delete(eventIds: List<String>): Boolean {
-        val events = eventDao.getEventsInIdsIncludingHiddenSync(eventIds)
+        val events = eventDao.getEventsInIdsIncludingHiddenSync(eventIds).filter { it.hidden == 0 }
         if (events.isEmpty()) return false
-        val (hide, remove) = events.partition { it.hidesInsteadOfDeleting() }
-        if (hide.isNotEmpty()) eventDao.hideEventsInIdsSync(hide.map { it.id })
-        if (remove.isNotEmpty()) eventDao.deleteEventsInIdsSync(remove.map { it.id })
         events.forEach { event ->
             append(event.timetableId, event.id, ACTION_DELETE, before = event, after = null)
         }
+        val (hide, remove) = events.partition { it.hidesInsteadOfDeleting() }
+        if (hide.isNotEmpty()) eventDao.hideEventsInIdsSync(hide.map { it.id })
+        if (remove.isNotEmpty()) eventDao.deleteEventsInIdsSync(remove.map { it.id })
         return true
     }
 
@@ -62,23 +72,67 @@ class EventEditHistoryStore(
         return delete(events.map { it.id })
     }
 
-    fun restore(historyId: String): EventItem? {
+    /** Caller must wrap the check, event write and history update in one Room transaction. */
+    fun restore(historyId: String, timetableId: String? = null): EventItem? {
         val entry = historyDao.getByIdSync(historyId) ?: return null
-        val source = entry.beforeJson ?: entry.afterJson ?: return null
-        val event = gson.fromJson(source, EventItem::class.java) ?: return null
+        if (timetableId != null && entry.timetableId != timetableId) return null
+        val entries = history(entry.timetableId)
+        val event = deletedEvent(entry) ?: return null
         val existing = eventDao.getEventsInIdsIncludingHiddenSync(listOf(event.id)).firstOrNull()
-        if (existing != null && existing.hidesInsteadOfDeleting()) {
-            event.hidden = 0
-            eventDao.updateEventSync(event)
-        } else if (existing == null) {
-            event.hidden = 0
-            eventDao.insertEventSync(event)
-        } else {
-            event.hidden = 0
-            eventDao.updateEventSync(event)
-        }
+        if (status(entry, event, existing, entries) != DeletedEventStatus.AVAILABLE) return null
+        event.hidden = 0
+        if (existing == null) eventDao.insertEventSync(event) else eventDao.updateEventSync(event)
+        check(historyDao.markDeletionRestoredSync(entry.id) == 1)
         append(event.timetableId, event.id, ACTION_RESTORE, before = existing, after = event)
         return event
+    }
+
+    fun deletedHistory(timetableId: String): List<DeletedEventHistory> {
+        val entries = history(timetableId)
+        val deletions = entries.filter { it.action == ACTION_DELETE || it.action == ACTION_DELETE_RESTORED }
+        val current = eventDao.getEventsInIdsIncludingHiddenSync(deletions.map { it.eventId })
+            .associateBy { it.id }
+        return deletions.map { entry ->
+            val event = deletedEvent(entry)
+            DeletedEventHistory(
+                id = entry.id,
+                name = event?.name,
+                startsAt = event?.from?.time,
+                deletedAt = entry.createdAt,
+                status = status(entry, event, current[entry.eventId], entries),
+            )
+        }
+    }
+
+    private fun deletedEvent(entry: EventEditHistoryEntity): EventItem? = runCatching {
+        if (entry.action != ACTION_DELETE && entry.action != ACTION_DELETE_RESTORED) return null
+        val event = gson.fromJson(entry.beforeJson ?: return null, EventItem::class.java) ?: return null
+        event.takeIf {
+            it.id == entry.eventId && it.timetableId == entry.timetableId &&
+                it.hidden == 0 && !it.name.isNullOrBlank() && it.from != null && it.to != null
+        }
+    }.getOrNull()
+
+    private fun status(
+        entry: EventEditHistoryEntity,
+        event: EventItem?,
+        existing: EventItem?,
+        entries: List<EventEditHistoryEntity>,
+    ): DeletedEventStatus {
+        if (entry.action == ACTION_DELETE_RESTORED) return DeletedEventStatus.RESTORED
+        if (event == null || entry.action != ACTION_DELETE) return DeletedEventStatus.UNAVAILABLE
+        // Older releases did not mark the consumed deletion; later history still protects those rows.
+        if (entries.any { it.eventId == entry.eventId && it.id != entry.id && it.createdAt >= entry.createdAt }) {
+            return DeletedEventStatus.CHANGED
+        }
+        if (existing == null) return DeletedEventStatus.AVAILABLE
+        if (existing.hidden != 1 || !existing.hidesInsteadOfDeleting()) return DeletedEventStatus.CHANGED
+        fun storedContent(item: EventItem) = gson.toJsonTree(item).asJsonObject.apply {
+            remove("hidden")
+            remove("color") // Presentation-only; not stored in Room.
+        }
+        return if (storedContent(existing) == storedContent(event)) DeletedEventStatus.AVAILABLE
+            else DeletedEventStatus.CHANGED
     }
 
     fun history(timetableId: String): List<EventEditHistoryEntity> =
@@ -91,6 +145,9 @@ class EventEditHistoryStore(
         before: EventItem?,
         after: EventItem?,
     ) {
+        // Keep ordering unambiguous for a batch of deletions and for clocks moving backwards.
+        val latest = history(timetableId).maxOfOrNull { it.createdAt }
+        val recordedAt = maxOf(clock(), latest?.let { it + 1 } ?: Long.MIN_VALUE)
         historyDao.insert(
             EventEditHistoryEntity(
                 id = ids(),
@@ -99,7 +156,7 @@ class EventEditHistoryStore(
                 action = action,
                 beforeJson = before?.let(gson::toJson),
                 afterJson = after?.let(gson::toJson),
-                createdAt = clock(),
+                createdAt = recordedAt,
             ),
         )
         val overflow = historyDao.countSync() - MAX_ENTRIES
@@ -111,6 +168,7 @@ class EventEditHistoryStore(
         const val ACTION_UPDATE = "UPDATE"
         const val ACTION_DELETE = "DELETE"
         const val ACTION_RESTORE = "RESTORE"
+        const val ACTION_DELETE_RESTORED = "DELETE_RESTORED"
         const val MAX_ENTRIES = 200
 
         fun eventCodec(): Gson = GsonBuilder()

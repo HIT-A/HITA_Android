@@ -12,6 +12,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -84,6 +85,7 @@ internal fun MainTopBar(
     onWallpaperLongPress: () -> Unit,
     onTimetableSetting: () -> Unit,
     onTimetableSocial: () -> Unit,
+    onTimetableHistory: () -> Unit = {},
     onAddEvent: () -> Unit,
     onSystemBars: (Boolean, Boolean) -> Unit,
 ) {
@@ -133,6 +135,7 @@ internal fun MainTopBar(
                 onWallpaperLongPress = onWallpaperLongPress,
                 onTimetableSetting = onTimetableSetting,
                 onTimetableSocial = onTimetableSocial,
+                onTimetableHistory = onTimetableHistory,
                 onAddEvent = onAddEvent
             )
             MainTab.AGENT -> ToolbarTitle(stringResource(R.string.title_agent), titleColor)
@@ -184,6 +187,7 @@ private fun TimetableToolbarTitle(
     onWallpaperLongPress: () -> Unit,
     onTimetableSetting: () -> Unit,
     onTimetableSocial: () -> Unit,
+    onTimetableHistory: () -> Unit,
     onAddEvent: () -> Unit,
 ) {
     var nameMenuExpanded by remember { mutableStateOf(false) }
@@ -213,6 +217,7 @@ private fun TimetableToolbarTitle(
     ) {
         Box(
             modifier = Modifier
+                .widthIn(max = 112.dp)
                 .height(56.dp)
                 .clickable {
                     // 标题与课表名称芯片共用同一个菜单：点标题即打开显示范围 / 周次选择，
@@ -231,7 +236,7 @@ private fun TimetableToolbarTitle(
                 overflow = TextOverflow.Ellipsis
             )
         }
-        AnimatedVisibility(visible = showName && name.isNotBlank()) {
+        AnimatedVisibility(visible = showName && name.isNotBlank(), modifier = Modifier.weight(1f)) {
             Box {
                 Text(
                     text = name,
@@ -341,16 +346,27 @@ private fun TimetableToolbarTitle(
                 }
             }
         }
-        Spacer(modifier = Modifier.weight(1f))
-        androidx.compose.material3.IconButton(onClick = onTimetableSocial, modifier = Modifier.size(56.dp)) {
+        if (!showName || name.isBlank()) Spacer(modifier = Modifier.weight(1f))
+        androidx.compose.material3.IconButton(onClick = onTimetableSocial, modifier = Modifier.size(48.dp)) {
             Icon(painterResource(R.drawable.ic_baseline_share_24),
                 contentDescription = stringResource(R.string.timetable_social_title),
                 tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
+        androidx.compose.material3.IconButton(
+            onClick = onTimetableHistory,
+            enabled = currentScope != null,
+            modifier = Modifier.size(48.dp),
+        ) {
+            Icon(
+                painterResource(R.drawable.ic_history_24),
+                contentDescription = stringResource(R.string.timetable_deletion_history),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = if (currentScope != null) 1f else 0.38f),
+            )
+        }
         Box {
             val settingsView = LocalView.current
             Box(
-                modifier = Modifier.size(56.dp).combinedClickable(
+                modifier = Modifier.size(48.dp).combinedClickable(
                     role = Role.Button,
                     onClickLabel = stringResource(R.string.timetable_settings_action),
                     onLongClickLabel = stringResource(R.string.timetable_wallpaper),
@@ -379,7 +395,7 @@ private fun TimetableToolbarTitle(
                     onClick = { settingsExpanded = false; onTimetableSetting() })
             }
         }
-        ToolbarIcon(R.drawable.ic_baseline_add_24, onClick = onAddEvent, iconSize = 28.dp)
+        ToolbarIcon(R.drawable.ic_baseline_add_24, onClick = onAddEvent, iconSize = 28.dp, buttonSize = 48.dp)
     }
 }
 
@@ -403,11 +419,12 @@ private fun ToolbarIcon(
     onClick: () -> Unit,
     onLongClick: (() -> Unit)? = null,
     iconSize: Dp = 24.dp,
+    buttonSize: Dp = 56.dp,
 ) {
     val view = LocalView.current
     Box(
         modifier = Modifier
-            .size(56.dp)
+            .size(buttonSize)
             .pointerInput(iconRes) {
                 detectTapGestures(
                     onLongPress = {

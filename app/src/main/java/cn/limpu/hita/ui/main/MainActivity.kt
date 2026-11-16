@@ -154,6 +154,7 @@ class MainActivity : HiltBaseActivity<MainViewBinding>(),
             wallpaper = ::showWallpaperOptions, wallpaperLongPress = ::showWallpaperRemove,
             timetableSetting = { FragmentTimetablePanel().show(supportFragmentManager, "panel") },
             timetableSocial = { (tabHost.find(MainTab.TIMETABLE) as? TimetableFragment)?.openTimetableSocialSheet() },
+            timetableHistory = { (tabHost.find(MainTab.TIMETABLE) as? TimetableFragment)?.openDeletionHistory() },
             addEvent = { PopupAddEvent().show(supportFragmentManager, "add_event") },
             // 周号跳转：候选来自课表学期的起止时间，选中后直接翻到那一周。
             weekOptions = { (tabHost.find(MainTab.TIMETABLE) as? TimetableFragment)?.weekOptions().orEmpty() },

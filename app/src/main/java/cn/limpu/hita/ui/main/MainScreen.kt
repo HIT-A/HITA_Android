@@ -240,6 +240,7 @@ internal fun MainScreen(
                     onWallpaperLongPress = onWallpaperLongPress,
                     onTimetableSetting = onTimetableSetting,
                     onTimetableSocial = onTimetableSocial,
+                    onTimetableHistory = actions.timetableHistory,
                     onAddEvent = onAddEvent,
                     onSystemBars = actions.systemBars,
                 )

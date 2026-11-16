@@ -1148,6 +1148,11 @@ class TimetableRepository @Inject internal constructor(
         executor.execute(block)
     }
 
+    /** Read history and current events consistently; callers run this on a worker thread. */
+    @WorkerThread
+    fun deletedEventHistorySync(timetableId: String): List<DeletedEventHistory> =
+        database.runInTransaction(java.util.concurrent.Callable { editHistoryStore.deletedHistory(timetableId) })
+
     @WorkerThread
     override fun writeSync(operation: TimetableWriteOperation): Boolean = when (operation) {
         is TimetableWriteOperation.Add -> addScheduleEventsSync(operation.result, operation.subject)
@@ -1173,6 +1178,17 @@ class TimetableRepository @Inject internal constructor(
                     }
                 })
             }
+        }
+        is TimetableWriteOperation.RestoreDeleted -> {
+            database.runInTransaction(java.util.concurrent.Callable {
+                checkNotNull(timetableDao.getTimetableByIdSync(operation.timetableId)) {
+                    "The target timetable no longer exists"
+                }
+                checkNotNull(editHistoryStore.restore(operation.historyId, operation.timetableId)) {
+                    "The deletion is no longer safe to restore"
+                }
+                true
+            })
         }
         is TimetableWriteOperation.ChangeStartDate ->
             changeTimetableStartDateSync(operation.timetable, operation.startTime)
