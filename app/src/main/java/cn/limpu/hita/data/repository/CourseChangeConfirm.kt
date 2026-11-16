@@ -3,6 +3,7 @@ package cn.limpu.hita.data.repository
 private const val FP_SEP = "\u001f"
 
 enum class PendingChangeKind {
+    LESSON_MOVED, LESSON_ADDED, LESSON_REMOVED, LESSON_DETAILS,
     PLACE,
     TEACHER,
     TIME,
@@ -24,6 +25,8 @@ data class PendingChangeRow(
     val lastNumber: Int,
     val before: String,
     val after: String,
+    val beforeLesson: MergeLesson? = null,
+    val afterLesson: MergeLesson? = null,
 )
 
 data class PendingCourseUpdate(
@@ -36,6 +39,8 @@ data class PendingCourseUpdate(
     val local: MergeCourse?,
     val incoming: MergeCourse,
     val rows: List<PendingChangeRow>,
+    val ownerKey: String = "",
+    val localChanged: Boolean = false,
 ) {
     fun withTerm(termId: String, timetableId: String): PendingCourseUpdate =
         copy(termId = termId, timetableId = timetableId)
@@ -154,6 +159,21 @@ object CourseChangeConfirm {
         adopted: Set<String>,
         rows: List<PendingChangeRow>,
     ): MergeCourse? {
+        if (rows.any { it.isOccurrenceChange() }) {
+            val selected = rows.filter { it.fingerprint in adopted }
+            if (selected.isEmpty()) return local
+            val lessons = local?.lessons.orEmpty().toMutableList()
+            selected.forEach { row ->
+                val before = row.beforeLesson
+                if (before != null) {
+                    val index = lessons.indexOf(before)
+                    check(index >= 0) { "本地课程已修改，请重新比较后决定" }
+                    lessons.removeAt(index)
+                }
+                row.afterLesson?.let(lessons::add)
+            }
+            return (local ?: incoming).copy(lessons = lessons.sortedBy { it.fromMillis })
+        }
         if (local == null) {
             return if (rows.any { it.kind == PendingChangeKind.ADDED_COURSE && it.fingerprint in adopted }) {
                 incoming

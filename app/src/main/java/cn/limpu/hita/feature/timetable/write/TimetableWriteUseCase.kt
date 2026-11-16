@@ -33,6 +33,9 @@ class TimetableWriteUseCase internal constructor(
     fun deleteSubjects(subjects: Collection<TermSubject>, onResult: ((Result<Unit>) -> Unit)? = null) =
         submit(TimetableWriteOperation.DeleteSubjects(subjects.toList()), onResult)
 
+    fun restoreVersion(timetableId: String, versionId: String, revision: Long, onResult: (Result<Unit>) -> Unit) =
+        submit(TimetableWriteOperation.RestoreVersion(timetableId, versionId, revision), onResult)
+
     fun restoreDeleted(timetableId: String, historyId: String, onResult: (Result<Unit>) -> Unit) =
         submit(TimetableWriteOperation.RestoreDeleted(timetableId, historyId), onResult)
 
@@ -81,6 +84,6 @@ class TimetableWriteUseCase internal constructor(
         is TimetableWriteOperation.Delete -> eventIds.isEmpty()
         is TimetableWriteOperation.DeleteSubjects -> subjects.isEmpty()
         is TimetableWriteOperation.ChangeStartDate, is TimetableWriteOperation.ChangeStructure,
-        is TimetableWriteOperation.RestoreDeleted -> false
+        is TimetableWriteOperation.RestoreDeleted, is TimetableWriteOperation.RestoreVersion -> false
     }
 }

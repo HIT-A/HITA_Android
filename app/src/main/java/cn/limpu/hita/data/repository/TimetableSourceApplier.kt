@@ -76,7 +76,10 @@ class TimetableSourceApplier internal constructor(
     fun adoptHeldBatch() {
         recovery.commit {
             val batch = changeStore.currentState().heldBatch ?: error("没有待处理的课表源数据")
+            if (!batch.ownerKey.isNullOrBlank()) check(batch.ownerKey == FollowedTeachingSectionStore.ownerKey(easPreferenceSource.getEasToken()))
             applyHeldBatch(batch)
+            if (!batch.ownerKey.isNullOrBlank()) SourceTimetableStore(database).save(batch.ownerKey, batch.timetableId,
+                SourceTimetableState(accepted = batch.courses, observed = batch.courses))
             changeStore.consumeHeldBatch()
         }
     }
@@ -107,7 +110,9 @@ class TimetableSourceApplier internal constructor(
                 for ((timetableId, group) in state.pendingUpdates.groupBy { it.timetableId }) {
                     applyPendingGroup(timetableId, group, adopted)
                 }
-                changeStore.clearPendingUpdates(state.pendingRevision)
+                SourceTimetableStore(database).resolve(state.pendingUpdates, adopted + remember,
+                    FollowedTeachingSectionStore.ownerKey(easPreferenceSource.getEasToken()))
+                changeStore.consumePendingRows(state.pendingRevision, adopted + remember)
             }
             changeStore.rememberIgnored(remember)
         }
@@ -126,13 +131,16 @@ class TimetableSourceApplier internal constructor(
         var maxTo = timetable.endTime.time
         for (update in updates) {
             if (update.rows.none { it.fingerprint in adopted }) continue
+            if (!update.ownerKey.isNullOrBlank()) check(update.ownerKey == FollowedTeachingSectionStore.ownerKey(easPreferenceSource.getEasToken()))
+            val currentLessons = eventItemDao.getImportedClassEventsOfTimetableSync(timetable.id)
+                .filter { it.subjectId == update.subjectId }.map { it.toMergeLesson(timetable.startTime.time) }
+            val actual = update.local?.copy(lessons = currentLessons)
             val patched = CourseChangeConfirm.applyRows(
-                local = update.local,
+                local = if (update.rows.any { it.isOccurrenceChange() }) actual else update.local,
                 incoming = update.incoming,
                 adopted = adopted,
                 rows = update.rows,
             ) ?: continue
-            if (patched.lessons.isEmpty() && !update.isAdded) continue
             val existing = localSubjects[patched.subjectId]
             val subject = existing ?: TermSubject().apply {
                 this.id = patched.subjectId
@@ -142,10 +150,11 @@ class TimetableSourceApplier internal constructor(
             subject.name = patched.name
             subject.timetableId = timetable.id
             if (!patched.code.isNullOrBlank()) subject.code = patched.code
+            val hidden = eventItemDao.versionClasses(timetable.id).filter { it.subjectId == subject.id && it.hidden != 0 }
             eventItemDao.deleteImportedClassesFromSubjectsSync(timetable.id, listOf(subject.id))
             subjectDao.saveSubjectsSync(listOf(subject))
             val events = patched.lessons.map { it.toEventItem(subject.id, timetable.id) }
-            if (events.isNotEmpty()) eventItemDao.saveEvents(events)
+            eventItemDao.saveEvents(events + hidden)
             maxTo = maxOf(maxTo, events.maxOfOrNull { it.to.time } ?: 0L)
         }
         timetable.endTime = Timestamp(maxTo)

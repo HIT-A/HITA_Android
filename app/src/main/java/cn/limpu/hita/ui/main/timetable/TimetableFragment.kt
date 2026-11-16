@@ -32,7 +32,7 @@ import cn.limpu.hita.ui.main.timetable.compare.TimetableSocialSheet
 import cn.limpu.hita.ui.main.timetable.compare.TimetableComparisonActivity
 import cn.limpu.hita.ui.timetable.friend.FriendTimetableActivity
 import cn.limpu.hita.ui.timetable.share.TimetableShareActivity
-import cn.limpu.hita.ui.timetable.history.DeletionHistoryDialog
+import cn.limpu.hita.ui.timetable.history.TimetableVersionsDialog
 import cn.limpu.hita.ui.timetable.history.TimetableHistoryViewModel
 import cn.limpu.hita.utils.ActivityUtils
 import cn.limpu.hita.utils.EventsUtils
@@ -44,6 +44,7 @@ class TimetableFragment : HiltBaseFragment<ComposeViewBinding>() {
     protected val viewModel: TimetableViewModel by viewModels()
     private val historyViewModel: TimetableHistoryViewModel by viewModels()
     private var historyOpen by mutableStateOf(false)
+    private var sourceDialogRequested by mutableStateOf(false)
     private var socialSheetOpen by mutableStateOf(false)
     private var mainPageController: MainPageController? = null
     private var viewOwner: Long? = null
@@ -56,12 +57,13 @@ class TimetableFragment : HiltBaseFragment<ComposeViewBinding>() {
     fun openDeletionHistory() {
         if (viewOwner == null) return
         val tables = viewModel.resolvedScope.value?.timetables.orEmpty()
+            .filterNot { cn.limpu.hita.data.repository.TimetableVersionStore.isProjection(it) }
         if (tables.isEmpty()) {
-            Toast.makeText(context, R.string.add_timetable_first, Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, R.string.timetable_versions_read_only, Toast.LENGTH_SHORT).show()
             return
         }
         fun open(id: String) {
-            historyViewModel.loadDeletionHistory(id)
+            historyViewModel.loadVersions(id)
             historyOpen = true
         }
         if (tables.size == 1) {
@@ -97,12 +99,19 @@ class TimetableFragment : HiltBaseFragment<ComposeViewBinding>() {
         (view as ComposeView).setContent {
             HitaComposeTheme {
                 if (historyOpen) {
-                    val historyState by historyViewModel.deletionHistory.collectAsState()
-                    DeletionHistoryDialog(
+                    val historyState by historyViewModel.versions.collectAsState()
+                    TimetableVersionsDialog(
                         state = historyState,
                         onDismiss = { historyOpen = false },
-                        onRetry = { historyState.timetableId?.let(historyViewModel::loadDeletionHistory) },
-                        onRestore = historyViewModel::restoreDeletedEvent,
+                        onRetry = { historyState.timetableId?.let(historyViewModel::loadVersions) },
+                        onCompare = historyViewModel::compareVersion,
+                        onRestore = historyViewModel::restoreVersion,
+                        onBack = { historyState.timetableId?.let(historyViewModel::loadVersions) },
+                        onSourceChanges = { historyOpen = false; sourceDialogRequested = true },
+                        onLegacy = {
+                            historyOpen = false
+                            navigate(owner, Intent(requireContext(), cn.limpu.hita.ui.eas.imp.ImportTimetableActivity::class.java))
+                        },
                     )
                 }
                 if (socialSheetOpen) TimetableSocialSheet(
@@ -124,6 +133,8 @@ class TimetableFragment : HiltBaseFragment<ComposeViewBinding>() {
                     onAdoptBatch = { viewModel.adoptHeldBatch() },
                     onDismissBatch = { viewModel.dismissHeldBatch() },
                     onConfirmPending = viewModel::confirmPendingChanges,
+                    sourceDialogRequested = sourceDialogRequested,
+                    onSourceDialogClosed = { sourceDialogRequested = false },
                 )
             }
         }
@@ -156,6 +167,7 @@ class TimetableFragment : HiltBaseFragment<ComposeViewBinding>() {
         viewOwner = null
         socialSheetOpen = false
         historyOpen = false
+        sourceDialogRequested = false
         closeMenu()
         scopeDialog?.setOnCancelListener(null)
         scopeDialog?.dismiss()

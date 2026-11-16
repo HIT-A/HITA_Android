@@ -25,6 +25,7 @@ sealed interface TimetableWriteOperation {
     data class Update(val events: List<EventItem>) : TimetableWriteOperation
     data class Delete(val eventIds: List<String>) : TimetableWriteOperation
     data class DeleteSubjects(val subjects: List<TermSubject>) : TimetableWriteOperation
+    data class RestoreVersion(val timetableId: String, val versionId: String, val expectedRevision: Long) : TimetableWriteOperation
     data class RestoreDeleted(val timetableId: String, val historyId: String) : TimetableWriteOperation
     data class ChangeStartDate(val timetable: Timetable, val startTime: Long) : TimetableWriteOperation
     data class ChangeStructure(

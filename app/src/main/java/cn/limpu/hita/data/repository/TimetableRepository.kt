@@ -1154,7 +1154,11 @@ class TimetableRepository @Inject internal constructor(
         database.runInTransaction(java.util.concurrent.Callable { editHistoryStore.deletedHistory(timetableId) })
 
     @WorkerThread
-    override fun writeSync(operation: TimetableWriteOperation): Boolean = when (operation) {
+    override fun writeSync(operation: TimetableWriteOperation): Boolean = timetableMutationLock.exclusive {
+        TimetableVersionStore.forApplication(application, database).commit("MANUAL") { writeOperationSync(operation) }
+    }
+
+    private fun writeOperationSync(operation: TimetableWriteOperation): Boolean = when (operation) {
         is TimetableWriteOperation.Add -> addScheduleEventsSync(operation.result, operation.subject)
         is TimetableWriteOperation.Update -> {
             if (operation.events.isEmpty()) false else {
@@ -1179,6 +1183,8 @@ class TimetableRepository @Inject internal constructor(
                 })
             }
         }
+        is TimetableWriteOperation.RestoreVersion -> TimetableVersionStore.forApplication(application, database)
+            .restore(operation.timetableId, operation.versionId, operation.expectedRevision)
         is TimetableWriteOperation.RestoreDeleted -> {
             database.runInTransaction(java.util.concurrent.Callable {
                 checkNotNull(timetableDao.getTimetableByIdSync(operation.timetableId)) {
@@ -1198,11 +1204,11 @@ class TimetableRepository @Inject internal constructor(
 
     @WorkerThread
     override fun writeSync(operation: TimetableWriteOperation, beforeWrite: () -> Unit): Boolean =
-        if (operation is TimetableWriteOperation.Add) {
-            addScheduleEventsSync(operation.result, operation.subject, beforeWrite)
-        } else {
-            beforeWrite()
-            writeSync(operation)
+        timetableMutationLock.exclusive {
+            TimetableVersionStore.forApplication(application, database).commit("MANUAL") {
+                beforeWrite()
+                writeOperationSync(operation)
+            }
         }
 
     /** The subject, sessions and necessary timetable extension either all commit or all roll back. */
@@ -1265,10 +1271,12 @@ class TimetableRepository @Inject internal constructor(
                 val events = calendar.components.filterIsInstance<VEvent>()
                 var importedCount = 0
                 
-                for (event in events) {
-                    val ei = IcsImportEventMapper.map(event, timetableId) ?: continue
-                    eventItemDao.insertEventSync(ei)
-                    importedCount++
+                TimetableVersionStore.forApplication(application, database).commit("IMPORT") {
+                    for (event in events) {
+                        val ei = IcsImportEventMapper.map(event, timetableId) ?: continue
+                        eventItemDao.insertEventSync(ei)
+                        importedCount++
+                    }
                 }
                 
                 res.postValue(DataState(importedCount))
@@ -1292,7 +1300,7 @@ class TimetableRepository @Inject internal constructor(
                     events = calendar.components.filterIsInstance<VEvent>(),
                     sourceName = sourceName
                 )
-                database.runInTransaction {
+                TimetableVersionStore.forApplication(application, database).commit("IMPORT") {
                     timetableDao.saveTimetableSync(bundle.timetable)
                     subjectDao.saveSubjectsSync(bundle.subjects)
                     eventItemDao.saveEvents(bundle.events)
@@ -1322,7 +1330,7 @@ class TimetableRepository @Inject internal constructor(
         executor.execute {
             try {
                 val bundle = SharedTimetableImporter.buildBundleFromShare(snapshot)
-                database.runInTransaction {
+                TimetableVersionStore.forApplication(application, database).commit("IMPORT") {
                     timetableDao.saveTimetableSync(bundle.timetable)
                     subjectDao.saveSubjectsSync(bundle.subjects)
                     eventItemDao.saveEvents(bundle.events)
@@ -1351,6 +1359,8 @@ class TimetableRepository @Inject internal constructor(
                 subjectDao.clear()
                 timetableDao.clear()
                 timetableGroupDao.getGroupsSync().forEach { timetableGroupDao.deleteGroupByIdSync(it.id) }
+                database.timetableVersionDao().clearVersions()
+                database.timetableVersionDao().clearSources()
             }
         }
     }

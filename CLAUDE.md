@@ -56,7 +56,7 @@ data/
 └── work/            # WorkManager workers (CourseReminder, ScoreReminder)
 ```
 
-Room databases: `AppDatabase` (app module, currently version 18 — v15 added timetable sharing tables `timetable_share_identity`/`friend_timetable`, v16 added timetable groups via `timetable_group` + `timetable.groupId`, v17 grouped legacy manual course batches, v18 added the timetable file-publication outbox), `UserDatabase` (hitauser module), and the independent `UsageQueueDatabase` analytics queue. Keep historical exported schemas for migrations. See [analytics v2](docs/analytics-v2.md).
+Room databases: `AppDatabase` (app module, currently version 20 — v15 added timetable sharing tables `timetable_share_identity`/`friend_timetable`, v16 added timetable groups via `timetable_group` + `timetable.groupId`, v17 grouped legacy manual course batches, v18 added the timetable file-publication outbox, v19 added event deletion recovery, v20 added course versions and account-scoped source baselines), `UserDatabase` (hitauser module), and the independent `UsageQueueDatabase` analytics queue. Keep historical exported schemas for migrations. See [analytics v2](docs/analytics-v2.md).
 
 ### Agent / AI System (ReAct Framework)
 

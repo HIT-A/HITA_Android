@@ -525,7 +525,7 @@ class ImportTimetableActivity :
             }
         }
         AlertDialog.Builder(this)
-            .setTitle("课表版本记录")
+            .setTitle(R.string.timetable_versions_legacy)
             .setView(listView)
             .setMessage("点击版本恢复；长按可改备注或删除")
             .setNeutralButton("保留上限") { _, _ -> chooseSnapshotRetention() }
@@ -674,7 +674,7 @@ private fun ImportTimetableScreen(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "版本记录",
+                        text = stringResource(R.string.timetable_versions_legacy),
                         maxLines = 1,
                         style = MaterialTheme.typography.labelLarge
                     )

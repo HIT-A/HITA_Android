@@ -34,6 +34,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.times
 import androidx.lifecycle.map
+import cn.limpu.hita.data.repository.isOccurrenceChange
 import cn.limpu.hita.R
 import cn.limpu.hita.data.model.timetable.EventItem
 import cn.limpu.hita.data.model.timetable.TimePeriodInDay
@@ -67,6 +68,8 @@ internal fun TimetableRoute(
     onAdoptBatch: (TimetableHeldBatch) -> Unit,
     onDismissBatch: (TimetableHeldBatch) -> Unit,
     onConfirmPending: (Set<String>, Set<String>) -> Unit,
+    sourceDialogRequested: Boolean = false,
+    onSourceDialogClosed: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val currentPageStart by viewModel.currentPageStartDate.observeAsState(
@@ -129,7 +132,18 @@ internal fun TimetableRoute(
     val showTodayFab = currentPageStart > System.currentTimeMillis() ||
             System.currentTimeMillis() >= currentPageStart + WEEK_MILLS
 
-    val changeState by viewModel.changeStateLiveData.observeAsState()
+    val allChangeState by viewModel.changeStateLiveData.observeAsState()
+    val sourceOwner = cn.limpu.hita.data.repository.FollowedTeachingSectionStore.ownerKey(
+        cn.limpu.hita.data.source.preference.EasPreferenceSource(context).getEasToken())
+    val scopeIds = resolvedScope?.timetableIds.orEmpty()
+    val changeState = allChangeState?.copy(
+        pendingUpdates = allChangeState?.pendingUpdates.orEmpty().filter {
+            it.timetableId in scopeIds && it.ownerKey == sourceOwner
+        },
+        decisions = emptyList(), // Legacy decisions have no account identity; refresh must revalidate them.
+        heldBatch = allChangeState?.heldBatch?.takeIf { it.timetableId in scopeIds && it.ownerKey == sourceOwner },
+        info = null,
+    )
     val batchState by viewModel.batches.state.collectAsState()
     // Capture the rendered form's identity, not the delegated State's value at callback time.
     val batchSession = batchState.session
@@ -149,6 +163,8 @@ internal fun TimetableRoute(
         onAdoptBatch = onAdoptBatch,
         onDismissBatch = onDismissBatch,
         onConfirmPending = onConfirmPending,
+        sourceDialogRequested = sourceDialogRequested,
+        onSourceDialogClosed = onSourceDialogClosed,
         onCancelBatch = { viewModel.batches.cancel(batchSession) },
         onApplyBatch = { place, teacher, time, slots -> viewModel.batches.apply(batchSession, place, teacher, time, slots) },
         onDeleteBatch = { viewModel.batches.delete(batchSession) },
@@ -184,6 +200,8 @@ internal fun TimetableScreen(
     onAdoptBatch: (TimetableHeldBatch) -> Unit,
     onDismissBatch: (TimetableHeldBatch) -> Unit,
     onConfirmPending: (Set<String>, Set<String>) -> Unit,
+    sourceDialogRequested: Boolean = false,
+    onSourceDialogClosed: () -> Unit = {},
     onCancelBatch: () -> Unit,
     onApplyBatch: (String?, String?, Triple<Int, Int, Int>?, Map<Triple<Int, Int, Int>, Triple<Int, Int, Int>>) -> Unit,
     onDeleteBatch: () -> Unit,
@@ -243,24 +261,13 @@ internal fun TimetableScreen(
         val changePendingCount = changeState?.pendingCount ?: 0
         val changeAdjustCount = changeInfo?.keptCourses?.size ?: 0
         val pendingRows = changeState?.pendingUpdates.orEmpty().sumOf { it.rows.size }
-        LaunchedEffect(
-            changeState?.pendingRevision,
-            changeState?.decisions?.size,
-            changeState?.heldBatch != null,
-        ) {
-            if (pendingRows > 0 ||
-                (changeState?.decisions?.isNotEmpty() == true) ||
-                changeState?.heldBatch != null
-            ) {
-                showChangeDialog = true
-            }
-        }
-        if (showChangeDialog) {
+        if (showChangeDialog || sourceDialogRequested) {
             changeState?.let { state ->
                 TimetableChangeDialog(
                     state = state,
                     onDismiss = {
                         showChangeDialog = false
+                        onSourceDialogClosed()
                         onChangeInfoViewed()
                     },
                     onAdoptCourse = onAdoptCourse,
@@ -271,9 +278,14 @@ internal fun TimetableScreen(
                 )
             }
         }
-        if (changePendingCount > 0 || changeAdjustCount > 0) {
+        val simpleSummary = sourceChangeSummary(changeState?.pendingUpdates.orEmpty().flatMap { it.rows })
+        val hasLegacyChanges = changeState?.pendingUpdates.orEmpty().any { update -> update.rows.any {
+            !it.isOccurrenceChange()
+        } } || changeState?.heldBatch != null || changeState?.decisions?.isNotEmpty() == true
+        if (simpleSummary.isNotBlank() || hasLegacyChanges) {
             TimetableChangePill(
                 pending = changePendingCount > 0,
+                summary = simpleSummary.takeIf { it.isNotBlank() },
                 count = if (changePendingCount > 0) changePendingCount else changeAdjustCount,
                 onClick = { showChangeDialog = true },
                 modifier = Modifier

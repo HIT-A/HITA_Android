@@ -11,6 +11,11 @@ import cn.limpu.hita.data.model.timetable.TeacherInfo
 
 @Dao
 interface EventItemDao {
+    @Query("SELECT * FROM events WHERE timetableId=:id AND type='CLASS'")
+    fun versionClasses(id: String): List<EventItem>
+    @Query("DELETE FROM events WHERE timetableId=:id AND type='CLASS'")
+    fun deleteVersionClasses(id: String)
+
     @Query("SELECT * FROM events WHERE timetableId = :id AND type = 'CLASS' AND hidden = 0")
     fun observeClassesFlow(id: String): kotlinx.coroutines.flow.Flow<List<EventItem>>
 

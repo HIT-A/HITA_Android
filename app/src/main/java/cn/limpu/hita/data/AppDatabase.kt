@@ -43,8 +43,12 @@ import com.limpu.hitauser.data.source.dao.UserProfileDao
 import cn.limpu.hita.utils.ColorTools
 import java.util.UUID
 
+import cn.limpu.hita.data.model.timetable.TimetableVersionEntity
+import cn.limpu.hita.data.model.timetable.TimetableSourceBaselineEntity
+import cn.limpu.hita.data.source.dao.TimetableVersionDao
+
 @Database(
-    entities = [EventItem::class, TermSubject::class, Timetable::class, ChatSession::class, ChatMessageEntity::class, ClassroomCacheEntity::class, ScoreCacheEntity::class, ScoreTermCacheEntity::class, ScoreDetailCacheEntity::class, BlogArticle::class, CampusNotice::class, ShareIdentityEntity::class, FriendTimetableEntity::class, TimetableGroupEntity::class, TimetableChangeOutboxEntity::class, EventEditHistoryEntity::class],
+    entities = [EventItem::class, TermSubject::class, Timetable::class, ChatSession::class, ChatMessageEntity::class, ClassroomCacheEntity::class, ScoreCacheEntity::class, ScoreTermCacheEntity::class, ScoreDetailCacheEntity::class, BlogArticle::class, CampusNotice::class, ShareIdentityEntity::class, FriendTimetableEntity::class, TimetableGroupEntity::class, TimetableChangeOutboxEntity::class, EventEditHistoryEntity::class, TimetableVersionEntity::class, TimetableSourceBaselineEntity::class],
     version = AppDatabase.VERSION
 )
 @androidx.room.TypeConverters(TypeConverters::class)
@@ -54,6 +58,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun timetableChangeOutboxDao(): TimetableChangeOutboxDao
     abstract fun timetableGroupDao(): TimetableGroupDao
     abstract fun eventItemDao(): EventItemDao
+    abstract fun timetableVersionDao(): TimetableVersionDao
     abstract fun eventEditHistoryDao(): EventEditHistoryDao
     abstract fun subjectDao(): SubjectDao
     abstract fun timetableDao(): TimetableDao
@@ -71,7 +76,7 @@ abstract class AppDatabase : RoomDatabase() {
         private const val DB_NAME = "hita"
 
         /** 当前 schema 版本；升级时同步新增迁移并导出 schema JSON。 */
-        const val VERSION = 19
+        const val VERSION = 20
 
         /** 完整迁移链（1 → [VERSION]），应用与升级测试共用同一份。 */
         internal val ALL_MIGRATIONS: Array<Migration>
@@ -94,6 +99,7 @@ abstract class AppDatabase : RoomDatabase() {
                 MIGRATION_16_17,
                 MIGRATION_17_18,
                 MIGRATION_18_19,
+                MIGRATION_19_20,
             )
 
         @JvmStatic
@@ -122,6 +128,14 @@ abstract class AppDatabase : RoomDatabase() {
                 db.execSQL("CREATE INDEX IF NOT EXISTS `index_timetable_groupId` ON `timetable` (`groupId`)")
             }
         }
+        private val MIGRATION_19_20 = object : Migration(19, 20) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("CREATE TABLE IF NOT EXISTS `timetable_version` (`id` TEXT NOT NULL, `ownerKey` TEXT NOT NULL, `timetableId` TEXT NOT NULL, `revision` INTEGER NOT NULL, `parentId` TEXT, `committedAt` INTEGER NOT NULL, `reason` TEXT NOT NULL, `restoredFrom` TEXT, `fingerprint` TEXT NOT NULL, `payload` TEXT NOT NULL, PRIMARY KEY(`id`))")
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_timetable_version_ownerKey_timetableId_revision` ON `timetable_version` (`ownerKey`, `timetableId`, `revision`)")
+                db.execSQL("CREATE TABLE IF NOT EXISTS `timetable_source_baseline` (`ownerKey` TEXT NOT NULL, `timetableId` TEXT NOT NULL, `payload` TEXT NOT NULL, PRIMARY KEY(`ownerKey`, `timetableId`))")
+            }
+        }
+
         private val MIGRATION_18_19 = object : Migration(18, 19) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE events ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0")

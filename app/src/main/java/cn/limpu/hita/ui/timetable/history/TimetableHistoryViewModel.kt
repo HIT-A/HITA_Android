@@ -25,48 +25,69 @@ data class DeletionHistoryUiState(
     val restoreSucceeded: Boolean? = null,
 )
 
+internal data class CourseVersionsUiState(
+    val timetableId: String? = null,
+    val versions: List<cn.limpu.hita.data.model.timetable.TimetableVersionSummary> = emptyList(),
+    val comparison: cn.limpu.hita.data.repository.TimetableVersionComparison? = null,
+    val loading: Boolean = false,
+    val restoring: Boolean = false,
+    val failed: Boolean = false,
+    val restored: Boolean = false,
+)
+
 @HiltViewModel
 class TimetableHistoryViewModel @Inject constructor(
+    private val application: android.app.Application,
     private val timetableRepository: TimetableRepository,
     subjectsRepository: SubjectRepository,
     writeUseCaseFactory: TimetableWriteUseCaseFactory,
 ) : ViewModel() {
-    private val subjectWrites = writeUseCaseFactory.create(timetableRepository, subjectsRepository::enqueueWrite)
-    private val _deletionHistory = MutableStateFlow(DeletionHistoryUiState())
-    val deletionHistory = _deletionHistory.asStateFlow()
-    private var historyJob: Job? = null
+    private val writes = writeUseCaseFactory.create(timetableRepository, subjectsRepository::enqueueWrite)
+    private val _versions = MutableStateFlow(CourseVersionsUiState())
+    internal val versions = _versions.asStateFlow()
+    private var job: Job? = null
+    private fun store() = cn.limpu.hita.data.repository.TimetableVersionStore.forApplication(
+        application, cn.limpu.hita.data.AppDatabase.getDatabase(application))
 
-    fun loadDeletionHistory(id: String) {
-        if (id.isBlank()) return
-        historyJob?.cancel()
-        _deletionHistory.value = if (_deletionHistory.value.timetableId == id) {
-            _deletionHistory.value.copy(loading = true, loadFailed = false)
-        } else DeletionHistoryUiState(timetableId = id, loading = true)
-        historyJob = viewModelScope.launch {
+    fun loadVersions(id: String) {
+        if (_versions.value.restoring) return
+        job?.cancel()
+        _versions.value = CourseVersionsUiState(timetableId = id, loading = true, restored = _versions.value.restored)
+        job = viewModelScope.launch {
             try {
-                val entries = withContext(Dispatchers.IO) { timetableRepository.deletedEventHistorySync(id) }
-                _deletionHistory.value = _deletionHistory.value.copy(entries = entries, loading = false)
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (_: Exception) {
-                _deletionHistory.value = _deletionHistory.value.copy(loading = false, loadFailed = true)
-            }
+                val result = withContext(Dispatchers.IO) { store().list(id) }
+                _versions.value = _versions.value.copy(versions = result, loading = false)
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) { _versions.value = _versions.value.copy(loading = false, failed = true) }
         }
     }
 
-    fun restoreDeletedEvent(historyId: String) {
-        val state = _deletionHistory.value
+    fun compareVersion(versionId: String) {
+        val id = _versions.value.timetableId ?: return
+        if (_versions.value.restoring) return
+        job?.cancel()
+        _versions.value = _versions.value.copy(loading = true, failed = false, restored = false)
+        job = viewModelScope.launch {
+            try {
+                val result = withContext(Dispatchers.IO) { store().compare(id, versionId) }
+                _versions.value = _versions.value.copy(comparison = result, loading = false)
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) { _versions.value = _versions.value.copy(loading = false, failed = true) }
+        }
+    }
+
+    fun restoreVersion() {
+        val state = _versions.value
+        val comparison = state.comparison ?: return
         val id = state.timetableId ?: return
-        if (state.loading || state.restoringId != null) return
-        _deletionHistory.value = state.copy(restoringId = historyId, restoreSucceeded = null)
-        // The same queue as course deletion preserves ordering; the use case refreshes widgets after commit.
-        subjectWrites.restoreDeleted(id, historyId) { result ->
-            if (_deletionHistory.value.timetableId != id) return@restoreDeleted
-            _deletionHistory.value = _deletionHistory.value.copy(
-                restoringId = null, restoreSucceeded = result.isSuccess,
-            )
-            loadDeletionHistory(id)
+        if (state.loading || state.restoring) return
+        _versions.value = state.copy(restoring = true, failed = false)
+        writes.restoreVersion(id, comparison.version.id, comparison.currentRevision) { outcome ->
+            _versions.value = _versions.value.copy(restoring = false, failed = outcome.isFailure,
+                restored = outcome.isSuccess)
+            if (outcome.isSuccess) loadVersions(id)
+            // On stale preview, keep the comparison visible but require a new comparison before retry.
+            else _versions.value = _versions.value.copy(comparison = null)
         }
     }
-
 }

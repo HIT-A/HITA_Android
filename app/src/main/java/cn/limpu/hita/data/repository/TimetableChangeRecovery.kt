@@ -14,7 +14,7 @@ import java.util.concurrent.Callable
  * A committed outbox row is replayable after any file failure or application reconstruction.
  */
 internal class TimetableChangeRecovery(
-    application: Application,
+    private val application: Application,
     private val database: AppDatabase,
     private val changeStore: TimetableChangeStore = TimetableChangeStore(application),
     private val snapshotStore: TimetableSnapshotStore = TimetableSnapshotStore(application, database),
@@ -39,7 +39,10 @@ internal class TimetableChangeRecovery(
         val result = changeStore.stage {
             snapshotStore.stage {
                 database.runInTransaction(Callable {
+                    val versions = TimetableVersionStore.forApplication(application, database)
+                    val beforeVersions = versions.allContent()
                     val value = block()
+                    versions.recordChanges(beforeVersions, "SOURCE")
                     val delta = changeStore.stagedDelta()
                     val snapshots = snapshotStore.stagedSnapshots()
                     if (delta.before != delta.after || snapshots.isNotEmpty()) {

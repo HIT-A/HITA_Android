@@ -68,6 +68,7 @@ internal fun TimetableChangePill(
     count: Int,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    summary: String? = null,
 ) {
     val colors = resolveTimetablePillColors(alert = pending)
     val pillBackground = colors.background
@@ -97,7 +98,9 @@ internal fun TimetableChangePill(
         )
         Spacer(modifier = Modifier.width(5.dp))
         Text(
-            text = if (pending) {
+            text = if (summary != null) {
+                stringResource(R.string.timetable_source_changes, summary)
+            } else if (pending) {
                 stringResource(R.string.timetable_change_pill_pending, count)
             } else {
                 stringResource(R.string.timetable_change_pill_updated, count)

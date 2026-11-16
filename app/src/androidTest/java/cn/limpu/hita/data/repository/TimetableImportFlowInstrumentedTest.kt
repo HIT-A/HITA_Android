@@ -1,5 +1,7 @@
 package cn.limpu.hita.data.repository
 
+import androidx.activity.ComponentActivity
+import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import cn.limpu.hita.data.model.eas.EASToken
 import cn.limpu.hita.data.model.eas.ExamItem
@@ -26,10 +28,37 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.Assert.*
 import org.junit.Test
+import org.junit.Before
+import org.junit.After
 import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class TimetableImportFlowInstrumentedTest {
+    // Keep a synthetic host visible: vendor background freezing otherwise suspends timed imports.
+    private var host: ActivityScenario<ComponentActivity>? = null
+    @Before fun keepTestProcessVisible() {
+        host = ActivityScenario.launch(ComponentActivity::class.java).also { scenario ->
+            scenario.onActivity { it.window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) }
+        }
+    }
+    @After fun closeTestHost() { host?.close() }
+
+    @Test fun unchangedSourceNeverRecreatesLocallyDeletedLessonsAcrossCampuses() = runBlocking {
+        for (campus in EASToken.Campus.entries) {
+            TimetableImportFlowHarness(campus).use { fixture ->
+                assertEquals(DataState.STATE.SUCCESS, fixture.import().state)
+                val table = fixture.tables().single()
+                val owner = FollowedTeachingSectionStore.ownerKey(fixture.token)
+                assertNotNull(SourceTimetableStore(fixture.database).state(owner, table.id))
+                fixture.database.eventItemDao().deleteImportedClassesFromSubjectsSync(table.id,
+                    fixture.events().map { it.subjectId }.distinct())
+                assertEquals(DataState.STATE.SUCCESS, fixture.import(TimetableImportMode.MERGE).state)
+                assertTrue("$campus must preserve local deletion", fixture.events().isEmpty())
+                assertTrue("$campus must not invent upstream additions", fixture.changes.currentState().pendingUpdates.isEmpty())
+            }
+        }
+    }
+
     @Test fun rejectedImportDoesNotNormalizeTheCallersCalendar() = runBlocking {
         TimetableImportFlowHarness().use { fixture ->
             fixture.preferences.saveEasToken(fixture.token.apply { cookies.clear() })

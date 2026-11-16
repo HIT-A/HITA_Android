@@ -174,6 +174,8 @@ internal class EASTimetableImportRepository(
                                     !operation.tryBeginCommit(authEpoch.get(), easPreferenceSource.getEasToken(), SystemClock.elapsedRealtime())) {
                                     return@runInTransaction
                                 }
+                                val versions = TimetableVersionStore(database, snapshotOwnerKey)
+                                val beforeVersions = versions.allContent()
                                 val timetable = data.timetable
                                 if (importMode == TimetableImportMode.MERGE) {
                                     applyMergedTimetable(
@@ -194,8 +196,15 @@ internal class EASTimetableImportRepository(
                                     timetable.code = data.timetableCode
                                     timetable.scheduleStructure = data.schedule
                                     timetableDao.saveTimetableSync(timetable)
+                                    val courses = data.events.groupBy { it.subjectId }.mapNotNull { (id, events) ->
+                                        data.pendingSubjects[id]?.let { subject -> MergeCourse(id, subject.name, subject.code,
+                                            events.map { it.toMergeLesson(startDate.timeInMillis) }) }
+                                    }
+                                    SourceTimetableStore(database).save(snapshotOwnerKey, timetable.id,
+                                        SourceTimetableState(accepted = courses, observed = courses))
                                 }
                                 cleanupDefaultDuplicateTimetablesAfterImport(timetable.id)
+                                versions.recordChanges(beforeVersions, "SOURCE")
                                 committed = data
                             }
                             val data = committed
@@ -483,14 +492,16 @@ internal class EASTimetableImportRepository(
         schedule: List<TimePeriodInDay>,
         isNewTimetable: Boolean
     ) = timetableMutationLock.exclusive {
+        val existingSourceState = SourceTimetableStore(database).state(snapshotOwnerKey, timetable.id)
         val localEvents = eventItemDao.getImportedClassEventsOfTimetableSync(timetable.id)
         val localSubjectsById = subjectDao.getSubjectsSync(timetable.id).associateBy { it.id }
 
         // 字段级信息保护：教师/地点「有→无」视为课表源字段抖动（信息减少不可信），
         // 沿用本地「同周次+同槽位」课次的值。在比对与落库前就地修正源端事件，
         // 使纯字段抖动不产生变更提示，课程因其他变更被采纳时也不清空本地字段。
-        val localLessonsBySubject = localEvents.groupBy { it.subjectId }
-            .mapValues { (_, subjectEvents) -> subjectEvents.map { it.toMergeLesson(startMillis) } }
+        val localLessonsBySubject = existingSourceState?.observed?.associate { it.subjectId to it.lessons }
+            ?: localEvents.groupBy { it.subjectId }
+                .mapValues { (_, subjectEvents) -> subjectEvents.map { it.toMergeLesson(startMillis) } }
         events.groupBy { it.subjectId }.forEach { (subjectId, courseEvents) ->
             val localLessons = localLessonsBySubject[subjectId] ?: return@forEach
             val protectedLessons = TimetableRefreshMergePolicy.inheritBlankLocalFields(
@@ -519,7 +530,7 @@ internal class EASTimetableImportRepository(
         val firstImport = isNewTimetable
 
         val plan = TimetableRefreshMergePolicy.plan(
-            local = localCourses,
+            local = existingSourceState?.observed ?: localCourses,
             incoming = incomingCourses,
             vetoes = timetableChangeStore.getVetoes(term.id),
             nowMillis = System.currentTimeMillis(),
@@ -528,6 +539,7 @@ internal class EASTimetableImportRepository(
         timetableChangeStore.putVetoes(term.id, plan.vetoes)
 
         if (plan.holdBatch) {
+            timetableChangeStore.recordPendingUpdatesForTable(emptyList(), snapshotOwnerKey, timetable.id)
             LogUtils.w(
                 "merge: hold batch term=${term.id} " +
                     "local=${plan.holdLocalCount} incoming=${plan.holdIncomingCount} " +
@@ -552,23 +564,34 @@ internal class EASTimetableImportRepository(
                     incomingCount = plan.holdIncomingCount,
                     matchedCount = plan.holdMatchedCount,
                     courses = incomingCourses,
-                    unmatchedLocal = plan.holdUnmatchedLocal
+                    unmatchedLocal = plan.holdUnmatchedLocal,
+                    ownerKey = snapshotOwnerKey,
                 )
             )
             return
         }
 
         // 本次刷新匹配正常：源端已恢复，丢弃此前挂起的过期异常批
-        timetableChangeStore.clearHeldBatch()
+        timetableChangeStore.currentState().heldBatch?.takeIf {
+            it.timetableId == timetable.id && (it.ownerKey.isNullOrBlank() || it.ownerKey == snapshotOwnerKey)
+        }?.let { timetableChangeStore.clearHeldBatch() }
         // 课重新在源端出现后，清理它的过期待确认项（否则"采用课表源"会误删已回归的课）
         timetableChangeStore.pruneResolvedDecisions(term.id, plan.matchedCourseKeys)
 
+        val sourceStore = SourceTimetableStore(database)
+        val sourceEvaluation = SourceTimetableDiff.evaluate(
+            existingSourceState, incomingCourses, System.currentTimeMillis(),
+            snapshotOwnerKey, timetable.id, term.id,
+        )
+        sourceStore.save(snapshotOwnerKey, timetable.id, sourceEvaluation.state)
         val ignored = timetableChangeStore.ignoredFingerprints()
-        val pending = plan.pendingUpdates.mapNotNull { update ->
+        val pending = sourceEvaluation.updates.mapNotNull { update ->
             val filtered = update.withTerm(term.id, timetable.id).filterRows(ignored)
-            filtered.takeIf { it.rows.isNotEmpty() }
+            filtered.takeIf { it.rows.isNotEmpty() }?.copy(localChanged = update.local != null &&
+                localCourses.firstOrNull { it.subjectId == update.subjectId }?.lessons?.sortedBy { it.fromMillis } !=
+                    update.local.lessons.sortedBy { it.fromMillis })
         }
-        timetableChangeStore.recordPendingUpdates(pending)
+        timetableChangeStore.recordPendingUpdatesForTable(pending, snapshotOwnerKey, timetable.id)
 
         // 只有真实落库（有采纳的课）才捕获刷新前快照；纯保留/无变化不改数据，不打快照
         if (plan.adopt.isNotEmpty()) {
@@ -630,20 +653,7 @@ internal class EASTimetableImportRepository(
                     added = emptyList(),
                     keptCourses = plan.kept
                 ),
-                plan.decisions.map { decision ->
-                    TimetableDecisionItem(
-                        termId = term.id,
-                        timetableId = timetable.id,
-                        courseKey = decision.courseKey,
-                        subjectId = decision.subjectId,
-                        name = decision.name,
-                        reason = decision.reason,
-                        localLessonCount = decision.localLessonCount,
-                        firstSeenMillis = decision.firstSeenMillis,
-                        observationCount = decision.observationCount,
-                        incoming = decision.incoming
-                    )
-                }
+                emptyList()
             )
         }
         LogUtils.d(

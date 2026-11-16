@@ -359,7 +359,7 @@ private fun TimetableToolbarTitle(
         ) {
             Icon(
                 painterResource(R.drawable.ic_history_24),
-                contentDescription = stringResource(R.string.timetable_deletion_history),
+                contentDescription = stringResource(R.string.timetable_versions_title),
                 tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = if (currentScope != null) 1f else 0.38f),
             )
         }
