@@ -56,7 +56,7 @@ data/
 └── work/            # WorkManager workers (CourseReminder, ScoreReminder)
 ```
 
-Room databases: `AppDatabase` (app module, currently version 20 — v15 added timetable sharing tables `timetable_share_identity`/`friend_timetable`, v16 added timetable groups via `timetable_group` + `timetable.groupId`, v17 grouped legacy manual course batches, v18 added the timetable file-publication outbox, v19 added event deletion recovery, v20 added course versions and account-scoped source baselines), `UserDatabase` (hitauser module), and the independent `UsageQueueDatabase` analytics queue. Keep historical exported schemas for migrations. See [analytics v2](docs/analytics-v2.md).
+Room databases: `AppDatabase` (app module, currently version 21 — v15 added timetable sharing tables `timetable_share_identity`/`friend_timetable`, v16 added timetable groups via `timetable_group` + `timetable.groupId`, v17 grouped legacy manual course batches, v18 added the timetable file-publication outbox, v19 added event deletion recovery, v20 added course versions and account-scoped source baselines, v21 added personal teaching-occurrence visibility), `UserDatabase` (hitauser module), and the independent `UsageQueueDatabase` analytics queue. Keep historical exported schemas for migrations. See [analytics v2](docs/analytics-v2.md).
 
 ### Agent / AI System (ReAct Framework)
 
@@ -157,7 +157,7 @@ git log HEAD..origin/main --oneline
 | 3. 写代码 | 按方案实现，修改最少文件 | Claude |
 | 4. Review | 让 Claude 检查自己写的代码有没有问题 | Claude |
 | 5. 构建验证 | `./gradlew assembleDebug` 确保能编译 | 你或 Claude |
-| 6. Commit | 一个功能一个 commit，conventional commits 格式 | 你确认后 Claude 执行 |
+| 6. Commit | 功能完成并验证后按功能分类提交，conventional commits 格式 | Claude 直接执行 |
 
 ### 分支规范
 ```
@@ -169,9 +169,9 @@ refactor/xxx    # 重构（不改行为）
 
 ### 提交与推送纪律
 
-- **Commit 前必须先问用户确认**，不得自动 commit
+- **每完成一个功能，Review 与本地验证通过后按功能分类 commit**，无需再次确认；提交前展示改动摘要，并明确尚未完成的真机或真实服务验证。若用户当次明确要求不提交，则遵从当次要求。
 - **Push 前必须先问用户确认**（包括 origin 和 fork），不得自动 push
-- 即使用户说 "修好了就提交"，也应该在修改完成后展示 diff 摘要，等用户说 "commit" 再执行
+- Commit 授权不包含 Push；不得因已提交而自动推送。
 
 ### 提交前检查
 - [ ] `./gradlew assembleDebug` 通过
