@@ -197,7 +197,7 @@ class MainActivity : HiltBaseActivity<MainViewBinding>(),
             }
         }
         scopeResolver.options.observe(this, viewModel::setScopes)
-        scopeResolver.resolved.observe(this) { viewModel.setScope(it?.scope) }
+        scopeResolver.resolved.observe(this) { viewModel.setScope(it?.scope); viewModel.refreshMiniCourse(it) }
         blogRepository.tabUnseenLiveData.observe(this) { viewModel.setBlogDot(it == true) }
         timetableStyleRepository.wallpaperPathLiveData.observe(this) {
             viewModel.validateWallpaperPath(it)
@@ -225,8 +225,8 @@ class MainActivity : HiltBaseActivity<MainViewBinding>(),
             repeatOnLifecycle(Lifecycle.State.RESUMED) {
                 // 迷你课程条按分钟刷新：边界精度足够，且只在前台运行。
                 while (true) {
-                    viewModel.refreshMiniCourse()
-                    kotlinx.coroutines.delay(60_000L)
+                    viewModel.refreshMiniCourse(scopeResolver.resolved.value)
+                    kotlinx.coroutines.delay(60_000L - Math.floorMod(System.currentTimeMillis(), 60_000L))
                 }
             }
         }
@@ -294,6 +294,11 @@ class MainActivity : HiltBaseActivity<MainViewBinding>(),
     override fun setTitleText(string: String) = viewModel.setTimetableTitle(string, true)
     override fun setTimetableName(String: String) = viewModel.setTimetableName(String)
     override fun setSingleTitle(string: String) = viewModel.setTimetableTitle(string, false)
+    override fun openTodayHomework() {
+        if (MainTab.HOMEWORK in viewModel.state.value.navigation.visibleTabs) viewModel.selectTab(MainTab.HOMEWORK)
+        else startActivity(Intent(this, cn.limpu.hita.ui.main.homework.HomeworkActivity::class.java))
+    }
+
     override fun setTimelineTitleText(string: String) = viewModel.setTimelineTitle(string)
 
     private fun openUrl(url: String) = startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))

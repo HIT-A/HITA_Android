@@ -1,102 +1,141 @@
 package cn.limpu.hita.ui.main.timeline
 
-import androidx.lifecycle.LiveData
-import androidx.lifecycle.MediatorLiveData
-import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
-import androidx.lifecycle.switchMap
-import androidx.lifecycle.asFlow
 import androidx.lifecycle.asLiveData
 import androidx.lifecycle.map
 import androidx.lifecycle.viewModelScope
-import com.limpu.component.data.Trigger
+import cn.limpu.hita.data.model.timetable.DisplayScope
 import cn.limpu.hita.data.model.timetable.EventItem
 import cn.limpu.hita.data.repository.DisplayScopeResolver
 import cn.limpu.hita.data.repository.TimetableRepository
+import cn.limpu.hita.data.repository.EASRepository
+import cn.limpu.hita.data.repository.grader.GraderRepository
+import cn.limpu.hita.data.repository.homework.HomeworkRepository
 import cn.limpu.hita.data.repository.today.TodayReadState
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.combine
+import dagger.hilt.android.lifecycle.HiltViewModel
+import java.time.Clock
 import java.time.Instant
 import java.time.ZoneId
-import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
+import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.launch
 
 @HiltViewModel
-class FragmentTimelineViewModel @Inject constructor(
-    private val timetableRepository: TimetableRepository,
-    scopeResolver: DisplayScopeResolver
+class FragmentTimelineViewModel internal constructor(
+    private val sources: TodayReadSources,
+    private val clock: Clock,
 ) : ViewModel() {
+    @Inject constructor(timetable: TimetableRepository, resolver: DisplayScopeResolver,
+        local: HomeworkRepository, grader: GraderRepository, eas: EASRepository,
+    ) : this(RepositoryTodaySources(timetable, resolver, local, grader, eas), Clock.systemUTC())
 
-    /**
-     * 数据区
-     *
-     * 今日与明日共享日期窗口查询；旧考试/后续接口在新 UI 接入前继续保留。
-     * 显示目标尚未解析完成时保持空列表,避免闪现其他课表事件。
-     */
-    private val todayEventsController: MutableLiveData<Trigger> = MutableLiveData()
-    private val queryInput = MediatorLiveData<List<String>>()
+    /** Existing isolated storage harnesses do not require summary repositories. */
+    internal constructor(timetable: TimetableRepository, resolver: DisplayScopeResolver) :
+        this(TimetableTodaySources(timetable, resolver), Clock.systemUTC())
 
-    private val window = MutableStateFlow<TodayDateWindow?>(null)
-    private val retry = MutableStateFlow(0)
-    private val timelineQueries = combine(scopeResolver.readState.asFlow(), window) { scope, day ->
-        when {
-            day == null || scope == TodayReadState.Loading -> TodayReadState.Loading
-            scope is TodayReadState.Failed -> TodayReadState.Failed(null, scope.failure)
-            scope is TodayReadState.Ready -> TodayReadState.Ready(scope.value?.let { TodayTimelineQuery.from(it, day) })
-            else -> TodayReadState.Loading
+    private data class Reading(val now: Long, val window: TodayDateWindow)
+    private val reading = MutableStateFlow(reading(clock.millis(), ZoneId.systemDefault()))
+    private val visible = MutableStateFlow(false)
+    private val retries = MutableStateFlow(0)
+    private val scopes = sources.scopes.stateIn(viewModelScope, SharingStarted.WhileSubscribed(0, 0), TodayReadState.Loading)
+    private val sessions = sources.session.stateIn(viewModelScope, SharingStarted.WhileSubscribed(0, 0), sources.currentSession())
+    private val queries = combine(scopes, reading) { scope, tick -> when (scope) {
+        TodayReadState.Loading -> TodayReadState.Loading
+        is TodayReadState.Failed -> TodayReadState.Failed(null, scope.failure)
+        is TodayReadState.Ready -> TodayReadState.Ready(scope.value?.let { TodayTimelineQuery.from(it, tick.window) })
+    } }
+    private val timeline = observeTodayTimeline(queries, retries, sources::read)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(0, 0), TodayReadState.Loading)
+    private data class Summaries(val homework: cn.limpu.hita.data.repository.homework.HomeworkState,
+        val grader: cn.limpu.hita.data.repository.grader.GraderState,
+        val exams: cn.limpu.hita.data.repository.ExamReadSnapshot, val session: TodaySession)
+    private val summaries = combine(sources.homework, sources.grader, sources.exams, sessions, ::Summaries)
+
+    val uiState: StateFlow<TodayUiState> = combine(timeline, scopes, reading, summaries) { data, scopeState, tick, summary ->
+        val scope = (scopeState as? TodayReadState.Ready)?.value
+        val expected = scope?.let { TodayTimelineQuery.from(it, tick.window) }
+        val snapshot = snapshot(data)?.takeIf { it.query == expected }
+        val status = when {
+            scopeState == TodayReadState.Loading -> TodayPageStatus.LOADING
+            scopeState is TodayReadState.Failed -> TodayPageStatus.FAILED
+            scope == null -> TodayPageStatus.NO_TARGET
+            data is TodayReadState.Failed -> TodayPageStatus.FAILED
+            snapshot == null -> TodayPageStatus.LOADING
+            else -> TodayPageStatus.READY
         }
-    }
+        val agenda = snapshot?.let { TodayProjection.project(tick.window, it.events, tick.now) }
+        val schedules = scope?.timetables.orEmpty().map { table -> table.scheduleStructure.map {
+            (it.from.hour * 60 + it.from.minute) to (it.to.hour * 60 + it.to.minute)
+        } }
+        TodayUiState(tick.now, tick.window, summary.session,
+            scope?.let { "${DisplayScope.typeOf(it.scope)}:${it.scope.id}" } ?: if (status == TodayPageStatus.NO_TARGET) "none" else "unresolved",
+            scope?.name, status, agenda, TodayHeaderResolver.resolve(tick.now, tick.window.zoneId, agenda, schedules),
+            TodayHomeworkProjection.project(summary.homework, summary.grader, summary.session.graderAvailable, tick.now, tick.window.zoneId),
+            TodayExamProjection.project(tick.window, tick.now, snapshot?.events.orEmpty(), expected?.timetableIds.orEmpty().toSet(),
+                summary.exams, summary.session.ownerKey, summary.session.generation), expected?.timetableIds.orEmpty())
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(0, 0), TodayUiState(reading.value.now, reading.value.window))
 
-    val timelineReadState: LiveData<TodayReadState<TodayTimelineSnapshot?>> = observeTodayTimeline(
-        timelineQueries, retry,
-    ) { query ->
-        timetableRepository.observeTimelineWindow(query.window.start, query.window.dayAfterStart, query.timetableIds)
-    }.asLiveData(context = viewModelScope.coroutineContext, timeoutInMs = 0L)
-
-    /** Compatibility for the existing UI until the focused agenda screen is connected. */
-    val todayEventsLiveData: LiveData<List<EventItem>> = timelineReadState.map { state ->
-        val snapshot = when (state) {
-            is TodayReadState.Ready -> state.value
-            is TodayReadState.Failed -> state.retained
-            TodayReadState.Loading -> null
-        }
-        snapshot?.let { TodayProjection.project(it.query.window, it.events, it.query.window.start).allToday }.orEmpty()
-    }
-
-    val upcomingExamLiveData: LiveData<List<EventItem>> = queryInput.switchMap { ids ->
-        return@switchMap timetableRepository.getUpcomingExamsWithinReminderWindow(
-            System.currentTimeMillis(), ids)
-    }
-
-    val weekEventsLiveData: LiveData<List<EventItem>> = queryInput.switchMap { ids ->
-        return@switchMap timetableRepository.getEventsAfter(System.currentTimeMillis(), 4, ids)
-    }
-
-
-    private val _enterTick = MutableLiveData(0L)
-    val enterTick: LiveData<Long> = _enterTick
+    // Kept for non-UI consumers and the existing storage regression harness.
+    val timelineReadState = timeline.asLiveData(context = viewModelScope.coroutineContext, timeoutInMs = 0L)
+    val todayEventsLiveData = timelineReadState.map { data -> snapshot(data)?.let {
+        TodayProjection.project(it.query.window, it.events, reading.value.now).allToday
+    }.orEmpty() }
 
     init {
-        queryInput.addSource(todayEventsController) { refreshIds(scopeResolver, force = true) }
-        queryInput.addSource(scopeResolver.resolved) { refreshIds(scopeResolver) }
+        viewModelScope.launch {
+            combine(visible, sessions) { shown, session -> (shown && session.graderAvailable) to session }
+                .distinctUntilChanged().collectLatest { (enabled, _) ->
+                    sources.visible(enabled)
+                    if (enabled) sources.load(TodayRetrySource.GRADER)
+                }
+        }
     }
 
-    private fun refreshIds(scopeResolver: DisplayScopeResolver, force: Boolean = false) {
-        if (todayEventsController.value == null) return
-        val ids = scopeResolver.resolved.value?.timetableIds.orEmpty()
-        if (force || queryInput.value != ids) queryInput.value = ids
+    fun onVisible(now: Long = clock.millis(), zone: ZoneId = ZoneId.systemDefault()) {
+        onTimeChanged(now, zone)
+        if (!visible.value) {
+            visible.value = true
+            viewModelScope.launch { sources.load(TodayRetrySource.HOMEWORK) }
+        }
     }
-
-    fun startRefresh() {
-        window.value = TodayDateWindow.from(Instant.now(), ZoneId.systemDefault())
-        todayEventsController.value = Trigger.actioning
+    fun onHidden() { visible.value = false; sources.visible(false) }
+    fun onTimeChanged(now: Long = clock.millis(), zone: ZoneId = ZoneId.systemDefault()) { reading.value = reading(now, zone) }
+    fun startRefresh() = onTimeChanged()
+    fun retry(source: TodayRetrySource) {
+        if (source == TodayRetrySource.AGENDA) retries.value++
+        else if (visible.value) viewModelScope.launch { sources.load(source, retry = true) }
     }
-
-    fun retryTimelineRead() {
-        retry.value += 1
+    fun retryTimelineRead() = retry(TodayRetrySource.AGENDA)
+    fun nextWakeDelay(state: TodayUiState = uiState.value): Long =
+        (TodayClock.nextWake(state.now, state.window, state.agenda?.allToday.orEmpty()) - clock.millis()).coerceAtLeast(1L)
+    fun accepts(expected: TodayUiState): Boolean {
+        val resolved = sources.currentScope()
+        val currentScope = resolved?.let { "${DisplayScope.typeOf(it.scope)}:${it.scope.id}" } ?: "none"
+        return expected.session == sources.currentSession() && expected.scopeKey == currentScope && expected.window == reading.value.window && expected.memberIds == resolved?.timetableIds.orEmpty().distinct().sorted()
     }
-
-    fun triggerEnterAnimation() {
-        _enterTick.value = System.currentTimeMillis()
+    fun acceptsHomework(expected: TodayUiState, source: TodayHomeworkSource): Boolean = accepts(expected) &&
+        (source != TodayHomeworkSource.GRADER || expected.homework?.grader?.accountId == sources.currentGraderAccount())
+    suspend fun resolveEvent(expected: TodayUiState, id: String): EventItem? {
+        if (!accepts(expected)) return null
+        val scope = sources.currentScope() ?: return null
+        val event = sources.findEvent(TodayTimelineQuery.from(scope, expected.window), id)
+        return event?.takeIf { accepts(expected) }
+    }
+    private var widgetKey: Any? = null
+    fun consumeWidgetChange(state: TodayUiState): Boolean {
+        if (state.status == TodayPageStatus.LOADING || (state.status == TodayPageStatus.FAILED && state.agenda == null)) return false
+        val key = Triple(state.scopeKey, state.window, state.agenda?.allToday.orEmpty().map {
+            listOf(it.id, it.type, it.source, it.name, it.place, it.from.time, it.to.time, it.fromNumber, it.lastNumber, it.color)
+        })
+        if (widgetKey == key) return false
+        widgetKey = key
+        return true
+    }
+    override fun onCleared() { sources.visible(false); super.onCleared() }
+    private fun reading(now: Long, zone: ZoneId) = Reading(now, TodayDateWindow.from(Instant.ofEpochMilli(now), zone))
+    private fun snapshot(state: TodayReadState<TodayTimelineSnapshot?>): TodayTimelineSnapshot? = when (state) {
+        is TodayReadState.Ready -> state.value
+        is TodayReadState.Failed -> state.retained
+        TodayReadState.Loading -> null
     }
 }

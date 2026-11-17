@@ -22,3 +22,26 @@ data class TomorrowPreparationState(
     val firstGroup: List<EventItem>,
     val invalidEvents: List<EventItem>,
 )
+
+enum class TodayPageStatus { LOADING, NO_TARGET, READY, FAILED }
+enum class TodayRetrySource { AGENDA, HOMEWORK, GRADER }
+
+data class TodaySession(
+    val ownerKey: String? = null,
+    val generation: Long = 0,
+    val graderAvailable: Boolean = false,
+)
+
+data class TodayUiState(
+    val now: Long,
+    val window: TodayDateWindow,
+    val session: TodaySession = TodaySession(),
+    val scopeKey: String = "unresolved",
+    val scopeName: String? = null,
+    val status: TodayPageStatus = TodayPageStatus.LOADING,
+    val agenda: TodayAgendaState? = null,
+    val header: TodayHeaderState = TodayHeaderState(),
+    val homework: TodayHomeworkSummary? = null,
+    val exams: TodayExamSummary? = null,
+    val memberIds: List<String> = emptyList(),
+)

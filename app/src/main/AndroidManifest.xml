@@ -206,6 +206,7 @@
         <activity android:name=".ui.resource.CourseContributionActivity" />
         <activity android:name=".ui.resource.MarkdownViewerActivity" />
         <activity android:name=".ui.credit.CreditStatsActivity" />
+        <activity android:name=".ui.main.homework.HomeworkActivity" android:exported="false" android:theme="@style/Theme.HITA" />
     </application>
 
 </manifest>

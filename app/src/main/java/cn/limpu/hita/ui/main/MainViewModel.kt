@@ -363,23 +363,31 @@ internal class MainViewModel @Inject constructor(
     }
     fun setDrawer(open: Boolean) { if (open) refreshUser(); mutableState.value = state.value.copy(drawerOpen = open) }
     fun setTimelineTitle(title: String) { mutableState.value = state.value.copy(todayTitle = title) }
-    /**
-     * 刷新首页迷你课程条。
-     *
-     * 读取走 IO 线程：`getTodayEventsSync` 是 Room 同步查询，不允许在主线程执行。
-     * 结果回到主线程再写入状态，Compose 侧无需关心线程。
-     */
-    fun refreshMiniCourse() {
+    private var miniRequest = 0L
+    private var miniScopeKey: Any? = null
+    fun refreshMiniCourse(scope: cn.limpu.hita.data.repository.ResolvedDisplayScope? = null) {
+        val request = ++miniRequest
+        val window = cn.limpu.hita.ui.main.timeline.TodayDateWindow.from(
+            java.time.Instant.now(), java.time.ZoneId.systemDefault())
+        val key = Triple(scope?.scope, scope?.timetableIds?.sorted(), window)
+        if (miniScopeKey != key) {
+            miniScopeKey = key
+            mutableState.value = state.value.copy(miniCourse = null)
+        }
+        if (scope == null) return
+        val ids = scope.timetableIds.toList()
         viewModelScope.launch {
             val events = withContext(Dispatchers.IO) {
-                runCatching { timetableRepository.getTodayEventsSync() }.getOrDefault(emptyList())
+                try { timetableRepository.getUpcomingEventsSync(window.start, window.tomorrowStart, ids) }
+                catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+                catch (_: Exception) { emptyList() }
             }
-            val resolved = cn.limpu.hita.ui.main.MiniCourseResolver.resolve(events, System.currentTimeMillis())
-            val visible = resolved.takeIf {
-                it.phase == cn.limpu.hita.ui.main.MiniCoursePhase.ONGOING ||
-                    it.phase == cn.limpu.hita.ui.main.MiniCoursePhase.UPCOMING
-            }
-            mutableState.value = state.value.copy(miniCourse = visible)
+            if (request != miniRequest || state.value.currentScope != scope.scope ||
+                java.time.LocalDate.now(window.zoneId) != window.date) return@launch
+            val resolved = MiniCourseResolver.resolve(events, System.currentTimeMillis())
+            mutableState.value = state.value.copy(miniCourse = resolved.takeIf {
+                it.phase == MiniCoursePhase.ONGOING || it.phase == MiniCoursePhase.UPCOMING
+            })
         }
     }
     fun setTimetableTitle(title: String, showName: Boolean) { mutableState.value = state.value.copy(timetableTitle = title, showTimetableName = showName) }
