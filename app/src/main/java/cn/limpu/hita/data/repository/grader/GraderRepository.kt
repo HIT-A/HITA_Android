@@ -3,6 +3,7 @@ package cn.limpu.hita.data.repository.grader
 import android.app.Application
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
+import cn.limpu.hita.data.model.grader.GraderSummaryItem
 import cn.limpu.hita.data.model.grader.GraderTask
 import cn.limpu.hita.data.source.preference.GraderPreferenceSource
 import cn.limpu.hita.data.source.web.grader.GraderAuthenticationException
@@ -28,6 +29,7 @@ data class GraderState(
     val accountId: String? = null,
     val accountName: String? = null,
     val tasks: List<GraderTask> = emptyList(),
+    val summaryItems: List<GraderSummaryItem> = emptyList(),
     val ready: Boolean = false,
     val syncing: Boolean = false,
     val needsLogin: Boolean = false,
@@ -46,6 +48,7 @@ class GraderRepository internal constructor(
     private val source by lazy { GraderWebSource() }
     private val mutex = Mutex()
     @Volatile private var generation = 0L
+    val readCoordinator = GraderReadCoordinator(::reload) { generation }
     private var sessionSuppressed = false
     private var current = GraderState()
     private val mutableState = MutableLiveData(current)
@@ -186,6 +189,7 @@ class GraderRepository internal constructor(
         accountId = account?.id,
         accountName = account?.name,
         tasks = visibleTasks(System.currentTimeMillis()),
+        summaryItems = summaryItems(),
         ready = true,
         syncing = syncing,
         needsLogin = account == null && !syncing,

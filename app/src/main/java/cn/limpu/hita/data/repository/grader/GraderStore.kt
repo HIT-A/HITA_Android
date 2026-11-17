@@ -1,5 +1,6 @@
 package cn.limpu.hita.data.repository.grader
 
+import cn.limpu.hita.data.model.grader.GraderSummaryItem
 import cn.limpu.hita.data.model.grader.GraderTask
 import cn.limpu.hita.data.source.web.grader.GraderAccount
 import cn.limpu.hita.data.source.web.grader.GraderAssignment
@@ -20,6 +21,14 @@ internal data class GraderSnapshot(
     val submittedByAccount: Map<String, Set<String>> = emptyMap(),
 ) {
     val assignments: List<GraderAssignment> get() = account?.let { assignmentsByAccount[it.id] }.orEmpty()
+
+    fun summaryItems(): List<GraderSummaryItem> {
+        val id = account?.id ?: return emptyList()
+        val completed = completedByAccount[id].orEmpty() + submittedByAccount[id].orEmpty()
+        return assignments.filter { it.published }.map {
+            GraderSummaryItem(id, it.id, it.title, it.courseTitle, it.dueAt, it.id in completed)
+        }
+    }
 
     fun visibleTasks(now: Long): List<GraderTask> {
         val id = account?.id ?: return emptyList()

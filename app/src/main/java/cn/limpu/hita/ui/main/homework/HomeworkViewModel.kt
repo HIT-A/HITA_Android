@@ -43,14 +43,16 @@ class HomeworkViewModel @Inject constructor(
 
     /** 同一可见期内只加载一次 Grader 数据；入口收起（退登/切校区）后重置，重新可见时再触发。 */
     private var graderLoadedForVisiblePeriod = false
+    private val graderReadConsumer = "homework:${System.identityHashCode(this)}"
 
     private val graderVisibilityObserver = Observer<Boolean> { visible ->
+        graderRepository.readCoordinator.setVisible(graderReadConsumer, visible)
         if (!visible) {
             graderLoadedForVisiblePeriod = false
         } else if (!graderLoadedForVisiblePeriod) {
             graderLoadedForVisiblePeriod = true
             viewModelScope.launch {
-                if (graderRepository.reload() && graderState.value?.accountId != null) {
+                if (graderRepository.readCoordinator.load(graderReadConsumer) && graderState.value?.accountId != null) {
                     graderRepository.refresh()
                 }
             }
@@ -66,6 +68,7 @@ class HomeworkViewModel @Inject constructor(
     override fun onCleared() {
         super.onCleared()
         graderVisible.removeObserver(graderVisibilityObserver)
+        graderRepository.readCoordinator.setVisible(graderReadConsumer, false)
     }
 
     fun refreshToday() {

@@ -12,6 +12,7 @@ import android.webkit.CookieManager
 import android.webkit.MimeTypeMap
 import androidx.annotation.WorkerThread
 import androidx.lifecycle.LiveData
+import androidx.lifecycle.liveData
 import androidx.lifecycle.MediatorLiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.Observer
@@ -136,6 +137,8 @@ class EASRepository @Inject internal constructor(
     private val querySessionState = easPreferenceSource.querySessionState
     private val queryCoordinator = EasQueryCoordinator.forSession(querySessionState)
     private val scoreQueryCoordinator = ScoreQueryCoordinator.forSession(querySessionState)
+    private val examReadStore = ExamReadStateStore.forSession(querySessionState, queryCoordinator.applicationScope)
+    val examReadState get() = examReadStore.state
     private val tokenStateLock = querySessionState.lock
     private val authEpoch = querySessionState.authEpoch
     private val credentialScopeRandom = SecureRandom()
@@ -203,6 +206,7 @@ class EASRepository @Inject internal constructor(
         timetableGroupDao = timetableGroupDao,
         examImportRepository = examImportRepository,
         autoGroupImportedTimetable = timetableImportGrouping::autoGroupAfterEasImportSync,
+        examReads = examReadStore,
     )
 
     companion object {
@@ -1061,19 +1065,35 @@ class EASRepository @Inject internal constructor(
     internal fun createExamQueryRequest(term: TermItem?): ExamQueryRequest {
         val session = captureQuerySession()
         return ExamQueryRequest.forToken(session.token, term) { token, selectedTerm ->
-            session.whileCurrent { session.service.getExamItemsOnce(token, selectedTerm) }
+            session.whileCurrent {
+                val ticket = examReadStore.begin(session.scope, selectedTerm?.id)
+                try {
+                    val result = session.service.getExamItemsOnce(token, selectedTerm)
+                    synchronized(tokenStateLock) {
+                        session.ensureCurrent()
+                        // Standalone results have no proven account-to-timetable binding.
+                        examReadStore.finish(ticket, result)
+                    }
+                    result
+                } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                    throw cancelled
+                } catch (failure: Exception) {
+                    examReadStore.finish(ticket, DataState(DataState.STATE.FETCH_FAILED))
+                    throw failure
+                } finally {
+                    examReadStore.cancel(ticket)
+                }
+            }
         }
     }
 
-    /** Compatibility entry for automatic timetable import and its existing timeout. */
+    /** Compatibility observer with lifecycle cancellation and the same captured session guard. */
     fun getExamInfo(term: TermItem? = null): LiveData<DataState<List<ExamItem>>> {
-        val easToken = easPreferenceSource.getEasToken()
-        LogUtils.d("getExamInfo: term=${term?.name}, isLogin=${easToken.isLogin()}, campus=${easToken.campus}")
-        if (easToken.isLogin()) {
-            return getService(easToken.campus, easToken.stutype).getExamItems(easToken, term)
+        val request = createExamQueryRequest(term)
+        return liveData(Dispatchers.IO, timeoutInMs = 0L) {
+            request.initialState?.let { emit(it) }
+            emit(request.execute())
         }
-        LogUtils.w("getExamInfo: not logged in")
-        return LiveDataUtils.getMutableLiveData(DataState(DataState.STATE.NOT_LOGGED_IN))
     }
 
     /**

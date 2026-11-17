@@ -37,6 +37,7 @@ class GraderRepositoryCancellationTest {
                 assertFalse(state.syncing)
                 assertNull(state.accountId)
                 assertTrue(state.tasks.isEmpty())
+                assertTrue(state.summaryItems.isEmpty())
             } finally {
                 operation.cancel()
                 dispatcher.release()
@@ -46,6 +47,27 @@ class GraderRepositoryCancellationTest {
             dispatcher.release()
             ArchTaskExecutor.getInstance().setDelegate(null)
         }
+    }
+
+    @Test fun reloadAndDisconnectPublishCredentialFreeSummaryTogetherWithAccount() = runBlocking {
+        ArchTaskExecutor.getInstance().setDelegate(object : TaskExecutor() {
+            override fun executeOnDiskIO(runnable: Runnable) = runnable.run()
+            override fun postToMainThread(runnable: Runnable) = runnable.run()
+            override fun isMainThread() = true
+        })
+        try {
+            val store = GraderStore({ null }, { true })
+            store.replace(cn.limpu.hita.data.source.web.grader.GraderAccount("1", "synthetic"), "sessionid=synthetic",
+                listOf(cn.limpu.hita.data.source.web.grader.GraderAssignment("11", "expired", "course", 1L, true)))
+            val repository = GraderRepository(store, Dispatchers.Unconfined)
+            assertTrue(repository.reload())
+            assertEquals("1", repository.state.value?.accountId)
+            assertTrue(repository.state.value!!.tasks.isEmpty())
+            assertEquals("11", repository.state.value?.summaryItems?.single()?.id)
+            assertTrue(repository.disconnect())
+            assertNull(repository.state.value?.accountId)
+            assertTrue(repository.state.value!!.summaryItems.isEmpty())
+        } finally { ArchTaskExecutor.getInstance().setDelegate(null) }
     }
 
     private class PausedPublicationDispatcher : CoroutineDispatcher() {

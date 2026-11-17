@@ -64,6 +64,7 @@ internal class EASTimetableImportRepository(
     private val timetableGroupDao: TimetableGroupDao,
     private val examImportRepository: ExamImportRepository,
     private val autoGroupImportedTimetable: (String) -> Unit,
+    private val examReads: ExamReadStateStore? = null,
 ) {
     private companion object {
         /** 研究生课表链路一次导入要串行访问学期、校历、总课表、已选与作息多个页面。 */
@@ -879,39 +880,62 @@ internal class EASTimetableImportRepository(
                     // The timetable has already committed; an optional exam request must not
                     // turn that successful write into a generic import failure.
                     if (importState.state == DataState.STATE.SUCCESS) result = AutoImportResult.SUCCESS
-                    val examTimeout = if (graduate) remoteTimeout else DEFAULT_EXAM_TIMEOUT_MILLIS
-                    val examState = withTimeoutOrNull(examTimeout) { session.service.getExamItemsOnce(token, term) }
-                        ?: DataState(DataState.STATE.FETCH_FAILED)
-                    session.ensureCurrent()
-                    if (examState.state in setOf(DataState.STATE.NOT_LOGGED_IN, DataState.STATE.TOKEN_INVALID)) {
-                        result = AutoImportResult.NOT_LOGGED_IN
-                        return@whileCurrent
-                    }
-                    if (examState.state != DataState.STATE.SUCCESS) return@whileCurrent
-                    // A failed local exam transaction must report failure even after courses committed.
-                    result = AutoImportResult.FAILED
-                    val coroutine = currentCoroutineContext()
-                    val timetableCode = EASTimetableCode.of(session.campus, term, session.token.stutype)
-                    val importedExamCount = synchronized(tokenStateLock) {
-                        timetableMutationLock.exclusive {
-                            coroutine.ensureActive()
-                            session.ensureCurrent()
-                            database.runInTransaction<Int> {
-                                // A request may have been cancelled while SQLite's writer was held.
-                                // Once this guard passes, the complete exam batch commits atomically.
+                    val examTicket = examReads?.begin(session.scope, term.id)
+                    try {
+                        val examTimeout = if (graduate) remoteTimeout else DEFAULT_EXAM_TIMEOUT_MILLIS
+                        val examState = withTimeoutOrNull(examTimeout) { session.service.getExamItemsOnce(token, term) }
+                            ?: DataState(DataState.STATE.FETCH_FAILED)
+                        session.ensureCurrent()
+                        if (examState.state != DataState.STATE.SUCCESS) examReads?.finish(examTicket, examState)
+                        if (examState.state in setOf(DataState.STATE.NOT_LOGGED_IN, DataState.STATE.TOKEN_INVALID)) {
+                            result = AutoImportResult.NOT_LOGGED_IN
+                            return@whileCurrent
+                        }
+                        if (examState.state != DataState.STATE.SUCCESS) return@whileCurrent
+                        // A failed local exam transaction must report failure even after courses committed.
+                        result = AutoImportResult.FAILED
+                        val coroutine = currentCoroutineContext()
+                        val timetableCode = EASTimetableCode.of(session.campus, term, session.token.stutype)
+                        var committedExamTarget: String? = null
+                        val importedExamCount = synchronized(tokenStateLock) {
+                            timetableMutationLock.exclusive {
                                 coroutine.ensureActive()
                                 session.ensureCurrent()
-                                if (!operation.isCurrentSession(authEpoch.get(), easPreferenceSource.getEasToken())) {
-                                    return@runInTransaction 0
+                                database.runInTransaction<Int> {
+                                    // A request may have been cancelled while SQLite's writer was held.
+                                    // Once this guard passes, the complete exam batch commits atomically.
+                                    coroutine.ensureActive()
+                                    session.ensureCurrent()
+                                    if (!operation.isCurrentSession(authEpoch.get(), easPreferenceSource.getEasToken())) {
+                                        return@runInTransaction 0
+                                    }
+                                    val timetable = timetableDao.getTimetableByEASCodeCandidatesSync(
+                                        EASTimetableCode.candidates(term, session.campus, session.token.stutype), timetableCode, term.getCode()
+                                    ) ?: return@runInTransaction 0
+                                    examImportRepository.importAutomatically(examState.data.orEmpty(), timetable).importedCount.also {
+                                        committedExamTarget = timetable.id
+                                    }
                                 }
-                                val timetable = timetableDao.getTimetableByEASCodeCandidatesSync(
-                                    EASTimetableCode.candidates(term, session.campus, session.token.stutype), timetableCode, term.getCode()
-                                ) ?: return@runInTransaction 0
-                                examImportRepository.importAutomatically(examState.data.orEmpty(), timetable).importedCount
                             }
                         }
+                        synchronized(tokenStateLock) {
+                            session.ensureCurrent()
+                            // Binding is published only after the complete local transaction succeeded,
+                            // and the target is still present under the shared mutation lock.
+                            timetableMutationLock.exclusive {
+                                val target = committedExamTarget?.takeIf { timetableDao.getTimetableByIdSync(it) != null }
+                                examReads?.finish(examTicket, examState, target)
+                            }
+                        }
+                        if (importState.state == DataState.STATE.SUCCESS || importedExamCount > 0) result = AutoImportResult.SUCCESS
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (failure: Exception) {
+                        examReads?.finish(examTicket, DataState(DataState.STATE.FETCH_FAILED))
+                        throw failure
+                    } finally {
+                        examReads?.cancel(examTicket)
                     }
-                    if (importState.state == DataState.STATE.SUCCESS || importedExamCount > 0) result = AutoImportResult.SUCCESS
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled

@@ -91,4 +91,23 @@ class GraderStoreTest {
         assertEquals("1", store.load().account?.id)
         assertFalse(store.load().visibleTasks(now).single().completed)
     }
+    @Test fun summaryRetainsPublishedExpiredUndatedAndCompletionForCurrentAccountOnly() {
+        val first = GraderAccount("1", "first"); val second = GraderAccount("2", "second")
+        val store = GraderStore({ null }, { true })
+        store.replace(first, "sessionid=synthetic-first", listOf(
+            task("11", now - 1), task("12").copy(dueAt = null), task("13"), task("14").copy(published = false), task("15")), setOf("13"))
+        store.setCompleted("1", "15", true)
+        val summary = store.load().summaryItems()
+        assertEquals(setOf("11", "12", "13", "15"), summary.map { it.id }.toSet())
+        assertTrue(summary.all { it.accountId == "1" })
+        assertEquals(setOf("13", "15"), summary.filter { it.completed }.map { it.id }.toSet())
+        assertEquals(now - 1, summary.single { it.id == "11" }.dueAt)
+        assertNull(summary.single { it.id == "12" }.dueAt)
+        store.disconnect()
+        assertTrue(store.load().summaryItems().isEmpty())
+        store.replace(second, "sessionid=synthetic-second", listOf(task("11")))
+        assertEquals("2", store.load().summaryItems().single().accountId)
+        assertFalse(store.load().summaryItems().single().completed)
+    }
+
 }
