@@ -118,4 +118,22 @@ class TimelineListProjectionTest {
         assertFalse(row.isFirstTimeline)
         assertFalse(row.isLastTimeline)
     }
+    @Test fun `start and end instants agree with half open policy`() {
+        val event = event("boundary", base, base + hour)
+        val start = TimelineListProjection.rowState(event, 0, 0 to 0, base)
+        val end = TimelineListProjection.rowState(event, 0, 0 to 0, base + hour)
+        assertTrue(start.isNow)
+        assertFalse(start.isPassed)
+        assertFalse(end.isNow)
+        assertTrue(end.isPassed)
+    }
+
+    @Test fun `invalid event does not claim an active or completed interval`() {
+        val event = event("invalid", base, base)
+        val row = TimelineListProjection.rowState(event, 0, 0 to 0, base)
+        assertFalse(row.isNow)
+        assertFalse(row.isPassed)
+        assertEquals(0f, row.progress, 0f)
+    }
+
 }

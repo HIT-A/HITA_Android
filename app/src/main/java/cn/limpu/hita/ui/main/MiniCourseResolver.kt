@@ -1,6 +1,8 @@
 package cn.limpu.hita.ui.main
 
 import cn.limpu.hita.data.model.timetable.EventItem
+import cn.limpu.hita.feature.timetable.display.EventTimePolicy
+import cn.limpu.hita.feature.timetable.display.EventTimePolicy.Phase
 
 /**
  * 首页「迷你课程条」的状态解析。
@@ -43,13 +45,12 @@ object MiniCourseResolver {
     fun resolve(events: List<EventItem>, now: Long): MiniCourseState {
         // 只保留上课类事件：考试与手动备忘不是「正在上/即将上」的语义。
         val classes = events
-            .filter { it.type == EventItem.TYPE.CLASS }
-            .sortedBy { it.from.time }
+            .filter { it.type == EventItem.TYPE.CLASS && it.to.time > it.from.time }
+            .sortedWith(EventTimePolicy.eventOrder)
 
-        val ongoing = classes.firstOrNull { now >= it.from.time && now < it.to.time }
+        val ongoing = classes.firstOrNull { EventTimePolicy.phase(it.from.time, it.to.time, now) == Phase.ACTIVE }
         if (ongoing != null) {
-            val span = (ongoing.to.time - ongoing.from.time).coerceAtLeast(1L)
-            val progress = ((now - ongoing.from.time).toFloat() / span).coerceIn(0f, 1f)
+            val progress = EventTimePolicy.progress(ongoing.from.time, ongoing.to.time, now)
             return MiniCourseState(
                 phase = MiniCoursePhase.ONGOING,
                 title = ongoing.name,

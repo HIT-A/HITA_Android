@@ -102,4 +102,17 @@ class MiniCourseResolverTest {
 
         assertEquals(MiniCoursePhase.IDLE, state.phase)
     }
+    @Test fun `simultaneous courses are selected by stable id rather than incoming order`() {
+        val a = course("a", 100, 150).apply { id = "a" }
+        val b = course("b", 100, 150).apply { id = "b" }
+        assertEquals("a", MiniCourseResolver.resolve(listOf(b, a), now(100)).title)
+        assertEquals("a", MiniCourseResolver.resolve(listOf(a, b), now(100)).title)
+        assertEquals(MiniCoursePhase.DONE, MiniCourseResolver.resolve(listOf(a), now(150)).phase)
+    }
+
+    @Test fun `invalid course cannot drive upcoming mini bar`() {
+        assertEquals(MiniCoursePhase.IDLE,
+            MiniCourseResolver.resolve(listOf(course("invalid", 100, 100)), now(90)).phase)
+    }
+
 }

@@ -2,6 +2,8 @@ package cn.limpu.hita.ui.main.timeline
 
 import cn.limpu.hita.data.model.timetable.EventItem
 import cn.limpu.hita.utils.SpecialEventReminderUtils
+import cn.limpu.hita.feature.timetable.display.EventTimePolicy
+import cn.limpu.hita.feature.timetable.display.EventTimePolicy.Phase
 
 /**
  * 时间线渲染用的派生视图模型。
@@ -43,15 +45,16 @@ internal object TimelineListProjection {
         bounds: Pair<Int, Int>,
         now: Long,
     ): TimelineRowState {
-        val isUpcomingExam = SpecialEventReminderUtils.isExamEvent(event) && event.from.time > now
-        val isNow = event.containsTimeStamp(now)
+        val phase = EventTimePolicy.phase(event.from.time, event.to.time, now)
+        val isUpcomingExam = SpecialEventReminderUtils.isExamEvent(event) && phase == Phase.UPCOMING
+        val isNow = phase == Phase.ACTIVE
         return TimelineRowState(
-            isPassed = event.to.time < now,
+            isPassed = phase == Phase.ENDED,
             isUpcomingExam = isUpcomingExam,
             isNow = isNow,
             isFirstTimeline = index == bounds.first,
             isLastTimeline = index == bounds.second,
-            progress = if (isNow) event.getProgress(now) else 0f,
+            progress = if (isNow) EventTimePolicy.progress(event.from.time, event.to.time, now) else 0f,
         )
     }
 }

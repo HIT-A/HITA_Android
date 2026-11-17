@@ -56,6 +56,10 @@ interface EventItemDao {
     @Query("SELECT * FROM events WHERE `from` < :toT AND `to` > :fromT AND timetableId IN (:timetableIds) AND hidden = 0")
     fun getEventsDuringForTimetables(fromT: Long, toT: Long, timetableIds: List<String>): LiveData<List<EventItem>>
 
+    /** One snapshot for today's and tomorrow's half-open windows. */
+    @Query("SELECT * FROM events WHERE `from` < :toT AND `to` > :fromT AND timetableId IN (:timetableIds) AND hidden = 0")
+    fun observeEventsOverlappingForTimetables(fromT: Long, toT: Long, timetableIds: List<String>): kotlinx.coroutines.flow.Flow<List<EventItem>>
+
     @Query("SELECT * FROM events WHERE `from` < :toT AND `to` > :fromT AND timetableId IN (:timetableIds) AND hidden = 0")
     fun getEventsDuringForTimetablesSync(fromT: Long, toT: Long, timetableIds: List<String>): List<EventItem>
 

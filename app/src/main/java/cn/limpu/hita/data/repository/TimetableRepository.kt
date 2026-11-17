@@ -24,6 +24,14 @@ import cn.limpu.hita.data.model.timetable.TermSubject
 import cn.limpu.hita.data.model.timetable.TimePeriodInDay
 import cn.limpu.hita.data.model.timetable.Timetable
 import cn.limpu.hita.data.model.timetable.TimetableGroupEntity
+import cn.limpu.hita.data.repository.today.TodayReadState
+import cn.limpu.hita.data.repository.today.asTodayReadState
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.CancellationException
 import cn.limpu.hita.data.source.preference.EasPreferenceSource
 import cn.limpu.hita.data.model.timetable.WEEK_MILLS
 import cn.limpu.hita.utils.TimeTools
@@ -124,6 +132,28 @@ class TimetableRepository @Inject internal constructor(
         if (timetableIds.isEmpty()) return MutableLiveData(emptyList())
         return MTransformations.map(
             eventItemDao.getEventsDuringForTimetables(from, to, timetableIds), ::dedupeDisplayEvents)
+    }
+
+    /** Recollect to retry. A query failure never becomes a successfully read empty list. */
+    fun observeTimelineWindow(
+        from: Long,
+        to: Long,
+        timetableIds: List<String>,
+    ): Flow<TodayReadState<List<EventItem>>> = flow {
+        require(from < to)
+        if (timetableIds.isEmpty()) emit(emptyList())
+        else emitAll(eventItemDao.observeEventsOverlappingForTimetables(from, to, timetableIds))
+    }.asTodayReadState().combine(flow { emitAll(easPreferenceSource.querySessionState.changes) }) { state, _ ->
+        // Account changes reproject the raw snapshot without another SQL query. Retained data
+        // must also be filtered again, so a failed read cannot retain another owner's courses.
+        when (state) {
+            TodayReadState.Loading -> TodayReadState.Loading
+            is TodayReadState.Ready -> TodayReadState.Ready(dedupeDisplayEvents(state.value))
+            is TodayReadState.Failed -> TodayReadState.Failed(state.retained?.let(::dedupeDisplayEvents), state.failure)
+        }
+    }.catch { failure ->
+        if (failure is CancellationException) throw failure
+        emit(TodayReadState.Failed(null, failure))
     }
 
     /**

@@ -9,6 +9,15 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import cn.limpu.hita.data.AppDatabase
+import cn.limpu.hita.data.repository.today.TodayReadState
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.channels.Channel
+import cn.limpu.hita.data.model.eas.EASToken
+import cn.limpu.hita.data.source.preference.EasPreferenceSource
 import cn.limpu.hita.data.model.timetable.DisplayScope
 import cn.limpu.hita.data.model.timetable.EventItem
 import cn.limpu.hita.data.model.timetable.Timetable
@@ -500,4 +509,107 @@ class TimetableDisplayStorageTest {
         assertTrue(repository.getUpcomingExamsWithinReminderWindowSync(now, emptyList()).isEmpty())
         assertTrue(repository.getTodayEventsSync(emptyList()).isEmpty())
     }
+    @Test fun todayReadStateDistinguishesLoadingFromAuthoritativeEmptyTarget() {
+        val resolver = DisplayScopeResolver(app, db)
+        instrumentation.runOnMainSync {
+            assertEquals(TodayReadState.Loading, resolver.readState.value)
+        }
+        val ready = awaitValue(resolver.readState) { it is TodayReadState.Ready }
+        assertNull((ready as TodayReadState.Ready).value)
+        table("new-table")
+        val withTable = awaitValue(resolver.readState) {
+            it is TodayReadState.Ready && it.value?.timetableIds == listOf("new-table")
+        }
+        assertEquals(listOf("new-table"), (withTable as TodayReadState.Ready).value!!.timetableIds)
+    }
+
+    @Test fun todayReadStateTracksGroupMemberChangesFromSameResolver() {
+        group("today-group")
+        table("a", "today-group")
+        val resolver = DisplayScopeResolver(app, db)
+        val initial = awaitValue(resolver.readState) {
+            it is TodayReadState.Ready && it.value?.timetableIds == listOf("a")
+        }
+        assertEquals(DisplayScope.Group("today-group"), (initial as TodayReadState.Ready).value!!.scope)
+        table("b", "today-group")
+        val updated = awaitValue(resolver.readState) {
+            it is TodayReadState.Ready && it.value?.timetableIds?.toSet() == setOf("a", "b")
+        }
+        assertEquals(setOf("a", "b"), (updated as TodayReadState.Ready).value!!.timetableIds.toSet())
+    }
+
+    @Test fun todayWindowFlowRespectsOverlapHiddenScopeAndExistingDisplayDedupe() = runBlocking {
+        table("a"); table("b"); table("unrelated")
+        val start = 1_800_000_000_000L
+        val day = 86_400_000L
+        fun row(id: String, table: String, from: Long, to: Long, hidden: Int = 0) = EventItem().apply {
+            this.id = id; timetableId = table; name = "same teaching occurrence"
+            this.from = Timestamp(from); this.to = Timestamp(to); this.hidden = hidden
+        }
+        db.eventItemDao().saveEvents(listOf(
+            row("a-class", "a", start + 1000, start + 2000),
+            row("b-duplicate", "b", start + 1000, start + 2000),
+            row("overnight", "a", start + day - 1000, start + day + 1000),
+            row("tomorrow", "b", start + day + 2000, start + day + 3000),
+            row("previous-edge", "a", start - 1000, start),
+            row("next-edge", "a", start + 2 * day, start + 2 * day + 1000),
+            row("hidden", "a", start + 4000, start + 5000, hidden = 1),
+            row("unrelated", "unrelated", start + 6000, start + 7000),
+        ))
+        suspend fun read() = withTimeout(10_000) {
+            repository.observeTimelineWindow(start, start + 2 * day, listOf("a", "b"))
+                .first { it is TodayReadState.Ready } as TodayReadState.Ready
+        }
+        val first = read().value
+        assertEquals(3, first.size)
+        assertTrue(first.any { it.id == "overnight" })
+        assertTrue(first.any { it.id == "tomorrow" })
+        assertEquals(1, first.count { it.id in setOf("a-class", "b-duplicate") })
+        assertEquals(first.map { it.id }.toSet(), read().value.map { it.id }.toSet())
+        val empty = withTimeout(10_000) {
+            repository.observeTimelineWindow(start, start + 2 * day, emptyList())
+                .first { it is TodayReadState.Ready } as TodayReadState.Ready
+        }
+        assertTrue(empty.value.isEmpty())
+    }
+
+    @Test fun todayWindowReprojectsAccountCoursesWithoutDatabaseMutation() = runBlocking {
+        table("a")
+        val sessions = EasPreferenceSource(app)
+        val original = sessions.getEasToken()
+        val first = EASToken().apply { username = "today-synthetic-owner-a" }
+        val second = EASToken().apply { username = "today-synthetic-owner-b" }
+        val start = 1_800_000_000_000L
+        fun row(id: String, owner: EASToken?) = EventItem().apply {
+            this.id = id; name = id; timetableId = "a"
+            source = if (owner == null) EventItem.SOURCE_MANUAL
+                else "${EventItem.SOURCE_FOLLOWED_SCHOOL}:section:${FollowedTeachingSectionStore.ownerKey(owner)}"
+            from = Timestamp(start + 1000); to = Timestamp(start + 2000)
+        }
+        val output = Channel<TodayReadState<List<EventItem>>>(Channel.UNLIMITED)
+        sessions.saveEasToken(first)
+        db.eventItemDao().saveEvents(listOf(row("a-course", first), row("b-course", second), row("personal", null)))
+        val operation = launch {
+            repository.observeTimelineWindow(start, start + 3000, listOf("a")).collect { output.send(it) }
+        }
+        suspend fun ids() = withTimeout(10_000) {
+            var state = output.receive()
+            while (state == TodayReadState.Loading) state = output.receive()
+            check(state is TodayReadState.Ready) { "Expected successful local read" }
+            state.value.map { it.id }.toSet()
+        }
+        try {
+            assertEquals(setOf("a-course", "personal"), ids())
+            sessions.saveEasToken(second)
+            assertEquals(setOf("b-course", "personal"), ids())
+            sessions.clearEasToken()
+            assertEquals(setOf("personal"), ids())
+            assertEquals(3, db.eventItemDao().allEventsIncludingHidden("a").size)
+        } finally {
+            operation.cancelAndJoin()
+            output.close()
+            sessions.saveEasToken(original)
+        }
+    }
+
 }
