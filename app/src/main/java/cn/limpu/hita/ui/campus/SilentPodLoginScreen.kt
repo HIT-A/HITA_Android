@@ -21,7 +21,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -57,7 +56,7 @@ internal fun SilentPodLoginScreen(
     var failed by remember { mutableStateOf(false) }
     var incomplete by remember { mutableStateOf(false) }
     var authFailed by remember { mutableStateOf(false) }
-    var loginUrl by remember { mutableStateOf(SilentPodSessionPolicy.HIT_LOGIN_URL) }
+    var loginUrl by remember { mutableStateOf(SilentPodSessionPolicy.LOGIN_URL) }
     var attempt by remember { mutableStateOf(0) }
     val restart: (String) -> Unit = { url ->
         loginUrl = url
@@ -112,7 +111,7 @@ internal fun SilentPodLoginScreen(
         }
         if (failed || authFailed) {
             OutlinedButton(
-                onClick = { restart(SilentPodSessionPolicy.HIT_LOGIN_URL) },
+                onClick = { restart(SilentPodSessionPolicy.LOGIN_URL) },
                 modifier = Modifier.padding(horizontal = tokens.spacing.lg),
             ) { Text(stringResource(R.string.silent_pod_auth_restart)) }
         }
@@ -130,10 +129,6 @@ internal fun SilentPodLoginScreen(
         ) {
             Text(stringResource(R.string.silent_pod_login_confirm))
         }
-        TextButton(
-            onClick = { restart(SilentPodSessionPolicy.ENTRY_URL) },
-            modifier = Modifier.padding(horizontal = tokens.spacing.lg),
-        ) { Text(stringResource(R.string.silent_pod_reader_login)) }
         key(loginUrl, attempt) {
             SilentPodLoginWebView(
                 modifier = Modifier.weight(1f).fillMaxWidth(),

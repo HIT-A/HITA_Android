@@ -16,18 +16,15 @@ class SilentPodSessionPolicyTest {
     private val name = SilentPodSessionPolicy.SESSION_COOKIE
 
     @Test
-    fun `HIT entry lets library generate state and retains reservation service`() {
-        val uri = java.net.URI(SilentPodSessionPolicy.HIT_LOGIN_URL)
+    fun `login starts from reservation entry instead of a CAS deep link`() {
+        val uri = java.net.URI(SilentPodSessionPolicy.LOGIN_URL)
         assertEquals("https", uri.scheme)
-        assertEquals("cas.utszlib.edu.cn", uri.host)
-        assertEquals("/channel-auth", uri.path)
-        val query = uri.rawQuery.split('&').associate {
-            it.substringBefore('=') to java.net.URLDecoder.decode(it.substringAfter('='), "UTF-8")
-        }
-        assertEquals("HARBIN_INSTITUTE_OF_TECHNOLOGY", query["channel"])
-        assertEquals("${SilentPodSessionPolicy.DIRECT_ORIGIN}${SilentPodSessionPolicy.ENTRY_PATH}", query["service"])
-        assertFalse(query.containsKey("state"))
-        assertFalse(query.containsKey("code"))
+        assertEquals("www.utszlib.edu.cn", uri.host)
+        assertEquals(SilentPodSessionPolicy.ENTRY_PATH, uri.path)
+        // 自主深链 channel-auth 会让 CAS 自己生成带双斜杠的 redirect_uri，
+        // 回调时 state 必被拒；登录必须由站点入口发起。
+        assertFalse(uri.toString().contains("channel-auth"))
+        assertFalse(uri.toString().contains("cas.utszlib.edu.cn"))
     }
 
     @Test

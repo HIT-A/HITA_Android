@@ -29,11 +29,15 @@ internal object SilentPodSessionPolicy {
 
     const val ENTRY_PATH = "/space-reservation-fg/"
 
-    // Official HIT icon target, read from the library CAS login page on device.
-    // Enter via the library so it creates and verifies the OAuth state itself.
-    const val HIT_LOGIN_URL = "https://cas.utszlib.edu.cn/channel-auth" +
-        "?channel=HARBIN_INSTITUTE_OF_TECHNOLOGY" +
-        "&service=https%3A%2F%2Fwww.utszlib.edu.cn%2Fspace-reservation-fg%2F"
+    /**
+     * 登录页地址：始终是预约站点自身入口，由站点把用户带到图书馆认证中心。
+     *
+     * 不直接深链 `cas.utszlib.edu.cn/channel-auth`：那条链路由 CAS 自己生成
+     * `redirect_uri`，回调落在 `//channel-auth/callback`（双斜杠），实测返回
+     * 「认证失败，state状态码非法」——state 存在 CAS 服务端会话里，客户端无法修正。
+     * 交给站点入口后，用户在页面里自行选择读者证登录或「三校师生认证」。
+     */
+    val LOGIN_URL: String = ENTRY_URL
 
     fun isAuthenticationErrorPage(url: String): Boolean {
         val uri = parse(url) ?: return false
@@ -50,6 +54,19 @@ internal object SilentPodSessionPolicy {
     /** 业务接口基地址（aTrust 代理域，校外）。 */
     const val GATEWAY_API_BASE_URL =
         "$GATEWAY_ORIGIN/space-reservation-fg/x-space-reservation-api"
+
+    private const val SPACE_API_SUFFIX = "/x-space-reservation-api"
+
+    /**
+     * 读者核验等其他服务的基地址。
+     *
+     * 它们与空间预约共用同一套签名，只是前缀不同（`x-bdc-service-api`）；
+     * 这里按当前会话的 base 推导，避免在直连域 / aTrust 域之间选错。
+     */
+    fun bdcBaseUrlFor(spaceBaseUrl: String): String {
+        if (!spaceBaseUrl.endsWith(SPACE_API_SUFFIX)) return spaceBaseUrl
+        return spaceBaseUrl.removeSuffix(SPACE_API_SUFFIX) + "/x-bdc-service-api"
+    }
 
     /** 会话 Cookie 名：存在且非空即视为已登录。 */
     const val SESSION_COOKIE = "pima.space-reservation-fg.sid"

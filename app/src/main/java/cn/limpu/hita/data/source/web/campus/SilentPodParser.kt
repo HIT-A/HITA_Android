@@ -1,7 +1,10 @@
 package cn.limpu.hita.data.source.web.campus
 
 import cn.limpu.hita.data.model.campus.SilentPodCategory
+import cn.limpu.hita.data.model.campus.SilentPodContact
+import cn.limpu.hita.data.model.campus.SilentPodContacts
 import cn.limpu.hita.data.model.campus.SilentPodGroup
+import cn.limpu.hita.data.model.campus.SilentPodReader
 import cn.limpu.hita.data.model.campus.SilentPodReservation
 import cn.limpu.hita.data.model.campus.SilentPodSpace
 import org.json.JSONArray
@@ -42,13 +45,16 @@ internal object SilentPodParser {
         val name = item.stringOrNull("name") ?: return null
         val spaceTypeId = item.intOrNull("spaceTypeId") ?: return null
         val category = SilentPodCategory.fromSpaceTypeId(spaceTypeId) ?: return null
+        val isSingle = category == SilentPodCategory.SINGLE
         return SilentPodSpace(
             id = id,
             codeName = name,
             areaFullName = item.stringOrNull("areaFullName") ?: "",
             spaceTypeName = item.stringOrNull("spaceTypeName"),
             category = category,
-            capacity = item.intOrNull("capacity") ?: if (category == SilentPodCategory.SINGLE) 1 else 4,
+            capacity = item.intOrNull("capacity") ?: if (isSingle) 1 else 4,
+            teamCapacity = item.intOrNull("teamCapacity") ?: if (isSingle) 1 else 2,
+            isTeam = isTeamReservation(item, category),
             // 缺字段时按分类兜底：只有 spaceTypeId 40 是带门禁的 4 人仓。
             isAccessControl = item.booleanOrNull("isAccessControl")
                 ?: (category == SilentPodCategory.QUAD_LOCKED),
@@ -57,6 +63,47 @@ internal object SilentPodParser {
             minDurationMinutes = item.intOrNull("gtDurationMinutes"),
             maxDurationMinutes = item.intOrNull("ltDurationMinutes"),
         )
+    }
+
+    /**
+     * 是否属于多人仓。
+     *
+     * 以 `reservationType` 为准（`TEAM` / `PERSONAL`）；字段缺失时按分类兜底，
+     * 因为老接口在部分空间上不回这个字段。
+     */
+    private fun isTeamReservation(item: JSONObject, category: SilentPodCategory): Boolean =
+        when (item.stringOrNull("reservationType")?.uppercase()) {
+            "TEAM" -> true
+            "PERSONAL" -> false
+            else -> category != SilentPodCategory.SINGLE
+        }
+
+    /** 解析同行成员列表 `{ data[], other.mobile }`；解析失败按「没有成员」处理。 */
+    fun parseContacts(raw: String): SilentPodContacts {
+        val root = runCatching { JSONObject(raw) }.getOrNull()
+            ?: return SilentPodContacts(emptyList(), null)
+        val mobile = root.optJSONObject("other")?.stringOrNull("mobile")
+        val data = root.optJSONArray("data") ?: return SilentPodContacts(emptyList(), mobile)
+        val contacts = ArrayList<SilentPodContact>(data.length())
+        for (index in 0 until data.length()) {
+            val item = data.optJSONObject(index) ?: continue
+            contactOf(item)?.let(contacts::add)
+        }
+        return SilentPodContacts(contacts, mobile)
+    }
+
+    /** 解析单个联系人；缺少 `id` 或姓名视为无效记录。 */
+    fun contactOf(item: JSONObject): SilentPodContact? {
+        val id = item.intOrNull("id") ?: return null
+        val name = item.stringOrNull("contactUserName") ?: return null
+        return SilentPodContact(id = id, name = name, cardNo = item.stringOrNull("contactUserNo") ?: "")
+    }
+
+    /** 解析读者核验结果 `{ model: { name, cardNo } }`；查不到人返回 `null`。 */
+    fun parseReader(raw: String): SilentPodReader? {
+        val model = runCatching { JSONObject(raw) }.getOrNull()?.optJSONObject("model") ?: return null
+        val name = model.stringOrNull("name") ?: return null
+        return SilentPodReader(name = name, cardNo = model.stringOrNull("cardNo") ?: "")
     }
 
     /** 解析我的预约 `{ data[] }`；`data` 缺失视为没有预约。 */
@@ -160,6 +207,25 @@ internal object SilentPodParser {
         val code = json.stringOrNull("errorCode") ?: json.stringOrNull("code")
         val message = json.stringOrNull("errorMsg") ?: json.stringOrNull("message")
         return listOfNotNull(code, message).joinToString("：").ifBlank { null }
+    }
+
+    /**
+     * 业务错误信封里的 `errorCode`。
+     *
+     * 与 [errorMessageOf] 分开取：UI 要按错误码给出可操作文案，
+     * 而服务端 `errorMsg` 有时过于笼统（例如 `INVALID_FIELD` 只写「预约时间异常」）。
+     */
+    fun errorCodeOf(raw: String): String? {
+        val json = runCatching { JSONObject(raw) }.getOrNull() ?: return null
+        if (json.optBoolean("success", true)) return null
+        return json.stringOrNull("errorCode") ?: json.stringOrNull("code")
+    }
+
+    /** 业务错误信封里的纯文案（不含错误码前缀），供兜底提示使用。 */
+    fun errorMessageOnlyOf(raw: String): String? {
+        val json = runCatching { JSONObject(raw) }.getOrNull() ?: return null
+        if (json.optBoolean("success", true)) return null
+        return json.stringOrNull("errorMsg") ?: json.stringOrNull("message")
     }
 
     /** 列表信封里的 `data` 数组；缺失或类型不对时返回 `null`。 */

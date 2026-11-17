@@ -1,6 +1,9 @@
 package cn.limpu.hita.data.source.web.campus
 
+import cn.limpu.hita.data.model.campus.SilentPodContact
+import cn.limpu.hita.data.model.campus.SilentPodContacts
 import cn.limpu.hita.data.model.campus.SilentPodContent
+import cn.limpu.hita.data.model.campus.SilentPodReader
 import cn.limpu.hita.data.model.campus.SilentPodReservation
 import cn.limpu.hita.data.model.campus.SilentPodSpace
 import kotlinx.coroutines.Dispatchers
@@ -69,6 +72,97 @@ internal class SilentPodClient(
         )
         SilentPodParser.parseSpaces(get(urlForSpaces(baseUrl, date), cookie))
     }
+
+    /**
+     * 同行成员列表。
+     *
+     * 多人仓预约必须带 `subUserContactsIds`，所以对话框打开前要先拿到列表；
+     * `defaultMobile` 是服务端记住的常用手机号，可用于预填。
+     */
+    suspend fun fetchContacts(
+        cookieHeader: String,
+        baseUrl: String = SilentPodSessionPolicy.API_BASE_URL,
+    ): SilentPodContacts = withContext(Dispatchers.IO) {
+        val cookie = requireSession(cookieHeader)
+        val url = SilentPodSigner.signedUrl(
+            baseUrl = baseUrl,
+            path = "web/reservation-contacts",
+            query = listOf("page" to "1", "limit" to "100"),
+        )
+        SilentPodParser.parseContacts(get(url, cookie))
+    }
+
+    /**
+     * 用读者证号核验姓名，添加同行成员前调用。
+     *
+     * 走 `x-bdc-service-api`（与空间预约同一套签名，前缀不同）；
+     * 查不到人时服务端返回 `NO_EXISTS`，由 [get] 抛成业务错误。
+     */
+    suspend fun verifyReader(
+        cookieHeader: String,
+        cardNo: String,
+        baseUrl: String = SilentPodSessionPolicy.API_BASE_URL,
+    ): SilentPodReader? = withContext(Dispatchers.IO) {
+        val cookie = requireSession(cookieHeader)
+        val trimmed = cardNo.trim()
+        if (trimmed.isEmpty()) return@withContext null
+        val url = SilentPodSigner.signedUrl(
+            baseUrl = SilentPodSessionPolicy.bdcBaseUrlFor(baseUrl),
+            path = "commons/readers/$trimmed",
+            query = listOf("cardNo" to trimmed),
+        )
+        SilentPodParser.parseReader(get(url, cookie))
+    }
+
+    /** 保存同行成员；返回服务端分配的 id 与回填的姓名。 */
+    suspend fun createContact(
+        cookieHeader: String,
+        name: String,
+        cardNo: String,
+        baseUrl: String = SilentPodSessionPolicy.API_BASE_URL,
+    ): SilentPodContact = withContext(Dispatchers.IO) {
+        val cookie = requireSession(cookieHeader)
+        val fields = linkedMapOf(
+            "contactUserName" to name.trim(),
+            "contactUserNo" to cardNo.trim(),
+        )
+        val body = JSONObject().apply {
+            put("contactUserName", fields.getValue("contactUserName"))
+            put("contactUserNo", fields.getValue("contactUserNo"))
+        }.toString()
+        val url = SilentPodSigner.signedUrl(
+            baseUrl = baseUrl,
+            path = "web/reservation-contacts",
+            query = emptyList(),
+            bodyFields = fields,
+        )
+        val raw = post(url, cookie, body)
+        val model = runCatching { JSONObject(raw).optJSONObject("model") }.getOrNull()
+        val contact = model?.let(SilentPodParser::contactOf)
+            ?: throw SilentPodException(SilentPodFailureKind.PARSE, detail = "contact")
+        contact
+    }
+
+    /** 删除已保存的同行成员。 */
+    suspend fun removeContact(
+        cookieHeader: String,
+        contactId: Int,
+        baseUrl: String = SilentPodSessionPolicy.API_BASE_URL,
+    ): Unit = withContext(Dispatchers.IO) {
+        val cookie = requireSession(cookieHeader)
+        val url = SilentPodSigner.signedUrl(
+            baseUrl = baseUrl,
+            path = "web/reservation-contacts/$contactId/remove",
+            query = emptyList(),
+        )
+        post(url, cookie, "{}")
+        Unit
+    }
+
+    /** 取已筛过的会话 Cookie；缺失说明调用方没登录，直接按鉴权失败处理。 */
+    private fun requireSession(cookieHeader: String): String =
+        SilentPodSessionPolicy.sessionCookie(cookieHeader)
+            ?: throw SilentPodException(kind = SilentPodFailureKind.AUTHENTICATION)
 
     /**
      * 创建预约。
@@ -253,15 +347,22 @@ internal class SilentPodClient(
             throw SilentPodException(SilentPodFailureKind.AUTHENTICATION)
         }
         if (!response.isSuccessful) {
-            val message = SilentPodParser.errorMessageOf(body)
-            throw SilentPodException(SilentPodFailureKind.API, detail = message ?: "HTTP $code")
+            throw SilentPodException(
+                kind = SilentPodFailureKind.API,
+                code = SilentPodParser.errorCodeOf(body),
+                detail = SilentPodParser.errorMessageOnlyOf(body) ?: "HTTP $code",
+            )
         }
         if (body.isBlank()) {
             if (allowEmpty) return ""
             throw SilentPodException(SilentPodFailureKind.PARSE, detail = url)
         }
-        SilentPodParser.errorMessageOf(body)?.let { message ->
-            throw SilentPodException(SilentPodFailureKind.API, detail = message)
+        SilentPodParser.errorCodeOf(body)?.let { apiCode ->
+            throw SilentPodException(
+                kind = SilentPodFailureKind.API,
+                code = apiCode,
+                detail = SilentPodParser.errorMessageOnlyOf(body),
+            )
         }
         return body
     }

@@ -21,7 +21,10 @@ enum class SilentPodCategory(val spaceTypeId: Int) {
  * 单个静音仓空间及其当日可约时间轴。
  *
  * `allowDurations` / `disabledDurations` 保存服务端原始 `HH:mm-HH:mm` 字符串，
- * 不做时间段解析：当前页面只做展示，不需要落到分钟级模型。
+ * 由 [SilentPodSlotPlanner] 换算成可提交的起止时间。
+ *
+ * `isTeam` 决定预约时是否需要同行成员：多人仓（`TEAM`）服务端要求
+ * `subUserContactsIds` 至少 1 个，否则返回 `TEAM_PEOPLE_NUM_NO_EQUAL`。
  */
 data class SilentPodSpace(
     val id: Int,
@@ -30,11 +33,50 @@ data class SilentPodSpace(
     val spaceTypeName: String?,
     val category: SilentPodCategory,
     val capacity: Int,
+    val teamCapacity: Int,
+    val isTeam: Boolean,
     val isAccessControl: Boolean,
     val allowDurations: List<String>,
     val disabledDurations: List<String>,
     val minDurationMinutes: Int?,
     val maxDurationMinutes: Int?,
+) {
+    /**
+     * 多人仓必须选的同行成员数量（不含本人）。
+     *
+     * 与 iOS 保持一致：4 人仓 `capacity=4`、`teamCapacity=2` → 需选 1–3 名同行。
+     * 单人仓返回 `null`，表示不需要选人。
+     */
+    val requiredGuestRange: IntRange?
+        get() {
+            if (!isTeam) return null
+            val minGuests = maxOf(1, teamCapacity - 1)
+            val maxGuests = maxOf(minGuests, capacity - 1)
+            return minGuests..maxGuests
+        }
+}
+
+/** 已保存的同行成员（多人静音仓预约时需要）。 */
+data class SilentPodContact(
+    val id: Int,
+    val name: String,
+    val cardNo: String,
+)
+
+/** 读者核验结果：添加同行成员前先用证号查姓名，确认没输错人。 */
+data class SilentPodReader(
+    val name: String,
+    val cardNo: String,
+)
+
+/**
+ * 同行成员列表。
+ *
+ * `defaultMobile` 来自服务端 `other.mobile`，用于预填手机号，省得每次重输。
+ */
+data class SilentPodContacts(
+    val contacts: List<SilentPodContact>,
+    val defaultMobile: String?,
 )
 
 /** 一类静音仓及其下辖空间，用于页面分组展示。 */
