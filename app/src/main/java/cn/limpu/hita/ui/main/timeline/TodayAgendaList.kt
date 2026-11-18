@@ -48,7 +48,7 @@ internal fun LazyListScope.todayAgendaItems(state: TodayUiState, expanded: Boole
     if (state.status == TodayPageStatus.FAILED) item("failed") { TodayCard { TodayAgendaFailure(state, action) } }
     state.agenda?.let { agenda ->
         val completed = agenda.allFinished && agenda.invalidEvents.isEmpty()
-        if (completed) item("complete") { TodayCompletionCard(state, action, expanded, onExpand) }
+        if (completed) item("complete") { TodayCompletionCard(state, action, expanded, onExpand, showTomorrow = !expanded) }
         else if (agenda.ended.isNotEmpty()) item("ended-toggle") { TodayEndedToggle(agenda.ended.size, expanded, onExpand) }
         val shown = if (completed) { if (expanded) agenda.ended else emptyList() }
             else if (expanded) agenda.allToday else agenda.remaining
@@ -57,7 +57,9 @@ internal fun LazyListScope.todayAgendaItems(state: TodayUiState, expanded: Boole
                 action(TodayAction.OpenEvent(event.id))
             }
         }
-        if (!completed && agenda.tomorrow != null) item("tomorrow") { TodayCompletionCard(state, action, showCompletion = false) }
+        if ((!completed || expanded) && agenda.tomorrow != null) item("tomorrow") {
+            TodayCompletionCard(state, action, showCompletion = false)
+        }
     }
     items(hints, key = { "hint:${it.id}" }) { hint ->
         TodayCard { Text(hint.name); TextButton(onClick = { onHint(hint) }) { Text(stringResource(R.string.today_hint_confirm)) } }

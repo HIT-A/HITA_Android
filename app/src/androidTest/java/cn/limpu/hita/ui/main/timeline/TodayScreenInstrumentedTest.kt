@@ -169,6 +169,38 @@ class TodayScreenInstrumentedTest {
         }
     }
 
+    @Test fun expandingFinishedDayShowsHistoryImmediatelyBeforeTallTomorrowGroup() {
+        val history = event("Fixture finished course", now - 60_000, now)
+        val tomorrow = (1..4).map { index ->
+            event("Fixture tomorrow course $index", window.tomorrowStart + 8 * 3_600_000,
+                window.tomorrowStart + 9 * 3_600_000)
+        }
+        val rendered = state(listOf(history) + tomorrow, window.preparationStart)
+        var action: TodayAction? = null
+        ActivityScenario.launch(ComponentActivity::class.java).use { scenario ->
+            scenario.onActivity { activity -> activity.setContentView(ComposeView(activity).apply {
+                setContent { HitaComposeTheme { TodayScreen(rendered, emptyList(), {}, { action = it }) } }
+            }) }
+            clickText(base.getString(R.string.today_finished_count, 1))
+            // Do not auto-scroll: expanding must reveal a finished course in the current viewport,
+            // even when the tomorrow group would otherwise fill the entire agenda window.
+            awaitNode("finished course immediately after expansion") {
+                it.isVisibleToUser && it.text?.toString() == history.name
+            }
+            awaitNode("finished count remains visible") {
+                it.isVisibleToUser && it.text?.toString() == base.getString(R.string.today_finished_count, 1)
+            }
+            awaitNode("collapse control remains visible") {
+                it.isVisibleToUser && it.text?.toString() == base.getString(R.string.today_collapse)
+            }
+            clickText(history.name)
+            assertEquals(TodayAction.OpenEvent(history.id), action)
+            clickText(base.getString(R.string.today_collapse))
+            assertFalse(hasText(history.name))
+            awaitText(base.getString(R.string.today_tomorrow, "2026-11-18"))
+        }
+    }
+
     @Test fun approvedDesignDayAndEveningRenderWithSourceSummaries() {
         val course = event("概率论与数理统计", now + 12 * 60_000, now + 107 * 60_000).apply {
             fromNumber = 3; lastNumber = 4; place = "T3201"; teacher = "张老师"

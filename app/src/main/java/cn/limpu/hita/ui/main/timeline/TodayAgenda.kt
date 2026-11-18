@@ -42,8 +42,10 @@ internal fun TodayAgendaHeading(state: TodayUiState, action: (TodayAction) -> Un
 internal fun TodayEndedToggle(count: Int, expanded: Boolean, onExpand: () -> Unit) {
     Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable(onClick = onExpand),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(stringResource(if (expanded) R.string.today_collapse else R.string.today_ended_count, count), style = todayMeta(),
+        Text(stringResource(R.string.today_ended_count, count), modifier = Modifier.weight(1f), style = todayMeta(),
             color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(stringResource(if (expanded) R.string.today_collapse else R.string.expand), style = todayMeta(),
+            color = MaterialTheme.colorScheme.primary)
         Icon(painterResource(R.drawable.ic_baseline_keyboard_arrow_right_24), null,
             Modifier.size(16.dp).rotate(if (expanded) -90f else 90f), tint = MaterialTheme.colorScheme.onSurfaceVariant)
     }

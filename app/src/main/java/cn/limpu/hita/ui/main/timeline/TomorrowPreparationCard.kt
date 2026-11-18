@@ -19,19 +19,23 @@ import cn.limpu.hita.R
 
 @Composable
 internal fun TodayCompletionCard(state: TodayUiState, action: (TodayAction) -> Unit, expanded: Boolean = false,
-    onExpand: (() -> Unit)? = null, showCompletion: Boolean = true) {
+    onExpand: (() -> Unit)? = null, showCompletion: Boolean = true, showTomorrow: Boolean = true) {
     val agenda = state.agenda ?: return
     TodayCard {
         if (showCompletion) Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).then(
             if (agenda.allToday.isNotEmpty() && onExpand != null) Modifier.clickable(onClick = onExpand) else Modifier), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Icon(painterResource(R.drawable.ic_circle_done), null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
             Text(if (agenda.allToday.isEmpty()) stringResource(R.string.today_empty)
-                else if (expanded) stringResource(R.string.today_collapse) else stringResource(R.string.today_finished_count, agenda.completedCount),
+                else stringResource(R.string.today_finished_count, agenda.completedCount), modifier = Modifier.weight(1f),
                 style = todayMeta(), fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            if (agenda.allToday.isNotEmpty() && onExpand != null) Icon(painterResource(R.drawable.ic_baseline_keyboard_arrow_right_24), null,
-                Modifier.size(16.dp).rotate(if (expanded) -90f else 90f))
+            if (agenda.allToday.isNotEmpty() && onExpand != null) {
+                Text(stringResource(if (expanded) R.string.today_collapse else R.string.expand), style = todayMeta(),
+                    color = MaterialTheme.colorScheme.primary)
+                Icon(painterResource(R.drawable.ic_baseline_keyboard_arrow_right_24), null,
+                    Modifier.size(16.dp).rotate(if (expanded) -90f else 90f))
+            }
         }
-        agenda.tomorrow?.let { tomorrow ->
+        if (showTomorrow) agenda.tomorrow?.let { tomorrow ->
             if (showCompletion) HorizontalDivider(Modifier.padding(vertical = 6.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f))
             Text(stringResource(R.string.today_tomorrow, tomorrow.date.toString()), style = todayLabel(),
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
