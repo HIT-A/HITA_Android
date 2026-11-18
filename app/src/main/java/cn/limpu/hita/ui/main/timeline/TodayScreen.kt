@@ -51,7 +51,7 @@ private fun TodayScreenContent(state: TodayUiState, onAction: (TodayAction) -> U
             if (mode == TodayLayoutMode.PAGE_SCROLL) {
                 if (todayHasAgendaData(state)) LazyColumn(state = pageScroll, modifier = Modifier.fillMaxSize().testTag("today-page-scroll"),
                     contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 4.dp, bottom = bottomClearance + 12.dp),
-                    verticalArrangement = Arrangement.spacedBy(if (dense) 8.dp else 12.dp)) {
+                    verticalArrangement = Arrangement.spacedBy(if (dense) 6.dp else 10.dp)) {
                     item("header") { TodayHeader(state) }
                     todayAgendaItems(state, expanded, { expanded = !expanded }, onAction, dense)
                     item("summaries") { TodaySummaryCards(state, onAction) }
@@ -66,7 +66,7 @@ private fun TodayScreenContent(state: TodayUiState, onAction: (TodayAction) -> U
                 if (todayHasAgendaData(state)) LazyColumn(state = agendaScroll,
                     modifier = Modifier.weight(1f).fillMaxWidth().todayScrollFade(agendaScroll).testTag("today-agenda-scroll"),
                     contentPadding = PaddingValues(horizontal = 20.dp, vertical = 4.dp),
-                    verticalArrangement = Arrangement.spacedBy(if (dense) 8.dp else 12.dp)) {
+                    verticalArrangement = Arrangement.spacedBy(if (dense) 6.dp else 10.dp)) {
                     todayAgendaItems(state, expanded, { expanded = !expanded }, onAction, dense)
                 } else Box(Modifier.weight(1f).padding(horizontal = 20.dp)) { TodayAgendaPlaceholder(state, onAction) }
                 Spacer(Modifier.height(12.dp))
