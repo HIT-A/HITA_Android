@@ -28,6 +28,7 @@ internal interface TodayReadSources {
     fun currentGraderAccount(): String? = null
     fun currentScope(): ResolvedDisplayScope?
     fun read(query: TodayTimelineQuery): Flow<TodayReadState<List<EventItem>>>
+    fun courseColors(query: TodayTimelineQuery): Flow<Map<String, Int>> = flowOf(emptyMap())
     suspend fun load(source: TodayRetrySource, retry: Boolean = false) {}
     fun visible(visible: Boolean) {}
     suspend fun findEvent(query: TodayTimelineQuery, id: String): EventItem?
@@ -42,6 +43,8 @@ internal open class TimetableTodaySources(
     override fun currentScope() = resolver.resolved.value
     override fun read(query: TodayTimelineQuery) = timetable.observeTimelineWindow(
         query.window.start, query.window.dayAfterStart, query.timetableIds, includeAllExams = true)
+    override fun courseColors(query: TodayTimelineQuery) = timetable.getSubjectColorsOfTimetables(query.timetableIds)
+        .asFlow().map { colors -> colors.associate { it.id to it.color } }
     override suspend fun findEvent(query: TodayTimelineQuery, id: String): EventItem? = withContext(Dispatchers.IO) {
         val scope = resolver.currentSync() ?: return@withContext null
         if (TodayTimelineQuery.from(scope, query.window) != query) return@withContext null

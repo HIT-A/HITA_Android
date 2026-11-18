@@ -11,7 +11,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onStart
 
 /** A minute tick never changes this key; scope, membership, date and time zone do. */
 data class TodayTimelineQuery private constructor(
@@ -27,13 +27,14 @@ data class TodayTimelineQuery private constructor(
     }
 }
 
-data class TodayTimelineSnapshot(val query: TodayTimelineQuery, val events: List<EventItem>)
+data class TodayTimelineSnapshot(val query: TodayTimelineQuery, val events: List<EventItem>, val courseColors: Map<String, Int> = emptyMap())
 
 /** Switching queries cancels the old subscription and clears its retained snapshot. */
 @OptIn(ExperimentalCoroutinesApi::class)
 internal fun observeTodayTimeline(
     queries: Flow<TodayReadState<TodayTimelineQuery?>>,
     retries: Flow<Int>,
+    readCourseColors: (TodayTimelineQuery) -> Flow<Map<String, Int>> = { flowOf(emptyMap()) },
     read: (TodayTimelineQuery) -> Flow<TodayReadState<List<EventItem>>>,
 ): Flow<TodayReadState<TodayTimelineSnapshot?>> = combine(queries, retries) { query, retry -> query to retry }
     .distinctUntilChanged()
@@ -44,15 +45,15 @@ internal fun observeTodayTimeline(
             is TodayReadState.Ready -> {
                 val query = state.value
                 if (query == null) flowOf(TodayReadState.Ready(null))
-                else read(query).map { result ->
+                else read(query).combine(readCourseColors(query)) { result, colors ->
                     when (result) {
                         TodayReadState.Loading -> TodayReadState.Loading
-                        is TodayReadState.Ready -> TodayReadState.Ready(TodayTimelineSnapshot(query, result.value))
+                        is TodayReadState.Ready -> TodayReadState.Ready(TodayTimelineSnapshot(query, result.value, colors))
                         is TodayReadState.Failed -> TodayReadState.Failed(
-                            result.retained?.let { TodayTimelineSnapshot(query, it) }, result.failure,
+                            result.retained?.let { TodayTimelineSnapshot(query, it, colors) }, result.failure,
                         )
                     }
-                }
+                }.onStart { emit(TodayReadState.Loading) }.distinctUntilChanged()
             }
         }
     }.buffer(0)

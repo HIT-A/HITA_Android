@@ -21,6 +21,14 @@ import cn.limpu.hita.ui.main.rememberMainBottomBarClearance
 @Composable
 internal fun TodayScreen(state: TodayUiState, hints: List<EventItem>, onHint: (EventItem) -> Unit,
     onAction: (TodayAction) -> Unit, bottomClearance: Dp = rememberMainBottomBarClearance()) {
+    TodayCourseColors(state) {
+        TodayScreenContent(state, hints, onHint, onAction, bottomClearance)
+    }
+}
+
+@Composable
+private fun TodayScreenContent(state: TodayUiState, hints: List<EventItem>, onHint: (EventItem) -> Unit,
+    onAction: (TodayAction) -> Unit, bottomClearance: Dp) {
     val holder = rememberSaveableStateHolder()
     holder.SaveableStateProvider("${state.scopeKey}:${state.window.date}") {
         var expanded by rememberSaveable { mutableStateOf(false) }

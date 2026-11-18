@@ -44,7 +44,7 @@ class FragmentTimelineViewModel internal constructor(
         is TodayReadState.Failed -> TodayReadState.Failed(null, scope.failure)
         is TodayReadState.Ready -> TodayReadState.Ready(scope.value?.let { TodayTimelineQuery.from(it, tick.window) })
     } }
-    private val timeline = observeTodayTimeline(queries, retries, sources::read)
+    private val timeline = observeTodayTimeline(queries, retries, sources::courseColors, sources::read)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(0, 0), TodayReadState.Loading)
     private data class Summaries(val homework: cn.limpu.hita.data.repository.homework.HomeworkState,
         val grader: cn.limpu.hita.data.repository.grader.GraderState,
@@ -73,7 +73,8 @@ class FragmentTimelineViewModel internal constructor(
             TodayHomeworkProjection.project(summary.homework, summary.grader, summary.session.graderAvailable, tick.now, tick.window.zoneId),
             TodayExamProjection.project(tick.window, tick.now, snapshot?.events.orEmpty(), expected?.timetableIds.orEmpty().toSet(),
                 summary.exams, summary.session.ownerKey, summary.session.generation), expected?.timetableIds.orEmpty(),
-            scopeOptions = options.map { TodayScopeOption(it.scope, it.name, it.memberCount, it.scope == scope?.scope) })
+            scopeOptions = options.map { TodayScopeOption(it.scope, it.name, it.memberCount, it.scope == scope?.scope) },
+            courseColors = snapshot?.courseColors.orEmpty())
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(0, 0), TodayUiState(reading.value.now, reading.value.window))
 
     // Kept for non-UI consumers and the existing storage regression harness.

@@ -23,7 +23,6 @@ import androidx.compose.ui.unit.sp
 import cn.limpu.hita.R
 import cn.limpu.hita.data.model.timetable.EventItem
 import cn.limpu.hita.feature.timetable.display.EventTimePolicy
-import cn.limpu.hita.ui.design.hitaCourseColor
 
 @Composable
 internal fun TodayAgendaHeading(state: TodayUiState, action: (TodayAction) -> Unit) {
@@ -55,30 +54,30 @@ internal fun TodayEndedToggle(count: Int, expanded: Boolean, onExpand: () -> Uni
 internal fun TodayEventCard(event: EventItem, state: TodayUiState, conflict: Boolean, flat: Boolean = false, onClick: () -> Unit) {
     val phase = EventTimePolicy.phase(event.from.time, event.to.time, state.now)
     val ended = phase == EventTimePolicy.Phase.ENDED
-    val accent = hitaCourseColor(event.subjectId.ifBlank { event.name }, event.color)
-    val container = if (ended) MaterialTheme.colorScheme.surface else todayTonalContainer(accent)
-    val strip = if (ended) MaterialTheme.colorScheme.outlineVariant else accent
+    val accent = todayCourseColor(event)
+    val container = todayTonalContainer(accent, muted = ended)
+    val strip = if (ended) accent.copy(alpha = 0.8f) else accent
     val body: @Composable () -> Unit = {
         BoxWithConstraints(Modifier.fillMaxWidth().drawBehind {
-            drawRoundRect(if (flat) Color.Transparent else strip, Offset(0f, 6.dp.toPx()), Size(4.dp.toPx(), (size.height - 12.dp.toPx()).coerceAtLeast(0f)), CornerRadius(4.dp.toPx()))
-        }.padding(start = if (flat) 0.dp else 16.dp)) {
+            drawRoundRect(strip, Offset(0f, 6.dp.toPx()), Size(4.dp.toPx(), (size.height - 12.dp.toPx()).coerceAtLeast(0f)), CornerRadius(4.dp.toPx()))
+        }.padding(start = 16.dp)) {
             val stacked = maxWidth < 240.dp || LocalDensity.current.fontScale > 1.25f
             if (stacked) Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                EventBody(event, state, phase, conflict)
-                TodayLocation(event.place, Modifier.align(Alignment.End))
+                EventBody(event, state, phase, conflict, accent)
+                TodayLocation(event.place, accent, Modifier.align(Alignment.End))
             } else Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Column(Modifier.weight(1f)) { EventBody(event, state, phase, conflict) }
-                TodayLocation(event.place, Modifier.widthIn(min = 72.dp, max = 104.dp))
+                Column(Modifier.weight(1f)) { EventBody(event, state, phase, conflict, accent) }
+                TodayLocation(event.place, accent, Modifier.widthIn(min = 72.dp, max = 104.dp))
             }
         }
     }
     if (flat) Box(Modifier.fillMaxWidth().clickable(onClick = onClick).heightIn(min = 48.dp).padding(vertical = 6.dp)) { body() }
     else TodayCard(container = container, padding = PaddingValues(horizontal = 16.dp, vertical = if (ended) 12.dp else 18.dp),
-        onClick = onClick) { body() }
+        onClick = onClick, edgeTint = accent) { body() }
 }
 
 @Composable
-private fun EventBody(event: EventItem, state: TodayUiState, phase: EventTimePolicy.Phase, conflict: Boolean) {
+private fun EventBody(event: EventItem, state: TodayUiState, phase: EventTimePolicy.Phase, conflict: Boolean, accent: Color) {
     val ended = phase == EventTimePolicy.Phase.ENDED
     val secondary = MaterialTheme.colorScheme.onSurfaceVariant
     Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
@@ -96,15 +95,15 @@ private fun EventBody(event: EventItem, state: TodayUiState, phase: EventTimePol
         if (phase == EventTimePolicy.Phase.ACTIVE) {
             LinearProgressIndicator(progress = { EventTimePolicy.progress(event.from.time, event.to.time, state.now) },
                 modifier = Modifier.fillMaxWidth().padding(top = 3.dp).height(3.dp),
-                color = MaterialTheme.colorScheme.primary, trackColor = MaterialTheme.colorScheme.surfaceVariant,
+                color = accent, trackColor = accent.copy(alpha = 0.12f),
                 gapSize = 0.dp, drawStopIndicator = {})
         }
     }
 }
 
 @Composable
-private fun TodayLocation(place: String?, modifier: Modifier = Modifier) {
-    Row(modifier.background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.055f), RoundedCornerShape(50))
+private fun TodayLocation(place: String?, accent: Color, modifier: Modifier = Modifier) {
+    Row(modifier.background(accent.copy(alpha = 0.12f), RoundedCornerShape(50))
         .heightIn(min = 48.dp).padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
         Icon(painterResource(R.drawable.ic_baseline_location_24), null, Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)

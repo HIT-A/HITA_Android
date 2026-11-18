@@ -46,6 +46,7 @@ data class TodayUiState(
     val exams: TodayExamSummary? = null,
     val memberIds: List<String> = emptyList(),
     val scopeOptions: List<TodayScopeOption> = emptyList(),
+    val courseColors: Map<String, Int> = emptyMap(),
 )
 
 data class TodayScopeOption(

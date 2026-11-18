@@ -26,9 +26,9 @@ import cn.limpu.hita.ui.design.hitaStyleCardShape
 
 /** Today's surfaces use the existing theme and course palette; no independent theme preference. */
 @Composable
-internal fun todayTonalContainer(accent: Color): Color = lerp(
+internal fun todayTonalContainer(accent: Color, muted: Boolean = false): Color = lerp(
     MaterialTheme.colorScheme.surface.copy(alpha = 1f), accent,
-    if (HitaTheme.isDark) 0.18f else 0.11f,
+    if (HitaTheme.isDark) { if (muted) 0.16f else 0.24f } else { if (muted) 0.12f else 0.18f },
 )
 
 @Composable
@@ -38,10 +38,11 @@ internal fun TodayCard(
     padding: PaddingValues = PaddingValues(18.dp),
     onClick: (() -> Unit)? = null,
     spacing: Dp = 8.dp,
+    edgeTint: Color? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val shape = hitaStyleCardShape(24.dp, 8.dp)
-    val cardModifier = modifier.fillMaxWidth().hitaGlassCardModifier(shape, elevation = 0.dp)
+    val cardModifier = modifier.fillMaxWidth().hitaGlassCardModifier(shape, elevation = 0.dp, edgeTint = edgeTint)
     val colors = hitaGlassCardColors(containerColor = container, glassAlpha = 0.76f)
     val body: @Composable () -> Unit = {
         Column(Modifier.padding(padding), verticalArrangement = Arrangement.spacedBy(spacing), content = content)

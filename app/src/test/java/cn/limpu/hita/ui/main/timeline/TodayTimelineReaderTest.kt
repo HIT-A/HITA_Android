@@ -12,6 +12,7 @@ import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -94,6 +95,38 @@ class TodayTimelineReaderTest {
                 assertEquals(TodayReadState.Loading, outputs.receive())
                 assertTrue(outputs.receive() is TodayReadState.Ready)
                 assertEquals(2, attempts)
+            } finally { operation.cancelAndJoin(); outputs.close() }
+        }
+    }
+
+    @Test fun `course colors follow scope and date without retaining the previous subscription`() = runBlocking {
+        withTimeout(5_000) {
+            val queries = MutableStateFlow<TodayReadState<TodayTimelineQuery?>>(TodayReadState.Ready(query("a")))
+            val first = MutableStateFlow(mapOf("course-a" to 10, "off-day-course" to 20))
+            val second = MutableStateFlow(mapOf("course-b" to 30))
+            val outputs = Channel<TodayReadState<TodayTimelineSnapshot?>>(Channel.UNLIMITED)
+            val operation = launch {
+                observeTodayTimeline(queries, MutableStateFlow(0),
+                    readCourseColors = { if (it.scopeId == "a") first else second },
+                    read = { flowOf(TodayReadState.Ready(emptyList())) },
+                ).collect { outputs.send(it) }
+            }
+            suspend fun ready(): TodayTimelineSnapshot {
+                while (true) {
+                    val next = outputs.receive()
+                    if (next is TodayReadState.Ready) return requireNotNull(next.value)
+                }
+            }
+            try {
+                assertEquals(first.value, ready().courseColors)
+                queries.value = TodayReadState.Ready(query("a", day = TodayDateWindow.from(
+                    Instant.ofEpochMilli(window.tomorrowStart), window.zoneId)))
+                assertEquals(first.value, ready().courseColors)
+                queries.value = TodayReadState.Ready(query("b"))
+                val changed = ready()
+                assertEquals("b", changed.query.scopeId)
+                assertEquals(second.value, changed.courseColors)
+                assertEquals(0, first.subscriptionCount.value)
             } finally { operation.cancelAndJoin(); outputs.close() }
         }
     }

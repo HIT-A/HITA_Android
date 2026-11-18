@@ -87,7 +87,29 @@ class TodayLayoutInstrumentedTest {
         instrumentation.waitForIdleSync()
         // Main-queue idleness does not wait for Compose scroll animations or virtual-node updates.
         instrumentation.uiAutomation.waitForIdle(150, 3000)
-        if (android.os.Build.VERSION.SDK_INT >= 33) instrumentation.uiAutomation.clearCache()
+        // Accessibility can report idleness between fling updates. Record a baseline only
+        // after the visible text geometry stays unchanged, preserving the 1px restoration check.
+        fun geometry(node: AccessibilityNodeInfo?): List<Pair<String, Rect>> {
+            if (node == null) return emptyList()
+            return buildList {
+                node.text?.toString()?.let { if (node.isVisibleToUser) add(it to bounds(node)) }
+                for (i in 0 until node.childCount) addAll(geometry(node.getChild(i)))
+            }
+        }
+        val deadline = System.nanoTime() + 5_000_000_000L
+        var previous: List<Pair<String, Rect>>? = null
+        var stableSince = System.nanoTime()
+        while (System.nanoTime() < deadline) {
+            instrumentation.waitForIdleSync()
+            if (android.os.Build.VERSION.SDK_INT >= 33) instrumentation.uiAutomation.clearCache()
+            val current = geometry(instrumentation.uiAutomation.rootInActiveWindow)
+            if (current != previous) {
+                previous = current
+                stableSince = System.nanoTime()
+            } else if (current.isNotEmpty() && System.nanoTime() - stableSince >= 350_000_000L) return
+            Thread.sleep(50)
+        }
+        throw AssertionError("Visible geometry did not settle after scrolling")
     }
     private fun scroll() {
         val viewport = bounds(tag("today-agenda-scroll"))
