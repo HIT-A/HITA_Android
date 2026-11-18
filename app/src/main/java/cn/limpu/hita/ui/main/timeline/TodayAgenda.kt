@@ -30,9 +30,10 @@ internal fun TodayAgendaHeading(state: TodayUiState, action: (TodayAction) -> Un
     Row(Modifier.fillMaxWidth().heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(stringResource(R.string.today_agenda), fontSize = 19.sp, lineHeight = 24.sp, fontWeight = FontWeight.Bold)
-        Spacer(Modifier.weight(0.1f))
-        if (state.scopeName != null && state.status != TodayPageStatus.LOADING) {
-            TodayScopePicker(state, Modifier.weight(1f, fill = false), action)
+        Box(Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) {
+            if (state.scopeName != null && state.status != TodayPageStatus.LOADING) {
+                TodayScopePicker(state, Modifier.widthIn(max = 196.dp), action)
+            }
         }
     }
 }

@@ -46,4 +46,15 @@ class TodayVisualPresentationTest {
         assertEquals(2, model.count); assertTrue(model.retained)
         assertEquals(TodaySourceStatus.FAILED, model.sources.single().status)
     }
+    @Test fun compactStatusPrioritizesUnknownSourcesThenOverdueAndKnownEmpty() {
+        val local = source(TodayHomeworkSource.LOCAL, 0).copy(overdue = 0)
+        val disconnected = source(TodayHomeworkSource.GRADER, null, TodaySourceStatus.DISCONNECTED)
+        assertEquals(TodayCompactHomeworkStatus.Source(TodayHomeworkSource.GRADER, TodaySourceStatus.DISCONNECTED),
+            todayCompactHomeworkStatus(TodayHomeworkSummary(local, disconnected)))
+        val grader = disconnected.copy(status = TodaySourceStatus.READY, dueToday = 0, overdue = 0)
+        assertEquals(TodayCompactHomeworkStatus.Empty, todayCompactHomeworkStatus(TodayHomeworkSummary(local, grader)))
+        assertEquals(TodayCompactHomeworkStatus.Overdue(2), todayCompactHomeworkStatus(TodayHomeworkSummary(local.copy(overdue = 2), grader)))
+        assertEquals(TodayCompactHomeworkStatus.Source(TodayHomeworkSource.LOCAL, TodaySourceStatus.FAILED),
+            todayCompactHomeworkStatus(TodayHomeworkSummary(local.copy(status = TodaySourceStatus.FAILED), grader)))
+    }
 }

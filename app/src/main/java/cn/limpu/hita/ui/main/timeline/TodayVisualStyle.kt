@@ -14,6 +14,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.style.LineHeightStyle
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.dp
 import cn.limpu.hita.ui.design.HitaTheme
@@ -35,13 +37,14 @@ internal fun TodayCard(
     container: Color = MaterialTheme.colorScheme.surface,
     padding: PaddingValues = PaddingValues(18.dp),
     onClick: (() -> Unit)? = null,
+    spacing: Dp = 8.dp,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val shape = hitaStyleCardShape(24.dp, 8.dp)
     val cardModifier = modifier.fillMaxWidth().hitaGlassCardModifier(shape, elevation = 0.dp)
     val colors = hitaGlassCardColors(containerColor = container, glassAlpha = 0.76f)
     val body: @Composable () -> Unit = {
-        Column(Modifier.padding(padding), verticalArrangement = Arrangement.spacedBy(8.dp), content = content)
+        Column(Modifier.padding(padding), verticalArrangement = Arrangement.spacedBy(spacing), content = content)
     }
     if (onClick == null) Card(modifier = cardModifier, shape = shape, colors = colors,
         border = hitaGlassCardBorder(), content = { body() })
@@ -49,8 +52,15 @@ internal fun TodayCard(
         border = hitaGlassCardBorder(), content = { body() })
 }
 
-/** Pair small text with its line height while keeping the active theme font and line-height style. */
-@Composable internal fun todayCaption(): TextStyle = LocalTextStyle.current.merge(TextStyle(fontSize = 11.sp, lineHeight = 16.sp))
-@Composable internal fun todayLabel(): TextStyle = LocalTextStyle.current.merge(TextStyle(fontSize = 12.sp, lineHeight = 16.sp))
-@Composable internal fun todayMeta(): TextStyle = LocalTextStyle.current.merge(TextStyle(fontSize = 13.sp, lineHeight = 18.sp))
-@Composable internal fun todayBody(): TextStyle = LocalTextStyle.current.merge(TextStyle(fontSize = 14.sp, lineHeight = 20.sp))
+/** Keep the theme font and explicit line-height style; avoid trimming first/last lines by default. */
+@Composable
+private fun todayTextStyle(size: Int, height: Int): TextStyle {
+    val inherited = LocalTextStyle.current
+    return inherited.merge(TextStyle(fontSize = size.sp, lineHeight = height.sp,
+        lineHeightStyle = inherited.lineHeightStyle ?: LineHeightStyle(LineHeightStyle.Alignment.Center, LineHeightStyle.Trim.None)))
+}
+
+@Composable internal fun todayCaption(): TextStyle = todayTextStyle(11, 16)
+@Composable internal fun todayLabel(): TextStyle = todayTextStyle(12, 16)
+@Composable internal fun todayMeta(): TextStyle = todayTextStyle(13, 18)
+@Composable internal fun todayBody(): TextStyle = todayTextStyle(14, 20)

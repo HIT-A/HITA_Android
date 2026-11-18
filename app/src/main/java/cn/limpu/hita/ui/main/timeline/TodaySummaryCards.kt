@@ -17,21 +17,21 @@ import java.time.Instant
 import java.time.format.DateTimeFormatter
 
 private data class SummaryPresentation(val label: String, val value: String, val unit: String,
-    val detail: String, val source: String, val icon: Int, val action: TodayAction, val warning: Boolean = false)
+    val detail: String, val source: String, val icon: Int, val action: TodayAction, val warning: Boolean = false, val compactDetail: String = detail)
 
 @Composable
-internal fun TodaySummaryCards(state: TodayUiState, action: (TodayAction) -> Unit, fixed: Boolean = false) {
+internal fun TodaySummaryCards(state: TodayUiState, action: (TodayAction) -> Unit, fixed: Boolean = false, compact: Boolean = false) {
     val exam = if (state.status != TodayPageStatus.NO_TARGET) examPresentation(state) else null
     val homework = homeworkPresentation(state)
     val cards = listOfNotNull(exam, homework)
     BoxWithConstraints(Modifier.fillMaxWidth()) {
         if (!fixed && (maxWidth < 320.dp || LocalDensity.current.fontScale > 1.25f)) {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                cards.forEach { SummaryCard(it, Modifier, false, action) }
+                cards.forEach { SummaryCard(it, Modifier, false, false, action) }
             }
-        } else Row(if (fixed) Modifier.height((56f + 82f * LocalDensity.current.fontScale).dp)
+        } else Row(if (fixed) Modifier.height((if (compact) 28f + 40f * LocalDensity.current.fontScale else 56f + 82f * LocalDensity.current.fontScale).dp)
             else Modifier.height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            cards.forEach { SummaryCard(it, Modifier.weight(1f).fillMaxHeight(), fixed, action) }
+            cards.forEach { SummaryCard(it, Modifier.weight(1f).fillMaxHeight(), fixed, compact, action) }
         }
     }
 }
@@ -91,13 +91,27 @@ private fun homeworkPresentation(state: TodayUiState): SummaryPresentation {
             }.joinToString(" · ")
         else -> model.known.map { stringResource(R.string.today_source_count, sourceName(it.source), it.dueToday ?: 0) }.joinToString(" · ")
     }
+    val compactDetail = state.homework?.let { compactHomeworkText(todayCompactHomeworkStatus(it)) } ?: detail
     return SummaryPresentation(label, model?.count?.toString() ?: stringResource(R.string.today_count_unknown),
         stringResource(R.string.today_homework_unit), detail, sourceText, R.drawable.ic_baseline_check_24,
-        TodayAction.OpenHomework(model?.singleSource ?: TodayHomeworkSource.LOCAL), model != null && model.overdue > 0)
+        TodayAction.OpenHomework(model?.singleSource ?: TodayHomeworkSource.LOCAL), model != null && model.overdue > 0, compactDetail)
 }
 
 @Composable
-private fun SummaryCard(model: SummaryPresentation, modifier: Modifier, fixed: Boolean, action: (TodayAction) -> Unit) {
+private fun SummaryCard(model: SummaryPresentation, modifier: Modifier, fixed: Boolean, compact: Boolean, action: (TodayAction) -> Unit) {
+    if (compact) {
+        TodayCard(modifier, padding = PaddingValues(horizontal = 14.dp, vertical = 12.dp), spacing = 4.dp,
+            onClick = { action(model.action) }) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(model.label, style = todayLabel(), maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(model.value, fontSize = 20.sp, lineHeight = 24.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+            }
+            Text(model.compactDetail, style = todayCaption(), maxLines = 1, overflow = TextOverflow.Ellipsis,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        return
+    }
     val lines = if (fixed) 1 else Int.MAX_VALUE
     TodayCard(modifier, padding = PaddingValues(16.dp), onClick = { action(model.action) }) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -127,3 +141,13 @@ private fun sourceStatus(status: TodaySourceStatus): String = stringResource(whe
     TodaySourceStatus.DISCONNECTED -> R.string.today_disconnected
     else -> R.string.today_unknown
 })
+
+@Composable
+private fun compactHomeworkText(status: TodayCompactHomeworkStatus): String = when (status) {
+    is TodayCompactHomeworkStatus.Source -> stringResource(R.string.today_source_status, sourceName(status.source), sourceStatus(status.status))
+    is TodayCompactHomeworkStatus.Overdue -> stringResource(R.string.today_overdue_count, status.count)
+    is TodayCompactHomeworkStatus.Pending -> stringResource(R.string.today_date_pending_count, status.count)
+    TodayCompactHomeworkStatus.Empty -> stringResource(R.string.today_homework_empty)
+    TodayCompactHomeworkStatus.Due -> stringResource(R.string.today_homework_due)
+    TodayCompactHomeworkStatus.Loading -> stringResource(R.string.today_loading)
+}

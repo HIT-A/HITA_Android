@@ -78,6 +78,14 @@ class TodayLayoutInstrumentedTest {
         val last = await { it.text?.toString() == "a-14" || it.contentDescription?.toString()?.contains("a-14") == true }
         assertTrue(bounds(last).bottom <= before.top)
     }
+    @Test fun shortScreensUseCompactSummaries() = host(height = 538) { _, _ ->
+        tag("today-fixed")
+        assertEquals(51f, bounds(tag("today-fixed-summaries")).height().toFloat(), 1f)
+    }
+    @Test fun largerTextUsesCompactSummaries() = host(scale = 1.3f) { _, _ ->
+        tag("today-fixed")
+        assertEquals(60f, bounds(tag("today-fixed-summaries")).height().toFloat(), 1f)
+    }
     @Test fun landscapeHeightUsesOnePageList() = host(height = 240) { _, _ -> tag("today-page-scroll") }
     @Test fun loadingAndReadyKeepIdenticalSummaryHeight() = host { rendered, scenario ->
         val before = bounds(tag("today-fixed-summaries"))

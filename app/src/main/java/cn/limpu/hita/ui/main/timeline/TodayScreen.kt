@@ -49,7 +49,7 @@ internal fun TodayScreen(state: TodayUiState, hints: List<EventItem>, onHint: (E
                     TodaySummaryCards(state, onAction)
                 }
             } else Column(Modifier.fillMaxSize().padding(bottom = bottomClearance + 12.dp).testTag("today-fixed")) {
-                TodayHeader(state, fixed = true)
+                TodayHeader(state, fixed = true, compact = mode == TodayLayoutMode.FIXED_COMPACT)
                 Spacer(Modifier.height(12.dp))
                 Box(Modifier.padding(horizontal = 20.dp).height(48.dp)) {
                     TodayAgendaHeading(state, onAction)
@@ -63,7 +63,7 @@ internal fun TodayScreen(state: TodayUiState, hints: List<EventItem>, onHint: (E
                 } else Box(Modifier.weight(1f).padding(horizontal = 20.dp)) { TodayAgendaPlaceholder(state, onAction) }
                 Spacer(Modifier.height(12.dp))
                 Box(Modifier.padding(horizontal = 20.dp).testTag("today-fixed-summaries")) {
-                    TodaySummaryCards(state, onAction, fixed = true)
+                    TodaySummaryCards(state, onAction, fixed = true, compact = mode == TodayLayoutMode.FIXED_COMPACT)
                 }
             }
         }
