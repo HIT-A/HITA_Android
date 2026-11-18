@@ -60,6 +60,10 @@ interface EventItemDao {
     @Query("SELECT * FROM events WHERE `from` < :toT AND `to` > :fromT AND timetableId IN (:timetableIds) AND hidden = 0")
     fun observeEventsOverlappingForTimetables(fromT: Long, toT: Long, timetableIds: List<String>): kotlinx.coroutines.flow.Flow<List<EventItem>>
 
+    /** Agenda window plus every exam in the same display scope, in one consistent snapshot. */
+    @Query("SELECT * FROM events WHERE timetableId IN (:timetableIds) AND hidden = 0 AND (type = 'EXAM' OR (`from` < :toT AND `to` > :fromT))")
+    fun observeAgendaAndExamsForTimetables(fromT: Long, toT: Long, timetableIds: List<String>): kotlinx.coroutines.flow.Flow<List<EventItem>>
+
     @Query("SELECT * FROM events WHERE `from` < :toT AND `to` > :fromT AND timetableId IN (:timetableIds) AND hidden = 0")
     fun getEventsDuringForTimetablesSync(fromT: Long, toT: Long, timetableIds: List<String>): List<EventItem>
 

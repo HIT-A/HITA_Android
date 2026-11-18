@@ -139,10 +139,12 @@ class TimetableRepository @Inject internal constructor(
         from: Long,
         to: Long,
         timetableIds: List<String>,
+        includeAllExams: Boolean = false,
     ): Flow<TodayReadState<List<EventItem>>> = flow {
         require(from < to)
         if (timetableIds.isEmpty()) emit(emptyList())
-        else emitAll(eventItemDao.observeEventsOverlappingForTimetables(from, to, timetableIds))
+        else emitAll(if (includeAllExams) eventItemDao.observeAgendaAndExamsForTimetables(from, to, timetableIds)
+            else eventItemDao.observeEventsOverlappingForTimetables(from, to, timetableIds))
     }.asTodayReadState().combine(flow { emitAll(easPreferenceSource.querySessionState.changes) }) { state, _ ->
         // Account changes reproject the raw snapshot without another SQL query. Retained data
         // must also be filtered again, so a failed read cannot retain another owner's courses.

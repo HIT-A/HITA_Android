@@ -46,27 +46,30 @@ private fun examPresentation(state: TodayUiState): SummaryPresentation {
         stringResource(R.string.today_query_pending), R.drawable.ic_baseline_edit_24, TodayAction.OpenExams)
     val summary = requireNotNull(exams)
     val nearest = summary.remaining.firstOrNull()
-    val remote = summary.remaining.any { it.source == TodayExamSource.EAS_QUERY } || summary.timeToConfirm.isNotEmpty()
+    val remote = (summary.remaining + summary.ended).any { it.source == TodayExamSource.EAS_QUERY } || summary.timeToConfirm.isNotEmpty()
     val detail = when {
         summary.timeToConfirm.isNotEmpty() -> stringResource(R.string.today_exam_time_pending, summary.timeToConfirm.size)
         nearest?.start != null -> {
-            val time = Instant.ofEpochMilli(nearest.start).atZone(state.window.zoneId).format(DateTimeFormatter.ofPattern("HH:mm"))
+            val start = Instant.ofEpochMilli(nearest.start).atZone(state.window.zoneId)
+            val time = start.format(DateTimeFormatter.ofPattern(if (start.toLocalDate() == state.window.date) "HH:mm" else "MM-dd HH:mm"))
             nearest.place?.takeIf { it.isNotBlank() }?.let { stringResource(R.string.today_pair, time, it) } ?: time
         }
-        summary.importedCount > 0 -> stringResource(R.string.today_exam_ended)
+        summary.ended.isNotEmpty() -> stringResource(R.string.today_exam_ended)
         else -> stringResource(R.string.today_exam_empty)
     }
     val source = when {
+        summary.ended.isNotEmpty() -> stringResource(R.string.today_exam_ended_count, summary.ended.size)
         summary.coverage.any { it.status == TodaySourceStatus.FAILED } || summary.remaining.any { it.retained } -> stringResource(R.string.today_retained)
         summary.coverage.any { it.status == TodaySourceStatus.LOADING } -> stringResource(R.string.today_loading)
         summary.unbound.isNotEmpty() -> stringResource(R.string.today_exam_other, summary.unbound.size)
         summary.coverage.any { it.partial || it.truncated } -> stringResource(R.string.today_exam_check)
-        summary.coverage.none { it.targetTimetableId in state.memberIds } -> stringResource(R.string.today_query_pending)
+        summary.importedCount == 0 && summary.coverage.none { it.targetTimetableId in state.memberIds } -> stringResource(R.string.today_query_pending)
         else -> stringResource(if (remote) R.string.today_exam_eas else R.string.today_imported)
     }
     return SummaryPresentation(stringResource(if (remote) R.string.today_exam_card_mixed else R.string.today_exam_card),
         summary.remaining.size.toString(), stringResource(R.string.today_exam_unit), detail, source,
-        R.drawable.ic_baseline_edit_24, TodayAction.OpenExams)
+        R.drawable.ic_baseline_edit_24, TodayAction.OpenExams,
+        compactDetail = if (summary.ended.isNotEmpty()) stringResource(R.string.today_exam_ended_count, summary.ended.size) else detail)
 }
 
 @Composable

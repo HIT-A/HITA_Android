@@ -40,7 +40,8 @@ internal open class TimetableTodaySources(
     override val scopes get() = resolver.readState.asFlow()
     override val scopeOptions get() = resolver.options.asFlow()
     override fun currentScope() = resolver.resolved.value
-    override fun read(query: TodayTimelineQuery) = timetable.observeTimelineWindow(query.window.start, query.window.dayAfterStart, query.timetableIds)
+    override fun read(query: TodayTimelineQuery) = timetable.observeTimelineWindow(
+        query.window.start, query.window.dayAfterStart, query.timetableIds, includeAllExams = true)
     override suspend fun findEvent(query: TodayTimelineQuery, id: String): EventItem? = withContext(Dispatchers.IO) {
         val scope = resolver.currentSync() ?: return@withContext null
         if (TodayTimelineQuery.from(scope, query.window) != query) return@withContext null

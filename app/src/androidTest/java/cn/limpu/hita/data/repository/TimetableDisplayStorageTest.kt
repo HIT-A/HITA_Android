@@ -573,6 +573,44 @@ class TimetableDisplayStorageTest {
         assertTrue(empty.value.isEmpty())
     }
 
+    @Test fun todayOverviewIncludesAllScopeExamsWithoutExpandingCourseWindowAndReactsToChanges() = runBlocking {
+        table("a"); table("b"); table("other")
+        val start = 1_800_000_000_000L
+        val day = 86_400_000L
+        fun row(id: String, table: String, time: Long, exam: Boolean = true) = EventItem().apply {
+            this.id = id; name = id; timetableId = table
+            type = if (exam) EventItem.TYPE.EXAM else EventItem.TYPE.CLASS
+            from = Timestamp(time); to = Timestamp(time + 1000)
+        }
+        val future = row("future-exam", "b", start + 20 * day)
+        db.eventItemDao().saveEvents(listOf(
+            row("past-exam", "a", start - 20 * day), future,
+            row("today-course", "a", start + 1000, false),
+            row("outside-course", "a", start + 5 * day, false),
+            row("hidden-exam", "a", start + 10 * day).apply { hidden = 1 },
+            row("other-exam", "other", start + 10 * day),
+        ))
+        val output = Channel<TodayReadState<List<EventItem>>>(Channel.UNLIMITED)
+        val operation = launch {
+            repository.observeTimelineWindow(start, start + 2 * day, listOf("a", "b"), includeAllExams = true)
+                .collect { output.send(it) }
+        }
+        suspend fun ids() = withTimeout(10_000) {
+            var state = output.receive()
+            while (state == TodayReadState.Loading) state = output.receive()
+            check(state is TodayReadState.Ready)
+            state.value.map { it.id }.toSet()
+        }
+        try {
+            assertEquals(setOf("past-exam", "future-exam", "today-course"), ids())
+            future.hidden = 1
+            db.eventItemDao().saveEvents(listOf(future))
+            assertEquals(setOf("past-exam", "today-course"), ids())
+        } finally {
+            operation.cancelAndJoin(); output.close()
+        }
+    }
+
     @Test fun todayWindowReprojectsAccountCoursesWithoutDatabaseMutation() = runBlocking {
         table("a")
         val sessions = EasPreferenceSource(app)

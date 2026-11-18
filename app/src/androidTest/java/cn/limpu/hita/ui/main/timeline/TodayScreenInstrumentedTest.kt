@@ -143,6 +143,35 @@ class TodayScreenInstrumentedTest {
         }
     }
 
+    @Test fun examCardShowsFutureDateAndFinishedCountInsteadOfAnEmptyRecordMessage() {
+        fun exam(id: String, start: String, end: String) = event(id,
+            Instant.parse(start).toEpochMilli(), Instant.parse(end).toEpochMilli()).apply {
+            type = EventItem.TYPE.EXAM; timetableId = "fixture"; place = "A101"
+        }
+        val records = listOf(exam("Finished exam", "2026-10-31T06:00:00Z", "2026-10-31T07:00:00Z"),
+            exam("Future exam", "2026-12-06T11:00:00Z", "2026-12-06T13:00:00Z"))
+        val rendered = state(records).copy(memberIds = listOf("fixture"),
+            exams = TodayExamProjection.project(window, now, records, setOf("fixture"),
+                cn.limpu.hita.data.repository.ExamReadSnapshot(), null, 0),
+            homework = TodayHomeworkSummary(
+                TodayHomeworkSourceSummary(TodayHomeworkSource.LOCAL, TodaySourceStatus.READY, dueToday = 0, overdue = 0),
+                TodayHomeworkSourceSummary(TodayHomeworkSource.GRADER, TodaySourceStatus.DISCONNECTED)))
+        var action: TodayAction? = null
+        ActivityScenario.launch(ComponentActivity::class.java).use { scenario ->
+            scenario.onActivity { activity -> activity.setContentView(ComposeView(activity).apply {
+                setContent { HitaComposeTheme { TodayScreen(rendered, emptyList(), {}, { action = it }) } }
+            }) }
+            awaitText(base.getString(R.string.today_exam_card))
+            awaitText("1")
+            awaitText("12-06 19:00 · A101")
+            awaitText(base.getString(R.string.today_exam_ended_count, 1))
+            assertFalse(hasText(base.getString(R.string.today_exam_empty)))
+            awaitText(base.getString(R.string.today_homework_local_short))
+            clickText(base.getString(R.string.today_exam_card))
+            assertEquals(TodayAction.OpenExams, action)
+        }
+    }
+
     @Test fun tomorrowGroupRemainsSingleWhenHistoryExpandsAndUsesActualIds() {
         val at = window.preparationStart
         val first = event("Fixture tomorrow A", window.tomorrowStart + 8 * 3_600_000, window.tomorrowStart + 9 * 3_600_000)
@@ -234,7 +263,7 @@ class TodayScreenInstrumentedTest {
             }
             capture("today-visual-day.png")
             scenario.onActivity { rendered.value = state(events, window.preparationStart).copy(homework = homework,
-                exams = exams.copy(remaining = emptyList())) }
+                exams = exams.copy(remaining = emptyList(), ended = exams.remaining)) }
             awaitText("线性代数")
             awaitText(base.getString(R.string.today_greeting_finished))
             capture("today-visual-evening.png")

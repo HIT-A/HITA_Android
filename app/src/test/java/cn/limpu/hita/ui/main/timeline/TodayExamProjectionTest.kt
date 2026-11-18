@@ -27,13 +27,40 @@ class TodayExamProjectionTest {
         assertEquals(1, unbound.unbound.size)
         assertNull(unbound.unbound.single().timetableId)
     }
-    @Test fun `only confirmed date and target participate and ended exams disappear`() {
+    @Test fun `only confirmed date and target participate and ended exams stay separate`() {
         val result = project(source(listOf(row(), row(null), row(date = null), row("06:00-08:00"), row(term = "other-term"))))
         assertEquals(1, result.remaining.size)
         assertEquals(1, result.timeToConfirm.size)
         assertNull(result.timeToConfirm.single().start)
         assertEquals(1, result.unbound.size)
+        assertEquals(1, result.ended.size)
         assertTrue(project(source(listOf(row()), "another-target")).remaining.isEmpty())
+    }
+    @Test fun `current timetable includes past and future exams beyond the agenda window`() {
+        fun exam(date: String, id: String, table: String = "table", hidden: Int = 0) =
+            requireNotNull(ExamEventMapper.toEvent(row(date = date).toExamItem(), table, zoneId = window.zoneId)).apply {
+                this.id = id; this.hidden = hidden
+            }
+        val events = listOf(exam("2026-10-31", "past"), exam("2026-12-06", "future"),
+            exam("2026-12-07", "hidden", hidden = 1), exam("2026-12-08", "other", "other-table"))
+        val summary = project(events = events)
+        assertEquals(listOf("future"), summary.remaining.map { it.id })
+        assertEquals(listOf("past"), summary.ended.map { it.id })
+        assertEquals(2, summary.importedCount)
+        assertTrue(TodayProjection.project(window, events, now).allToday.isEmpty())
+    }
+    @Test fun `bound remote past and future exams deduplicate imported records in both groups`() {
+        val past = row(date = "2026-10-31")
+        val future = row(date = "2026-12-06")
+        val imported = listOf(past, future).map { requireNotNull(ExamEventMapper.toEvent(it.toExamItem(), "table", zoneId = window.zoneId)) }
+        val remote = source(listOf(past, future))
+        val raw = project(remote)
+        assertEquals(1, raw.remaining.size)
+        assertEquals(1, raw.ended.size)
+        val merged = project(remote, imported)
+        assertEquals(listOf(imported[1].id), merged.remaining.map { it.id })
+        assertEquals(listOf(imported[0].id), merged.ended.map { it.id })
+        assertTrue(project(remote, owner = "another").ended.isEmpty())
     }
     @Test fun `raw records dedupe imported EAS exams but never personal exams with same title`() {
         val mapped = requireNotNull(ExamEventMapper.toEvent(row().toExamItem(), "table", zoneId = window.zoneId)).apply { id = "eas" }

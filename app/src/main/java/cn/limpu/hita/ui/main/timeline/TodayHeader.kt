@@ -58,7 +58,9 @@ internal fun TodayHeader(state: TodayUiState, fixed: Boolean = false, compact: B
             fontFamily = HitaTheme.fonts.display, textAlign = TextAlign.Center, maxLines = 1)
         subtitle?.let { Text(it, fontSize = if (compact) 13.sp else 14.sp, lineHeight = if (compact) 18.sp else 20.sp, textAlign = TextAlign.Center,
             color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2) }
-        val exams = state.exams?.remaining?.size ?: 0
+        val exams = state.exams?.remaining?.count {
+            it.start != null && it.start < state.window.tomorrowStart && it.end != null && it.end > state.window.start
+        } ?: 0
         val homework = state.homework?.let(::todayHomeworkCard)
         val urgent = when {
             state.agenda != null && exams > 0 -> stringResource(R.string.today_exam_urgent, exams)
