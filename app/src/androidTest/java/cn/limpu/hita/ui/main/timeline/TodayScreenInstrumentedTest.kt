@@ -30,8 +30,7 @@ class TodayScreenInstrumentedTest {
     private fun state(events: List<EventItem>, at: Long = now): TodayUiState {
         val agenda = TodayProjection.project(window, events, at)
         return TodayUiState(at, window, scopeKey = "fixture", scopeName = "Fixture timetable",
-            status = TodayPageStatus.READY, agenda = agenda,
-            header = TodayHeaderResolver.resolve(at, window.zoneId, agenda, emptyList()))
+            status = TodayPageStatus.READY, agenda = agenda)
     }
     @Test fun defaultGroupExpansionKeepsEndedTimesAndExactEventActionAcrossRecreation() {
         val events = listOf(event("Fixture ended", now - 120_000, now - 60_000),
@@ -107,7 +106,7 @@ class TodayScreenInstrumentedTest {
         }
     }
 
-    @Test fun summariesKeepKnownSourceIdentityAndUseTheExistingHomeworkRoute() {
+    @Test fun summariesUseTheExistingHomeworkRouteAndKeepKnownCounts() {
         val local = TodayHomeworkSourceSummary(TodayHomeworkSource.LOCAL, TodaySourceStatus.READY, dueToday = 1, overdue = 0)
         val grader = TodayHomeworkSourceSummary(TodayHomeworkSource.GRADER, TodaySourceStatus.DISCONNECTED)
         val rendered = mutableStateOf(state(emptyList()).copy(homework = TodayHomeworkSummary(local, grader)))
@@ -116,19 +115,17 @@ class TodayScreenInstrumentedTest {
             scenario.onActivity { activity -> activity.setContentView(ComposeView(activity).apply {
                 setContent { HitaComposeTheme { TodayScreen(rendered.value, { action = it }) } }
             }) }
-            awaitText(base.getString(R.string.today_source_status, "Grader", base.getString(R.string.today_disconnected)))
             clickText(base.getString(R.string.today_homework_local_short))
             assertEquals(TodayAction.OpenHomework(TodayHomeworkSource.LOCAL), action)
             scenario.onActivity { rendered.value = rendered.value.copy(homework = TodayHomeworkSummary(local,
                 grader.copy(status = TodaySourceStatus.READY, dueToday = 1, overdue = 0))) }
             awaitText(base.getString(R.string.today_homework_card))
             awaitText("2")
-            awaitText(base.getString(R.string.today_source_count, base.getString(R.string.today_homework_local_short), 1) +
-                " · " + base.getString(R.string.today_source_count, "Grader", 1))
+            assertFalse(hasText(base.getString(R.string.today_source_status, "Grader", base.getString(R.string.today_disconnected))))
         }
     }
 
-    @Test fun examCardShowsFutureDateAndFinishedCountInsteadOfAnEmptyRecordMessage() {
+    @Test fun examCardNamesTheNearestExamInsteadOfCountingEndedOnes() {
         fun exam(id: String, start: String, end: String) = event(id,
             Instant.parse(start).toEpochMilli(), Instant.parse(end).toEpochMilli()).apply {
             type = EventItem.TYPE.EXAM; timetableId = "fixture"; place = "A101"
@@ -148,9 +145,9 @@ class TodayScreenInstrumentedTest {
             }) }
             awaitText(base.getString(R.string.today_exam_card))
             awaitText("1")
-            awaitText("12-06 19:00 · A101")
-            awaitText(base.getString(R.string.today_exam_ended_count, 1))
+            awaitText("Future exam 12-06 19:00 A101")
             assertFalse(hasText(base.getString(R.string.today_exam_empty)))
+            assertFalse(hasText(base.getString(R.string.today_exam_ended_count, 1)))
             awaitText(base.getString(R.string.today_homework_local_short))
             clickText(base.getString(R.string.today_exam_card))
             assertEquals(TodayAction.OpenExams, action)
@@ -190,7 +187,7 @@ class TodayScreenInstrumentedTest {
             capture("today-visual-day.png")
             scenario.onActivity { rendered.value = state(events, window.preparationStart).copy(homework = homework,
                 exams = exams.copy(remaining = emptyList(), ended = exams.remaining)) }
-            awaitText(base.getString(R.string.today_greeting_finished))
+            awaitText(base.getString(R.string.today_finished_count, 2))
             capture("today-visual-evening.png")
         }
     }

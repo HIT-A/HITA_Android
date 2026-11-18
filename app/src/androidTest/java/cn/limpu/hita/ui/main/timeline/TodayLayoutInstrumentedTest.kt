@@ -33,8 +33,7 @@ class TodayLayoutInstrumentedTest {
             from = Timestamp(now - 60_000); to = Timestamp(now + 3_600_000)
         } }
         val agenda = TodayProjection.project(window, events, now)
-        return TodayUiState(now, window, scopeKey = key, status = TodayPageStatus.READY, agenda = agenda,
-            header = TodayHeaderResolver.resolve(now, window.zoneId, agenda, emptyList()))
+        return TodayUiState(now, window, scopeKey = key, status = TodayPageStatus.READY, agenda = agenda)
     }
     private fun host(height: Int = 674, scale: Float = 1f, test: (androidx.compose.runtime.MutableState<TodayUiState>, ActivityScenario<ComponentActivity>) -> Unit) {
         val rendered = mutableStateOf(state())
@@ -135,7 +134,7 @@ class TodayLayoutInstrumentedTest {
         val last = await { it.text?.toString() == "a-14" || it.contentDescription?.toString()?.contains("a-14") == true }
         assertTrue(bounds(last).bottom <= before.top)
     }
-    @Test fun shortScreensUseCompactSummaries() = host(height = 538) { _, _ ->
+    @Test fun shortScreensUseCompactSummaries() = host(height = 440) { _, _ ->
         tag("today-fixed")
         assertEquals(68f, bounds(tag("today-fixed-summaries")).height() / testDensity(), 1f)
     }

@@ -33,7 +33,6 @@ data class TodayUiState(
     val scopeName: String? = null,
     val status: TodayPageStatus = TodayPageStatus.LOADING,
     val agenda: TodayAgendaState? = null,
-    val header: TodayHeaderState = TodayHeaderState(),
     val homework: TodayHomeworkSummary? = null,
     val exams: TodayExamSummary? = null,
     val memberIds: List<String> = emptyList(),

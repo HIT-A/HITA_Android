@@ -64,9 +64,6 @@ class FragmentTimelineViewModel internal constructor(
             else -> TodayPageStatus.READY
         }
         val agenda = snapshot?.let { TodayProjection.project(tick.window, it.events, tick.now) }
-        val schedules = scope?.timetables.orEmpty().map { table -> table.scheduleStructure.map {
-            (it.from.hour * 60 + it.from.minute) to (it.to.hour * 60 + it.to.minute)
-        } }
         // 显示目标可能是一张或一组课表：取组内最早的当前教学周作为首页周次。
         val weekNumber = scope?.timetables.orEmpty()
             .map { it.getWeekNumber(tick.now) }
@@ -74,7 +71,7 @@ class FragmentTimelineViewModel internal constructor(
             .minOrNull()
         TodayUiState(tick.now, tick.window, summary.session,
             scope?.let { "${DisplayScope.typeOf(it.scope)}:${it.scope.id}" } ?: if (status == TodayPageStatus.NO_TARGET) "none" else "unresolved",
-            scope?.name, status, agenda, TodayHeaderResolver.resolve(tick.now, tick.window.zoneId, agenda, schedules),
+            scope?.name, status, agenda,
             TodayHomeworkProjection.project(summary.homework, summary.grader, summary.session.graderAvailable, tick.now, tick.window.zoneId),
             TodayExamProjection.project(tick.window, tick.now, snapshot?.events.orEmpty(), expected?.timetableIds.orEmpty().toSet(),
                 summary.exams, summary.session.ownerKey, summary.session.generation), expected?.timetableIds.orEmpty(),

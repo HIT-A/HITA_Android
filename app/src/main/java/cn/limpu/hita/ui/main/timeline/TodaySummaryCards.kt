@@ -16,8 +16,15 @@ import cn.limpu.hita.R
 import java.time.Instant
 import java.time.format.DateTimeFormatter
 
-private data class SummaryPresentation(val label: String, val value: String, val unit: String,
-    val detail: String, val source: String, val icon: Int, val action: TodayAction, val warning: Boolean = false, val compactDetail: String = detail)
+private data class SummaryPresentation(
+    val label: String,
+    val value: String,
+    val unit: String,
+    val detail: String,
+    val icon: Int,
+    val action: TodayAction,
+    val warning: Boolean = false,
+)
 
 @Composable
 internal fun TodaySummaryCards(state: TodayUiState, action: (TodayAction) -> Unit, fixed: Boolean = false, compact: Boolean = false) {
@@ -43,33 +50,30 @@ private fun examPresentation(state: TodayUiState): SummaryPresentation {
     val failed = state.status == TodayPageStatus.FAILED
     if (placeholder) return SummaryPresentation(stringResource(R.string.today_exam_card), stringResource(R.string.today_count_unknown),
         stringResource(R.string.today_exam_unit), stringResource(if (failed) R.string.today_read_failed else R.string.today_loading),
-        stringResource(R.string.today_query_pending), R.drawable.ic_baseline_edit_24, TodayAction.OpenExams)
+        R.drawable.ic_baseline_edit_24, TodayAction.OpenExams)
     val summary = requireNotNull(exams)
     val nearest = summary.remaining.firstOrNull()
     val remote = (summary.remaining + summary.ended).any { it.source == TodayExamSource.EAS_QUERY } || summary.timeToConfirm.isNotEmpty()
+    // 卡片只回答「哪门、什么时候、在哪」；场次计数与来源说明不再占第三行。
     val detail = when {
         summary.timeToConfirm.isNotEmpty() -> stringResource(R.string.today_exam_time_pending, summary.timeToConfirm.size)
-        nearest?.start != null -> {
-            val start = Instant.ofEpochMilli(nearest.start).atZone(state.window.zoneId)
-            val time = start.format(DateTimeFormatter.ofPattern(if (start.toLocalDate() == state.window.date) "HH:mm" else "MM-dd HH:mm"))
-            nearest.place?.takeIf { it.isNotBlank() }?.let { stringResource(R.string.today_pair, time, it) } ?: time
-        }
+        nearest != null -> listOfNotNull(
+            nearest.title.takeIf { it.isNotBlank() },
+            nearest.start?.let { examTime(state, it) } ?: stringResource(R.string.today_invalid),
+            nearest.place?.takeIf { it.isNotBlank() },
+        ).joinToString(" ")
         summary.ended.isNotEmpty() -> stringResource(R.string.today_exam_ended)
         else -> stringResource(R.string.today_exam_empty)
     }
-    val source = when {
-        summary.ended.isNotEmpty() -> stringResource(R.string.today_exam_ended_count, summary.ended.size)
-        summary.coverage.any { it.status == TodaySourceStatus.FAILED } || summary.remaining.any { it.retained } -> stringResource(R.string.today_retained)
-        summary.coverage.any { it.status == TodaySourceStatus.LOADING } -> stringResource(R.string.today_loading)
-        summary.unbound.isNotEmpty() -> stringResource(R.string.today_exam_other, summary.unbound.size)
-        summary.coverage.any { it.partial || it.truncated } -> stringResource(R.string.today_exam_check)
-        summary.importedCount == 0 && summary.coverage.none { it.targetTimetableId in state.memberIds } -> stringResource(R.string.today_query_pending)
-        else -> stringResource(if (remote) R.string.today_exam_eas else R.string.today_imported)
-    }
     return SummaryPresentation(stringResource(if (remote) R.string.today_exam_card_mixed else R.string.today_exam_card),
-        summary.remaining.size.toString(), stringResource(R.string.today_exam_unit), detail, source,
-        R.drawable.ic_baseline_edit_24, TodayAction.OpenExams,
-        compactDetail = if (summary.ended.isNotEmpty()) stringResource(R.string.today_exam_ended_count, summary.ended.size) else detail)
+        summary.remaining.size.toString(), stringResource(R.string.today_exam_unit), detail,
+        R.drawable.ic_baseline_edit_24, TodayAction.OpenExams)
+}
+
+@Composable
+private fun examTime(state: TodayUiState, start: Long): String {
+    val at = Instant.ofEpochMilli(start).atZone(state.window.zoneId)
+    return at.format(DateTimeFormatter.ofPattern(if (at.toLocalDate() == state.window.date) "HH:mm" else "MM-dd HH:mm"))
 }
 
 @Composable
@@ -86,18 +90,9 @@ private fun homeworkPresentation(state: TodayUiState): SummaryPresentation {
         model.count != null -> stringResource(R.string.today_homework_due)
         else -> sourceStatus(model.sources.firstOrNull()?.status ?: TodaySourceStatus.LOADING)
     }
-    val sourceText = when {
-        model == null -> stringResource(R.string.today_query_pending)
-        model.sources.any { it.dueToday == null || it.status != TodaySourceStatus.READY } ->
-            model.sources.filter { it.dueToday == null || it.status != TodaySourceStatus.READY }.map {
-                stringResource(R.string.today_source_status, sourceName(it.source), sourceStatus(it.status))
-            }.joinToString(" · ")
-        else -> model.known.map { stringResource(R.string.today_source_count, sourceName(it.source), it.dueToday ?: 0) }.joinToString(" · ")
-    }
-    val compactDetail = state.homework?.let { compactHomeworkText(todayCompactHomeworkStatus(it)) } ?: detail
     return SummaryPresentation(label, model?.count?.toString() ?: stringResource(R.string.today_count_unknown),
-        stringResource(R.string.today_homework_unit), detail, sourceText, R.drawable.ic_baseline_check_24,
-        TodayAction.OpenHomework(model?.singleSource ?: TodayHomeworkSource.LOCAL), model != null && model.overdue > 0, compactDetail)
+        stringResource(R.string.today_homework_unit), detail, R.drawable.ic_baseline_check_24,
+        TodayAction.OpenHomework(model?.singleSource ?: TodayHomeworkSource.LOCAL), model != null && model.overdue > 0)
 }
 
 @Composable
@@ -110,7 +105,7 @@ private fun SummaryCard(model: SummaryPresentation, modifier: Modifier, fixed: B
                     modifier = Modifier.weight(1f), color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text(model.value, fontSize = 20.sp, lineHeight = 24.sp, fontWeight = FontWeight.Bold, maxLines = 1)
             }
-            Text(model.compactDetail, style = todayCaption(), maxLines = 1, overflow = TextOverflow.Ellipsis,
+            Text(model.detail, style = todayCaption(), maxLines = 1, overflow = TextOverflow.Ellipsis,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         return
@@ -126,10 +121,9 @@ private fun SummaryCard(model: SummaryPresentation, modifier: Modifier, fixed: B
             Text(model.value, fontSize = 27.sp, lineHeight = 34.sp, fontWeight = FontWeight.Bold, maxLines = 1)
             Text(model.unit, style = todayLabel(), modifier = Modifier.padding(bottom = 4.dp), maxLines = 1)
         }
-        Text(model.detail, style = todayLabel(), maxLines = lines, overflow = TextOverflow.Ellipsis,
+        // 科目+时间+地点一行放不下时允许折两行，摘要卡高度足够。
+        Text(model.detail, style = todayLabel(), maxLines = if (fixed) 2 else Int.MAX_VALUE, overflow = TextOverflow.Ellipsis,
             color = if (model.warning) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
-        Text(model.source, style = todayCaption(), maxLines = lines, overflow = TextOverflow.Ellipsis,
-            color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
@@ -144,13 +138,3 @@ private fun sourceStatus(status: TodaySourceStatus): String = stringResource(whe
     TodaySourceStatus.DISCONNECTED -> R.string.today_disconnected
     else -> R.string.today_unknown
 })
-
-@Composable
-private fun compactHomeworkText(status: TodayCompactHomeworkStatus): String = when (status) {
-    is TodayCompactHomeworkStatus.Source -> stringResource(R.string.today_source_status, sourceName(status.source), sourceStatus(status.status))
-    is TodayCompactHomeworkStatus.Overdue -> stringResource(R.string.today_overdue_count, status.count)
-    is TodayCompactHomeworkStatus.Pending -> stringResource(R.string.today_date_pending_count, status.count)
-    TodayCompactHomeworkStatus.Empty -> stringResource(R.string.today_homework_empty)
-    TodayCompactHomeworkStatus.Due -> stringResource(R.string.today_homework_due)
-    TodayCompactHomeworkStatus.Loading -> stringResource(R.string.today_loading)
-}
