@@ -14,6 +14,7 @@ object TodayUiRegressionSuite {
         TodayViewModelInstrumentedTest::class,
         TodayScreenInstrumentedTest::class,
         TodayLayoutInstrumentedTest::class,
+        TodayScopePickerInstrumentedTest::class,
         cn.limpu.hita.ui.main.MainBottomBarGeometryInstrumentedTest::class,
         cn.limpu.hita.data.repository.TimetableDisplayStorageTest::class,
     )

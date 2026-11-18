@@ -79,6 +79,10 @@ class FragmentTimeLine : HiltBaseFragmentWithReceiver<ComposeViewBinding>() {
         }
     }
     private fun handleAction(state: TodayUiState, action: TodayAction) {
+        if (action is TodayAction.SelectScope) {
+            if (controller?.selectTodayScope(action.scope) != true) stale()
+            return
+        }
         val accepted = if (action is TodayAction.OpenHomework) viewModel.acceptsHomework(state, action.source) else viewModel.accepts(state)
         if (!accepted) { stale(); return }
         when (action) {
@@ -92,6 +96,7 @@ class FragmentTimeLine : HiltBaseFragmentWithReceiver<ComposeViewBinding>() {
             TodayAction.SelectTimetable -> startActivity(Intent(requireContext(), TimetableManagerActivity::class.java))
             TodayAction.ImportTimetable -> startActivity(Intent(requireContext(), ImportTimetableActivity::class.java))
             is TodayAction.Retry -> viewModel.retry(action.source)
+            is TodayAction.SelectScope -> Unit // handled before snapshot acceptance
         }
     }
     private fun stale() {
@@ -100,6 +105,7 @@ class FragmentTimeLine : HiltBaseFragmentWithReceiver<ComposeViewBinding>() {
     }
     interface MainPageController {
         fun setTimelineTitleText(string: String)
+        fun selectTodayScope(scope: cn.limpu.hita.data.model.timetable.DisplayScope): Boolean
         fun openTodayHomework()
     }
     override fun getIntentFilter() = IntentFilter().apply {

@@ -29,6 +29,7 @@ class TodayViewModelInstrumentedTest {
     }
     private class Sources : TodayReadSources {
         override val scopes = MutableStateFlow<TodayReadState<ResolvedDisplayScope?>>(TodayReadState.Loading)
+        override val scopeOptions = MutableStateFlow<List<cn.limpu.hita.data.repository.DisplayScopeResolver.ScopeOption>>(emptyList())
         override val session = MutableStateFlow(TodaySession())
         val records = MutableStateFlow<TodayReadState<List<EventItem>>>(TodayReadState.Loading)
         val queries = mutableListOf<TodayTimelineQuery>()
@@ -66,6 +67,20 @@ class TodayViewModelInstrumentedTest {
         while (System.nanoTime() < deadline) { if (test()) return; Thread.sleep(20) }
         assertTrue("Timed out waiting for state", test())
     }
+    @Test fun scopeOptionsMarkTheSameIdentityAsTheRenderedScope() = harness { source, _, state ->
+        val a = cn.limpu.hita.data.repository.DisplayScopeResolver.ScopeOption(DisplayScope.Single("a"), "A", 1, 0, Long.MAX_VALUE)
+        val b = a.copy(scope = DisplayScope.Single("b"), name = "B")
+        main {
+            source.scopeOptions.value = listOf(a, b)
+            source.scopes.value = TodayReadState.Ready(scope("a"))
+            source.records.value = TodayReadState.Ready(emptyList())
+        }
+        await { state.get()?.scopeOptions?.singleOrNull { it.selected }?.scope == a.scope }
+        main { source.scopeOptions.value = listOf(b, a); source.scopes.value = TodayReadState.Ready(scope("b")) }
+        await { state.get()?.scopeOptions?.singleOrNull { it.selected }?.scope == b.scope }
+        assertEquals("single:b", state.get().scopeKey)
+    }
+
     @Test fun loadingNoTargetAndSuccessfulEmptyAreDistinct() = harness { source, _, state ->
         await { state.get()?.status == TodayPageStatus.LOADING }
         main { source.scopes.value = TodayReadState.Ready(null) }

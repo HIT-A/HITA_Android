@@ -19,6 +19,7 @@ import kotlinx.coroutines.withContext
 /** Small read seam for controlled clock/source tests; production continues to use repositories. */
 internal interface TodayReadSources {
     val scopes: Flow<TodayReadState<ResolvedDisplayScope?>>
+    val scopeOptions: Flow<List<DisplayScopeResolver.ScopeOption>> get() = flowOf(emptyList())
     val homework: Flow<HomeworkState> get() = flowOf(HomeworkState())
     val grader: Flow<GraderState> get() = flowOf(GraderState())
     val exams: Flow<ExamReadSnapshot> get() = flowOf(ExamReadSnapshot())
@@ -37,6 +38,7 @@ internal open class TimetableTodaySources(
     protected val resolver: DisplayScopeResolver,
 ) : TodayReadSources {
     override val scopes get() = resolver.readState.asFlow()
+    override val scopeOptions get() = resolver.options.asFlow()
     override fun currentScope() = resolver.resolved.value
     override fun read(query: TodayTimelineQuery) = timetable.observeTimelineWindow(query.window.start, query.window.dayAfterStart, query.timetableIds)
     override suspend fun findEvent(query: TodayTimelineQuery, id: String): EventItem? = withContext(Dispatchers.IO) {

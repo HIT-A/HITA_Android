@@ -34,7 +34,7 @@ internal data class MainActions(
     val selectTab: (Int) -> Unit,
     val openDrawer: () -> Unit,
     val closeDrawer: () -> Unit,
-    val selectTimetable: (Int) -> Unit,
+    val selectTimetable: (DisplayScope) -> Unit,
     val timetableTitleClick: () -> Unit = {},
     /** 顶栏「按周跳转」的候选周次；按需读取，避免每次重组都查课表。 */
     val weekOptions: () -> List<cn.limpu.hita.ui.main.timetable.WeekOption> = { emptyList() },

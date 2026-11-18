@@ -395,8 +395,8 @@ internal class MainViewModel @Inject constructor(
     fun setScopes(options: List<DisplayScopeResolver.ScopeOption>) { mutableState.value = state.value.copy(scopeOptions = options.toList()) }
     fun setScope(scope: DisplayScope?) { mutableState.value = state.value.copy(currentScope = scope) }
     fun setBlogDot(show: Boolean) { mutableState.value = state.value.copy(blogDotVisible = show) }
-    fun selectScope(index: Int): Long? {
-        val option = state.value.scopeOptions.getOrNull(index) ?: return null
+    fun selectScope(scope: DisplayScope): Long? {
+        val option = state.value.scopeOptions.firstOrNull { it.scope == scope } ?: return null
         scopeSelector.select(option.scope)
         return mainScopeTargetMonday(option.startMillis, option.endMillis, System.currentTimeMillis())
     }

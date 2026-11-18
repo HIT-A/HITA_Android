@@ -38,13 +38,13 @@ internal fun TodayScreen(state: TodayUiState, hints: List<EventItem>, onHint: (E
                     contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 4.dp, bottom = bottomClearance + 12.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     item("header") { TodayHeader(state) }
-                    item("agenda-heading") { TodayAgendaHeading(state, expanded) { expanded = !expanded } }
+                    item("agenda-heading") { TodayAgendaHeading(state, onAction) }
                     todayAgendaItems(state, expanded, { expanded = !expanded }, hints, onHint, onAction)
                     item("summaries") { TodaySummaryCards(state, onAction) }
                 } else Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp).padding(bottom = bottomClearance + 12.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     TodayHeader(state)
-                    TodayAgendaHeading(state, expanded) { expanded = !expanded }
+                    TodayAgendaHeading(state, onAction)
                     TodayAgendaPlaceholder(state, onAction)
                     TodaySummaryCards(state, onAction)
                 }
@@ -52,7 +52,7 @@ internal fun TodayScreen(state: TodayUiState, hints: List<EventItem>, onHint: (E
                 TodayHeader(state, fixed = true)
                 Spacer(Modifier.height(12.dp))
                 Box(Modifier.padding(horizontal = 20.dp).height(48.dp)) {
-                    TodayAgendaHeading(state, expanded) { expanded = !expanded }
+                    TodayAgendaHeading(state, onAction)
                 }
                 Spacer(Modifier.height(12.dp))
                 if (todayHasAgendaData(state)) LazyColumn(state = agendaScroll,

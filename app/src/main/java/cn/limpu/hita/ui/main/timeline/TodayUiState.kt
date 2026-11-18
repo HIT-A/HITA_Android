@@ -45,4 +45,12 @@ data class TodayUiState(
     val homework: TodayHomeworkSummary? = null,
     val exams: TodayExamSummary? = null,
     val memberIds: List<String> = emptyList(),
+    val scopeOptions: List<TodayScopeOption> = emptyList(),
+)
+
+data class TodayScopeOption(
+    val scope: cn.limpu.hita.data.model.timetable.DisplayScope,
+    val name: String,
+    val memberCount: Int,
+    val selected: Boolean,
 )

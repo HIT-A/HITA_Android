@@ -219,6 +219,21 @@ class MainViewModelInstrumentedTest {
         override suspend fun saveAvatar(uri: Uri): Boolean = CompletableDeferred<Boolean>().also(avatars::add).await()
     }
 
+    @Test fun scopeSelectionUsesIdentityAfterReorderingAndRejectsRemovedScopes() = Harness().use { h ->
+        val a = cn.limpu.hita.data.repository.DisplayScopeResolver.ScopeOption(
+            cn.limpu.hita.data.model.timetable.DisplayScope.Single("a"), "A", 1, 0, Long.MAX_VALUE)
+        val b = a.copy(scope = cn.limpu.hita.data.model.timetable.DisplayScope.Group("b"), name = "B", memberCount = 2)
+        h.main {
+            h.model.setScopes(listOf(a, b))
+            h.model.setScopes(listOf(b, a))
+            assertNotNull(h.model.selectScope(a.scope))
+            assertEquals(listOf(a.scope), h.selectedScopes)
+            h.model.setScopes(listOf(b))
+            assertNull(h.model.selectScope(a.scope))
+            assertEquals(listOf(a.scope), h.selectedScopes)
+        }
+    }
+
     private class Harness(loggedInEas: Boolean = false) : AutoCloseable {
         private val instrumentation = InstrumentationRegistry.getInstrumentation()
         private val app = ApplicationProvider.getApplicationContext<Application>()
@@ -237,6 +252,7 @@ class MainViewModelInstrumentedTest {
         lateinit var model: MainViewModel
         var host = 0L
         val accepted = mutableListOf<MainHostEffect>()
+        val selectedScopes = mutableListOf<cn.limpu.hita.data.model.timetable.DisplayScope>()
 
         init {
             val userPreference = UserPreferenceSource(isolated)
@@ -246,7 +262,7 @@ class MainViewModelInstrumentedTest {
             main {
                 if (loggedInEas) eas.saveEasTokenSync(token("first"))
                 model = MainViewModel(isolated, LocalUserRepository(userPreference, database), eas,
-                    requests, settings, WallpaperStore(isolated), DisplayScopeSelector {},
+                    requests, settings, WallpaperStore(isolated), DisplayScopeSelector { selectedScopes += it },
                     cn.limpu.hita.data.repository.TimetableRepository(isolated))
                 store.put("main", model)
                 model.initialize(null, 0)

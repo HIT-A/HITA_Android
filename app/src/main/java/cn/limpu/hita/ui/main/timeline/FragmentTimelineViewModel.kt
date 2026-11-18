@@ -51,7 +51,7 @@ class FragmentTimelineViewModel internal constructor(
         val exams: cn.limpu.hita.data.repository.ExamReadSnapshot, val session: TodaySession)
     private val summaries = combine(sources.homework, sources.grader, sources.exams, sessions, ::Summaries)
 
-    val uiState: StateFlow<TodayUiState> = combine(timeline, scopes, reading, summaries) { data, scopeState, tick, summary ->
+    val uiState: StateFlow<TodayUiState> = combine(timeline, scopes, reading, summaries, sources.scopeOptions) { data, scopeState, tick, summary, options ->
         val scope = (scopeState as? TodayReadState.Ready)?.value
         val expected = scope?.let { TodayTimelineQuery.from(it, tick.window) }
         val snapshot = snapshot(data)?.takeIf { it.query == expected }
@@ -72,7 +72,8 @@ class FragmentTimelineViewModel internal constructor(
             scope?.name, status, agenda, TodayHeaderResolver.resolve(tick.now, tick.window.zoneId, agenda, schedules),
             TodayHomeworkProjection.project(summary.homework, summary.grader, summary.session.graderAvailable, tick.now, tick.window.zoneId),
             TodayExamProjection.project(tick.window, tick.now, snapshot?.events.orEmpty(), expected?.timetableIds.orEmpty().toSet(),
-                summary.exams, summary.session.ownerKey, summary.session.generation), expected?.timetableIds.orEmpty())
+                summary.exams, summary.session.ownerKey, summary.session.generation), expected?.timetableIds.orEmpty(),
+            scopeOptions = options.map { TodayScopeOption(it.scope, it.name, it.memberCount, it.scope == scope?.scope) })
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(0, 0), TodayUiState(reading.value.now, reading.value.window))
 
     // Kept for non-UI consumers and the existing storage regression harness.

@@ -145,11 +145,7 @@ class MainActivity : HiltBaseActivity<MainViewBinding>(),
         val actions = MainActions(
             selectTab = viewModel::selectTab,
             openDrawer = { viewModel.setDrawer(true) }, closeDrawer = { viewModel.setDrawer(false) },
-            selectTimetable = { index ->
-                viewModel.selectScope(index)?.let { monday ->
-                    (tabHost.find(MainTab.TIMETABLE) as? TimetableFragment)?.navigateToWeek(monday)
-                }
-            },
+            selectTimetable = { scope -> selectTodayScope(scope); Unit },
             theme = { ThemeTools.switchTheme(this); WidgetUtils.sendRefreshToAll(this) },
             wallpaper = ::showWallpaperOptions, wallpaperLongPress = ::showWallpaperRemove,
             timetableSetting = { FragmentTimetablePanel().show(supportFragmentManager, "panel") },
@@ -294,6 +290,11 @@ class MainActivity : HiltBaseActivity<MainViewBinding>(),
     override fun setTitleText(string: String) = viewModel.setTimetableTitle(string, true)
     override fun setTimetableName(String: String) = viewModel.setTimetableName(String)
     override fun setSingleTitle(string: String) = viewModel.setTimetableTitle(string, false)
+    override fun selectTodayScope(scope: cn.limpu.hita.data.model.timetable.DisplayScope): Boolean {
+        val monday = viewModel.selectScope(scope) ?: return false
+        (tabHost.find(MainTab.TIMETABLE) as? TimetableFragment)?.navigateToWeek(monday)
+        return true
+    }
     override fun openTodayHomework() {
         if (MainTab.HOMEWORK in viewModel.state.value.navigation.visibleTabs) viewModel.selectTab(MainTab.HOMEWORK)
         else startActivity(Intent(this, cn.limpu.hita.ui.main.homework.HomeworkActivity::class.java))

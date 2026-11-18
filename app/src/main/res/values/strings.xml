@@ -2192,4 +2192,5 @@
     <string name="today_exam_card_mixed">今日考试</string>
     <string name="today_exam_eas">教务</string>
     <string name="today_ended_count">已结束 %1$d 项</string>
+    <string name="today_switch_scope">切换课表，当前：%1$s</string>
 </resources>

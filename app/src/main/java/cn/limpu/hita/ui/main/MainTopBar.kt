@@ -74,7 +74,7 @@ internal fun MainTopBar(
     showTimetableName: Boolean,
     timetableOptions: List<DisplayScopeResolver.ScopeOption>,
     currentScope: DisplayScope?,
-    onTimetableSelected: (Int) -> Unit,
+    onTimetableSelected: (DisplayScope) -> Unit,
     onTimetableTitleClick: () -> Unit = {},
     weekOptionsProvider: () -> List<WeekOption> = { emptyList() },
     onPickWeek: (Long) -> Unit = {},
@@ -196,7 +196,7 @@ private fun TimetableToolbarTitle(
     showName: Boolean,
     timetableOptions: List<DisplayScopeResolver.ScopeOption>,
     currentScope: DisplayScope?,
-    onTimetableSelected: (Int) -> Unit,
+    onTimetableSelected: (DisplayScope) -> Unit,
     weekOptionsProvider: () -> List<WeekOption> = { emptyList() },
     onPickWeek: (Long) -> Unit = {},
     titleColor: Color = MaterialTheme.colorScheme.onSurface,
@@ -292,7 +292,7 @@ private fun TimetableToolbarTitle(
                     expanded = nameMenuExpanded && timetableOptions.isNotEmpty(),
                     onDismissRequest = { nameMenuExpanded = false }
                 ) {
-                    timetableOptions.forEachIndexed { i, option ->
+                    timetableOptions.forEach { option ->
                         val isCurrent = option.scope == currentScope
                         DropdownMenuItem(
                             text = {
@@ -318,7 +318,7 @@ private fun TimetableToolbarTitle(
                             },
                             onClick = {
                                 nameMenuExpanded = false
-                                onTimetableSelected(i)
+                                onTimetableSelected(option.scope)
                             }
                         )
                     }

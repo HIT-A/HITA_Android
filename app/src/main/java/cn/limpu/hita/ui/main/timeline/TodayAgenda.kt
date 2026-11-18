@@ -26,12 +26,14 @@ import cn.limpu.hita.feature.timetable.display.EventTimePolicy
 import cn.limpu.hita.ui.design.hitaCourseColor
 
 @Composable
-internal fun TodayAgendaHeading(state: TodayUiState, expanded: Boolean, onExpand: () -> Unit) {
+internal fun TodayAgendaHeading(state: TodayUiState, action: (TodayAction) -> Unit) {
     Row(Modifier.fillMaxWidth().heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(stringResource(R.string.today_agenda), fontSize = 19.sp, lineHeight = 24.sp, fontWeight = FontWeight.Bold)
-        state.scopeName?.let { Text(it, style = todayCaption(), color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.weight(1f), maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis) }
+        Spacer(Modifier.weight(0.1f))
+        if (state.scopeName != null && state.status != TodayPageStatus.LOADING) {
+            TodayScopePicker(state, Modifier.weight(1f, fill = false), action)
+        }
     }
 }
 
