@@ -2,6 +2,7 @@ package cn.limpu.hita.ui.main.timeline
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
@@ -54,14 +55,22 @@ internal fun TodayHeader(state: TodayUiState, fixed: Boolean = false, compact: B
         header.focus == TodayFocus.EMPTY -> stringResource(R.string.today_empty_subtitle)
         else -> null
     }
-    Column(Modifier.fillMaxWidth().padding(top = if (compact) 12.dp else 24.dp, bottom = if (compact) 12.dp else 20.dp),
-        horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(if (compact) 6.dp else 8.dp)) {
-        // 「学习告一段落，好好休息」比时段问候长，单行 34sp 会截断，这一天改用紧凑字号。
-        val dense = compact || finishedLate
-        Text(stringResource(title), fontSize = if (dense) 28.sp else 34.sp, lineHeight = if (dense) 34.sp else 42.sp, fontWeight = FontWeight.Bold,
-            fontFamily = HitaTheme.fonts.display, textAlign = TextAlign.Center, maxLines = 1)
-        subtitle?.let { Text(it, fontSize = if (compact) 13.sp else 14.sp, lineHeight = if (compact) 18.sp else 20.sp, textAlign = TextAlign.Center,
-            color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2) }
+    Column(Modifier.fillMaxWidth().padding(top = if (compact) 12.dp else 24.dp, bottom = if (compact) 12.dp else 20.dp)) {
+        // 问候块用主题主色铺一层浅色容器，跟随主题深浅与风格；不用固定色值。
+        TodayCard(
+            container = todayTonalContainer(MaterialTheme.colorScheme.primary),
+            padding = PaddingValues(horizontal = 20.dp, vertical = if (compact) 16.dp else 22.dp),
+        ) {
+            Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(if (compact) 6.dp else 8.dp)) {
+                // 「学习告一段落，好好休息」比时段问候长，单行 34sp 会截断，这一天改用紧凑字号。
+                val dense = compact || finishedLate
+                Text(stringResource(title), fontSize = if (dense) 28.sp else 34.sp, lineHeight = if (dense) 34.sp else 42.sp, fontWeight = FontWeight.Bold,
+                    fontFamily = HitaTheme.fonts.display, textAlign = TextAlign.Center, maxLines = 1)
+                subtitle?.let { Text(it, fontSize = if (compact) 13.sp else 14.sp, lineHeight = if (compact) 18.sp else 20.sp, textAlign = TextAlign.Center,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2) }
+            }
+        }
         val exams = state.exams?.remaining?.count {
             it.start != null && it.start < state.window.tomorrowStart && it.end != null && it.end > state.window.start
         } ?: 0
@@ -72,7 +81,8 @@ internal fun TodayHeader(state: TodayUiState, fixed: Boolean = false, compact: B
             else -> null
         }
         urgent?.takeUnless { fixed }?.let { Text(it, fontSize = 12.sp, lineHeight = 18.sp, textAlign = TextAlign.Center,
-            color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2) }
+            color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2,
+            modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) }
     }
 }
 
