@@ -2119,7 +2119,7 @@
     <string name="today_retry">重新读取</string>
     <string name="today_collapse">收起</string>
     <string name="today_empty">今天暂无安排</string>
-    <string name="today_finished_count">今天已结束 %1$d 项安排</string>
+    <string name="today_finished_count">已结束 %1$d 项安排</string>
     <string name="today_greeting_early">夜深了</string>
     <string name="today_greeting_morning">早上好</string>
     <string name="today_greeting_afternoon">下午好</string>

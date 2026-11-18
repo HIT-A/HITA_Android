@@ -56,7 +56,9 @@ internal fun TodayHeader(state: TodayUiState, fixed: Boolean = false, compact: B
     }
     Column(Modifier.fillMaxWidth().padding(top = if (compact) 12.dp else 24.dp, bottom = if (compact) 12.dp else 20.dp),
         horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(if (compact) 6.dp else 8.dp)) {
-        Text(stringResource(title), fontSize = if (compact) 28.sp else 34.sp, lineHeight = if (compact) 34.sp else 42.sp, fontWeight = FontWeight.Bold,
+        // 「学习告一段落，好好休息」比时段问候长，单行 34sp 会截断，这一天改用紧凑字号。
+        val dense = compact || finishedLate
+        Text(stringResource(title), fontSize = if (dense) 28.sp else 34.sp, lineHeight = if (dense) 34.sp else 42.sp, fontWeight = FontWeight.Bold,
             fontFamily = HitaTheme.fonts.display, textAlign = TextAlign.Center, maxLines = 1)
         subtitle?.let { Text(it, fontSize = if (compact) 13.sp else 14.sp, lineHeight = if (compact) 18.sp else 20.sp, textAlign = TextAlign.Center,
             color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2) }
