@@ -53,23 +53,12 @@ class TodayProjectionTest {
         assertEquals(listOf(listOf("a", "b", "c")), result.conflictGroups.map { it.ids() })
     }
 
-    @Test fun `tomorrow preparation requires 2030 and every real event to have ended`() {
-        val evening = event("evening", at(20), at(22), EventItem.TYPE.OTHER)
-        val tomorrow = event("tomorrow", at(32), at(33))
-        assertNull(TodayProjection.project(window, listOf(tomorrow), window.preparationStart - 1).tomorrow)
-        assertNotNull(TodayProjection.project(window, listOf(tomorrow), window.preparationStart).tomorrow)
-        assertNull(TodayProjection.project(window, listOf(evening, tomorrow), window.preparationStart).tomorrow)
-        assertNotNull(TodayProjection.project(window, listOf(evening, tomorrow), at(22)).tomorrow)
-        assertNull(TodayProjection.project(window, listOf(tomorrow), window.tomorrowStart).tomorrow)
-    }
-
-    @Test fun `empty day and hints do not imply completed tasks or block preparation`() {
+    @Test fun `empty day and hints do not imply completed tasks`() {
         val result = TodayProjection.project(window, listOf(event("hint", at(20), at(23), EventItem.TYPE.TAG)), window.preparationStart)
         assertTrue(result.allToday.isEmpty())
         assertTrue(result.allFinished)
         assertTrue(result.ended.isEmpty())
         assertEquals(0, result.completedCount)
-        assertTrue(requireNotNull(result.tomorrow).firstGroup.isEmpty())
     }
 
     @Test fun `cross midnight events overlap both days and original timestamps are preserved`() {
@@ -79,8 +68,6 @@ class TodayProjectionTest {
         val result = TodayProjection.project(nextWindow, listOf(crossing), at(24))
         assertEquals(listOf("overnight"), result.active.ids())
         assertEquals(at(23), result.active.single().from.time)
-        // The overnight event still in progress correctly prevents preparation today.
-        assertNull(TodayProjection.project(window, listOf(crossing), window.preparationStart).tomorrow)
     }
 
     @Test fun `window edges hidden rows and invalid times remain distinguishable`() {
@@ -95,18 +82,5 @@ class TodayProjectionTest {
         assertTrue(result.ended.isEmpty())
         assertEquals(0, result.completedCount)
         assertTrue(result.allFinished)
-        assertEquals(listOf("next"), requireNotNull(result.tomorrow).firstGroup.ids())
-    }
-
-    @Test fun `tomorrow includes every earliest simultaneous item and crosses year boundary`() {
-        val yearEnd = TodayDateWindow.from(Instant.parse("2026-12-31T12:30:00Z"), window.zoneId)
-        val start = yearEnd.tomorrowStart + 8 * hour
-        val result = TodayProjection.project(yearEnd, listOf(
-            event("b", start, start + hour), event("a", start, start + hour),
-            event("later", start + hour, start + 2 * hour),
-        ), yearEnd.preparationStart)
-        val tomorrow = requireNotNull(result.tomorrow)
-        assertEquals("2027-01-01", tomorrow.date.toString())
-        assertEquals(listOf("a", "b"), tomorrow.firstGroup.ids())
     }
 }

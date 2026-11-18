@@ -21,9 +21,11 @@ import cn.limpu.hita.ui.design.HitaTheme
 @Composable
 internal fun TodayHeader(state: TodayUiState, fixed: Boolean = false, compact: Boolean = false) {
     val header = state.header
-    val preparing = state.agenda?.tomorrow != null && state.agenda.allToday.isNotEmpty()
+    // 晚间（20:30 起）且当天安排全部结束时，用一句收尾替代时段问候。
+    val finishedLate = state.agenda?.let { it.allFinished && it.allToday.isNotEmpty() } == true &&
+        state.now >= state.window.preparationStart
     val title = when {
-        preparing -> R.string.today_greeting_finished
+        finishedLate -> R.string.today_greeting_finished
         header.focus == TodayFocus.ACTIVE -> R.string.today_greeting_active
         header.count > 1 -> R.string.today_greeting_conflict
         else -> when (header.greeting) {

@@ -67,6 +67,11 @@ class FragmentTimelineViewModel internal constructor(
         val schedules = scope?.timetables.orEmpty().map { table -> table.scheduleStructure.map {
             (it.from.hour * 60 + it.from.minute) to (it.to.hour * 60 + it.to.minute)
         } }
+        // 显示目标可能是一张或一组课表：取组内最早的当前教学周作为首页周次。
+        val weekNumber = scope?.timetables.orEmpty()
+            .map { it.getWeekNumber(tick.now) }
+            .filter { it > 0 }
+            .minOrNull()
         TodayUiState(tick.now, tick.window, summary.session,
             scope?.let { "${DisplayScope.typeOf(it.scope)}:${it.scope.id}" } ?: if (status == TodayPageStatus.NO_TARGET) "none" else "unresolved",
             scope?.name, status, agenda, TodayHeaderResolver.resolve(tick.now, tick.window.zoneId, agenda, schedules),
@@ -74,7 +79,7 @@ class FragmentTimelineViewModel internal constructor(
             TodayExamProjection.project(tick.window, tick.now, snapshot?.events.orEmpty(), expected?.timetableIds.orEmpty().toSet(),
                 summary.exams, summary.session.ownerKey, summary.session.generation), expected?.timetableIds.orEmpty(),
             scopeOptions = options.map { TodayScopeOption(it.scope, it.name, it.memberCount, it.scope == scope?.scope) },
-            courseColors = snapshot?.courseColors.orEmpty())
+            courseColors = snapshot?.courseColors.orEmpty(), weekNumber = weekNumber)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(0, 0), TodayUiState(reading.value.now, reading.value.window))
 
     // Kept for non-UI consumers and the existing storage regression harness.

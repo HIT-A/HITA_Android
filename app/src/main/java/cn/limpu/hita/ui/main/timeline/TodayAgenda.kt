@@ -25,19 +25,6 @@ import cn.limpu.hita.data.model.timetable.EventItem
 import cn.limpu.hita.feature.timetable.display.EventTimePolicy
 
 @Composable
-internal fun TodayAgendaHeading(state: TodayUiState, action: (TodayAction) -> Unit) {
-    Row(Modifier.fillMaxWidth().heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(stringResource(R.string.today_agenda), fontSize = 19.sp, lineHeight = 24.sp, fontWeight = FontWeight.Bold)
-        Box(Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) {
-            if (state.scopeName != null && state.status != TodayPageStatus.LOADING) {
-                TodayScopePicker(state, Modifier.widthIn(max = 196.dp), action)
-            }
-        }
-    }
-}
-
-@Composable
 internal fun TodayEndedToggle(count: Int, expanded: Boolean, onExpand: () -> Unit) {
     Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable(onClick = onExpand),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {

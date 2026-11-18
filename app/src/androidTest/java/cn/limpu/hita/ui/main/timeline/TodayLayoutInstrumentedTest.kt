@@ -46,7 +46,7 @@ class TodayLayoutInstrumentedTest {
                     val testDensity = minOf(native.density, metrics.widthPixels / 360f, metrics.heightPixels / height.toFloat())
                     CompositionLocalProvider(LocalDensity provides Density(testDensity, scale)) {
                         Box(Modifier.requiredSize(360.dp, height.dp)) {
-                            TodayScreen(rendered.value, emptyList(), {}, {}, bottomClearance = 76.dp)
+                            TodayScreen(rendered.value, {}, bottomClearance = 76.dp)
                         }
                     }
                 } }

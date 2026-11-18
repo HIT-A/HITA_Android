@@ -2117,14 +2117,9 @@
     <string name="today_read_failed">读取失败</string>
     <string name="today_retained">本地记录</string>
     <string name="today_retry">重新读取</string>
-    <string name="today_agenda">今日安排</string>
     <string name="today_collapse">收起</string>
     <string name="today_empty">今天暂无安排</string>
     <string name="today_finished_count">今天已结束 %1$d 项安排</string>
-    <string name="today_tomorrow">明日准备 · %1$s</string>
-    <string name="today_tomorrow_empty">明天暂无安排</string>
-    <string name="today_tomorrow_unknown">明天有时间待确认的安排</string>
-    <string name="today_hint_confirm">知道了</string>
     <string name="today_greeting_early">夜深了</string>
     <string name="today_greeting_morning">早上好</string>
     <string name="today_greeting_afternoon">下午好</string>
@@ -2152,9 +2147,8 @@
     <string name="today_stale_action">账号或课表已变化，请重新选择</string>
     <string name="today_homework_title">作业</string>
     <string name="today_back">返回</string>
-    <string name="today_page_title">今日</string>
     <string name="today_account">账号与设置</string>
-    <string name="today_greeting_finished">今天，辛苦了</string>
+    <string name="today_greeting_finished">学习告一段落，好好休息</string>
     <string name="today_greeting_active">专注此刻</string>
     <string name="today_greeting_conflict">有安排重叠</string>
     <string name="today_empty_subtitle">留一点时间，安排自己的节奏</string>

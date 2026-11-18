@@ -15,7 +15,6 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import cn.limpu.hita.R
-import cn.limpu.hita.data.model.timetable.EventItem
 import cn.limpu.hita.ui.base.ComposeViewBinding
 import cn.limpu.hita.ui.base.HiltBaseFragmentWithReceiver
 import cn.limpu.hita.ui.design.HitaComposeTheme
@@ -24,7 +23,6 @@ import cn.limpu.hita.ui.eas.imp.ImportTimetableActivity
 import cn.limpu.hita.ui.timetable.manager.TimetableManagerActivity
 import cn.limpu.hita.ui.widgets.WidgetUtils
 import cn.limpu.hita.utils.EventsUtils
-import cn.limpu.hita.utils.HintUtils
 import cn.limpu.hita.utils.TimeTools
 import dagger.hilt.android.AndroidEntryPoint
 import java.util.Calendar
@@ -37,7 +35,6 @@ class FragmentTimeLine : HiltBaseFragmentWithReceiver<ComposeViewBinding>() {
     private val viewModel: FragmentTimelineViewModel by viewModels()
     private var controller: MainPageController? = null
     private val rendered = mutableStateOf<TodayUiState?>(null)
-    private val hints = mutableStateOf<List<EventItem>>(emptyList())
 
     override var receiver: BroadcastReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -52,9 +49,7 @@ class FragmentTimeLine : HiltBaseFragmentWithReceiver<ComposeViewBinding>() {
         (view as ComposeView).apply {
             setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
             setContent { HitaComposeTheme {
-                rendered.value?.let { state -> TodayScreen(state, hints.value,
-                    onHint = { HintUtils.clickHint(context, it); hints.value = HintUtils.getHints(context) },
-                    onAction = { handleAction(state, it) }) }
+                rendered.value?.let { state -> TodayScreen(state, onAction = { handleAction(state, it) }) }
             } }
         }
     }
@@ -63,12 +58,12 @@ class FragmentTimeLine : HiltBaseFragmentWithReceiver<ComposeViewBinding>() {
         viewLifecycleOwner.lifecycleScope.launch {
             viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.RESUMED) {
                 viewModel.onVisible()
-                hints.value = HintUtils.getHints(requireContext())
                 try {
                     viewModel.uiState.collectLatest { state ->
                         rendered.value = state
-                        controller?.setTimelineTitleText(TimeTools.getDateString(requireContext(),
-                            Calendar.getInstance().apply { timeInMillis = state.now }, true, TimeTools.TTY_WK_FOLLOWING))
+                        val date = TimeTools.getDateString(requireContext(),
+                            Calendar.getInstance().apply { timeInMillis = state.now }, true, TimeTools.TTY_WK_FOLLOWING)
+                        controller?.setTimelineTitleText(state.weekNumber?.let { "$date · 第${it}周" } ?: date)
                         if (viewModel.consumeWidgetChange(state)) activity?.let(WidgetUtils::sendRefreshToAll)
                         // New Room content must reschedule an earlier event boundary immediately.
                         delay(viewModel.nextWakeDelay(state))

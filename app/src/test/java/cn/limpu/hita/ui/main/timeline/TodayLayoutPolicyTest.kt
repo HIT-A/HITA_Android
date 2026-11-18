@@ -12,19 +12,19 @@ class TodayLayoutPolicyTest {
     }
     @Test fun insufficientHeightWidthAndLargeTextFallBackToOnePageList() {
         for ((width, height, bottom, scale) in listOf(listOf(360f, 240f, 76f, 1f),
-            listOf(360f, 538f, 102f, 1.3f), listOf(320f, 674f, 76f, 2f))) {
+            listOf(360f, 320f, 76f, 1.3f), listOf(320f, 674f, 76f, 2f))) {
             assertEquals(TodayLayoutMode.PAGE_SCROLL, TodayLayoutPolicy.choose(width, height, bottom, scale))
         }
     }
     @Test fun shortScreensAndModeratelyLargeTextUseCompactSummaries() {
         for ((width, height, bottom, scale) in listOf(listOf(360f, 538f, 102f, 1f),
-            listOf(360f, 674f, 76f, 1.3f), listOf(360f, 674f, 76f, 1.6f))) {
+            listOf(360f, 538f, 102f, 1.3f), listOf(360f, 674f, 76f, 1.3f), listOf(360f, 674f, 76f, 1.6f))) {
             assertEquals(TodayLayoutMode.FIXED_COMPACT, TodayLayoutPolicy.choose(width, height, bottom, scale))
         }
         assertEquals(TodayLayoutMode.PAGE_SCROLL, TodayLayoutPolicy.choose(360f, 674f, 76f, 1.61f))
     }
     @Test fun fullModeRespectsTheMinimumAgendaAtTheBoundary() {
-        assertEquals(TodayLayoutMode.FIXED_FULL, TodayLayoutPolicy.choose(360f, 580f, 75f, 1f))
-        assertEquals(TodayLayoutMode.FIXED_COMPACT, TodayLayoutPolicy.choose(360f, 579f, 75f, 1f))
+        assertEquals(TodayLayoutMode.FIXED_FULL, TodayLayoutPolicy.choose(360f, 532f, 75f, 1f))
+        assertEquals(TodayLayoutMode.FIXED_COMPACT, TodayLayoutPolicy.choose(360f, 531f, 75f, 1f))
     }
 }

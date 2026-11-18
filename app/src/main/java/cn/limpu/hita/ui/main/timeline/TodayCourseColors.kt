@@ -12,8 +12,7 @@ private val LocalTodayCourseColors = staticCompositionLocalOf<Map<String, Color>
 
 @Composable
 internal fun TodayCourseColors(state: TodayUiState, content: @Composable () -> Unit) {
-    val visible = (state.agenda?.allToday.orEmpty() + state.agenda?.tomorrow?.firstGroup.orEmpty() +
-        state.agenda?.tomorrow?.invalidEvents.orEmpty()).associate { it.subjectId.ifBlank { it.name } to it.color }
+    val visible = state.agenda?.allToday.orEmpty().associate { it.subjectId.ifBlank { it.name } to it.color }
     val scope = state.courseColors.ifEmpty { visible }
     val themePalette = hitaCoursePalette()
     // Small theme palettes cannot distinguish a whole timetable. Reuse the existing

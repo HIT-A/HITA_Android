@@ -15,20 +15,18 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import cn.limpu.hita.data.model.timetable.EventItem
 import cn.limpu.hita.ui.main.rememberMainBottomBarClearance
 
 @Composable
-internal fun TodayScreen(state: TodayUiState, hints: List<EventItem>, onHint: (EventItem) -> Unit,
-    onAction: (TodayAction) -> Unit, bottomClearance: Dp = rememberMainBottomBarClearance()) {
+internal fun TodayScreen(state: TodayUiState, onAction: (TodayAction) -> Unit,
+    bottomClearance: Dp = rememberMainBottomBarClearance()) {
     TodayCourseColors(state) {
-        TodayScreenContent(state, hints, onHint, onAction, bottomClearance)
+        TodayScreenContent(state, onAction, bottomClearance)
     }
 }
 
 @Composable
-private fun TodayScreenContent(state: TodayUiState, hints: List<EventItem>, onHint: (EventItem) -> Unit,
-    onAction: (TodayAction) -> Unit, bottomClearance: Dp) {
+private fun TodayScreenContent(state: TodayUiState, onAction: (TodayAction) -> Unit, bottomClearance: Dp) {
     val holder = rememberSaveableStateHolder()
     holder.SaveableStateProvider("${state.scopeKey}:${state.window.date}") {
         var expanded by rememberSaveable { mutableStateOf(false) }
@@ -46,28 +44,22 @@ private fun TodayScreenContent(state: TodayUiState, hints: List<EventItem>, onHi
                     contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 4.dp, bottom = bottomClearance + 12.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     item("header") { TodayHeader(state) }
-                    item("agenda-heading") { TodayAgendaHeading(state, onAction) }
-                    todayAgendaItems(state, expanded, { expanded = !expanded }, hints, onHint, onAction)
+                    todayAgendaItems(state, expanded, { expanded = !expanded }, onAction)
                     item("summaries") { TodaySummaryCards(state, onAction) }
                 } else Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp).padding(bottom = bottomClearance + 12.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     TodayHeader(state)
-                    TodayAgendaHeading(state, onAction)
                     TodayAgendaPlaceholder(state, onAction)
                     TodaySummaryCards(state, onAction)
                 }
             } else Column(Modifier.fillMaxSize().padding(bottom = bottomClearance + 12.dp).testTag("today-fixed")) {
                 TodayHeader(state, fixed = true, compact = mode == TodayLayoutMode.FIXED_COMPACT)
                 Spacer(Modifier.height(12.dp))
-                Box(Modifier.padding(horizontal = 20.dp).height(48.dp)) {
-                    TodayAgendaHeading(state, onAction)
-                }
-                Spacer(Modifier.height(12.dp))
                 if (todayHasAgendaData(state)) LazyColumn(state = agendaScroll,
                     modifier = Modifier.weight(1f).fillMaxWidth().todayScrollFade(agendaScroll).testTag("today-agenda-scroll"),
                     contentPadding = PaddingValues(horizontal = 20.dp, vertical = 4.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    todayAgendaItems(state, expanded, { expanded = !expanded }, hints, onHint, onAction)
+                    todayAgendaItems(state, expanded, { expanded = !expanded }, onAction)
                 } else Box(Modifier.weight(1f).padding(horizontal = 20.dp)) { TodayAgendaPlaceholder(state, onAction) }
                 Spacer(Modifier.height(12.dp))
                 Box(Modifier.padding(horizontal = 20.dp).testTag("today-fixed-summaries")) {

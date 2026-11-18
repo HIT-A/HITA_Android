@@ -8,6 +8,7 @@ import java.time.ZoneId
 data class TodayDateWindow private constructor(val date: LocalDate, val zoneId: ZoneId) {
     val start: Long = date.atStartOfDay(zoneId).toInstant().toEpochMilli()
     val tomorrowStart: Long = date.plusDays(1).atStartOfDay(zoneId).toInstant().toEpochMilli()
+    /** Inclusive upper bound of the retained read window; tomorrow's rows still feed colour and exam data. */
     val dayAfterStart: Long = date.plusDays(2).atStartOfDay(zoneId).toInstant().toEpochMilli()
     val preparationStart: Long = date.atTime(20, 30).atZone(zoneId).toInstant().toEpochMilli()
 

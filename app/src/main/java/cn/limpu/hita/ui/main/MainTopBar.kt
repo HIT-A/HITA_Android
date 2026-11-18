@@ -156,11 +156,9 @@ internal fun MainTopBar(
 private fun TodayToolbarTitle(date: String, textColor: Color, onOpenDrawer: () -> Unit) {
     Row(Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp),
         verticalAlignment = Alignment.CenterVertically) {
-        Column(Modifier.weight(1f)) {
-            Text(date, fontSize = 12.sp, lineHeight = 16.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text(stringResource(R.string.today_page_title), fontSize = 28.sp, lineHeight = 34.sp, fontWeight = FontWeight.Bold,
-                fontFamily = HitaTheme.fonts.display, color = textColor)
-        }
+        Text(date, fontSize = 20.sp, lineHeight = 26.sp, fontWeight = FontWeight.Bold,
+            fontFamily = HitaTheme.fonts.display, color = textColor, maxLines = 1,
+            overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
         IconButton(onClick = onOpenDrawer) {
             Icon(painterResource(R.drawable.ic_baseline_account_circle_24),
                 stringResource(R.string.today_account), tint = MaterialTheme.colorScheme.primary)

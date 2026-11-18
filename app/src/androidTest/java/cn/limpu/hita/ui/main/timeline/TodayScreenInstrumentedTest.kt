@@ -42,7 +42,7 @@ class TodayScreenInstrumentedTest {
         ActivityScenario.launch(ComponentActivity::class.java).use { scenario ->
             fun show() { scenario.onActivity { activity -> activity.setContentView(ComposeView(activity).apply {
                 id = android.R.id.content
-                setContent { HitaComposeTheme { TodayScreen(rendered.value, emptyList(), {}, { action = it }) } }
+                setContent { HitaComposeTheme { TodayScreen(rendered.value, { action = it }) } }
             }) } }
             show()
             awaitText("Fixture next A"); awaitText("Fixture next B")
@@ -63,28 +63,13 @@ class TodayScreenInstrumentedTest {
         var action: TodayAction? = null
         ActivityScenario.launch(ComponentActivity::class.java).use { scenario ->
             scenario.onActivity { activity -> activity.setContentView(ComposeView(activity).apply {
-                setContent { HitaComposeTheme { TodayScreen(rendered.value, emptyList(), {}, { action = it }) } }
+                setContent { HitaComposeTheme { TodayScreen(rendered.value, { action = it }) } }
             }) }
             clickText(base.getString(R.string.today_choose)); assertEquals(TodayAction.SelectTimetable, action)
             clickText(base.getString(R.string.today_import)); assertEquals(TodayAction.ImportTimetable, action)
             scenario.onActivity { rendered.value = rendered.value.copy(status = TodayPageStatus.FAILED) }
             clickText(base.getString(R.string.today_retry)); assertEquals(TodayAction.Retry(TodayRetrySource.AGENDA), action)
             assertFalse(hasText(base.getString(R.string.today_empty)))
-        }
-    }
-    @Test fun tomorrowEmptyAndInvalidAreDifferent() {
-        val at = window.preparationStart
-        val rendered = mutableStateOf(state(emptyList(), at))
-        ActivityScenario.launch(ComponentActivity::class.java).use { scenario ->
-            scenario.onActivity { activity -> activity.setContentView(ComposeView(activity).apply {
-                setContent { HitaComposeTheme { TodayScreen(rendered.value, emptyList(), {}, {}) } }
-            }) }
-            awaitText(base.getString(R.string.today_tomorrow, "2026-11-18"))
-            awaitText(base.getString(R.string.today_tomorrow_empty))
-            scenario.onActivity { rendered.value = state(listOf(event("Fixture invalid", window.tomorrowStart + 1000, window.tomorrowStart)), at) }
-            awaitText(base.getString(R.string.today_tomorrow_unknown))
-            awaitText("Fixture invalid")
-            awaitText(base.getString(R.string.today_invalid))
         }
     }
     @Test fun longTitlesWrapAtLargeFontAndNarrowWidth() {
@@ -97,7 +82,7 @@ class TodayScreenInstrumentedTest {
                     androidx.compose.runtime.CompositionLocalProvider(
                         androidx.compose.ui.platform.LocalDensity provides androidx.compose.ui.unit.Density(density.density, 1.6f)) {
                         androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier.width(320.dp)) {
-                            TodayScreen(rendered, emptyList(), {}, {})
+                            TodayScreen(rendered, {})
                         }
                     }
                 } }
@@ -129,7 +114,7 @@ class TodayScreenInstrumentedTest {
         var action: TodayAction? = null
         ActivityScenario.launch(ComponentActivity::class.java).use { scenario ->
             scenario.onActivity { activity -> activity.setContentView(ComposeView(activity).apply {
-                setContent { HitaComposeTheme { TodayScreen(rendered.value, emptyList(), {}, { action = it }) } }
+                setContent { HitaComposeTheme { TodayScreen(rendered.value, { action = it }) } }
             }) }
             awaitText(base.getString(R.string.today_source_status, "Grader", base.getString(R.string.today_disconnected)))
             clickText(base.getString(R.string.today_homework_local_short))
@@ -159,7 +144,7 @@ class TodayScreenInstrumentedTest {
         var action: TodayAction? = null
         ActivityScenario.launch(ComponentActivity::class.java).use { scenario ->
             scenario.onActivity { activity -> activity.setContentView(ComposeView(activity).apply {
-                setContent { HitaComposeTheme { TodayScreen(rendered, emptyList(), {}, { action = it }) } }
+                setContent { HitaComposeTheme { TodayScreen(rendered, { action = it }) } }
             }) }
             awaitText(base.getString(R.string.today_exam_card))
             awaitText("1")
@@ -172,64 +157,6 @@ class TodayScreenInstrumentedTest {
         }
     }
 
-    @Test fun tomorrowGroupRemainsSingleWhenHistoryExpandsAndUsesActualIds() {
-        val at = window.preparationStart
-        val first = event("Fixture tomorrow A", window.tomorrowStart + 8 * 3_600_000, window.tomorrowStart + 9 * 3_600_000)
-        val second = event("Fixture tomorrow B", first.from.time, first.to.time)
-        val events = listOf(event("Fixture history", now - 60_000, now), first, second)
-        val rendered = state(events, at)
-        var action: TodayAction? = null
-        ActivityScenario.launch(ComponentActivity::class.java).use { scenario ->
-            scenario.onActivity { activity -> activity.setContentView(ComposeView(activity).apply {
-                setContent { HitaComposeTheme { TodayScreen(rendered, emptyList(), {}, { action = it }) } }
-            }) }
-            val title = base.getString(R.string.today_tomorrow, "2026-11-18")
-            awaitText(title); awaitText("Fixture tomorrow A"); awaitText("Fixture tomorrow B")
-            clickText(base.getString(R.string.today_finished_count, 1))
-            awaitText(title)
-            fun occurrences(node: AccessibilityNodeInfo?): Int {
-                if (node == null) return 0
-                val own = if (node.isVisibleToUser && (node.text?.toString() == title || node.contentDescription?.toString() == title)) 1 else 0
-                return own + (0 until node.childCount).sumOf { occurrences(node.getChild(it)) }
-            }
-            assertEquals(1, occurrences(freshRoot()))
-            clickText("Fixture tomorrow B")
-            assertEquals(TodayAction.OpenEvent(second.id), action)
-        }
-    }
-
-    @Test fun expandingFinishedDayShowsHistoryImmediatelyBeforeTallTomorrowGroup() {
-        val history = event("Fixture finished course", now - 60_000, now)
-        val tomorrow = (1..4).map { index ->
-            event("Fixture tomorrow course $index", window.tomorrowStart + 8 * 3_600_000,
-                window.tomorrowStart + 9 * 3_600_000)
-        }
-        val rendered = state(listOf(history) + tomorrow, window.preparationStart)
-        var action: TodayAction? = null
-        ActivityScenario.launch(ComponentActivity::class.java).use { scenario ->
-            scenario.onActivity { activity -> activity.setContentView(ComposeView(activity).apply {
-                setContent { HitaComposeTheme { TodayScreen(rendered, emptyList(), {}, { action = it }) } }
-            }) }
-            clickText(base.getString(R.string.today_finished_count, 1))
-            // Do not auto-scroll: expanding must reveal a finished course in the current viewport,
-            // even when the tomorrow group would otherwise fill the entire agenda window.
-            awaitNode("finished course immediately after expansion") {
-                it.isVisibleToUser && it.text?.toString() == history.name
-            }
-            awaitNode("finished count remains visible") {
-                it.isVisibleToUser && it.text?.toString() == base.getString(R.string.today_finished_count, 1)
-            }
-            awaitNode("collapse control remains visible") {
-                it.isVisibleToUser && it.text?.toString() == base.getString(R.string.today_collapse)
-            }
-            clickText(history.name)
-            assertEquals(TodayAction.OpenEvent(history.id), action)
-            clickText(base.getString(R.string.today_collapse))
-            assertFalse(hasText(history.name))
-            awaitText(base.getString(R.string.today_tomorrow, "2026-11-18"))
-        }
-    }
-
     @Test fun approvedDesignDayAndEveningRenderWithSourceSummaries() {
         val course = event("概率论与数理统计", now + 12 * 60_000, now + 107 * 60_000).apply {
             fromNumber = 3; lastNumber = 4; place = "T3201"; teacher = "张老师"
@@ -237,8 +164,7 @@ class TodayScreenInstrumentedTest {
         val exam = event("高等数学", now + 2 * 3_600_000, now + 4 * 3_600_000).apply {
             type = EventItem.TYPE.EXAM; place = "正心201"
         }
-        val tomorrow = event("线性代数", window.tomorrowStart + 8 * 3_600_000, window.tomorrowStart + 9 * 3_600_000).apply { place = "格物205" }
-        val events = listOf(course, exam, tomorrow)
+        val events = listOf(course, exam)
         val homework = TodayHomeworkSummary(
             TodayHomeworkSourceSummary(TodayHomeworkSource.LOCAL, TodaySourceStatus.READY, dueToday = 1, overdue = 0),
             TodayHomeworkSourceSummary(TodayHomeworkSource.GRADER, TodaySourceStatus.READY, accountId = "fixture", dueToday = 1, overdue = 1))
@@ -249,7 +175,7 @@ class TodayScreenInstrumentedTest {
             scenario.onActivity { activity -> activity.setContentView(ComposeView(activity).apply {
                 setContent { HitaComposeTheme {
                     androidx.compose.material3.Surface(color = androidx.compose.material3.MaterialTheme.colorScheme.background.copy(alpha = 1f)) {
-                        TodayScreen(rendered.value, emptyList(), {}, {})
+                        TodayScreen(rendered.value, {})
                     }
                 } }
             }) }
@@ -264,7 +190,6 @@ class TodayScreenInstrumentedTest {
             capture("today-visual-day.png")
             scenario.onActivity { rendered.value = state(events, window.preparationStart).copy(homework = homework,
                 exams = exams.copy(remaining = emptyList(), ended = exams.remaining)) }
-            awaitText("线性代数")
             awaitText(base.getString(R.string.today_greeting_finished))
             capture("today-visual-evening.png")
         }

@@ -1,7 +1,6 @@
 package cn.limpu.hita.ui.main.timeline
 
 import cn.limpu.hita.data.model.timetable.EventItem
-import java.time.LocalDate
 
 /** Values derived from one successful two-day snapshot and one explicit clock reading. */
 data class TodayAgendaState(
@@ -15,13 +14,6 @@ data class TodayAgendaState(
     /** Connected groups of overlapping events; adjacent intervals do not conflict. */
     val conflictGroups: List<List<EventItem>>,
     val allFinished: Boolean,
-    val tomorrow: TomorrowPreparationState?,
-)
-
-data class TomorrowPreparationState(
-    val date: LocalDate,
-    val firstGroup: List<EventItem>,
-    val invalidEvents: List<EventItem>,
 )
 
 enum class TodayPageStatus { LOADING, NO_TARGET, READY, FAILED }
@@ -47,6 +39,8 @@ data class TodayUiState(
     val memberIds: List<String> = emptyList(),
     val scopeOptions: List<TodayScopeOption> = emptyList(),
     val courseColors: Map<String, Int> = emptyMap(),
+    /** Teaching week of the displayed scope; null while unresolved or outside the term. */
+    val weekNumber: Int? = null,
 )
 
 data class TodayScopeOption(

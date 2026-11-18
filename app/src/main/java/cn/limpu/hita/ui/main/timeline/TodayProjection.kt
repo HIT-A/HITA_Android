@@ -17,17 +17,6 @@ object TodayProjection {
             upcoming.takeWhile { it.from.time == start }
         }.orEmpty()
         val allFinished = valid.all { phase(it, now) == Phase.ENDED }
-        val tomorrow = if (now >= window.preparationStart && now < window.tomorrowStart && allFinished) {
-            val tomorrowEvents = real.filter { belongsTo(it, window.tomorrowStart, window.dayAfterStart) }
-            val tomorrowInvalid = tomorrowEvents.filter { phase(it, now) == Phase.INVALID }
-            val tomorrowValid = tomorrowEvents.filter { phase(it, now) != Phase.INVALID }
-            val firstStart = tomorrowValid.minOfOrNull { maxOf(it.from.time, window.tomorrowStart) }
-            TomorrowPreparationState(
-                date = window.date.plusDays(1),
-                firstGroup = tomorrowValid.filter { maxOf(it.from.time, window.tomorrowStart) == firstStart },
-                invalidEvents = tomorrowInvalid,
-            )
-        } else null
         return TodayAgendaState(
             allToday = today,
             active = active,
@@ -39,7 +28,6 @@ object TodayProjection {
             invalidEvents = invalid,
             conflictGroups = conflicts(valid),
             allFinished = allFinished,
-            tomorrow = tomorrow,
         )
     }
 

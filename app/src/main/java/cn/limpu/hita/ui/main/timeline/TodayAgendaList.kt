@@ -14,7 +14,6 @@ import androidx.compose.ui.graphics.*
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import cn.limpu.hita.R
-import cn.limpu.hita.data.model.timetable.EventItem
 
 internal fun todayHasAgendaData(state: TodayUiState): Boolean = state.agenda != null && state.status != TodayPageStatus.LOADING
 
@@ -44,11 +43,11 @@ private fun TodayAgendaFailure(state: TodayUiState, action: (TodayAction) -> Uni
 }
 
 internal fun LazyListScope.todayAgendaItems(state: TodayUiState, expanded: Boolean, onExpand: () -> Unit,
-    hints: List<EventItem>, onHint: (EventItem) -> Unit, action: (TodayAction) -> Unit) {
+    action: (TodayAction) -> Unit) {
     if (state.status == TodayPageStatus.FAILED) item("failed") { TodayCard { TodayAgendaFailure(state, action) } }
     state.agenda?.let { agenda ->
         val completed = agenda.allFinished && agenda.invalidEvents.isEmpty()
-        if (completed) item("complete") { TodayCompletionCard(state, action, expanded, onExpand, showTomorrow = !expanded) }
+        if (completed) item("complete") { TodayCompletionCard(state, expanded, onExpand) }
         else if (agenda.ended.isNotEmpty()) item("ended-toggle") { TodayEndedToggle(agenda.ended.size, expanded, onExpand) }
         val shown = if (completed) { if (expanded) agenda.ended else emptyList() }
             else if (expanded) agenda.allToday else agenda.remaining
@@ -57,12 +56,6 @@ internal fun LazyListScope.todayAgendaItems(state: TodayUiState, expanded: Boole
                 action(TodayAction.OpenEvent(event.id))
             }
         }
-        if ((!completed || expanded) && agenda.tomorrow != null) item("tomorrow") {
-            TodayCompletionCard(state, action, showCompletion = false)
-        }
-    }
-    items(hints, key = { "hint:${it.id}" }) { hint ->
-        TodayCard { Text(hint.name); TextButton(onClick = { onHint(hint) }) { Text(stringResource(R.string.today_hint_confirm)) } }
     }
 }
 
