@@ -1,8 +1,8 @@
 # 今日页固定摘要与课表切换布局设计
 
-日期：2026-11-18；分支：`feat/ios-parity-migration`；Android 基线：`32449de6`；状态：三项取舍已确认，代码实施记录见下；真机验收待补。
+日期：2026-11-18；分支：`feat/ios-parity-migration`；Android 基线：`32449de6`；状态：三项取舍已确认，代码已实施，主要真机回归已补；剩余边界见验证记录。
 
-实施进展（同日）：已按本文接入固定/紧凑摘要、独立课程窗口、历史折叠和共享课表选择，详见[实施记录](../../audit/2026-11-18-today-fixed-layout.md)。用户后续要求先进行代码修正，本轮暂缓真机验收；第 12 节保留设计文档初次交付时的历史范围。
+实施进展（同日）：已按本文接入固定/紧凑摘要、独立课程窗口、历史折叠和共享课表选择，详见[实施记录](../../audit/2026-11-18-today-fixed-layout.md)。用户先要求代码修正，随后连接设备完成 47 项真机测试，详见[真机验证记录](../../audit/2026-11-18-today-device-regression.md)；第 12 节保留设计文档初次交付时的历史范围。
 
 依据：设计交付包 `/home/rinat/projects/HITA-artifacts/today-layout-handoff-2026-11-18.zip`（HTML 原型与示例数据，不是真机验收），以及[视觉重做方案](2026-11-18-today-visual-redesign.md)和它的[实施记录](../../audit/2026-11-18-today-redesign.md)。标注“实测”的尺寸来自实施记录里的真机布局导出 `/home/rinat/projects/HITA-artifacts/today-redesign-2026-11-18/main-final.xml`（PJZ110，360×792dp，手势导航，字号 1.0）；其余尺寸按代码常量估算。
 
@@ -196,6 +196,7 @@ internal fun mainBottomBarClearance(dock: Boolean, navBottom: Dp, fontScale: Flo
 @Composable internal fun rememberMainBottomBarClearance(): Dp   // 风格取 HitaTheme.preferenceStyle，再经 usesDockTabBar 判断
 ```
 
+- 同日真机修正：中文字体回退可能让标签实际高度大于 `10f`。运行时用 `rememberPillBarLabelHeight` 按当前主题样式测量标签，再将实测高度传给共用几何函数；底栏按同一高度布局。上面的 `29 + 10f` 为名义估算，不再作为运行时唯一依据。
 - `MainScreen` 用 `pillBarBottomPadding` 替换内联的 `systemNavAvoidance`；悬浮底栏继续用 `dockBarChromePadding()`。底栏几何只保留一份。
 - 导航栏高度取 Compose `WindowInsets.navigationBars` 和根视图 `ViewCompat.getRootWindowInsets(...)` 两者的较大值，并在全局布局变化时更新。`AgentChatFragment` 已经这样做，说明 Tab 页的 ComposeView 不一定收得到 inset。把这段逻辑提成共用函数；Agent 页本轮不迁移。
 - `TodayScreen` 删除 `+128.dp`，并增加 `bottomClearance` 参数（默认取共用函数），测试宿主可以直接传值。整页滚动模式的列表底部内边距为“底栏占用 + 12dp”。
