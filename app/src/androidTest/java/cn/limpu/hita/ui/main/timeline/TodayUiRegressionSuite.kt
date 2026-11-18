@@ -13,6 +13,8 @@ object TodayUiRegressionSuite {
     @Suite.SuiteClasses(
         TodayViewModelInstrumentedTest::class,
         TodayScreenInstrumentedTest::class,
+        TodayLayoutInstrumentedTest::class,
+        cn.limpu.hita.ui.main.MainBottomBarGeometryInstrumentedTest::class,
         cn.limpu.hita.data.repository.TimetableDisplayStorageTest::class,
     )
     class Foreground {

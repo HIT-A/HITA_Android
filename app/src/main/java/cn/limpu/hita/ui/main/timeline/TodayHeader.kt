@@ -19,7 +19,7 @@ import cn.limpu.hita.data.model.timetable.EventItem
 import cn.limpu.hita.ui.design.HitaTheme
 
 @Composable
-internal fun TodayHeader(state: TodayUiState) {
+internal fun TodayHeader(state: TodayUiState, fixed: Boolean = false) {
     val header = state.header
     val preparing = state.agenda?.tomorrow != null && state.agenda.allToday.isNotEmpty()
     val title = when {
@@ -52,12 +52,12 @@ internal fun TodayHeader(state: TodayUiState) {
         header.focus == TodayFocus.EMPTY -> stringResource(R.string.today_empty_subtitle)
         else -> null
     }
-    Column(Modifier.fillMaxWidth().padding(top = 20.dp, bottom = 20.dp),
+    Column(Modifier.fillMaxWidth().padding(top = 24.dp, bottom = 20.dp),
         horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(stringResource(title), fontSize = 34.sp, lineHeight = 42.sp, fontWeight = FontWeight.Bold,
-            fontFamily = HitaTheme.fonts.display, textAlign = TextAlign.Center)
+            fontFamily = HitaTheme.fonts.display, textAlign = TextAlign.Center, maxLines = 1)
         subtitle?.let { Text(it, fontSize = 14.sp, lineHeight = 20.sp, textAlign = TextAlign.Center,
-            color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2) }
         val exams = state.exams?.remaining?.size ?: 0
         val homework = state.homework?.let(::todayHomeworkCard)
         val urgent = when {
@@ -65,8 +65,8 @@ internal fun TodayHeader(state: TodayUiState) {
             homework?.count != null && homework.count > 0 -> stringResource(R.string.today_homework_urgent, homework.count)
             else -> null
         }
-        urgent?.let { Text(it, fontSize = 12.sp, lineHeight = 18.sp, textAlign = TextAlign.Center,
-            color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        urgent?.takeUnless { fixed }?.let { Text(it, fontSize = 12.sp, lineHeight = 18.sp, textAlign = TextAlign.Center,
+            color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2) }
     }
 }
 
