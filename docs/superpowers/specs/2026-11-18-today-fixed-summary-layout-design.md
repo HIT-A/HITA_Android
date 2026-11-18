@@ -1,6 +1,8 @@
 # 今日页固定摘要与课表切换布局设计
 
-日期：2026-11-18；分支：`feat/ios-parity-migration`；Android 基线：`32449de6`；状态：设计方案，三项取舍已确认；本次只交付文档，尚未实现。
+日期：2026-11-18；分支：`feat/ios-parity-migration`；Android 基线：`32449de6`；状态：三项取舍已确认，代码实施记录见下；真机验收待补。
+
+实施进展（同日）：已按本文接入固定/紧凑摘要、独立课程窗口、历史折叠和共享课表选择，详见[实施记录](../../audit/2026-11-18-today-fixed-layout.md)。用户后续要求先进行代码修正，本轮暂缓真机验收；第 12 节保留设计文档初次交付时的历史范围。
 
 依据：设计交付包 `/home/rinat/projects/HITA-artifacts/today-layout-handoff-2026-11-18.zip`（HTML 原型与示例数据，不是真机验收），以及[视觉重做方案](2026-11-18-today-visual-redesign.md)和它的[实施记录](../../audit/2026-11-18-today-redesign.md)。标注“实测”的尺寸来自实施记录里的真机布局导出 `/home/rinat/projects/HITA-artifacts/today-redesign-2026-11-18/main-final.xml`（PJZ110，360×792dp，手势导航，字号 1.0）；其余尺寸按代码常量估算。
 
