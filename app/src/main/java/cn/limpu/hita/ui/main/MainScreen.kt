@@ -136,13 +136,7 @@ internal fun MainScreen(
         -drawerWidthPx * drawerProgress
     }
     val imeVisible = WindowInsets.ime.getBottom(density) > 0
-    val navBottomPx = WindowInsets.navigationBars.getBottom(density)
-    val threeButtonThresholdPx = with(density) { 32.dp.toPx() }
-    val systemNavAvoidance = if (navBottomPx >= threeButtonThresholdPx) {
-        with(density) { navBottomPx.toDp() } + 8.dp
-    } else {
-        12.dp
-    }
+    val systemNavAvoidance = pillBarBottomPadding(rememberMainNavigationBottom())
     val hazeState = remember { HazeState() }
     val liquidGlassBackdrop = rememberLayerBackdrop()
     val liquidGlassBackdropHandle = remember(liquidGlassBackdrop) {

@@ -20,14 +20,15 @@ import cn.limpu.hita.data.model.timetable.EventItem
 
 @Composable
 internal fun TodayScreen(state: TodayUiState, hints: List<EventItem>, onHint: (EventItem) -> Unit,
-    onAction: (TodayAction) -> Unit) {
+    onAction: (TodayAction) -> Unit,
+    bottomClearance: androidx.compose.ui.unit.Dp = cn.limpu.hita.ui.main.rememberMainBottomBarClearance()) {
     val holder = rememberSaveableStateHolder()
     holder.SaveableStateProvider("${state.scopeKey}:${state.window.date}") {
         var expanded by rememberSaveable { mutableStateOf(false) }
         val scroll = rememberLazyListState()
         LazyColumn(state = scroll, modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 4.dp,
-                bottom = cn.limpu.hita.ui.main.dockBarChromePadding().calculateBottomPadding() + 128.dp),
+                bottom = bottomClearance + 12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
             item("header") { TodayHeader(state) }
             when (state.status) {

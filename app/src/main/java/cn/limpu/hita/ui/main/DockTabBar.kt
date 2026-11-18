@@ -168,8 +168,7 @@ private val DockHazeStyle = HazeStyle(
  */
 @Composable
 internal fun dockBarChromePadding(): PaddingValues {
-    val density = LocalDensity.current
-    val bottomInset = with(density) { WindowInsets.navigationBars.getBottom(this).toDp() }
+    val bottomInset = rememberMainNavigationBottom()
     return PaddingValues(
         start = DockMetrics.EDGE_MARGIN.dp,
         end = DockMetrics.EDGE_MARGIN.dp,
