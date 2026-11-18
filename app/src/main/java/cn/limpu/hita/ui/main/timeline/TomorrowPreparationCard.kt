@@ -23,14 +23,14 @@ internal fun TodayCompletionCard(state: TodayUiState, action: (TodayAction) -> U
             Icon(painterResource(R.drawable.ic_circle_done), null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
             Text(if (agenda.allToday.isEmpty()) stringResource(R.string.today_empty)
                 else stringResource(R.string.today_finished_count, agenda.completedCount),
-                fontSize = 13.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                style = todayMeta(), fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         agenda.tomorrow?.let { tomorrow ->
             HorizontalDivider(Modifier.padding(vertical = 6.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f))
-            Text(stringResource(R.string.today_tomorrow, tomorrow.date.toString()), fontSize = 12.sp,
+            Text(stringResource(R.string.today_tomorrow, tomorrow.date.toString()), style = todayLabel(),
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (tomorrow.firstGroup.isEmpty()) Text(stringResource(if (tomorrow.invalidEvents.isEmpty())
-                R.string.today_tomorrow_empty else R.string.today_tomorrow_unknown), fontSize = 14.sp)
+                R.string.today_tomorrow_empty else R.string.today_tomorrow_unknown), style = todayBody())
             tomorrow.firstGroup.forEach { event ->
                 TodayEventCard(event, state, tomorrow.firstGroup.size > 1, flat = true) { action(TodayAction.OpenEvent(event.id)) }
             }

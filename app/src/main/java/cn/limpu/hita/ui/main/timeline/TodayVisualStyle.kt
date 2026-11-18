@@ -7,11 +7,14 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Card
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.dp
 import cn.limpu.hita.ui.design.HitaTheme
 import cn.limpu.hita.ui.design.hitaGlassCardBorder
@@ -45,3 +48,9 @@ internal fun TodayCard(
     else Card(onClick = onClick, modifier = cardModifier, shape = shape, colors = colors,
         border = hitaGlassCardBorder(), content = { body() })
 }
+
+/** Pair small text with its line height while keeping the active theme font and line-height style. */
+@Composable internal fun todayCaption(): TextStyle = LocalTextStyle.current.merge(TextStyle(fontSize = 11.sp, lineHeight = 16.sp))
+@Composable internal fun todayLabel(): TextStyle = LocalTextStyle.current.merge(TextStyle(fontSize = 12.sp, lineHeight = 16.sp))
+@Composable internal fun todayMeta(): TextStyle = LocalTextStyle.current.merge(TextStyle(fontSize = 13.sp, lineHeight = 18.sp))
+@Composable internal fun todayBody(): TextStyle = LocalTextStyle.current.merge(TextStyle(fontSize = 14.sp, lineHeight = 20.sp))

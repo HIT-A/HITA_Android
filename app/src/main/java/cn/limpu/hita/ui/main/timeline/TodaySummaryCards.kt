@@ -87,7 +87,7 @@ private fun HomeworkSummary(summary: TodayHomeworkSummary, modifier: Modifier, a
         model.sources.filter { it.status == TodaySourceStatus.FAILED }.forEach { failed ->
             TextButton(onClick = { action(TodayAction.Retry(if (failed.source == TodayHomeworkSource.LOCAL)
                 TodayRetrySource.HOMEWORK else TodayRetrySource.GRADER)) }, contentPadding = PaddingValues(0.dp)) {
-                Text(stringResource(R.string.today_retry), fontSize = 12.sp)
+                Text(stringResource(R.string.today_retry), style = todayLabel())
             }
         }
     }
@@ -109,7 +109,7 @@ private fun sourceStatus(status: TodaySourceStatus): String = stringResource(whe
 private fun SummaryLabel(icon: Int, label: String) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         Icon(painterResource(icon), null, Modifier.size(15.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text(label, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(label, style = todayLabel(), color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
@@ -117,12 +117,12 @@ private fun SummaryLabel(icon: Int, label: String) {
 private fun SummaryValue(value: String, unit: String) {
     Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
         Text(value, fontSize = 27.sp, lineHeight = 34.sp, fontWeight = FontWeight.Bold)
-        Text(unit, fontSize = 12.sp, modifier = Modifier.padding(bottom = 4.dp))
+        Text(unit, style = todayLabel(), modifier = Modifier.padding(bottom = 4.dp))
     }
 }
 
 @Composable
 private fun SummaryText(value: String, small: Boolean = false, warning: Boolean = false) {
-    if (value.isNotBlank()) Text(value, fontSize = if (small) 11.sp else 12.sp,
+    if (value.isNotBlank()) Text(value, style = if (small) todayCaption() else todayLabel(),
         color = if (warning) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
 }

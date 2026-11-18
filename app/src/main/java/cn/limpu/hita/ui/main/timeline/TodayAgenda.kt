@@ -38,12 +38,12 @@ internal fun TodayAgendaHeading(state: TodayUiState, expanded: Boolean, onExpand
                         contentColor = MaterialTheme.colorScheme.onSurfaceVariant),
                     contentPadding = PaddingValues(horizontal = 12.dp), modifier = Modifier.heightIn(min = 48.dp)) {
                     Text(if (expanded) stringResource(R.string.today_collapse) else stringResource(R.string.today_expand, state.agenda.allToday.size),
-                        fontSize = 12.sp)
+                        style = todayLabel())
                     Icon(painterResource(R.drawable.ic_baseline_keyboard_arrow_right_24), null, Modifier.padding(start = 4.dp).size(14.dp).rotate(if (expanded) -90f else 90f))
                 }
             }
         }
-        state.scopeName?.let { Text(it, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
+        state.scopeName?.let { Text(it, style = todayCaption(), color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.align(Alignment.CenterVertically)) }
     }
 }
@@ -85,15 +85,16 @@ private fun EventBody(event: EventItem, state: TodayUiState, phase: EventTimePol
         val periods = if (event.type == EventItem.TYPE.CLASS && event.fromNumber > 0 && event.lastNumber >= event.fromNumber)
             stringResource(R.string.today_periods, event.fromNumber, event.lastNumber) else null
         Text(if (periods != null) stringResource(R.string.today_pair, time, periods) else time,
-            fontSize = 13.sp, fontWeight = FontWeight.Medium, color = secondary)
-        if (phase == EventTimePolicy.Phase.INVALID) Text(stringResource(R.string.today_invalid), fontSize = 12.sp, color = MaterialTheme.colorScheme.error)
-        else if (ended) Text(stringResource(R.string.today_ended), fontSize = 12.sp, color = secondary)
-        else event.teacher?.takeIf { it.isNotBlank() }?.let { Text(it, fontSize = 12.sp, color = secondary) }
-        if (conflict) Text(stringResource(R.string.today_conflict), fontSize = 12.sp, color = MaterialTheme.colorScheme.error)
+            style = todayMeta(), fontWeight = FontWeight.Medium, color = secondary)
+        if (phase == EventTimePolicy.Phase.INVALID) Text(stringResource(R.string.today_invalid), style = todayLabel(), color = MaterialTheme.colorScheme.error)
+        else if (ended) Text(stringResource(R.string.today_ended), style = todayLabel(), color = secondary)
+        else event.teacher?.takeIf { it.isNotBlank() }?.let { Text(it, style = todayLabel(), color = secondary) }
+        if (conflict) Text(stringResource(R.string.today_conflict), style = todayLabel(), color = MaterialTheme.colorScheme.error)
         if (phase == EventTimePolicy.Phase.ACTIVE) {
             LinearProgressIndicator(progress = { EventTimePolicy.progress(event.from.time, event.to.time, state.now) },
                 modifier = Modifier.fillMaxWidth().padding(top = 3.dp).height(3.dp),
-                color = MaterialTheme.colorScheme.primary, trackColor = MaterialTheme.colorScheme.surfaceVariant)
+                color = MaterialTheme.colorScheme.primary, trackColor = MaterialTheme.colorScheme.surfaceVariant,
+                gapSize = 0.dp, drawStopIndicator = {})
         }
     }
 }
@@ -104,7 +105,7 @@ private fun TodayLocation(place: String?, modifier: Modifier = Modifier) {
         .heightIn(min = 48.dp).padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
         Icon(painterResource(R.drawable.ic_baseline_location_24), null, Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text(place?.takeIf { it.isNotBlank() } ?: stringResource(R.string.today_place_pending), fontSize = 13.sp,
+        Text(place?.takeIf { it.isNotBlank() } ?: stringResource(R.string.today_place_pending), style = todayMeta(),
             fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
