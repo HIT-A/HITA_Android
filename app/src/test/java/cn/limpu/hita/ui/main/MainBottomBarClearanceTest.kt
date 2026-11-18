@@ -19,4 +19,9 @@ class MainBottomBarClearanceTest {
         assertEquals(12.dp, pillBarBottomPadding(31.dp))
         assertEquals(40.dp, pillBarBottomPadding(32.dp))
     }
+    @Test fun largerFallbackFontMetricsAreIncludedInPillClearance() {
+        assertEquals(57.dp, pillBarHeight(1.6f, 20.dp))
+        assertEquals(69.dp, mainBottomBarClearance(false, 0.dp, 1.6f, 20.dp))
+        assertEquals(113.dp, mainBottomBarClearance(false, 48.dp, 1.6f, 20.dp))
+    }
 }

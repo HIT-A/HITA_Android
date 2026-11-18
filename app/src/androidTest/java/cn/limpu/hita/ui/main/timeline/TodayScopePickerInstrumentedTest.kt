@@ -46,6 +46,7 @@ class TodayScopePickerInstrumentedTest {
         val deadline = System.nanoTime() + 5_000_000_000L
         while (System.nanoTime() < deadline) {
             instrumentation.waitForIdleSync()
+            if (android.os.Build.VERSION.SDK_INT >= 33) instrumentation.uiAutomation.clearCache()
             find(instrumentation.uiAutomation.rootInActiveWindow, match)?.let { return it }
             Thread.sleep(30)
         }
@@ -62,7 +63,7 @@ class TodayScopePickerInstrumentedTest {
     @Test fun currentSelectionAndLongNamesRemainAccessibleAndSelectionUsesObject() = host { action ->
         open()
         text(context.getString(R.string.today_choose))
-        await { it.isSelected && (it.text?.toString()?.contains(first.name) == true ||
+        await { (it.isSelected || (it.isCheckable && it.isChecked)) && (it.text?.toString()?.contains(first.name) == true ||
             find(it) { child -> child.text?.toString() == first.name } != null) }
         val long = text(second.name)
         val bounds = android.graphics.Rect().also(long::getBoundsInScreen)

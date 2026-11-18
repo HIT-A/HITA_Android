@@ -1,6 +1,7 @@
 package cn.limpu.hita.ui.main
 
 import androidx.activity.ComponentActivity
+import androidx.compose.foundation.layout.Box
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -21,20 +22,27 @@ class MainBottomBarGeometryInstrumentedTest {
         for (scale in listOf(1f, 1.3f, 1.6f)) for (dock in listOf(true, false)) {
             val measured = CountDownLatch(1)
             var height = 0f
+            var expected = 0f
+            var measuredDensity = 1f
             ActivityScenario.launch(ComponentActivity::class.java).use { scenario ->
                 scenario.onActivity { activity -> activity.setContentView(ComposeView(activity).apply {
                     setContent { HitaComposeTheme {
-                        CompositionLocalProvider(LocalDensity provides Density(1f, scale)) {
+                        val nativeDensity = LocalDensity.current.density
+                        measuredDensity = nativeDensity
+                        CompositionLocalProvider(LocalDensity provides Density(nativeDensity, scale)) {
+                            expected = if (dock) dockBarHeight(10f * scale) else pillBarHeight(scale, rememberPillBarLabelHeight()).value
                             val modifier = Modifier.onGloballyPositioned { height = it.size.height.toFloat(); measured.countDown() }
                             val tabs = listOf(MainTab.TIMELINE, MainTab.TIMETABLE, MainTab.HOMEWORK)
-                            if (dock) DockTabBar(0, tabs, false, 1f, ThemeTools.STYLE.CLASSIC, null, null, {}, modifier)
-                            else MainPillTabBar(0, tabs, false, 1f, ThemeTools.STYLE.CLASSIC, null, null, {}, modifier)
+                            // Drop ComposeView's full-window minimum constraints before measuring the bar body.
+                            Box {
+                                if (dock) DockTabBar(0, tabs, false, 1f, ThemeTools.STYLE.CLASSIC, null, null, {}, modifier)
+                                else MainPillTabBar(0, tabs, false, 1f, ThemeTools.STYLE.CLASSIC, null, null, {}, modifier)
+                            }
                         }
                     } }
                 }) }
                 assertTrue("Bar did not lay out", measured.await(5, TimeUnit.SECONDS))
-                val expected = if (dock) dockBarHeight(10f * scale) else pillBarHeight(scale).value
-                assertEquals("dock=$dock scale=$scale", expected, height, 1f)
+                assertEquals("dock=$dock scale=$scale", expected, height / measuredDensity, 1f)
             }
         }
     }
