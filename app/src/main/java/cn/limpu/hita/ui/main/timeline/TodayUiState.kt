@@ -8,7 +8,8 @@ data class TodayAgendaState(
     val allToday: List<EventItem>,
     val active: List<EventItem>,
     val nextGroup: List<EventItem>,
-    val defaultVisible: List<EventItem>,
+    val ended: List<EventItem>,
+    val remaining: List<EventItem>,
     val completedCount: Int,
     val invalidEvents: List<EventItem>,
     /** Connected groups of overlapping events; adjacent intervals do not conflict. */

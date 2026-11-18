@@ -47,7 +47,7 @@ class TodayScreenInstrumentedTest {
             show()
             awaitText("Fixture next A"); awaitText("Fixture next B")
             assertFalse(hasText("Fixture ended"))
-            clickText(base.getString(R.string.today_expand, 3))
+            clickText(base.getString(R.string.today_ended_count, 1))
             awaitText("Fixture ended")
             awaitText("11:58–11:59")
             clickText("Fixture ended")
@@ -156,7 +156,7 @@ class TodayScreenInstrumentedTest {
             }) }
             val title = base.getString(R.string.today_tomorrow, "2026-11-18")
             awaitText(title); awaitText("Fixture tomorrow A"); awaitText("Fixture tomorrow B")
-            clickText(base.getString(R.string.today_expand, 1))
+            clickText(base.getString(R.string.today_finished_count, 1))
             awaitText(title)
             fun occurrences(node: AccessibilityNodeInfo?): Int {
                 if (node == null) return 0

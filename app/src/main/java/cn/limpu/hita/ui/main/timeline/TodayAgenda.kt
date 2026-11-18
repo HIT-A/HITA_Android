@@ -27,24 +27,22 @@ import cn.limpu.hita.ui.design.hitaCourseColor
 
 @Composable
 internal fun TodayAgendaHeading(state: TodayUiState, expanded: Boolean, onExpand: () -> Unit) {
-    FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(stringResource(if (expanded) R.string.today_agenda else if (state.agenda?.active?.isNotEmpty() == true)
-                R.string.today_active else R.string.today_upcoming), fontSize = 19.sp, fontWeight = FontWeight.Bold)
-            if (state.agenda?.allToday?.isNotEmpty() == true) {
-                TextButton(onClick = onExpand, shape = RoundedCornerShape(50),
-                    colors = ButtonDefaults.textButtonColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
-                        contentColor = MaterialTheme.colorScheme.onSurfaceVariant),
-                    contentPadding = PaddingValues(horizontal = 12.dp), modifier = Modifier.heightIn(min = 48.dp)) {
-                    Text(if (expanded) stringResource(R.string.today_collapse) else stringResource(R.string.today_expand, state.agenda.allToday.size),
-                        style = todayLabel())
-                    Icon(painterResource(R.drawable.ic_baseline_keyboard_arrow_right_24), null, Modifier.padding(start = 4.dp).size(14.dp).rotate(if (expanded) -90f else 90f))
-                }
-            }
-        }
+    Row(Modifier.fillMaxWidth().heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(stringResource(R.string.today_agenda), fontSize = 19.sp, lineHeight = 24.sp, fontWeight = FontWeight.Bold)
         state.scopeName?.let { Text(it, style = todayCaption(), color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.align(Alignment.CenterVertically)) }
+            modifier = Modifier.weight(1f), maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis) }
+    }
+}
+
+@Composable
+internal fun TodayEndedToggle(count: Int, expanded: Boolean, onExpand: () -> Unit) {
+    Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable(onClick = onExpand),
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(stringResource(if (expanded) R.string.today_collapse else R.string.today_ended_count, count), style = todayMeta(),
+            color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Icon(painterResource(R.drawable.ic_baseline_keyboard_arrow_right_24), null,
+            Modifier.size(16.dp).rotate(if (expanded) -90f else 90f), tint = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 

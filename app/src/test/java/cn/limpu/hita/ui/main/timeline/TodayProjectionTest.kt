@@ -19,7 +19,7 @@ class TodayProjectionTest {
     }
     private fun List<EventItem>.ids() = map { it.id }
 
-    @Test fun `default agenda keeps all active and simultaneous next items in stable order`() {
+    @Test fun `agenda keeps every remaining item and separates ended events in stable order`() {
         val events = listOf(
             event("next-b", at(14), at(15), EventItem.TYPE.OTHER),
             event("active-b", at(10), at(13), EventItem.TYPE.EXAM),
@@ -31,7 +31,8 @@ class TodayProjectionTest {
         val result = TodayProjection.project(window, events + events.first(), at(12))
         assertEquals(listOf("active-a", "active-b"), result.active.ids())
         assertEquals(listOf("next-a", "next-b"), result.nextGroup.ids())
-        assertEquals(listOf("active-a", "active-b", "next-a", "next-b"), result.defaultVisible.ids())
+        assertEquals(listOf("active-a", "active-b", "next-a", "next-b", "later"), result.remaining.ids())
+        assertEquals(listOf("past"), result.ended.ids())
         assertEquals(6, result.allToday.size)
         assertEquals(1, result.completedCount)
         assertEquals(listOf(listOf("active-a", "active-b"), listOf("next-a", "next-b")), result.conflictGroups.map { it.ids() })
@@ -66,6 +67,7 @@ class TodayProjectionTest {
         val result = TodayProjection.project(window, listOf(event("hint", at(20), at(23), EventItem.TYPE.TAG)), window.preparationStart)
         assertTrue(result.allToday.isEmpty())
         assertTrue(result.allFinished)
+        assertTrue(result.ended.isEmpty())
         assertEquals(0, result.completedCount)
         assertTrue(requireNotNull(result.tomorrow).firstGroup.isEmpty())
     }
@@ -89,7 +91,8 @@ class TodayProjectionTest {
         ), window.preparationStart)
         assertEquals(listOf("invalid"), result.allToday.ids())
         assertEquals(listOf("invalid"), result.invalidEvents.ids())
-        assertEquals(listOf("invalid"), result.defaultVisible.ids())
+        assertEquals(listOf("invalid"), result.remaining.ids())
+        assertTrue(result.ended.isEmpty())
         assertEquals(0, result.completedCount)
         assertTrue(result.allFinished)
         assertEquals(listOf("next"), requireNotNull(result.tomorrow).firstGroup.ids())

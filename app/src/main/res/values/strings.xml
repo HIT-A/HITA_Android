@@ -2119,7 +2119,6 @@
     <string name="today_retry">重新读取</string>
     <string name="today_agenda">今日安排</string>
     <string name="today_collapse">收起</string>
-    <string name="today_expand">全部 %1$d 项</string>
     <string name="today_empty">今天暂无安排</string>
     <string name="today_finished_count">今天已结束 %1$d 项安排</string>
     <string name="today_tomorrow">明日准备 · %1$s</string>
@@ -2132,8 +2131,6 @@
     <string name="today_greeting_evening">晚上好</string>
     <string name="today_greeting_lunch">午间休息</string>
     <string name="today_greeting_dinner">晚餐时间</string>
-    <string name="today_active">正在进行</string>
-    <string name="today_upcoming">接下来</string>
     <string name="today_focus_group">同一时段有 %1$d 项安排</string>
     <string name="today_until_end">距结束 %1$d 分钟</string>
     <string name="today_until_start">距开始 %1$d 分钟</string>
@@ -2194,4 +2191,5 @@
     <string name="today_source_count">%1$s %2$d</string>
     <string name="today_exam_card_mixed">今日考试</string>
     <string name="today_exam_eas">教务</string>
+    <string name="today_ended_count">已结束 %1$d 项</string>
 </resources>

@@ -32,8 +32,9 @@ object TodayProjection {
             allToday = today,
             active = active,
             nextGroup = next,
-            // Invalid entries remain visible for diagnosis but never block tomorrow preparation.
-            defaultVisible = (active + next + invalid).distinctBy { it.id }.sortedWith(EventTimePolicy.eventOrder),
+            ended = valid.filter { phase(it, now) == Phase.ENDED },
+            // All future items and invalid intervals remain visible; nextGroup is only for the greeting.
+            remaining = today.filter { phase(it, now) != Phase.ENDED },
             completedCount = valid.count { phase(it, now) == Phase.ENDED },
             invalidEvents = invalid,
             conflictGroups = conflicts(valid),
