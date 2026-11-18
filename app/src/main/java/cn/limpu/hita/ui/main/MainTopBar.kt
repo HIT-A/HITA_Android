@@ -10,6 +10,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.widthIn
@@ -30,6 +31,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -119,7 +121,7 @@ internal fun MainTopBar(
         verticalAlignment = Alignment.Bottom
     ) {
         when (selectedTabId) {
-            MainTab.TIMELINE -> ToolbarTitle(todayTitle, titleColor)
+            MainTab.TIMELINE -> TodayToolbarTitle(todayTitle, titleColor, onOpenDrawer)
             MainTab.TIMETABLE -> TimetableToolbarTitle(
                 title = timetableTitle,
                 name = timetableName,
@@ -146,6 +148,22 @@ internal fun MainTopBar(
                 onTheme = onTheme,
                 onOpenDrawer = onOpenDrawer
             )
+        }
+    }
+}
+
+@Composable
+private fun TodayToolbarTitle(date: String, textColor: Color, onOpenDrawer: () -> Unit) {
+    Row(Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp),
+        verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text(date, fontSize = 12.sp, lineHeight = 16.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(stringResource(R.string.today_page_title), fontSize = 28.sp, lineHeight = 34.sp, fontWeight = FontWeight.Bold,
+                fontFamily = HitaTheme.fonts.display, color = textColor)
+        }
+        IconButton(onClick = onOpenDrawer) {
+            Icon(painterResource(R.drawable.ic_baseline_account_circle_24),
+                stringResource(R.string.today_account), tint = MaterialTheme.colorScheme.primary)
         }
     }
 }

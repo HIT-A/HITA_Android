@@ -264,7 +264,7 @@ internal fun MainScreen(
                 scaleY = contentScale
                 transformOrigin = androidx.compose.ui.graphics.TransformOrigin(1f, 0.5f)
             }
-            miniCourse?.let { course ->
+            miniCourse?.takeIf { state.navigation.selectedTab != MainTab.TIMELINE }?.let { course ->
                 MiniCourseBar(
                     state = course,
                     // 点课程条回到今日页：mini 条只在今日有课时出现，回到列表即可看到这节课。

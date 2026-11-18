@@ -49,7 +49,7 @@ class TodayScreenInstrumentedTest {
             assertFalse(hasText("Fixture ended"))
             clickText(base.getString(R.string.today_expand, 3))
             awaitText("Fixture ended")
-            awaitText("11-17 11:58 – 11-17 11:59")
+            awaitText("11:58–11:59")
             clickText("Fixture ended")
             assertEquals(TodayAction.OpenEvent(events.first().id), action)
             scenario.onActivity { rendered.value = rendered.value.copy(now = now + 1000) }
@@ -103,7 +103,7 @@ class TodayScreenInstrumentedTest {
                 } }
             }) }
             awaitText(title)
-            awaitText("11-17 12:00 – 11-17 12:01")
+            awaitText("12:00–12:01")
             awaitText("Fixture location")
         }
     }
@@ -119,6 +119,93 @@ class TodayScreenInstrumentedTest {
                     is cn.limpu.hita.ui.main.homework.HomeworkFragment)
             }
             awaitText(base.getString(R.string.today_homework_title))
+        }
+    }
+
+    @Test fun summariesKeepKnownSourceIdentityAndUseTheExistingHomeworkRoute() {
+        val local = TodayHomeworkSourceSummary(TodayHomeworkSource.LOCAL, TodaySourceStatus.READY, dueToday = 1, overdue = 0)
+        val grader = TodayHomeworkSourceSummary(TodayHomeworkSource.GRADER, TodaySourceStatus.DISCONNECTED)
+        val rendered = mutableStateOf(state(emptyList()).copy(homework = TodayHomeworkSummary(local, grader)))
+        var action: TodayAction? = null
+        ActivityScenario.launch(ComponentActivity::class.java).use { scenario ->
+            scenario.onActivity { activity -> activity.setContentView(ComposeView(activity).apply {
+                setContent { HitaComposeTheme { TodayScreen(rendered.value, emptyList(), {}, { action = it }) } }
+            }) }
+            awaitText(base.getString(R.string.today_source_status, "Grader", base.getString(R.string.today_disconnected)))
+            clickText(base.getString(R.string.today_homework_local_short))
+            assertEquals(TodayAction.OpenHomework(TodayHomeworkSource.LOCAL), action)
+            scenario.onActivity { rendered.value = rendered.value.copy(homework = TodayHomeworkSummary(local,
+                grader.copy(status = TodaySourceStatus.READY, dueToday = 1, overdue = 0))) }
+            awaitText(base.getString(R.string.today_homework_card))
+            awaitText("2")
+            awaitText(base.getString(R.string.today_source_count, base.getString(R.string.today_homework_local_short), 1) +
+                " · " + base.getString(R.string.today_source_count, "Grader", 1))
+        }
+    }
+
+    @Test fun tomorrowGroupRemainsSingleWhenHistoryExpandsAndUsesActualIds() {
+        val at = window.preparationStart
+        val first = event("Fixture tomorrow A", window.tomorrowStart + 8 * 3_600_000, window.tomorrowStart + 9 * 3_600_000)
+        val second = event("Fixture tomorrow B", first.from.time, first.to.time)
+        val events = listOf(event("Fixture history", now - 60_000, now), first, second)
+        val rendered = state(events, at)
+        var action: TodayAction? = null
+        ActivityScenario.launch(ComponentActivity::class.java).use { scenario ->
+            scenario.onActivity { activity -> activity.setContentView(ComposeView(activity).apply {
+                setContent { HitaComposeTheme { TodayScreen(rendered, emptyList(), {}, { action = it }) } }
+            }) }
+            val title = base.getString(R.string.today_tomorrow, "2026-11-18")
+            awaitText(title); awaitText("Fixture tomorrow A"); awaitText("Fixture tomorrow B")
+            clickText(base.getString(R.string.today_expand, 1))
+            awaitText(title)
+            fun occurrences(node: AccessibilityNodeInfo?): Int {
+                if (node == null) return 0
+                val own = if (node.isVisibleToUser && (node.text?.toString() == title || node.contentDescription?.toString() == title)) 1 else 0
+                return own + (0 until node.childCount).sumOf { occurrences(node.getChild(it)) }
+            }
+            assertEquals(1, occurrences(freshRoot()))
+            clickText("Fixture tomorrow B")
+            assertEquals(TodayAction.OpenEvent(second.id), action)
+        }
+    }
+
+    @Test fun approvedDesignDayAndEveningRenderWithSourceSummaries() {
+        val course = event("概率论与数理统计", now + 12 * 60_000, now + 107 * 60_000).apply {
+            fromNumber = 3; lastNumber = 4; place = "T3201"; teacher = "张老师"
+        }
+        val exam = event("高等数学", now + 2 * 3_600_000, now + 4 * 3_600_000).apply {
+            type = EventItem.TYPE.EXAM; place = "正心201"
+        }
+        val tomorrow = event("线性代数", window.tomorrowStart + 8 * 3_600_000, window.tomorrowStart + 9 * 3_600_000).apply { place = "格物205" }
+        val events = listOf(course, exam, tomorrow)
+        val homework = TodayHomeworkSummary(
+            TodayHomeworkSourceSummary(TodayHomeworkSource.LOCAL, TodaySourceStatus.READY, dueToday = 1, overdue = 0),
+            TodayHomeworkSourceSummary(TodayHomeworkSource.GRADER, TodaySourceStatus.READY, accountId = "fixture", dueToday = 1, overdue = 1))
+        val exams = TodayExamSummary(listOf(TodayExamEntry(exam.id, TodayExamSource.IMPORTED, exam.name, exam.place,
+            exam.from.time, exam.to.time, "fixture")), emptyList(), emptyList(), emptyList(), 1)
+        val rendered = mutableStateOf(state(events).copy(homework = homework, exams = exams))
+        ActivityScenario.launch(ComponentActivity::class.java).use { scenario ->
+            scenario.onActivity { activity -> activity.setContentView(ComposeView(activity).apply {
+                setContent { HitaComposeTheme {
+                    androidx.compose.material3.Surface(color = androidx.compose.material3.MaterialTheme.colorScheme.background.copy(alpha = 1f)) {
+                        TodayScreen(rendered.value, emptyList(), {}, {})
+                    }
+                } }
+            }) }
+            awaitText("概率论与数理统计")
+            awaitText(base.getString(R.string.today_homework_card))
+            fun capture(name: String) {
+                instrumentation.waitForIdleSync()
+                val bitmap = requireNotNull(automation.takeScreenshot())
+                base.cacheDir.resolve(name).outputStream().use { bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
+                bitmap.recycle()
+            }
+            capture("today-visual-day.png")
+            scenario.onActivity { rendered.value = state(events, window.preparationStart).copy(homework = homework,
+                exams = exams.copy(remaining = emptyList())) }
+            awaitText("线性代数")
+            awaitText(base.getString(R.string.today_greeting_finished))
+            capture("today-visual-evening.png")
         }
     }
 
