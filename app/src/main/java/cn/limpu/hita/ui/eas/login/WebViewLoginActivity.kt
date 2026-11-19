@@ -72,13 +72,12 @@ import androidx.compose.ui.graphics.Color as ComposeColor
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import cn.limpu.hita.BuildConfig
 import cn.limpu.hita.R
 import cn.limpu.hita.ui.design.HitaComposeTheme
+import cn.limpu.hita.ui.design.HitaPasswordField
 import cn.limpu.hita.utils.LogUtils
 import cn.limpu.hita.utils.LogRedaction
 import dagger.hilt.android.AndroidEntryPoint
@@ -3214,25 +3213,23 @@ private fun WebViewLoginScreen(
                                 )
                             }
                             if (mfaState.hasVisibleInput) {
-                                OutlinedTextField(
-                                    value = mfaInputValue,
-                                    onValueChange = onMfaInputChange,
-                                    label = { Text(mfaState.inputPlaceholder) },
-                                    singleLine = true,
-                                    keyboardOptions = KeyboardOptions(
-                                        keyboardType = if (mfaState.inputType.equals("password", ignoreCase = true)) {
-                                            KeyboardType.Password
-                                        } else {
-                                            KeyboardType.Number
-                                        }
-                                    ),
-                                    visualTransformation = if (mfaState.inputType.equals("password", ignoreCase = true)) {
-                                        PasswordVisualTransformation()
-                                    } else {
-                                        VisualTransformation.None
-                                    },
-                                    modifier = Modifier.fillMaxWidth()
-                                )
+                                if (mfaState.inputType.equals("password", ignoreCase = true)) {
+                                    HitaPasswordField(
+                                        value = mfaInputValue,
+                                        onValueChange = onMfaInputChange,
+                                        label = { Text(mfaState.inputPlaceholder) },
+                                        modifier = Modifier.fillMaxWidth(),
+                                    )
+                                } else {
+                                    OutlinedTextField(
+                                        value = mfaInputValue,
+                                        onValueChange = onMfaInputChange,
+                                        label = { Text(mfaState.inputPlaceholder) },
+                                        singleLine = true,
+                                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                        modifier = Modifier.fillMaxWidth(),
+                                    )
+                                }
                             }
                             if (mfaState.canSendCode) {
                                 Button(

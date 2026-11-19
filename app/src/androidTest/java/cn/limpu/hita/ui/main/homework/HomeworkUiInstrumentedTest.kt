@@ -73,7 +73,22 @@ class HomeworkUiInstrumentedTest {
                         }
                     })
                 }
-                awaitText(base.getString(R.string.homework_platform_login, base.getString(R.string.geniusta_title)))
+                val geniusLogin = base.getString(R.string.homework_platform_login, base.getString(R.string.geniusta_title))
+                clickText(geniusLogin)
+                val password = awaitNode("masked GeniusTA password field") {
+                    it.isVisibleToUser && it.isEditable && it.isPassword
+                }
+                val sample = "fixture-password"
+                assertTrue(password.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, Bundle().apply {
+                    putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, sample)
+                }))
+                assertFalse(hasText(sample))
+                clickText(base.getString(R.string.show_password))
+                awaitNode("revealed GeniusTA password") { it.isEditable && it.text?.toString() == sample }
+                clickText(base.getString(R.string.hide_password))
+                awaitNode("remasked GeniusTA password") { it.isEditable && it.isPassword && it.text?.toString() != sample }
+                clickText(base.getString(R.string.homework_cancel))
+                awaitText(geniusLogin)
                 assertFalse(hasText(base.getString(R.string.grader_login_title)))
                 // 所有日期的待办常驻显示：不再因为选中日期而隐藏其它日子。
                 awaitText("fixture-today")
@@ -147,6 +162,7 @@ class HomeworkUiInstrumentedTest {
 
     @Test fun bothPlatformControlsAndImportedTodosShareTheBoard() = runBlocking {
         val preferenceName = "homework-grader-" + UUID.randomUUID()
+        val upcoming = System.currentTimeMillis() + 3_600_000L
         val isolatedApp = object : Application() {
             init { attachBaseContext(base) }
             override fun getApplicationContext(): Context = this
@@ -173,31 +189,41 @@ class HomeworkUiInstrumentedTest {
                                     graderVisibleOverride = true,
                                     graderStateOverride = GraderState(
                                         accountId = "account",
-                                        tasks = listOf(ImportedTodo("older", "fixture-grader", "fixture-course", 1L, false)),
+                                        tasks = listOf(
+                                            ImportedTodo("old", "fixture-expired-grader", "fixture-course", 1L, false),
+                                            ImportedTodo("upcoming", "fixture-grader", "fixture-course", upcoming, false),
+                                        ),
                                         ready = true,
                                         error = GraderError.NETWORK,
                                     ),
                                     geniusTaStateOverride = GeniusTaState(
                                         accountId = "genius",
                                         ready = true,
-                                        tasks = listOf(ImportedTodo("completed", "fixture-geniusta", "fixture-course", 2L, true)),
+                                        tasks = listOf(
+                                            ImportedTodo("old-complete", "fixture-expired-geniusta", "fixture-course", 2L, true),
+                                            ImportedTodo("completed", "fixture-geniusta", "fixture-course", upcoming, true),
+                                        ),
                                     ),
                                 )
                             }
                         }
                     })
                 }
-                awaitText(base.getString(R.string.homework_platform_relogin, base.getString(R.string.grader_title)))
+                val grader = base.getString(R.string.grader_title)
+                awaitText(base.getString(R.string.homework_platform_relogin, grader))
+                assertFalse(hasDescription(base.getString(R.string.homework_platform_refresh, grader)))
+                assertFalse(hasDescription(base.getString(R.string.homework_platform_disconnect, grader)))
                 awaitText(base.getString(R.string.homework_platform_refresh, base.getString(R.string.geniusta_title)))
                 assertFalse("不得为重新登录弹窗", hasText(base.getString(R.string.grader_login_title)))
 
                 awaitText("fixture-grader")
                 awaitText(base.getString(R.string.homework_imported_source, base.getString(R.string.grader_title)))
-                awaitText(base.getString(R.string.homework_overdue))
+                assertFalse("过期 Grader 待办不显示", hasText("fixture-expired-grader"))
                 assertFalse("手动完成项应默认收起", hasText("fixture-geniusta"))
                 clickText(base.getString(R.string.homework_completed_section, 1))
                 awaitText("fixture-geniusta")
                 awaitText(base.getString(R.string.homework_imported_source, base.getString(R.string.geniusta_title)))
+                assertFalse("过期 GeniusTA 待办不显示在已完成中", hasText("fixture-expired-geniusta"))
             }
         } finally {
             base.deleteSharedPreferences("$preferenceName-timeline_homework_v1")
@@ -218,6 +244,15 @@ class HomeworkUiInstrumentedTest {
         freshRoot()?.findAccessibilityNodeInfosByText(text)?.any {
             it.isVisibleToUser && it.text?.toString() == text
         } == true
+
+    private fun hasDescription(description: String): Boolean {
+        fun contains(node: AccessibilityNodeInfo?): Boolean {
+            if (node == null) return false
+            if (node.isVisibleToUser && node.contentDescription?.toString() == description) return true
+            return (0 until node.childCount).any { contains(node.getChild(it)) }
+        }
+        return contains(freshRoot())
+    }
 
     private fun awaitText(text: String) = awaitNode("text: $text", scroll = true) {
         it.isVisibleToUser && (it.text?.toString() == text || it.contentDescription?.toString() == text)

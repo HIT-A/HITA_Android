@@ -348,6 +348,8 @@
     <string name="login_jwts_tysfrzdl">统一身份认证登录</string>
     <string name="username">账号</string>
     <string name="password">密码</string>
+    <string name="show_password">显示密码</string>
+    <string name="hide_password">隐藏密码</string>
     <string name="hita_account">HITSZ助手</string>
     <string name="app_slogan">Harbin Institute of Technology</string>
     <string name="navi_campus_card_p">校园卡</string>
@@ -1835,9 +1837,8 @@
     <string name="homework_completed_section">已完成（%1$d 项）</string>
     <string name="homework_imported_source">来源：%1$s</string>
     <string name="homework_imported_deadline">截止：%1$s（北京时间）</string>
-    <string name="homework_overdue">已过期</string>
     <string name="homework_platform_login">登录 %1$s</string>
-    <string name="homework_platform_relogin">重登 %1$s</string>
+    <string name="homework_platform_relogin">重新登录 %1$s</string>
     <string name="homework_platform_refresh">刷新 %1$s</string>
     <string name="homework_platform_disconnect">退出 %1$s</string>
     <string name="homework_platform_sign_in">登录</string>

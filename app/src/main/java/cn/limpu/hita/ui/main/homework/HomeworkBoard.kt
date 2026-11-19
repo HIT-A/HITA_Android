@@ -45,21 +45,24 @@ internal data class HomeworkBoard(
     val pending: List<TodoRow>,
     val completed: List<TodoRow>,
     val pendingByDate: Map<String, Int>,
+    val nextImportedDeadline: Long?,
 )
 
 private val importedDeadlineFormat = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm", Locale.ROOT)
     .withZone(ZoneId.of("Asia/Shanghai"))
 private val deadlineOrder = compareBy<TodoRow, Long?>(nullsLast(naturalOrder())) { it.dueAt }
 
-/** Compare absolute deadlines; within ties keep the order returned by each source. */
+/** Filter expired imports before either section; compare the remaining rows by absolute deadline. */
 internal fun buildHomeworkBoard(
     personal: List<HomeworkItem>,
     imported: List<ImportedTodoGroup>,
     zone: ZoneId,
+    now: Long,
 ): HomeworkBoard {
     val pending = ArrayList<TodoRow>()
     val completed = ArrayList<TodoRow>()
     val counts = HashMap<String, Int>()
+    var nextImportedDeadline: Long? = null
     fun add(row: TodoRow) {
         if (row.completed) {
             completed.add(row)
@@ -80,6 +83,9 @@ internal fun buildHomeworkBoard(
     }
     for ((platform, accountId, tasks) in imported) {
         for (task in tasks) {
+            if (task.dueAt < now) continue
+            val previous = nextImportedDeadline
+            if (previous == null || task.dueAt < previous) nextImportedDeadline = task.dueAt
             val deadline = Instant.ofEpochMilli(task.dueAt)
             add(TodoRow(
                 TodoKey.Imported(platform, accountId, task.id), task.title, task.courseTitle, task.dueAt,
@@ -89,5 +95,5 @@ internal fun buildHomeworkBoard(
     }
     pending.sortWith(deadlineOrder)
     completed.sortWith(deadlineOrder)
-    return HomeworkBoard(pending, completed, counts)
+    return HomeworkBoard(pending, completed, counts, nextImportedDeadline)
 }

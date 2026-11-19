@@ -103,6 +103,10 @@ class HomeworkViewModel @Inject constructor(
         viewModelScope.launch { graderRepository.refresh() }
     }
 
+    internal suspend fun shouldOpenGraderLoginAfterRetry(): Boolean =
+        !graderRepository.refresh() && graderVisible.value == true &&
+            graderState.value?.let { !it.syncing && it.error != null } == true
+
     fun connectGeniusTa(username: String, password: String, onConnected: () -> Unit) {
         viewModelScope.launch {
             if (geniusTaRepository.connect(username, password)) onConnected()
@@ -112,6 +116,9 @@ class HomeworkViewModel @Inject constructor(
     fun refreshGeniusTa() {
         viewModelScope.launch { geniusTaRepository.refresh() }
     }
+
+    internal suspend fun shouldOpenGeniusTaLoginAfterRetry(): Boolean =
+        !geniusTaRepository.refresh() && geniusTaState.value?.let { !it.syncing && it.error != null } == true
 
     fun disconnectGeniusTa() {
         viewModelScope.launch { geniusTaRepository.disconnect() }

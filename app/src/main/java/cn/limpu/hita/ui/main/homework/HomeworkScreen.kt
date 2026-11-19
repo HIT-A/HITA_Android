@@ -95,19 +95,20 @@ internal fun HomeworkScreen(
     val selectedDate = dateOverride ?: today
     val selectedDay = LocalDate.parse(selectedDate)
     val deviceZone = ZoneId.systemDefault()
-    val board = remember(state.items, showGrader, grader.accountId, grader.tasks, geniusTa.accountId, geniusTa.tasks, deviceZone) {
+    val board = remember(state.items, showGrader, grader.accountId, grader.tasks, geniusTa.accountId, geniusTa.tasks, deviceZone, now) {
         val imported = buildList {
             if (showGrader) {
                 grader.accountId?.let { add(ImportedTodoGroup(TodoPlatform.GRADER, it, grader.tasks)) }
             }
             geniusTa.accountId?.let { add(ImportedTodoGroup(TodoPlatform.GENIUSTA, it, geniusTa.tasks)) }
         }
-        buildHomeworkBoard(state.items, imported, deviceZone)
+        buildHomeworkBoard(state.items, imported, deviceZone, now)
     }
     val context = LocalContext.current
     val graderLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         viewModel.refreshToday()
     }
+    val openGraderLogin = { graderLauncher.launch(Intent(context, GraderLoginActivity::class.java)) }
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
@@ -159,15 +160,7 @@ internal fun HomeworkScreen(
         }
     }
 
-    val nextDue = remember(board, now, showCompleted) {
-        val pending = board.pending.nextImportedDeadline(now)
-        val completed = if (showCompleted) board.completed.nextImportedDeadline(now) else null
-        when {
-            pending == null -> completed
-            completed == null -> pending
-            else -> minOf(pending, completed)
-        }
-    }
+    val nextDue = board.nextImportedDeadline
     LaunchedEffect(nextDue, now) {
         if (nextDue != null) {
             delay((nextDue - System.currentTimeMillis()).coerceAtLeast(0L) + 1L)
@@ -241,7 +234,8 @@ internal fun HomeworkScreen(
                     TodoPlatformConnections(
                         grader = grader.takeIf { showGrader },
                         geniusTa = geniusTa,
-                        onGraderLogin = { graderLauncher.launch(Intent(context, GraderLoginActivity::class.java)) },
+                        onGraderLogin = openGraderLogin,
+                        onGraderRelogin = { if (viewModel.shouldOpenGraderLoginAfterRetry()) openGraderLogin() },
                         onGraderRefresh = viewModel::refreshGrader,
                         onGraderDisconnect = {
                             viewModel.disconnectGrader {
@@ -253,6 +247,7 @@ internal fun HomeworkScreen(
                             }
                         },
                         onGeniusTaLogin = { geniusLogin = true },
+                        onGeniusTaRelogin = { if (viewModel.shouldOpenGeniusTaLoginAfterRetry()) geniusLogin = true },
                         onGeniusTaRefresh = viewModel::refreshGeniusTa,
                         onGeniusTaDisconnect = viewModel::disconnectGeniusTa,
                     )
@@ -278,7 +273,7 @@ internal fun HomeworkScreen(
                         TodoPlatform.GENIUSTA -> geniusTa.syncing
                     }
                 }
-                todoRows(board.pending, today, now, ::rowBusy, ::complete, ::openEditor)
+                todoRows(board.pending, today, ::rowBusy, ::complete, ::openEditor)
                 if (board.completed.isNotEmpty()) {
                     item(key = "completed-toggle") {
                         CompletedSectionHeader(
@@ -288,7 +283,7 @@ internal fun HomeworkScreen(
                         )
                     }
                     if (showCompleted) {
-                        todoRows(board.completed, today, now, ::rowBusy, ::complete, ::openEditor)
+                        todoRows(board.completed, today, ::rowBusy, ::complete, ::openEditor)
                     }
                 }
             }
@@ -499,13 +494,9 @@ private fun HomeworkWeekStrip(
     }
 }
 
-private fun List<TodoRow>.nextImportedDeadline(now: Long): Long? =
-    firstOrNull { it.key is TodoKey.Imported && it.dueAt != null && it.dueAt >= now }?.dueAt
-
 private fun LazyListScope.todoRows(
     rows: List<TodoRow>,
     today: String,
-    now: Long,
     isBusy: (TodoKey) -> Boolean,
     onComplete: (TodoKey, Boolean) -> Unit,
     onEdit: (HomeworkItem) -> Unit,
@@ -534,7 +525,6 @@ private fun LazyListScope.todoRows(
             HomeworkRow(
                 row = row,
                 busy = isBusy(row.key),
-                now = now,
                 onComplete = { onComplete(row.key, it) },
                 onEdit = row.personal?.let { personal -> { onEdit(personal) } },
             )
@@ -641,10 +631,9 @@ private fun daySubtitle(date: String): String =
     LocalDate.parse(date).format(HOMEWORK_YEAR_WEEKDAY)
 
 @Composable
-private fun HomeworkRow(row: TodoRow, busy: Boolean, now: Long, onComplete: (Boolean) -> Unit, onEdit: (() -> Unit)?) {
+private fun HomeworkRow(row: TodoRow, busy: Boolean, onComplete: (Boolean) -> Unit, onEdit: (() -> Unit)?) {
     val item = row.personal
     val imported = row.key as? TodoKey.Imported
-    val overdue = imported != null && row.dueAt != null && row.dueAt < now
     Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             Checkbox(
@@ -706,13 +695,6 @@ private fun HomeworkRow(row: TodoRow, busy: Boolean, now: Long, onComplete: (Boo
                         stringResource(R.string.homework_imported_source, stringResource(imported.platform.titleRes)),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                if (overdue) {
-                    Text(
-                        stringResource(R.string.homework_overdue),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.error,
                     )
                 }
             }

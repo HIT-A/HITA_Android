@@ -38,7 +38,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.fragment.app.Fragment
@@ -46,6 +45,7 @@ import androidx.fragment.app.viewModels
 import cn.limpu.hita.R
 import cn.limpu.hita.ui.about.UserAgreementDialog
 import cn.limpu.hita.ui.design.HitaComposeTheme
+import cn.limpu.hita.ui.design.HitaPasswordField
 import cn.limpu.hita.ui.design.HitaTheme
 import com.limpu.hitauser.data.model.LoginResult
 import dagger.hilt.android.AndroidEntryPoint
@@ -154,7 +154,7 @@ private fun LoginScreen(
                 supportingText = usernameFieldError?.let { err -> { Text(stringResource(err)) } }
             )
 
-            OutlinedTextField(
+            HitaPasswordField(
                 value = password,
                 onValueChange = {
                     password = it
@@ -165,12 +165,7 @@ private fun LoginScreen(
                     .fillMaxWidth()
                     .padding(horizontal = tokens.spacing.lg),
                 label = { Text(stringResource(R.string.password)) },
-                singleLine = true,
-                visualTransformation = PasswordVisualTransformation(),
-                keyboardOptions = KeyboardOptions(
-                    keyboardType = KeyboardType.Password,
-                    imeAction = ImeAction.Done
-                ),
+                imeAction = ImeAction.Done,
                 keyboardActions = KeyboardActions(onDone = {
                     if (formState?.isDataValid == true && agreementChecked && !isLoading) {
                         isLoading = true

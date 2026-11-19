@@ -11,6 +11,7 @@ import org.junit.Test
 class HomeworkBoardTest {
     private val zone = ZoneId.of("Asia/Shanghai")
     private val date = "2026-11-08"
+    private val now = Instant.parse("2026-11-07T16:00:00Z").toEpochMilli()
 
     private fun personal(id: String, date: String?, time: String? = null, completed: Boolean = false) =
         HomeworkItem(id, id, 0L, completed, date, time)
@@ -26,6 +27,7 @@ class HomeworkBoardTest {
             listOf(personal("legacy", null), personal("end of day", date), personal("morning", date, "09:00")),
             listOf(grader, genius),
             zone,
+            now,
         )
 
         assertEquals(
@@ -52,6 +54,7 @@ class HomeworkBoardTest {
             listOf(personal("later-local", "2026-11-07", "17:00")),
             listOf(group),
             ZoneId.of("UTC"),
+            now,
         )
 
         assertEquals(listOf("early-beijing", "later-local"), board.pending.map { it.key.id })
@@ -61,26 +64,55 @@ class HomeworkBoardTest {
 
     @Test
     fun `manual completion and restoration apply the same date order across all sources`() {
-        val old = remote("overdue", "2026-10-10T16:00:00Z", completed = true)
+        val earlier = remote("earlier", "2026-11-07T18:00:00Z", completed = true)
         val newer = remote("newer", "2026-11-07T20:00:00Z", completed = true)
-        val grader = ImportedTodoGroup(TodoPlatform.GRADER, "grader-user", listOf(old))
+        val grader = ImportedTodoGroup(TodoPlatform.GRADER, "grader-user", listOf(earlier))
         val genius = ImportedTodoGroup(TodoPlatform.GENIUSTA, "genius-user", listOf(newer))
         val local = listOf(personal("legacy", null, completed = true), personal("pending", date))
 
-        val board = buildHomeworkBoard(local, listOf(genius, grader), zone)
+        val board = buildHomeworkBoard(local, listOf(genius, grader), zone, now)
         assertEquals(listOf("pending"), board.pending.map { it.key.id })
-        assertEquals(listOf("overdue", "newer", "legacy"), board.completed.map { it.key.id })
+        assertEquals(listOf("earlier", "newer", "legacy"), board.completed.map { it.key.id })
 
-        val restored = buildHomeworkBoard(local, listOf(genius, grader.copy(tasks = listOf(old.copy(completed = false)))), zone)
-        assertEquals(listOf("overdue", "pending"), restored.pending.map { it.key.id })
+        val restored = buildHomeworkBoard(
+            local, listOf(genius, grader.copy(tasks = listOf(earlier.copy(completed = false)))), zone, now,
+        )
+        assertEquals(listOf("earlier", "pending"), restored.pending.map { it.key.id })
         assertEquals(listOf("newer", "legacy"), restored.completed.map { it.key.id })
+    }
+
+    @Test
+    fun `expired imports never enter either section but old personal todos remain`() {
+        val pendingExpiry = remote("grader-at-deadline", "2026-11-07T16:00:00Z")
+        val completedExpiry = remote("genius-next", "2026-11-07T16:00:00.001Z", completed = true)
+        val oldPending = remote("old-pending", "2025-11-07T16:00:00Z")
+        val oldCompleted = oldPending.copy(id = "old-completed", completed = true)
+        val imports = listOf(
+            ImportedTodoGroup(TodoPlatform.GRADER, "grader", listOf(pendingExpiry, oldPending, oldCompleted)),
+            ImportedTodoGroup(TodoPlatform.GENIUSTA, "genius", listOf(completedExpiry, oldPending, oldCompleted)),
+        )
+        val local = listOf(personal("old-personal", "2025-11-08"), personal("old-personal-done", "2025-11-07", completed = true))
+
+        val atDeadline = buildHomeworkBoard(local, imports, zone, now)
+        assertEquals(listOf("old-personal", "grader-at-deadline"), atDeadline.pending.map { it.key.id })
+        assertEquals(listOf("old-personal-done", "genius-next"), atDeadline.completed.map { it.key.id })
+        assertEquals(now, atDeadline.nextImportedDeadline)
+
+        val afterPendingExpiry = buildHomeworkBoard(local, imports, zone, now + 1)
+        assertEquals(listOf("old-personal"), afterPendingExpiry.pending.map { it.key.id })
+        assertEquals(mapOf("2025-11-08" to 1), afterPendingExpiry.pendingByDate)
+        assertEquals(now + 1, afterPendingExpiry.nextImportedDeadline)
+
+        val afterBothExpire = buildHomeworkBoard(local, imports, zone, now + 2)
+        assertEquals(listOf("old-personal-done"), afterBothExpire.completed.map { it.key.id })
+        assertEquals(null, afterBothExpire.nextImportedDeadline)
     }
 
     @Test
     fun `same instant retains personal storage order after a completion toggle`() {
         val items = listOf(personal("z", date), personal("a", date))
-        val original = buildHomeworkBoard(items, emptyList(), zone)
-        val toggled = buildHomeworkBoard(items.map { it.copy(completed = true) }, emptyList(), zone)
+        val original = buildHomeworkBoard(items, emptyList(), zone, now)
+        val toggled = buildHomeworkBoard(items.map { it.copy(completed = true) }, emptyList(), zone, now)
         assertEquals(listOf("z", "a"), original.pending.map { it.key.id })
         assertEquals(original.pending.map { it.key }, toggled.completed.map { it.key })
         assertTrue(toggled.pending.isEmpty())
