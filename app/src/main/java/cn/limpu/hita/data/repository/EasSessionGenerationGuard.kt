@@ -16,9 +16,10 @@ internal object EasSessionGenerationGuard {
         storedToken: EASToken,
         incomingToken: EASToken,
         currentGeneration: Long,
+        verifiedBenbuLogin: Boolean = false,
         nextGeneration: () -> Long
     ): Long {
-        if (currentGeneration > 0L && representsSameAccountSession(storedToken, incomingToken)) {
+        if (!verifiedBenbuLogin && currentGeneration > 0L && representsSameAccountSession(storedToken, incomingToken)) {
             return currentGeneration
         }
         return nextGeneration().also { generated ->

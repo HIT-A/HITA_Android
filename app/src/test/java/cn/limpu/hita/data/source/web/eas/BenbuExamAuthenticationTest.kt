@@ -2,6 +2,7 @@ package cn.limpu.hita.data.source.web.eas
 
 import cn.limpu.hita.data.model.eas.TermItem
 import java.lang.reflect.Proxy
+import java.net.URL
 import org.jsoup.Connection
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -18,13 +19,14 @@ class BenbuExamAuthenticationTest {
         </table>
     """.trimIndent()
 
-    private fun expired(body: String, status: Int = 200): Boolean {
+    private fun expired(body: String, status: Int = 200, url: String = "http://jwts-hit-edu-cn.vpn.hit.edu.cn:1080/"): Boolean {
         val response = Proxy.newProxyInstance(
             Connection.Response::class.java.classLoader,
             arrayOf(Connection.Response::class.java)
         ) { _, method, _ ->
             when (method.name) {
                 "statusCode" -> status
+                "url" -> URL(url)
                 else -> error("Unexpected call: ${method.name}")
             }
         } as Connection.Response
@@ -73,6 +75,13 @@ class BenbuExamAuthenticationTest {
         val html = "<p>未登录，请重新登录</p>" +
             "<table><tr><th>课程名称</th><th>上课时间</th></tr></table>"
         assertTrue(expired(html))
+    }
+
+    @Test fun `empty VPN portal redirects require authentication`() {
+        assertTrue(expired("", url = "https://ivpn.hit.edu.cn/"))
+        assertTrue(expired("", url = "https://vpn.hit.edu.cn/"))
+        assertFalse(expired(""))
+        assertFalse(expired("", url = "https://ivpn.hit.edu.cn.example.org/"))
     }
 
     @Test fun `javascript challenge remains a recovery response`() {

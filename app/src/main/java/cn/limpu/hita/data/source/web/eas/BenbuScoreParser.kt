@@ -3,6 +3,7 @@ package cn.limpu.hita.data.source.web.eas
 import cn.limpu.hita.utils.LogUtils
 import cn.limpu.hita.data.model.eas.CourseScoreItem
 import org.jsoup.Jsoup
+import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import org.jsoup.nodes.Comment
 import org.jsoup.nodes.TextNode
@@ -12,6 +13,17 @@ internal fun parseScoreCredit(raw: String): Float {
 }
 
 object BenbuScoreParser {
+
+    internal fun isScoreResultPage(doc: Document): Boolean {
+        if (doc.select("table tr").any(::isScoreHeader)) return true
+        val text = doc.body().text().trim().trimEnd('。', '！', '!')
+        return text in setOf("暂无成绩", "未查询到成绩", "没有查询到成绩", "没有成绩记录")
+    }
+
+    private fun isScoreHeader(row: Element): Boolean {
+        val headers = row.select("th, td").map { normalizeHeader(it.text()) }
+        return headers.any { it.contains("课程名称") } && headers.any { it.contains("成绩") }
+    }
 
     fun parseGradesHtml(html: String): List<CourseScoreItem> {
         val doc = Jsoup.parse(html)
@@ -34,13 +46,7 @@ object BenbuScoreParser {
 
             val row0 = rows.getOrNull(0)?.select("th, td")?.map { normalizeHeader(it.text()) }.orEmpty()
             val row1 = rows.getOrNull(1)?.select("th, td")?.map { normalizeHeader(it.text()) }.orEmpty()
-            val headerIndex = rows.indexOfFirst { row ->
-                val headerTexts = row.select("th, td").map { normalizeHeader(it.text()) }
-                headerTexts.any { it.contains("课程名称") } &&
-                    headerTexts.any {
-                        it.contains("成绩") || it.contains("最终成绩") || it.contains("总成绩")
-                    }
-            }
+            val headerIndex = rows.indexOfFirst(::isScoreHeader)
             LogUtils.d("parseGradesHtml: table#$index rows=${rows.size} row0=$row0 row1=$row1 headerIndex=$headerIndex")
             if (headerIndex < 0 || headerIndex >= rows.lastIndex) return@forEachIndexed
 

@@ -89,6 +89,26 @@ class EasSessionGenerationGuardTest {
     }
 
     @Test
+    fun `verified Benbu login retires older requests even for the same account`() {
+        val stored = EASToken().apply {
+            campus = EASToken.Campus.BENBU
+            username = "account-a"
+            cookies["JSESSIONID"] = "old-session"
+        }
+        val replacement = EASToken().apply {
+            campus = EASToken.Campus.BENBU
+            username = "account-a"
+            cookies["JSESSIONID"] = "new-session"
+        }
+        val refreshed = EasSessionGenerationGuard.resolveCredentialScopeGeneration(stored, replacement, 41L) { 99L }
+        val relogged = EasSessionGenerationGuard.resolveCredentialScopeGeneration(stored, replacement, 41L,
+            verifiedBenbuLogin = true) { 99L }
+        assertEquals(41L, refreshed)
+        assertEquals(99L, relogged)
+        assertFalse(EasSessionGenerationGuard.acceptsServiceRefresh(true, 41L, relogged, true))
+    }
+
+    @Test
     fun `different account blocks inheritance of the stored session`() {
         val stored = loggedInToken("account-a", "session-a")
         assertTrue(

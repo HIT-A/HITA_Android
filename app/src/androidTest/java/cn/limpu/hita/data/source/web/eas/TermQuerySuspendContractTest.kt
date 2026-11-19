@@ -257,12 +257,14 @@ class TermQuerySuspendContractTest : TermQueryOnceContractHarness() {
     }
 
     @Test
-    fun regularCampusesPreserveAuthMissingSelectorAndServerErrorClassification() = runBlocking {
+    fun regularCampusesDistinguishAuthenticationFromUnavailableTermPages() = runBlocking {
         regularCampuses.forEach { campus ->
-            listOf(200, 401, 503).forEach { status ->
+            listOf(200, 401, 403, 404, 503).forEach { status ->
                 apiResponse = { html("no selector", status) }
                 val result = matchingLegacy(campus) { legacyToken(campus) }
-                assertTermFailure(result, DataState.STATE.NOT_LOGGED_IN)
+                val expected = if (status == 401 || status == 403) DataState.STATE.NOT_LOGGED_IN
+                    else DataState.STATE.FETCH_FAILED
+                assertTermFailure(result, expected)
                 assertTrace(result, apiPaths = listOf(SCORE_TERMS, TIMETABLE_TERMS))
             }
         }

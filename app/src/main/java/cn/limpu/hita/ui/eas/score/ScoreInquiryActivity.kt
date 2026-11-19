@@ -36,9 +36,11 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.livedata.observeAsState
 import androidx.compose.runtime.mutableStateOf
@@ -61,6 +63,7 @@ import cn.limpu.hita.data.analytics.UsageAnalyticsClient
 import cn.limpu.hita.data.analytics.UsageAnalyticsEvent
 import cn.limpu.hita.data.model.eas.CourseScoreItem
 import cn.limpu.hita.data.model.eas.ScoreSummary
+import cn.limpu.hita.data.model.eas.EASToken
 import cn.limpu.hita.data.model.eas.TermItem
 import cn.limpu.hita.data.source.preference.ScoreReminderStore
 import cn.limpu.hita.data.source.web.service.EASService
@@ -180,6 +183,7 @@ class ScoreInquiryActivity :
         bindLiveData()
         viewModel.ensureDefaultTestType()
         (binding.root as ComposeView).setContent {
+            val session by easRepository.querySessions.collectAsState()
             HitaComposeTheme() {
                 ScoreInquiryScreen(
                     viewModel = viewModel,
@@ -189,9 +193,10 @@ class ScoreInquiryActivity :
                     getDisplayTermName = ::getDisplayTermName,
                     onBack = { onBackPressedDispatcher.onBackPressed() },
                     onRefresh = {
-                        scoreQueryInFlight = true
                         refresh()
+                        viewModel.retryCurrentQuery()
                     },
+                    onRelogin = if (session.campus == EASToken.Campus.BENBU) ::launchCurrentWebLogin else null,
                     onPickTerm = { pickTerm() },
                     onPickTestType = { pickTestType() },
                     onReminderChange = { updateScoreReminderEnabled(it) },
@@ -297,6 +302,7 @@ private fun ScoreInquiryScreen(
     getDisplayTermName: (TermItem) -> String,
     onBack: () -> Unit,
     onRefresh: () -> Unit,
+    onRelogin: (() -> Unit)?,
     onPickTerm: () -> Unit,
     onPickTestType: () -> Unit,
     onReminderChange: (Boolean) -> Unit,
@@ -310,6 +316,9 @@ private fun ScoreInquiryScreen(
     val termsState by viewModel.termsLiveData.observeAsState()
     val queryMessage = termsState?.takeIf { it.state == DataState.STATE.FETCH_FAILED }?.message
         ?: scoresState?.takeIf { it.state == DataState.STATE.FETCH_FAILED }?.message
+    val queryFailed = listOf(termsState?.state, scoresState?.state).any {
+        it == DataState.STATE.FETCH_FAILED || it == DataState.STATE.NOT_LOGGED_IN
+    }
     val summary by viewModel.scoreSummaryLiveData.observeAsState()
     val localEstimate by viewModel.localScoreLiveData.observeAsState()
     val scores = scoresState?.data.orEmpty()
@@ -367,6 +376,11 @@ private fun ScoreInquiryScreen(
             onPickTerm = onPickTerm,
             onPickTestType = onPickTestType
         )
+        if (!isRefreshing && queryFailed && onRelogin != null) {
+            TextButton(modifier = Modifier.padding(horizontal = tokens.spacing.lg), onClick = onRelogin) {
+                Text(stringResource(R.string.eas_relogin_entry))
+            }
+        }
         Box(modifier = Modifier.fillMaxSize()) {
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
