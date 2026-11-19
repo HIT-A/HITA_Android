@@ -191,6 +191,7 @@ internal fun MainScreen(
                     selectedTabId = selectedTabId,
                     todayTitle = todayTitle,
                     todaySubtitle = todaySubtitle,
+                    todayAvatar = drawerState.avatar,
                     timetableTitle = timetableTitle,
                     timetableName = timetableName,
                     showTimetableName = showTimetableName,

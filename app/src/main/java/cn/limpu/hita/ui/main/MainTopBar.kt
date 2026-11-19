@@ -2,6 +2,7 @@ package cn.limpu.hita.ui.main
 
 import cn.limpu.hita.ui.main.timetable.WeekOption
 import android.view.HapticFeedbackConstants
+import android.widget.ImageView
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.spring
@@ -15,6 +16,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -24,6 +26,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
@@ -50,11 +53,14 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
 import cn.limpu.hita.R
 import cn.limpu.hita.data.repository.DisplayScopeResolver
 import cn.limpu.hita.ui.design.HitaTheme
@@ -70,6 +76,7 @@ internal fun MainTopBar(
     selectedTabId: MainTab?,
     todayTitle: String,
     todaySubtitle: String = "",
+    todayAvatar: String? = null,
     timetableTitle: String,
     timetableName: String,
     showTimetableName: Boolean,
@@ -125,7 +132,7 @@ internal fun MainTopBar(
         verticalAlignment = Alignment.Bottom
     ) {
         when (selectedTabId) {
-            MainTab.TIMELINE -> TodayToolbarTitle(todayTitle, todaySubtitle, titleColor, todaySecondaryColor, onOpenDrawer)
+            MainTab.TIMELINE -> TodayToolbarTitle(todayTitle, todaySubtitle, todayAvatar, titleColor, todaySecondaryColor, onOpenDrawer)
             MainTab.TIMETABLE -> TimetableToolbarTitle(
                 title = timetableTitle,
                 name = timetableName,
@@ -157,7 +164,8 @@ internal fun MainTopBar(
 }
 
 @Composable
-private fun TodayToolbarTitle(heading: String, secondary: String, headingColor: Color, secondaryColor: Color, onOpenDrawer: () -> Unit) {
+private fun TodayToolbarTitle(heading: String, secondary: String, avatar: String?, headingColor: Color,
+    secondaryColor: Color, onOpenDrawer: () -> Unit) {
     Row(Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp),
         verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
@@ -169,11 +177,33 @@ private fun TodayToolbarTitle(heading: String, secondary: String, headingColor: 
                     overflow = TextOverflow.Ellipsis)
             }
         }
-        IconButton(onClick = onOpenDrawer) {
-            Icon(painterResource(R.drawable.ic_baseline_account_circle_24),
-                stringResource(R.string.today_account), tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(30.dp))
+        val accountLabel = stringResource(R.string.today_account)
+        IconButton(onClick = onOpenDrawer, modifier = Modifier.semantics { contentDescription = accountLabel }) {
+            TodayAvatar(avatar)
         }
+    }
+}
+
+/** 顶栏头像：与抽屉头部同一套 Glide 加载，没设置头像时用同一个占位图。 */
+@Composable
+private fun TodayAvatar(avatar: String?) {
+    Box(Modifier.size(30.dp).clip(CircleShape)) {
+        AndroidView(
+            modifier = Modifier.fillMaxSize(),
+            factory = { context -> ImageView(context).apply { scaleType = ImageView.ScaleType.FIT_CENTER } },
+            update = { image ->
+                // 同一张头像不重复下单，否则每次重组都会重新解码并闪一下。
+                val source = avatar.orEmpty()
+                if (image.tag != source) {
+                    image.tag = source
+                    if (source.isNotBlank()) {
+                        com.limpu.hitauser.util.ImageUtils.loadAvatarInto(image.context, source, image)
+                    } else {
+                        image.setImageResource(R.drawable.place_holder_avatar)
+                    }
+                }
+            },
+        )
     }
 }
 
