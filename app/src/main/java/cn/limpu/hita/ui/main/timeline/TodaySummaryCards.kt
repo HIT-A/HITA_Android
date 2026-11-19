@@ -94,8 +94,8 @@ private fun homeworkCard(state: TodayUiState): SummaryCardModel {
     val items = model.items.filter { it.dueAt >= state.now }.take(3)
     return base.copy(lines = items.mapNotNull { item ->
         val title = item.title.ifBlank { item.course }.takeIf { it.isNotBlank() } ?: return@mapNotNull null
-        // 科目换成截止时间，格式与考试行的时刻一致。
-        "$title ${cardTime(state, item.dueAt)}"
+        // 时间在前、作业名在后，与考试行同一种排列。
+        "${cardTime(state, item.dueAt)} $title"
     })
 }
 
