@@ -7,6 +7,7 @@ import android.content.IntentFilter
 import android.os.Bundle
 import android.view.View
 import android.widget.Toast
+import androidx.appcompat.app.AppCompatActivity
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.ViewCompositionStrategy
@@ -87,8 +88,12 @@ class FragmentTimeLine : HiltBaseFragmentWithReceiver<ComposeViewBinding>() {
         when (action) {
             is TodayAction.OpenEvent -> viewLifecycleOwner.lifecycleScope.launch {
                 val event = viewModel.resolveEvent(state, action.id)
-                if (event != null && lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) context?.let { EventsUtils.showEventItem(it, event) }
-                else if (isAdded) stale()
+                // showEventItem 只接受 AppCompatActivity；Fragment 的 context 是 ContextThemeWrapper，
+                // 传进去会被静默 return，表现为点了课程卡没有任何反应。
+                val host = activity as? AppCompatActivity
+                if (event != null && host != null && lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+                    EventsUtils.showEventItem(host, event)
+                } else if (isAdded) stale()
             }
             is TodayAction.OpenHomework -> controller?.openTodayHomework()
             TodayAction.OpenExams -> startActivity(Intent(requireContext(), ExamActivity::class.java))
