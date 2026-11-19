@@ -880,8 +880,9 @@ class BenbuEASWebSource internal constructor(
         }
         LogUtils.d( "requestScores: term=${term.getCode()} name=${term.termName} testType=$testType path=$path params=$params")
 
-        fun executeOnce(): Connection.Response {
-            val resp = Jsoup.connect(hostName + path)
+        val url = hostName + path
+        fun executeOnce(): Connection.Response =
+            Jsoup.connect(url)
                 .cookies(token.cookies)
                 .header("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15")
                 .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
@@ -892,23 +893,34 @@ class BenbuEASWebSource internal constructor(
                 .data(params)
                 .method(Connection.Method.POST)
                 .execute()
-            if (resp.cookies().isNotEmpty()) {
-                token.cookies.putAll(resp.cookies())
-                onCookiesUpdated?.invoke(token)
-            }
-            return resp
-        }
 
         var response = executeOnce()
         if (isAuthExpiredResponse(response, response.body()) && tryRelogin(token)) {
             response = executeOnce()
+        }
+        val body = response.body()
+        if (response.statusCode() == 200 && !isAuthExpiredResponse(response, body)) {
+            val sameOrigin = isSameAcademicOrigin(url, response)
+            val doc = Jsoup.parse(body)
+            val validSummary = testType == EASService.TestType.ALL && doc.selectFirst("#pjxfj, #zrs") != null
+            if (!sameOrigin || (!validSummary && !BenbuScoreParser.isScoreResultPage(doc))) {
+                LogUtils.w("requestScores: invalid response status=200 sameOrigin=$sameOrigin bodyLength=${body.length}")
+                error("教务未返回有效成绩页面，请稍后刷新或重新登录后重试")
+            }
+            saveAcademicResponseCookies(token, url, response)
         }
         return response
     }
 
 
     override fun isAuthExpiredResponse(response: Connection.Response, body: String): Boolean {
-        if (response.statusCode() == 401 || response.statusCode() == 403) return true
+        val status = response.statusCode()
+        if (status == 401 || status == 403) return true
+        if (status == 200) {
+            // The teaching gateway can redirect an expired session to a portal shell with no visible form.
+            val host = response.url().host.lowercase(Locale.ROOT)
+            if (host == "ivpn.hit.edu.cn" || host == "vpn.hit.edu.cn") return true
+        }
         val doc = Jsoup.parse(body)
         val title = doc.title().lowercase()
         val text = doc.body()?.text()?.replace(Regex("\\s+"), " ")?.lowercase().orEmpty()
@@ -1049,7 +1061,13 @@ class BenbuEASWebSource internal constructor(
                 if (response.statusCode() != 200) {
                     throw IllegalStateException("${typeName}考试查询失败：HTTP ${response.statusCode()}")
                 }
-                BenbuExamParser.parse(body, typeName, term)
+                try {
+                    BenbuExamParser.parse(body, typeName, term)
+                } catch (invalidPage: IllegalArgumentException) {
+                    val sameOrigin = isSameAcademicOrigin(url, response)
+                    LogUtils.w("getExamItems: invalid response status=200 sameOrigin=$sameOrigin bodyLength=${body.length}")
+                    throw invalidPage
+                }
             }
             if (checkCancelled == null) {
                 BenbuExamQuery.load(fetch)

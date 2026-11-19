@@ -434,7 +434,7 @@ class EASRepository @Inject internal constructor(
                 "login: saving token campus=$campus name=${finalToken.name} " +
                     "stuId=${finalToken.stuId} electronic=${!finalToken.electronicExpToken.isNullOrBlank()}"
             )
-            if (saveEasToken(finalToken, expectedEpoch, credentialsToSave)) {
+            if (saveEasToken(finalToken, expectedEpoch, credentialsToSave, verifiedBenbuLogin = campus == EASToken.Campus.BENBU)) {
                 result.value = DataState(true, DataState.STATE.SUCCESS)
             } else {
                 result.value = DataState(false, DataState.STATE.NOT_LOGGED_IN)
@@ -1203,7 +1203,8 @@ class EASRepository @Inject internal constructor(
     private fun saveEasToken(
         token: EASToken,
         expectedEpoch: Long = authEpoch.get(),
-        credentialsToSave: EasCredential? = null
+        credentialsToSave: EasCredential? = null,
+        verifiedBenbuLogin: Boolean = false,
     ): Boolean = synchronized(tokenStateLock) {
         if (authEpoch.get() != expectedEpoch) {
             LogUtils.d("saveEasToken: ignored result from an operation cancelled by logout")
@@ -1217,6 +1218,9 @@ class EASRepository @Inject internal constructor(
             storedToken = storedToken,
             incomingToken = token,
             currentGeneration = authEpoch.get(),
+            // A complete native login was verified, even when WebView reused the same account.
+            // Requests started with the previous cookie snapshot must not overwrite its result.
+            verifiedBenbuLogin = verifiedBenbuLogin,
             nextGeneration = ::nextCredentialScopeGeneration
         )
         authEpoch.set(token.sessionGeneration)

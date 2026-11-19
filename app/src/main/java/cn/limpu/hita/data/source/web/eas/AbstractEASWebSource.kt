@@ -183,7 +183,8 @@ abstract class AbstractEASWebSource(
         selectName: String,
         checkCancelled: (() -> Unit)? = null,
     ): TermDocFetchResult {
-        fun executeOnce(): Connection.Response {
+        return try {
+            checkCancelled?.invoke()
             val response = Jsoup.connect(url)
                 .cookies(token.cookies)
                 .header("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15")
@@ -194,45 +195,24 @@ abstract class AbstractEASWebSource(
                 .ignoreHttpErrors(true)
                 .method(Connection.Method.GET)
                 .execute()
-            if (response.cookies().isNotEmpty()) {
-                token.cookies.putAll(response.cookies())
-                onCookiesUpdated?.invoke(token)
-            }
-            return response
-        }
+            checkCancelled?.invoke()
 
-        fun parseValidTermDoc(response: Connection.Response): Document? {
-            if (response.statusCode() != 200) return null
-            val doc = Jsoup.parse(response.body())
-            val hasSelect = doc.select("select[name=$selectName] option").isNotEmpty()
-            if (hasSelect) return doc
-            val title = doc.title().trim()
-            val sample = doc.body()?.text()?.replace(Regex("\\s+"), " ")?.take(120).orEmpty()
-            LogUtils.w("fetchTermDoc: missing selector=$selectName url=$url title=$title sample=$sample")
-            return null
-        }
-
-        return try {
-            checkCancelled?.invoke()
-            var response = executeOnce()
-            checkCancelled?.invoke()
-            var doc = parseValidTermDoc(response)
-            var authExpired = isAuthExpiredResponse(response, response.body())
-            checkCancelled?.invoke()
+            val status = response.statusCode()
+            val body = response.body()
+            val authExpired = status == 401 || status == 403 ||
+                (status == 200 && isAuthExpiredResponse(response, body))
+            val doc = if (!authExpired && status == 200) {
+                Jsoup.parse(body).takeIf { it.select("select[name=$selectName] option").isNotEmpty() }
+            } else null
 
             if (doc == null) {
-                LogUtils.d("fetchTermDoc: retry by missing selector select=$selectName url=$url status=${response.statusCode()}")
-                authExpired = true
-            }
-
-            if (authExpired) {
-                LogUtils.w("fetchTermDoc: auth expired url=$url select=$selectName status=${response.statusCode()}")
-                TermDocFetchResult(null, true)
-            } else if (doc == null) {
-                TermDocFetchResult(null, false)
+                val sameOrigin = isSameAcademicOrigin(url, response)
+                LogUtils.w("fetchTermDoc: select=$selectName status=$status authExpired=$authExpired sameOrigin=$sameOrigin bodyLength=${body.length}")
             } else {
-                TermDocFetchResult(doc, false)
+                checkCancelled?.invoke()
+                saveAcademicResponseCookies(token, url, response)
             }
+            TermDocFetchResult(doc, authExpired)
         } catch (e: Exception) {
             checkCancelled?.invoke()
             if (checkCancelled != null && e is CancellationException) throw e
@@ -241,6 +221,17 @@ abstract class AbstractEASWebSource(
         }
     }
 
+
+    protected fun isSameAcademicOrigin(url: String, response: Connection.Response): Boolean =
+        java.net.URI(url).resolve("/") == response.url().toURI().resolve("/")
+
+    protected fun saveAcademicResponseCookies(token: EASToken, url: String, response: Connection.Response) {
+        if (!isSameAcademicOrigin(url, response)) return
+        val cookies = response.cookies().filterValues { it.isNotBlank() }
+        if (cookies.isEmpty()) return
+        token.cookies.putAll(cookies)
+        onCookiesUpdated?.invoke(token)
+    }
 
     override fun getAllTerms(token: EASToken): LiveData<DataState<List<TermItem>>> {
         val result = MutableLiveData<DataState<List<TermItem>>>()

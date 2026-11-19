@@ -57,6 +57,7 @@ class ExamViewModel internal constructor(
             previousTerm = null
             lastRefreshTime = 0L
             lastRemoteExams = emptyList()
+            remoteRefreshFailure.value = false
             selectedTermLiveData.value = null
             selectedTermDisplay.updateOptions(emptyList())
             rawExamLiveData.value = mergeExamDataState(lastRemoteExams, examMemoStore.getAll(), null)
@@ -76,6 +77,9 @@ class ExamViewModel internal constructor(
     private val main = Handler(Looper.getMainLooper())
     private var memoUpdatePosted = false
     private var lastRemoteExams: List<ExamItem> = emptyList()
+    // The merged list can keep cached exams and memos even when the remote refresh fails.
+    private val remoteRefreshFailure = MutableLiveData(false)
+    internal val remoteRefreshFailed: LiveData<Boolean> = remoteRefreshFailure
     val examInfoLiveData = MediatorLiveData<DataState<List<ExamItem>>>()
 
     init {
@@ -134,6 +138,7 @@ class ExamViewModel internal constructor(
         lastRefreshTime = currentTime
         previousTerm = selectedTerm
         val refreshGeneration = examQueries.cancel()
+        remoteRefreshFailure.value = false
 
         if (selectedTerm == null) {
             termLoadGate.begin()
@@ -162,6 +167,7 @@ class ExamViewModel internal constructor(
         val request = inputs.createExamQueryRequest(selectedTerm)
         if (!examQueries.isCurrent(refreshGeneration)) return
         examQueries.start(request) { result ->
+            remoteRefreshFailure.value = result.state == DataState.STATE.FETCH_FAILED
             when (result.state) {
                 DataState.STATE.SUCCESS -> inputs.finishOperation(operation, UsageAnalyticsEvent.EXAMS_REFRESH_SUCCEEDED, emptyMap())
                 DataState.STATE.NOTHING, DataState.STATE.LOADING -> Unit

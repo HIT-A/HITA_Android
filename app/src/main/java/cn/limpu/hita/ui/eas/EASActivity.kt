@@ -115,6 +115,11 @@ abstract class EASActivity<T : EASViewModel, V : ViewBinding> : HiltBaseActivity
         startActivityForResult(intent, REQUEST_CODE_DIRECT_WEB_LOGIN)
     }
 
+    protected fun launchCurrentWebLogin() {
+        val token = easRepository.getEasToken()
+        launchDirectWebLogin(token.campus, token.stutype)
+    }
+
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
 
@@ -148,6 +153,7 @@ abstract class EASActivity<T : EASViewModel, V : ViewBinding> : HiltBaseActivity
             ).observe(this) { state ->
                 if (state.state == DataState.STATE.NOTHING) return@observe
                 if (state.state == DataState.STATE.SUCCESS && state.data == true) {
+                    easRepository.clearSessionExpired()
                     sessionRecovery.loginSucceeded()
                     refresh()
                 } else {

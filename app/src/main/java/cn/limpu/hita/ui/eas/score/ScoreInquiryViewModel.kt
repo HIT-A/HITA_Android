@@ -171,9 +171,8 @@ class ScoreInquiryViewModel @Inject constructor(
 
     fun retryCurrentQuery(): Boolean {
         val term = selectedTermDisplay.current() ?: return false
-        val testType = selectedTestTypeLiveData.value ?: return false
+        if (selectedTestTypeLiveData.value == null) return false
         selectedTermLiveData.value = term
-        selectedTestTypeLiveData.value = testType
         return true
     }
 

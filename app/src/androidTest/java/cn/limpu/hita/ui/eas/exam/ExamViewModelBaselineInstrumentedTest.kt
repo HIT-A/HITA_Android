@@ -220,8 +220,10 @@ class ExamViewModelBaselineInstrumentedTest {
         h.main {
             assertEquals(DataState.STATE.SUCCESS, h.model.examInfoLiveData.value?.state)
             assertEquals(setOf("remote", "memo"), names(h).toSet())
+            assertEquals(true, h.model.remoteRefreshFailed.value)
             h.now += 1_000
             h.model.startRefresh()
+            assertEquals(false, h.model.remoteRefreshFailed.value)
         }
         h.complete(2, DataState(DataState.STATE.NOT_LOGGED_IN, "expired"))
         h.main {

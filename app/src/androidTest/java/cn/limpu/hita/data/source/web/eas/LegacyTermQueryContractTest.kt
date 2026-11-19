@@ -108,18 +108,18 @@ abstract class LegacyTermQueryContractCases : TermQueryContractHarness() {
     }
 
     @Test
-    fun missingSelectorsRetainLegacyAuthenticationClassificationWithoutRetry() {
+    fun missingSelectorsReturnFetchFailedWithoutRetry() {
         apiResponse = { html("<html><title>临时业务页面</title><body>没有学期下拉框</body></html>") }
-        assertEquals(DataState.STATE.NOT_LOGGED_IN, awaitState {
+        assertEquals(DataState.STATE.FETCH_FAILED, awaitState {
             legacySource(campus).getAllTerms(legacyToken(campus))
         }.state)
         assertEquals(listOf(SCORE_TERMS, TIMETABLE_TERMS), apiRequests.map { it.path })
     }
 
     @Test
-    fun twoHttpServerErrorsRetainLegacyAuthenticationClassification() {
-        apiResponse = { html("temporary unavailable", 503) }
-        assertEquals(DataState.STATE.NOT_LOGGED_IN, awaitState {
+    fun serverErrorsReturnFetchFailedEvenWithLoginText() {
+        apiResponse = { html("<title>登录服务维护</title><body>请稍后重试</body>", 503) }
+        assertEquals(DataState.STATE.FETCH_FAILED, awaitState {
             legacySource(campus).getAllTerms(legacyToken(campus))
         }.state)
         assertEquals(2, apiRequests.size)
@@ -164,7 +164,7 @@ abstract class LegacyTermQueryContractCases : TermQueryContractHarness() {
     }
 
     @Test
-    fun invalidFirstPageStillUpdatesCookiesForTheValidSecondPage() {
+    fun invalidFirstPageCannotReplaceSessionForTheValidSecondPage() {
         apiResponse = { request -> when (request.path) {
             SCORE_TERMS -> html("missing selector").addHeader("Set-Cookie", "JSESSIONID=invalid-page-cookie; Path=/")
             TIMETABLE_TERMS -> html(singleTermPage("xnxq"))
@@ -172,9 +172,9 @@ abstract class LegacyTermQueryContractCases : TermQueryContractHarness() {
         } }
         val token = legacyToken(campus)
         assertEquals(1, success { legacySource(campus).getAllTerms(token) }.size)
-        assertEquals("invalid-page-cookie", token.cookies["JSESSIONID"])
-        assertEquals(1, legacyCookieCallbacks.get())
-        assertTrue(apiRequests.last().getHeader("Cookie").orEmpty().contains("JSESSIONID=invalid-page-cookie"))
+        assertEquals("local-term-session", token.cookies["JSESSIONID"])
+        assertEquals(0, legacyCookieCallbacks.get())
+        assertTrue(apiRequests.last().getHeader("Cookie").orEmpty().contains("JSESSIONID=local-term-session"))
     }
 
     @Test

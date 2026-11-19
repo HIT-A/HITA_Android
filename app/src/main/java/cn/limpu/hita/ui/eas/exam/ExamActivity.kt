@@ -42,9 +42,12 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.livedata.observeAsState
 import androidx.compose.runtime.mutableStateOf
@@ -68,6 +71,7 @@ import cn.limpu.hita.R
 import cn.limpu.hita.data.analytics.UsageAnalyticsClient
 import cn.limpu.hita.data.analytics.UsageAnalyticsEvent
 import cn.limpu.hita.data.model.eas.ExamItem
+import cn.limpu.hita.data.model.eas.EASToken
 import cn.limpu.hita.data.model.eas.TermItem
 import cn.limpu.hita.ui.base.ComposeViewBinding
 import cn.limpu.hita.ui.design.HitaComposeTheme
@@ -137,6 +141,7 @@ class ExamActivity : EASActivity<ExamViewModel, ComposeViewBinding>() {
         bindLiveData()
         viewModel.selectedExamTypeLiveData.value = ExamViewModel.ExamType.ALL
         (binding.root as ComposeView).setContent {
+            val session by easRepository.querySessions.collectAsState()
             HitaComposeTheme() {
                 ExamScreen(
                     viewModel = viewModel,
@@ -147,6 +152,7 @@ class ExamActivity : EASActivity<ExamViewModel, ComposeViewBinding>() {
                     getDisplayTermName = ::getDisplayTermName,
                     onBack = { onBackPressedDispatcher.onBackPressed() },
                     onRefresh = { refresh() },
+                    onRelogin = if (session.campus == EASToken.Campus.BENBU) ::launchCurrentWebLogin else null,
                     onPickTerm = { pickTerm() },
                     onPickExamType = { pickExamType() },
                     onImportAll = { pickExamImportTarget { importAllExams(it) } },
@@ -322,6 +328,7 @@ private fun ExamScreen(
     getDisplayTermName: (TermItem) -> String,
     onBack: () -> Unit,
     onRefresh: () -> Unit,
+    onRelogin: (() -> Unit)?,
     onPickTerm: () -> Unit,
     onPickExamType: () -> Unit,
     onImportAll: () -> Unit,
@@ -333,6 +340,7 @@ private fun ExamScreen(
     val selectedTerm = selectedTermDisplay?.toTermItem()
     val selectedExamType by viewModel.selectedExamTypeLiveData.observeAsState()
     val examState by viewModel.examInfoLiveData.observeAsState()
+    val remoteRefreshFailed by viewModel.remoteRefreshFailed.observeAsState(false)
     val exams = examState?.data.orEmpty()
 
     Column(
@@ -406,6 +414,14 @@ private fun ExamScreen(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = tokens.spacing.lg, vertical = tokens.spacing.sm)
             )
         }
+        if (!isRefreshing && onRelogin != null &&
+            (remoteRefreshFailed || examState?.state == DataState.STATE.FETCH_FAILED ||
+                examState?.state == DataState.STATE.NOT_LOGGED_IN)
+        ) {
+            TextButton(modifier = Modifier.padding(horizontal = tokens.spacing.lg), onClick = onRelogin) {
+                Text(stringResource(R.string.eas_relogin_entry))
+            }
+        }
         Box(modifier = Modifier.fillMaxSize()) {
             if (showEmpty && exams.isEmpty() && !isRefreshing && examState?.state == DataState.STATE.SUCCESS) {
                 EmptyExamView(modifier = Modifier.align(Alignment.TopCenter))
@@ -467,21 +483,21 @@ private fun ExamHeader(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            LargeFilterText(
+            ExamFilterText(
                 text = termText.ifBlank { "-" },
                 modifier = Modifier.weight(1f),
+                maxLines = 2,
                 onClick = onPickTerm
             )
             if (showTypeFilter) {
-                HorizontalDivider(
+                VerticalDivider(
                     modifier = Modifier
-                        .height(40.dp)
+                        .height(24.dp)
                         .padding(horizontal = tokens.spacing.sm),
                     color = MaterialTheme.colorScheme.outlineVariant
                 )
-                LargeFilterText(
+                ExamFilterText(
                     text = typeText,
-                    modifier = Modifier.weight(1f),
                     onClick = onPickExamType
                 )
             }
@@ -490,7 +506,7 @@ private fun ExamHeader(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = tokens.spacing.md),
+                    .padding(top = tokens.spacing.sm),
                 horizontalArrangement = Arrangement.End
             ) {
                 val bgColor by animateColorAsState(
@@ -547,9 +563,10 @@ private fun ExamHeader(
 }
 
 @Composable
-private fun LargeFilterText(
+private fun ExamFilterText(
     text: String,
-    modifier: Modifier,
+    modifier: Modifier = Modifier,
+    maxLines: Int = 1,
     onClick: () -> Unit
 ) {
     Row(
@@ -559,9 +576,10 @@ private fun LargeFilterText(
         Text(
             text = text,
             color = MaterialTheme.colorScheme.onSurface,
-            fontSize = 28.sp,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
+            fontSize = 18.sp,
+            maxLines = maxLines,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f, fill = false)
         )
         Icon(
             painter = painterResource(R.drawable.ic_expand),
