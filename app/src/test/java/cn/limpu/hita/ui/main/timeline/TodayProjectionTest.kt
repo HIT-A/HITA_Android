@@ -83,4 +83,22 @@ class TodayProjectionTest {
         assertEquals(0, result.completedCount)
         assertTrue(result.allFinished)
     }
+
+    @Test fun `tomorrow keeps its own ordered list once today is over`() {
+        val events = listOf(
+            event("today-past", at(8), at(9)),
+            event("tomorrow-b", at(33), at(35)),
+            event("tomorrow-a", at(32), at(34), EventItem.TYPE.EXAM),
+            event("tomorrow-hint", at(33), at(35), EventItem.TYPE.TAG),
+        )
+        val result = TodayProjection.project(window, events, at(23))
+        assertTrue(result.allFinished)
+        assertEquals(listOf("today-past"), result.allToday.ids())
+        assertEquals(listOf("tomorrow-a", "tomorrow-b"), result.tomorrow.ids())
+    }
+
+    @Test fun `tomorrow is empty when the next day has no rows`() {
+        val result = TodayProjection.project(window, listOf(event("today-past", at(8), at(9))), at(23))
+        assertTrue(result.tomorrow.isEmpty())
+    }
 }

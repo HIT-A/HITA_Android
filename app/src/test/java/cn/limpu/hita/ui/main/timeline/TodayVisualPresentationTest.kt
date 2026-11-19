@@ -20,6 +20,12 @@ class TodayVisualPresentationTest {
         assertEquals("2026-12-31 23:00–2027-01-01 01:00", todayEventTime(event("2026-12-31T15:00:00Z", "2026-12-31T17:00:00Z"), window))
         assertEquals("11-19 08:00–11-19 09:35", todayEventTime(event("2026-11-19T00:00:00Z", "2026-11-19T01:35:00Z"), window))
     }
+    @Test fun tomorrowRowsFormatAgainstTomorrowInsteadOfRepeatingTheDate() {
+        val tomorrow = window.date.plusDays(1)
+        assertEquals("08:00–09:35", todayEventTime(event("2026-11-19T00:00:00Z", "2026-11-19T01:35:00Z"), window, tomorrow))
+        // 跨过明晚的日程仍然带日期，避免误读成明天白天的课。
+        assertEquals("11-20 23:00–11-21 01:00", todayEventTime(event("2026-11-20T15:00:00Z", "2026-11-20T17:00:00Z"), window, tomorrow))
+    }
     @Test fun invalidTimeIsNotReorderedOrInvented() {
         assertEquals("11:35–10:00", todayEventTime(event("2026-11-18T03:35:00Z", "2026-11-18T02:00:00Z"), window))
     }

@@ -47,13 +47,29 @@ internal fun LazyListScope.todayAgendaItems(state: TodayUiState, expanded: Boole
     if (state.status == TodayPageStatus.FAILED) item("failed") { TodayCard { TodayAgendaFailure(state, action) } }
     state.agenda?.let { agenda ->
         val completed = agenda.allFinished && agenda.invalidEvents.isEmpty()
-        if (completed) item("complete") { TodayCompletionCard(state, expanded, onExpand) }
-        else if (agenda.ended.isNotEmpty()) item("ended-toggle") { TodayEndedToggle(agenda.ended.size, expanded, onExpand) }
-        val shown = if (completed) { if (expanded) agenda.ended else emptyList() }
-            else if (expanded) agenda.allToday else agenda.remaining
-        items(shown, key = { "event:${it.id}" }) { event ->
-            TodayEventCard(event, state, agenda.conflictGroups.any { group -> group.any { it.id == event.id } }) {
-                action(TodayAction.OpenEvent(event.id))
+        val tomorrow = state.window.date.plusDays(1)
+        if (completed) {
+            item("complete") { TodayCompletionCard(state, expanded, onExpand) }
+            // 展开只翻看今天的课；收起时这块交给明天的安排。
+            if (expanded) {
+                items(agenda.ended, key = { "event:${it.id}" }) { event ->
+                    TodayEventCard(event, state, false) { action(TodayAction.OpenEvent(event.id)) }
+                }
+            } else if (agenda.tomorrow.isEmpty()) {
+                item("tomorrow-empty") { TodayTomorrowEmpty() }
+            } else {
+                item("tomorrow-header") { TodayTomorrowHeader(tomorrow) }
+                items(agenda.tomorrow, key = { "event:${it.id}" }) { event ->
+                    TodayEventCard(event, state, false, day = tomorrow) { action(TodayAction.OpenEvent(event.id)) }
+                }
+            }
+        } else {
+            if (agenda.ended.isNotEmpty()) item("ended-toggle") { TodayEndedToggle(agenda.ended.size, expanded, onExpand) }
+            val shown = if (expanded) agenda.allToday else agenda.remaining
+            items(shown, key = { "event:${it.id}" }) { event ->
+                TodayEventCard(event, state, agenda.conflictGroups.any { group -> group.any { it.id == event.id } }) {
+                    action(TodayAction.OpenEvent(event.id))
+                }
             }
         }
     }

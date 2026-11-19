@@ -2146,4 +2146,7 @@
     <string name="today_homework_grader_short">Grader</string>
     <string name="today_exam_card_mixed">课表考试</string>
     <string name="today_ended_count">已结束 %1$d 项</string>
+    <string name="today_tomorrow_section">明天 · %1$s %2$s</string>
+    <string name="today_month_day">%1$d月%2$d日</string>
+    <string name="today_tomorrow_empty">明天没有课，享受当下！</string>
 </resources>

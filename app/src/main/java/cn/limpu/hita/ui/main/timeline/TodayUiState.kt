@@ -5,6 +5,8 @@ import cn.limpu.hita.data.model.timetable.EventItem
 /** Values derived from one successful two-day snapshot and one explicit clock reading. */
 data class TodayAgendaState(
     val allToday: List<EventItem>,
+    /** 明天的课程、考试与日程，供今日课程全部结束后的收尾区域使用。 */
+    val tomorrow: List<EventItem>,
     val active: List<EventItem>,
     val nextGroup: List<EventItem>,
     val ended: List<EventItem>,

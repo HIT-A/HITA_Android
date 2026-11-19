@@ -17,8 +17,11 @@ object TodayProjection {
             upcoming.takeWhile { it.from.time == start }
         }.orEmpty()
         val allFinished = valid.all { phase(it, now) == Phase.ENDED }
+        // 今日课程全部结束后首页改显示明天的安排；明天的事件与今天同一次读取里已经带回。
+        val tomorrow = real.filter { belongsTo(it, window.tomorrowStart, window.dayAfterStart) }
         return TodayAgendaState(
             allToday = today,
+            tomorrow = tomorrow,
             active = active,
             nextGroup = next,
             ended = valid.filter { phase(it, now) == Phase.ENDED },
