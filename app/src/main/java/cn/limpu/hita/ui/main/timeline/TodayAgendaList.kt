@@ -43,7 +43,7 @@ private fun TodayAgendaFailure(state: TodayUiState, action: (TodayAction) -> Uni
 }
 
 internal fun LazyListScope.todayAgendaItems(state: TodayUiState, expanded: Boolean, onExpand: () -> Unit,
-    action: (TodayAction) -> Unit, dense: Boolean = false) {
+    action: (TodayAction) -> Unit) {
     if (state.status == TodayPageStatus.FAILED) item("failed") { TodayCard { TodayAgendaFailure(state, action) } }
     state.agenda?.let { agenda ->
         val completed = agenda.allFinished && agenda.invalidEvents.isEmpty()
@@ -52,8 +52,7 @@ internal fun LazyListScope.todayAgendaItems(state: TodayUiState, expanded: Boole
         val shown = if (completed) { if (expanded) agenda.ended else emptyList() }
             else if (expanded) agenda.allToday else agenda.remaining
         items(shown, key = { "event:${it.id}" }) { event ->
-            TodayEventCard(event, state, agenda.conflictGroups.any { group -> group.any { it.id == event.id } },
-                dense = dense) {
+            TodayEventCard(event, state, agenda.conflictGroups.any { group -> group.any { it.id == event.id } }) {
                 action(TodayAction.OpenEvent(event.id))
             }
         }

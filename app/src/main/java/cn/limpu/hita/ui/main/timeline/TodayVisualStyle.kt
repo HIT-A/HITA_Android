@@ -78,7 +78,5 @@ private fun todayTextStyle(size: Int, height: Int): TextStyle {
         lineHeightStyle = inherited.lineHeightStyle ?: LineHeightStyle(LineHeightStyle.Alignment.Center, LineHeightStyle.Trim.None)))
 }
 
-@Composable internal fun todayCaption(): TextStyle = todayTextStyle(11, 16)
 @Composable internal fun todayLabel(): TextStyle = todayTextStyle(12, 16)
 @Composable internal fun todayMeta(): TextStyle = todayTextStyle(13, 18)
-@Composable internal fun todayBody(): TextStyle = todayTextStyle(14, 20)

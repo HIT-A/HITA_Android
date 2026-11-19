@@ -20,14 +20,12 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import cn.limpu.hita.R
 import cn.limpu.hita.data.model.timetable.EventItem
 import cn.limpu.hita.feature.timetable.display.EventTimePolicy
 import cn.limpu.hita.ui.design.HitaTheme
-import cn.limpu.hita.ui.design.hitaStyleCardShape
 
 @Composable
 internal fun TodayEndedToggle(count: Int, expanded: Boolean, onExpand: () -> Unit) {
@@ -44,17 +42,13 @@ internal fun TodayEndedToggle(count: Int, expanded: Boolean, onExpand: () -> Uni
 
 @Composable
 internal fun TodayEventCard(event: EventItem, state: TodayUiState, conflict: Boolean, flat: Boolean = false,
-    dense: Boolean = false, onClick: () -> Unit) {
+    onClick: () -> Unit) {
     val phase = EventTimePolicy.phase(event.from.time, event.to.time, state.now)
     val ended = phase == EventTimePolicy.Phase.ENDED
     val active = phase == EventTimePolicy.Phase.ACTIVE
     val accent = todayCourseColor(event)
     val container = todayTonalContainer(accent, muted = ended)
     val strip = if (ended) accent.copy(alpha = 0.8f) else accent
-    if (dense) {
-        TodayDenseRow(event, state, phase, container, strip, onClick)
-        return
-    }
     val body: @Composable () -> Unit = {
         BoxWithConstraints(Modifier.fillMaxWidth().drawBehind {
             drawRoundRect(strip, Offset(0f, 6.dp.toPx()), Size(4.dp.toPx(), (size.height - 12.dp.toPx()).coerceAtLeast(0f)), CornerRadius(4.dp.toPx()))
@@ -129,37 +123,5 @@ private fun TodayLocation(place: String?, accent: Color, modifier: Modifier = Mo
         Icon(painterResource(R.drawable.ic_baseline_location_24), null, Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
         Text(place?.takeIf { it.isNotBlank() } ?: stringResource(R.string.today_place_pending), style = todayMeta(),
             fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant)
-    }
-}
-
-/**
- * 单行课程条：时间 / 课程名 / 地点一行放完，高度固定 44dp。
- * 一天六节课时首屏要放得下，靠它把每行压到 63dp 以内。
- */
-@Composable
-private fun TodayDenseRow(event: EventItem, state: TodayUiState, phase: EventTimePolicy.Phase,
-    container: Color, strip: Color, onClick: () -> Unit) {
-    val ended = phase == EventTimePolicy.Phase.ENDED
-    val secondary = MaterialTheme.colorScheme.onSurfaceVariant
-    val time = if (phase == EventTimePolicy.Phase.INVALID) stringResource(R.string.today_invalid)
-    else todayEventTime(event, state.window)
-    Row(Modifier.fillMaxWidth()
-        .clip(hitaStyleCardShape(16.dp, 6.dp))
-        .background(container)
-        .clickable(onClick = onClick)
-        .heightIn(min = 44.dp)
-        .padding(horizontal = 10.dp, vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.width(3.dp).height(22.dp).clip(RoundedCornerShape(2.dp)).background(strip))
-        Text(time, style = todayLabel(), color = secondary, maxLines = 1,
-            modifier = Modifier.padding(start = 8.dp, end = 8.dp).width(72.dp))
-        Text(event.name, fontSize = 15.sp, lineHeight = 20.sp, fontWeight = FontWeight.Bold, maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            color = if (ended) secondary else MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.weight(1f))
-        event.place?.takeIf { it.isNotBlank() }?.let { place ->
-            Text(place, style = todayLabel(), color = secondary, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(start = 8.dp).widthIn(max = 84.dp))
-        }
     }
 }
