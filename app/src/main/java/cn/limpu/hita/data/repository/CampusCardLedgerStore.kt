@@ -11,6 +11,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption.ATOMIC_MOVE
+import java.nio.file.StandardCopyOption.REPLACE_EXISTING
 import java.security.MessageDigest
 import java.time.Instant
 import java.time.ZoneId
@@ -152,7 +155,8 @@ internal class CampusCardLedgerStore(private val directory: File) {
             check(json.toByteArray().size <= MAX_BYTES) { "Local history size limit reached" }
             val temp = File(directory, "ledger-$sessionKey.tmp")
             temp.writeText(json)
-            check(temp.renameTo(File(directory, "ledger-$sessionKey.json"))) { "Cannot save local history" }
+            Files.move(temp.toPath(), File(directory, "ledger-$sessionKey.json").toPath(), ATOMIC_MOVE, REPLACE_EXISTING)
+            Unit
         }
     }
 

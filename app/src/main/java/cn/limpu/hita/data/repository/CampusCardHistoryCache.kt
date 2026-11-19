@@ -7,6 +7,9 @@ import kotlinx.coroutines.ensureActive
 import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption.ATOMIC_MOVE
+import java.nio.file.StandardCopyOption.REPLACE_EXISTING
 import java.time.Instant
 import java.time.ZoneId
 import java.security.MessageDigest
@@ -45,7 +48,7 @@ internal class CampusCardHistoryCache(private val directory: File) {
                 if (json.toByteArray().size > MAX_BYTES) return@runCatching
                 val temp = File(directory, "$key.tmp")
                 temp.writeText(json)
-                check(temp.renameTo(File(directory, "$key.json")))
+                Files.move(temp.toPath(), File(directory, "$key.json").toPath(), ATOMIC_MOVE, REPLACE_EXISTING)
                 // Bound storage even after many months or browser-session rotations.
                 directory.listFiles()?.filter { it.extension == "json" }
                     ?.sortedByDescending { it.lastModified() }?.drop(100)?.forEach { it.delete() }

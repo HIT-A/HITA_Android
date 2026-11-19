@@ -44,7 +44,6 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.fragment.app.Fragment
@@ -52,6 +51,7 @@ import androidx.fragment.app.viewModels
 import cn.limpu.hita.R
 import cn.limpu.hita.ui.about.UserAgreementDialog
 import cn.limpu.hita.ui.design.HitaComposeTheme
+import cn.limpu.hita.ui.design.HitaPasswordField
 import cn.limpu.hita.ui.design.HitaTheme
 import com.limpu.hitauser.data.model.SignUpResult
 import com.limpu.hitauser.data.model.UserLocal
@@ -171,7 +171,7 @@ private fun SignUpScreen(
                 supportingText = usernameFieldError?.let { err -> { Text(stringResource(err)) } }
             )
 
-            OutlinedTextField(
+            HitaPasswordField(
                 value = password,
                 onValueChange = {
                     password = it
@@ -182,17 +182,12 @@ private fun SignUpScreen(
                     .fillMaxWidth()
                     .padding(horizontal = tokens.spacing.lg),
                 label = { Text(stringResource(R.string.password)) },
-                singleLine = true,
-                visualTransformation = PasswordVisualTransformation(),
-                keyboardOptions = KeyboardOptions(
-                    keyboardType = KeyboardType.Password,
-                    imeAction = ImeAction.Next
-                ),
+                imeAction = ImeAction.Next,
                 isError = passwordFieldError != null,
                 supportingText = passwordFieldError?.let { err -> { Text(stringResource(err)) } }
             )
 
-            OutlinedTextField(
+            HitaPasswordField(
                 value = passwordConfirm,
                 onValueChange = {
                     passwordConfirm = it
@@ -203,12 +198,7 @@ private fun SignUpScreen(
                     .fillMaxWidth()
                     .padding(horizontal = tokens.spacing.lg),
                 label = { Text(stringResource(R.string.signup_confirm_password)) },
-                singleLine = true,
-                visualTransformation = PasswordVisualTransformation(),
-                keyboardOptions = KeyboardOptions(
-                    keyboardType = KeyboardType.Password,
-                    imeAction = ImeAction.Next
-                ),
+                imeAction = ImeAction.Next,
                 isError = passwordConfirmFieldError != null,
                 supportingText = passwordConfirmFieldError?.let { err -> { Text(stringResource(err)) } }
             )

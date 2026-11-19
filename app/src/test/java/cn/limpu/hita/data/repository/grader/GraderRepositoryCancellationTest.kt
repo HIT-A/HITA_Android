@@ -61,12 +61,16 @@ class GraderRepositoryCancellationTest {
                 listOf(cn.limpu.hita.data.source.web.grader.GraderAssignment("11", "expired", "course", 1L, true)))
             val repository = GraderRepository(store, Dispatchers.Unconfined)
             assertTrue(repository.reload())
-            assertEquals("1", repository.state.value?.accountId)
-            assertTrue(repository.state.value!!.tasks.isEmpty())
-            assertEquals("11", repository.state.value?.summaryItems?.single()?.id)
+            val loaded = requireNotNull(repository.state.value)
+            assertEquals("1", loaded.accountId)
+            assertEquals("11", loaded.tasks.single().id)
+            assertEquals(1L, loaded.tasks.single().dueAt)
+            assertEquals("11", loaded.summaryItems.single().id)
             assertTrue(repository.disconnect())
-            assertNull(repository.state.value?.accountId)
-            assertTrue(repository.state.value!!.summaryItems.isEmpty())
+            val disconnected = requireNotNull(repository.state.value)
+            assertNull(disconnected.accountId)
+            assertTrue(disconnected.tasks.isEmpty())
+            assertTrue(disconnected.summaryItems.isEmpty())
         } finally { ArchTaskExecutor.getInstance().setDelegate(null) }
     }
 

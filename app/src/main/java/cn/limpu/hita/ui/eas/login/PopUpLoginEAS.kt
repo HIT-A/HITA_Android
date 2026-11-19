@@ -52,7 +52,6 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -65,6 +64,7 @@ import cn.limpu.hita.data.model.eas.EASToken
 import cn.limpu.hita.data.source.preference.EasCredentialStore
 import cn.limpu.hita.ui.about.UserAgreementDialog
 import cn.limpu.hita.ui.design.HitaComposeTheme
+import cn.limpu.hita.ui.design.HitaPasswordField
 import cn.limpu.hita.ui.design.HitaTheme
 import cn.limpu.hita.utils.ImageUtils
 import cn.limpu.hita.utils.LogUtils
@@ -584,19 +584,14 @@ private fun LoginEASScreen(
                     imeAction = ImeAction.Next
                 )
             )
-            OutlinedTextField(
+            HitaPasswordField(
                 value = password,
                 onValueChange = { password = it },
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(top = tokens.spacing.xs),
                 label = { Text(stringResource(R.string.hint_eas_password)) },
-                singleLine = true,
-                visualTransformation = PasswordVisualTransformation(),
-                keyboardOptions = KeyboardOptions(
-                    keyboardType = KeyboardType.Password,
-                    imeAction = ImeAction.Done
-                )
+                imeAction = ImeAction.Done,
             )
             OutlinedButton(
                 onClick = {
