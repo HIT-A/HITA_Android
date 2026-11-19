@@ -63,13 +63,11 @@ class FragmentTimeLine : HiltBaseFragmentWithReceiver<ComposeViewBinding>() {
                         rendered.value = state
                         val calendar = Calendar.getInstance().apply { timeInMillis = state.now }
                         val context = requireContext()
-                        // 有周次时排成「11月19日 第12周 周四」，没有周次时退回「11月19日 周四」。
-                        val title = state.weekNumber?.let { week ->
-                            val date = TimeTools.getDateString(context, calendar, true, TimeTools.TTY_NONE)
-                            val weekday = context.resources.getStringArray(R.array.dow2)[TimeTools.getDow(calendar.timeInMillis) - 1]
-                            "$date 第${week}周 $weekday"
-                        } ?: TimeTools.getDateString(context, calendar, true, TimeTools.TTY_WK_FOLLOWING)
-                        controller?.setTimelineTitleText(title)
+                        // 主标题是日期，次级是教学周与星期；周次未知时只留星期。
+                        val date = TimeTools.getDateString(context, calendar, true, TimeTools.TTY_NONE)
+                        val weekday = context.resources.getStringArray(R.array.dow2)[TimeTools.getDow(calendar.timeInMillis) - 1]
+                        controller?.setTimelineTitleText(date)
+                        controller?.setTimelineSubtitleText(state.weekNumber?.let { "第${it}周 $weekday" } ?: weekday)
                         if (viewModel.consumeWidgetChange(state)) activity?.let(WidgetUtils::sendRefreshToAll)
                         // New Room content must reschedule an earlier event boundary immediately.
                         delay(viewModel.nextWakeDelay(state))
@@ -106,6 +104,7 @@ class FragmentTimeLine : HiltBaseFragmentWithReceiver<ComposeViewBinding>() {
     }
     interface MainPageController {
         fun setTimelineTitleText(string: String)
+        fun setTimelineSubtitleText(string: String)
         fun selectTodayScope(scope: cn.limpu.hita.data.model.timetable.DisplayScope): Boolean
         fun openTodayHomework()
     }

@@ -28,14 +28,13 @@ internal fun TodaySummaryCards(state: TodayUiState, action: (TodayAction) -> Uni
     val exam = if (state.status != TodayPageStatus.NO_TARGET) examCard(state) else null
     val homework = homeworkCard(state)
     val cards = listOfNotNull(exam, homework)
-    BoxWithConstraints(Modifier.fillMaxWidth()) {
-        if (!fixed && (maxWidth < 320.dp || LocalDensity.current.fontScale > 1.25f)) {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                cards.forEach { SummaryCard(it, Modifier, false, action) }
-            }
-        } else Row(if (fixed) Modifier.height((if (compact) 28f + 40f * LocalDensity.current.fontScale else 56f + 82f * LocalDensity.current.fontScale).dp)
-            else Modifier.height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            cards.forEach { SummaryCard(it, Modifier.weight(1f).fillMaxHeight(), compact, action) }
+    val fontScale = LocalDensity.current.fontScale
+    // 两张卡上下排列各占整行，考试的时间与科目才有完整宽度。
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        cards.forEach { model ->
+            val height = if (fixed) Modifier.fillMaxWidth().height(TodayLayoutPolicy.summaryCardHeight(compact, fontScale).dp)
+            else Modifier.fillMaxWidth()
+            SummaryCard(model, height, compact, action)
         }
     }
 }
@@ -107,7 +106,8 @@ private fun SummaryCard(model: SummaryCardModel, modifier: Modifier, compact: Bo
         }
         return
     }
-    TodayCard(modifier, padding = PaddingValues(16.dp), onClick = { action(model.action) }) {
+    TodayCard(modifier, padding = PaddingValues(horizontal = 14.dp, vertical = 14.dp), spacing = 4.dp,
+        onClick = { action(model.action) }) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             Icon(painterResource(model.icon), null, Modifier.size(15.dp), tint = secondary)
             Text(model.label, style = todayLabel(), maxLines = 1, overflow = TextOverflow.Ellipsis, color = secondary)

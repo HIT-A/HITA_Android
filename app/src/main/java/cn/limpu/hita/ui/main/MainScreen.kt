@@ -73,6 +73,7 @@ internal fun MainScreen(
     val miniCourse = state.miniCourse
     val drawerOpen = state.drawerOpen
     val todayTitle = state.todayTitle
+    val todaySubtitle = state.todaySubtitle
     val timetableTitle = state.timetableTitle
     val timetableName = state.timetableName
     val showTimetableName = state.showTimetableName
@@ -216,6 +217,7 @@ internal fun MainScreen(
                 MainTopBar(
                     selectedTabId = selectedTabId,
                     todayTitle = todayTitle,
+                    todaySubtitle = todaySubtitle,
                     timetableTitle = timetableTitle,
                     timetableName = timetableName,
                     showTimetableName = showTimetableName,

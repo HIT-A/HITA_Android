@@ -363,6 +363,7 @@ internal class MainViewModel @Inject constructor(
     }
     fun setDrawer(open: Boolean) { if (open) refreshUser(); mutableState.value = state.value.copy(drawerOpen = open) }
     fun setTimelineTitle(title: String) { mutableState.value = state.value.copy(todayTitle = title) }
+    fun setTimelineSubtitle(subtitle: String) { mutableState.value = state.value.copy(todaySubtitle = subtitle) }
     private var miniRequest = 0L
     private var miniScopeKey: Any? = null
     fun refreshMiniCourse(scope: cn.limpu.hita.data.repository.ResolvedDisplayScope? = null) {

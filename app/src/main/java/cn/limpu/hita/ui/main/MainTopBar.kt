@@ -69,6 +69,7 @@ import com.limpu.style.ThemeTools
 internal fun MainTopBar(
     selectedTabId: MainTab?,
     todayTitle: String,
+    todaySubtitle: String = "",
     timetableTitle: String,
     timetableName: String,
     showTimetableName: Boolean,
@@ -121,7 +122,7 @@ internal fun MainTopBar(
         verticalAlignment = Alignment.Bottom
     ) {
         when (selectedTabId) {
-            MainTab.TIMELINE -> TodayToolbarTitle(todayTitle, titleColor, onOpenDrawer)
+            MainTab.TIMELINE -> TodayToolbarTitle(todayTitle, todaySubtitle, titleColor, onOpenDrawer)
             MainTab.TIMETABLE -> TimetableToolbarTitle(
                 title = timetableTitle,
                 name = timetableName,
@@ -153,12 +154,19 @@ internal fun MainTopBar(
 }
 
 @Composable
-private fun TodayToolbarTitle(date: String, textColor: Color, onOpenDrawer: () -> Unit) {
+private fun TodayToolbarTitle(date: String, subtitle: String, textColor: Color, onOpenDrawer: () -> Unit) {
     Row(Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp),
         verticalAlignment = Alignment.CenterVertically) {
-        Text(date, fontSize = 20.sp, lineHeight = 26.sp, fontWeight = FontWeight.Bold,
-            fontFamily = HitaTheme.fonts.display, color = textColor, maxLines = 1,
-            overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+        Column(Modifier.weight(1f)) {
+            Text(date, fontSize = 22.sp, lineHeight = 28.sp, fontWeight = FontWeight.Bold,
+                fontFamily = HitaTheme.fonts.display, color = textColor, maxLines = 1,
+                overflow = TextOverflow.Ellipsis)
+            if (subtitle.isNotBlank()) {
+                Text(subtitle, fontSize = 12.sp, lineHeight = 16.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1,
+                    overflow = TextOverflow.Ellipsis)
+            }
+        }
         IconButton(onClick = onOpenDrawer) {
             Icon(painterResource(R.drawable.ic_baseline_account_circle_24),
                 stringResource(R.string.today_account), tint = MaterialTheme.colorScheme.primary)

@@ -20,9 +20,13 @@ internal object TodayLayoutPolicy {
             TodayLayoutMode.FIXED_COMPACT else TodayLayoutMode.PAGE_SCROLL
     }
 
-    /** 摘要卡钉在底部时的固定高度；与 [TodaySummaryCards] 的换算保持一致。 */
+    /** 单张摘要卡的高度：上排标签 + 最多三行内容。 */
+    fun summaryCardHeight(compact: Boolean, fontScale: Float): Float =
+        if (compact) 24f + 40f * fontScale else 40f + 64f * fontScale
+
+    /** 两张摘要卡上下排列时占用的总高度。 */
     fun summariesHeight(compact: Boolean, fontScale: Float): Float =
-        if (compact) 28f + 40f * fontScale else 56f + 82f * fontScale
+        summaryCardHeight(compact, fontScale) * 2 + 12f
 
     /** 列表每行分到的高度；一天课程多时用它决定要不要换成单行课程条。 */
     fun agendaRowHeight(heightDp: Float, bottomClearanceDp: Float, compact: Boolean, fontScale: Float, count: Int): Float {

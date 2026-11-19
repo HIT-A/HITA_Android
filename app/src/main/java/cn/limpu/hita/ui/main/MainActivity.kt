@@ -301,6 +301,7 @@ class MainActivity : HiltBaseActivity<MainViewBinding>(),
     }
 
     override fun setTimelineTitleText(string: String) = viewModel.setTimelineTitle(string)
+    override fun setTimelineSubtitleText(string: String) = viewModel.setTimelineSubtitle(string)
 
     private fun openUrl(url: String) = startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
 

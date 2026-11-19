@@ -11,6 +11,8 @@ internal data class MainUiState(
     val drawerOpen: Boolean = false,
     val drawer: DrawerUserState = DrawerUserState(),
     val todayTitle: String = "",
+    /** 顶栏次级信息：教学周与星期，主标题是日期。 */
+    val todaySubtitle: String = "",
     val timetableTitle: String = "",
     val timetableName: String = "",
     val showTimetableName: Boolean = false,
