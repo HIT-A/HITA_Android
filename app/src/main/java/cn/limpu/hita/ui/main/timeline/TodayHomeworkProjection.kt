@@ -32,6 +32,8 @@ data class TodayHomeworkSourceSummary(
     val undated: Int? = null,
     val invalidDeadline: Int? = null,
     val earliestDeadline: TodayHomeworkDeadline? = null,
+    /** Every pending item with a resolvable deadline, earliest first. */
+    val pending: List<TodayHomeworkDeadline> = emptyList(),
     val error: GraderError? = null,
 )
 
@@ -87,6 +89,7 @@ object TodayHomeworkProjection {
         return TodayHomeworkSourceSummary(source, status, accountId,
             dueToday = upcoming.count { Instant.ofEpochMilli(it.dueAt).atZone(zone).toLocalDate() == date },
             overdue = deadlines.count { it.dueAt < now }, undated = undated, invalidDeadline = invalid,
-            earliestDeadline = upcoming.minWithOrNull(compareBy<TodayHomeworkDeadline> { it.dueAt }.thenBy { it.id }))
+            earliestDeadline = upcoming.minWithOrNull(compareBy<TodayHomeworkDeadline> { it.dueAt }.thenBy { it.id }),
+            pending = deadlines.sortedWith(compareBy<TodayHomeworkDeadline> { it.dueAt }.thenBy { it.id }))
     }
 }

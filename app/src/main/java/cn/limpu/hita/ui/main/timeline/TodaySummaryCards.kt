@@ -8,66 +8,61 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import cn.limpu.hita.R
 import java.time.Instant
 import java.time.format.DateTimeFormatter
 
-private data class SummaryPresentation(
+private data class SummaryCardModel(
     val label: String,
-    val value: String,
-    val unit: String,
-    val detail: String,
     val icon: Int,
     val action: TodayAction,
+    val lines: List<String>,
+    val empty: String,
     val warning: Boolean = false,
 )
 
 @Composable
 internal fun TodaySummaryCards(state: TodayUiState, action: (TodayAction) -> Unit, fixed: Boolean = false, compact: Boolean = false) {
-    val exam = if (state.status != TodayPageStatus.NO_TARGET) examPresentation(state) else null
-    val homework = homeworkPresentation(state)
+    val exam = if (state.status != TodayPageStatus.NO_TARGET) examCard(state) else null
+    val homework = homeworkCard(state)
     val cards = listOfNotNull(exam, homework)
     BoxWithConstraints(Modifier.fillMaxWidth()) {
         if (!fixed && (maxWidth < 320.dp || LocalDensity.current.fontScale > 1.25f)) {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                cards.forEach { SummaryCard(it, Modifier, false, false, action) }
+                cards.forEach { SummaryCard(it, Modifier, false, action) }
             }
         } else Row(if (fixed) Modifier.height((if (compact) 28f + 40f * LocalDensity.current.fontScale else 56f + 82f * LocalDensity.current.fontScale).dp)
             else Modifier.height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            cards.forEach { SummaryCard(it, Modifier.weight(1f).fillMaxHeight(), fixed, compact, action) }
+            cards.forEach { SummaryCard(it, Modifier.weight(1f).fillMaxHeight(), compact, action) }
         }
     }
 }
 
 @Composable
-private fun examPresentation(state: TodayUiState): SummaryPresentation {
-    val exams = state.exams
-    val placeholder = state.agenda == null || state.status == TodayPageStatus.LOADING || exams == null
+private fun examCard(state: TodayUiState): SummaryCardModel {
+    val placeholder = state.agenda == null || state.status == TodayPageStatus.LOADING || state.exams == null
     val failed = state.status == TodayPageStatus.FAILED
-    if (placeholder) return SummaryPresentation(stringResource(R.string.today_exam_card), stringResource(R.string.today_count_unknown),
-        stringResource(R.string.today_exam_unit), stringResource(if (failed) R.string.today_read_failed else R.string.today_loading),
-        R.drawable.ic_baseline_edit_24, TodayAction.OpenExams)
-    val summary = requireNotNull(exams)
-    val nearest = summary.remaining.firstOrNull()
+    if (placeholder) return SummaryCardModel(
+        stringResource(R.string.today_exam_card), R.drawable.ic_baseline_edit_24, TodayAction.OpenExams,
+        listOf(stringResource(if (failed) R.string.today_read_failed else R.string.today_loading)), "",
+    )
+    val summary = requireNotNull(state.exams)
     val remote = (summary.remaining + summary.ended).any { it.source == TodayExamSource.EAS_QUERY } || summary.timeToConfirm.isNotEmpty()
-    // 卡片只回答「哪门、什么时候、在哪」；场次计数与来源说明不再占第三行。
-    val detail = when {
-        summary.timeToConfirm.isNotEmpty() -> stringResource(R.string.today_exam_time_pending, summary.timeToConfirm.size)
-        nearest != null -> listOfNotNull(
-            nearest.title.takeIf { it.isNotBlank() },
-            nearest.start?.let { examTime(state, it) } ?: stringResource(R.string.today_invalid),
-            nearest.place?.takeIf { it.isNotBlank() },
-        ).joinToString(" ")
-        summary.ended.isNotEmpty() -> stringResource(R.string.today_exam_ended)
-        else -> stringResource(R.string.today_exam_empty)
+    val upcoming = summary.remaining
+        .mapNotNull { entry -> entry.start?.let { start -> entry to start } }
+        .sortedBy { it.second }
+        .map { it.first }
+    val lines = (upcoming + summary.timeToConfirm).take(3).map { entry ->
+        val time = entry.start?.let { examTime(state, it) } ?: stringResource(R.string.today_exam_time_unknown)
+        val title = entry.title.ifBlank { stringResource(R.string.today_exam_untitled) }
+        "$time $title"
     }
-    return SummaryPresentation(stringResource(if (remote) R.string.today_exam_card_mixed else R.string.today_exam_card),
-        summary.remaining.size.toString(), stringResource(R.string.today_exam_unit), detail,
-        R.drawable.ic_baseline_edit_24, TodayAction.OpenExams)
+    return SummaryCardModel(
+        stringResource(if (remote) R.string.today_exam_card_mixed else R.string.today_exam_card),
+        R.drawable.ic_baseline_edit_24, TodayAction.OpenExams, lines, stringResource(R.string.today_exam_none),
+    )
 }
 
 @Composable
@@ -77,64 +72,56 @@ private fun examTime(state: TodayUiState, start: Long): String {
 }
 
 @Composable
-private fun homeworkPresentation(state: TodayUiState): SummaryPresentation {
+private fun homeworkCard(state: TodayUiState): SummaryCardModel {
     val model = state.homework?.let(::todayHomeworkCard)
     val label = if (model?.known?.size == 1) sourceName(model.singleSource ?: TodayHomeworkSource.LOCAL)
         else stringResource(R.string.today_homework_card)
-    val detail = when {
-        model == null -> stringResource(if (state.status == TodayPageStatus.FAILED) R.string.today_read_failed else R.string.today_loading)
-        model.sources.any { it.status == TodaySourceStatus.FAILED } -> stringResource(R.string.today_read_failed)
-        model.overdue > 0 -> stringResource(R.string.today_overdue_count, model.overdue)
-        model.pendingDate > 0 -> stringResource(R.string.today_date_pending_count, model.pendingDate)
-        model.count == 0 -> stringResource(R.string.today_homework_empty)
-        model.count != null -> stringResource(R.string.today_homework_due)
-        else -> sourceStatus(model.sources.firstOrNull()?.status ?: TodaySourceStatus.LOADING)
+    val action = TodayAction.OpenHomework(model?.singleSource ?: TodayHomeworkSource.LOCAL)
+    val base = SummaryCardModel(label, R.drawable.ic_baseline_check_24, action, emptyList(),
+        stringResource(R.string.today_homework_none), model != null && model.overdue > 0)
+    if (model == null) return base.copy(lines = listOf(stringResource(
+        if (state.status == TodayPageStatus.FAILED) R.string.today_read_failed else R.string.today_loading)))
+    if (model.sources.any { it.status == TodaySourceStatus.FAILED }) {
+        return base.copy(lines = listOf(stringResource(R.string.today_read_failed)))
     }
-    return SummaryPresentation(label, model?.count?.toString() ?: stringResource(R.string.today_count_unknown),
-        stringResource(R.string.today_homework_unit), detail, R.drawable.ic_baseline_check_24,
-        TodayAction.OpenHomework(model?.singleSource ?: TodayHomeworkSource.LOCAL), model != null && model.overdue > 0)
+    val items = model.items.filter { it.dueAt < state.window.tomorrowStart }.take(3)
+    return base.copy(lines = items.mapNotNull { item ->
+        item.title.ifBlank { item.course }.takeIf { it.isNotBlank() }
+    })
 }
 
 @Composable
-private fun SummaryCard(model: SummaryPresentation, modifier: Modifier, fixed: Boolean, compact: Boolean, action: (TodayAction) -> Unit) {
+private fun SummaryCard(model: SummaryCardModel, modifier: Modifier, compact: Boolean, action: (TodayAction) -> Unit) {
+    val secondary = MaterialTheme.colorScheme.onSurfaceVariant
+    val lineColor = if (model.warning) MaterialTheme.colorScheme.error else secondary
     if (compact) {
         TodayCard(modifier, padding = PaddingValues(horizontal = 14.dp, vertical = 12.dp), spacing = 4.dp,
             onClick = { action(model.action) }) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Icon(painterResource(model.icon), null, Modifier.size(15.dp), tint = secondary)
                 Text(model.label, style = todayLabel(), maxLines = 1, overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f), color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text(model.value, fontSize = 20.sp, lineHeight = 24.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                    modifier = Modifier.weight(1f), color = secondary)
             }
-            Text(model.detail, style = todayCaption(), maxLines = 1, overflow = TextOverflow.Ellipsis,
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(model.lines.firstOrNull() ?: model.empty, style = todayCaption(), maxLines = 1,
+                overflow = TextOverflow.Ellipsis, color = lineColor)
         }
         return
     }
-    val lines = if (fixed) 1 else Int.MAX_VALUE
     TodayCard(modifier, padding = PaddingValues(16.dp), onClick = { action(model.action) }) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Icon(painterResource(model.icon), null, Modifier.size(15.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text(model.label, style = todayLabel(), color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = lines, overflow = TextOverflow.Ellipsis)
+            Icon(painterResource(model.icon), null, Modifier.size(15.dp), tint = secondary)
+            Text(model.label, style = todayLabel(), maxLines = 1, overflow = TextOverflow.Ellipsis, color = secondary)
         }
-        Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(model.value, fontSize = 27.sp, lineHeight = 34.sp, fontWeight = FontWeight.Bold, maxLines = 1)
-            Text(model.unit, style = todayLabel(), modifier = Modifier.padding(bottom = 4.dp), maxLines = 1)
+        if (model.lines.isEmpty()) {
+            Text(model.empty, style = todayLabel(), maxLines = 1, overflow = TextOverflow.Ellipsis, color = secondary)
+        } else {
+            model.lines.forEach { line ->
+                Text(line, style = todayLabel(), maxLines = 1, overflow = TextOverflow.Ellipsis, color = lineColor)
+            }
         }
-        // 科目+时间+地点一行放不下时允许折两行，摘要卡高度足够。
-        Text(model.detail, style = todayLabel(), maxLines = if (fixed) 2 else Int.MAX_VALUE, overflow = TextOverflow.Ellipsis,
-            color = if (model.warning) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
 @Composable
 private fun sourceName(source: TodayHomeworkSource): String = stringResource(
     if (source == TodayHomeworkSource.LOCAL) R.string.today_homework_local_short else R.string.today_homework_grader_short)
-
-@Composable
-private fun sourceStatus(status: TodaySourceStatus): String = stringResource(when (status) {
-    TodaySourceStatus.LOADING -> R.string.today_loading
-    TodaySourceStatus.FAILED -> R.string.today_read_failed
-    TodaySourceStatus.DISCONNECTED -> R.string.today_disconnected
-    else -> R.string.today_unknown
-})

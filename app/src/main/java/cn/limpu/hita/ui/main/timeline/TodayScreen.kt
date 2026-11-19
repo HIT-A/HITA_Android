@@ -41,19 +41,12 @@ private fun TodayScreenContent(state: TodayUiState, onAction: (TodayAction) -> U
                 if (previousMode != mode.name) { agendaScroll.scrollToItem(0); pageScroll.scrollToItem(0); previousMode = mode.name }
             }
             val compact = mode == TodayLayoutMode.FIXED_COMPACT
-            val agenda = state.agenda
-            val visibleCount = (if (expanded) agenda?.allToday?.size else agenda?.remaining?.size) ?: 0
-            // 每节课可用高度不足一张卡片时退化为单行课程条，保证一天六节课不用滚动。
-            val dense = visibleCount > 0 && TodayLayoutPolicy.agendaRowsAreDense(
-                heightDp = maxHeight.value, bottomClearanceDp = bottomClearance.value,
-                compact = compact, fontScale = fontScale, count = visibleCount,
-            )
             if (mode == TodayLayoutMode.PAGE_SCROLL) {
                 if (todayHasAgendaData(state)) LazyColumn(state = pageScroll, modifier = Modifier.fillMaxSize().testTag("today-page-scroll"),
                     contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 4.dp, bottom = bottomClearance + 12.dp),
-                    verticalArrangement = Arrangement.spacedBy(if (dense) 6.dp else 10.dp)) {
+                    verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     item("header") { TodayHeader(state) }
-                    todayAgendaItems(state, expanded, { expanded = !expanded }, onAction, dense)
+                    todayAgendaItems(state, expanded, { expanded = !expanded }, onAction)
                     item("summaries") { TodaySummaryCards(state, onAction) }
                 } else Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp).padding(bottom = bottomClearance + 12.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -66,8 +59,8 @@ private fun TodayScreenContent(state: TodayUiState, onAction: (TodayAction) -> U
                 if (todayHasAgendaData(state)) LazyColumn(state = agendaScroll,
                     modifier = Modifier.weight(1f).fillMaxWidth().todayScrollFade(agendaScroll).testTag("today-agenda-scroll"),
                     contentPadding = PaddingValues(horizontal = 20.dp, vertical = 4.dp),
-                    verticalArrangement = Arrangement.spacedBy(if (dense) 6.dp else 10.dp)) {
-                    todayAgendaItems(state, expanded, { expanded = !expanded }, onAction, dense)
+                    verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    todayAgendaItems(state, expanded, { expanded = !expanded }, onAction)
                 } else Box(Modifier.weight(1f).padding(horizontal = 20.dp)) { TodayAgendaPlaceholder(state, onAction) }
                 Spacer(Modifier.height(12.dp))
                 Box(Modifier.padding(horizontal = 20.dp).testTag("today-fixed-summaries")) {

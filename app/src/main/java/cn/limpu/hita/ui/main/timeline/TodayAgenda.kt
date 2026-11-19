@@ -66,8 +66,8 @@ internal fun TodayEventCard(event: EventItem, state: TodayUiState, conflict: Boo
             }
         }
     }
-    if (flat) Box(Modifier.fillMaxWidth().clickable(onClick = onClick).heightIn(min = 44.dp).padding(vertical = 4.dp)) { body() }
-    else TodayCard(container = container, padding = PaddingValues(horizontal = 14.dp, vertical = if (ended) 8.dp else 12.dp),
+    if (flat) Box(Modifier.fillMaxWidth().clickable(onClick = onClick).heightIn(min = 48.dp).padding(vertical = 6.dp)) { body() }
+    else TodayCard(container = container, padding = PaddingValues(horizontal = 16.dp, vertical = if (ended) 12.dp else 18.dp),
         onClick = onClick, edgeTint = accent) { body() }
 }
 
@@ -75,21 +75,21 @@ internal fun TodayEventCard(event: EventItem, state: TodayUiState, conflict: Boo
 private fun EventBody(event: EventItem, state: TodayUiState, phase: EventTimePolicy.Phase, conflict: Boolean, accent: Color) {
     val ended = phase == EventTimePolicy.Phase.ENDED
     val secondary = MaterialTheme.colorScheme.onSurfaceVariant
-    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-        Text(event.name, fontSize = if (ended) 15.sp else 17.sp, lineHeight = if (ended) 20.sp else 22.sp, fontWeight = FontWeight.Bold,
+    Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+        Text(event.name, fontSize = if (ended) 16.sp else 19.sp, lineHeight = if (ended) 22.sp else 26.sp, fontWeight = FontWeight.Bold,
             color = if (ended) secondary else MaterialTheme.colorScheme.onSurface)
         val time = todayEventTime(event, state.window)
         val periods = if (event.type == EventItem.TYPE.CLASS && event.fromNumber > 0 && event.lastNumber >= event.fromNumber)
             stringResource(R.string.today_periods, event.fromNumber, event.lastNumber) else null
         Text(if (periods != null) stringResource(R.string.today_pair, time, periods) else time,
-            style = todayLabel(), fontWeight = FontWeight.Medium, color = secondary)
-        if (phase == EventTimePolicy.Phase.INVALID) Text(stringResource(R.string.today_invalid), style = todayCaption(), color = MaterialTheme.colorScheme.error)
-        else if (ended) Text(stringResource(R.string.today_ended), style = todayCaption(), color = secondary)
-        else event.teacher?.takeIf { it.isNotBlank() }?.let { Text(it, style = todayCaption(), color = secondary) }
-        if (conflict) Text(stringResource(R.string.today_conflict), style = todayCaption(), color = MaterialTheme.colorScheme.error)
+            style = todayMeta(), fontWeight = FontWeight.Medium, color = secondary)
+        if (phase == EventTimePolicy.Phase.INVALID) Text(stringResource(R.string.today_invalid), style = todayLabel(), color = MaterialTheme.colorScheme.error)
+        else if (ended) Text(stringResource(R.string.today_ended), style = todayLabel(), color = secondary)
+        else event.teacher?.takeIf { it.isNotBlank() }?.let { Text(it, style = todayLabel(), color = secondary) }
+        if (conflict) Text(stringResource(R.string.today_conflict), style = todayLabel(), color = MaterialTheme.colorScheme.error)
         if (phase == EventTimePolicy.Phase.ACTIVE) {
             LinearProgressIndicator(progress = { EventTimePolicy.progress(event.from.time, event.to.time, state.now) },
-                modifier = Modifier.fillMaxWidth().padding(top = 2.dp).height(2.dp),
+                modifier = Modifier.fillMaxWidth().padding(top = 3.dp).height(3.dp),
                 color = accent, trackColor = accent.copy(alpha = 0.12f),
                 gapSize = 0.dp, drawStopIndicator = {})
         }
@@ -99,17 +99,17 @@ private fun EventBody(event: EventItem, state: TodayUiState, phase: EventTimePol
 @Composable
 private fun TodayLocation(place: String?, accent: Color, modifier: Modifier = Modifier) {
     Row(modifier.background(accent.copy(alpha = 0.12f), RoundedCornerShape(50))
-        .heightIn(min = 36.dp).padding(horizontal = 10.dp, vertical = 4.dp),
+        .heightIn(min = 48.dp).padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-        Icon(painterResource(R.drawable.ic_baseline_location_24), null, Modifier.size(13.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text(place?.takeIf { it.isNotBlank() } ?: stringResource(R.string.today_place_pending), style = todayLabel(),
+        Icon(painterResource(R.drawable.ic_baseline_location_24), null, Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(place?.takeIf { it.isNotBlank() } ?: stringResource(R.string.today_place_pending), style = todayMeta(),
             fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
 /**
- * 单行课程条：时间 / 课程名 / 地点一行放完，高度固定 40dp。
- * 一天六节课时首屏要放得下，靠它把每行压到 60dp 以内。
+ * 单行课程条：时间 / 课程名 / 地点一行放完，高度固定 44dp。
+ * 一天六节课时首屏要放得下，靠它把每行压到 63dp 以内。
  */
 @Composable
 private fun TodayDenseRow(event: EventItem, state: TodayUiState, phase: EventTimePolicy.Phase,
@@ -119,16 +119,16 @@ private fun TodayDenseRow(event: EventItem, state: TodayUiState, phase: EventTim
     val time = if (phase == EventTimePolicy.Phase.INVALID) stringResource(R.string.today_invalid)
     else todayEventTime(event, state.window)
     Row(Modifier.fillMaxWidth()
-        .clip(hitaStyleCardShape(14.dp, 6.dp))
+        .clip(hitaStyleCardShape(16.dp, 6.dp))
         .background(container)
         .clickable(onClick = onClick)
-        .heightIn(min = 40.dp)
-        .padding(horizontal = 10.dp, vertical = 3.dp),
+        .heightIn(min = 44.dp)
+        .padding(horizontal = 10.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.width(3.dp).height(18.dp).clip(RoundedCornerShape(2.dp)).background(strip))
+        Box(Modifier.width(3.dp).height(22.dp).clip(RoundedCornerShape(2.dp)).background(strip))
         Text(time, style = todayLabel(), color = secondary, maxLines = 1,
             modifier = Modifier.padding(start = 8.dp, end = 8.dp).width(72.dp))
-        Text(event.name, fontSize = 14.sp, lineHeight = 18.sp, fontWeight = FontWeight.Bold, maxLines = 1,
+        Text(event.name, fontSize = 15.sp, lineHeight = 20.sp, fontWeight = FontWeight.Bold, maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             color = if (ended) secondary else MaterialTheme.colorScheme.onSurface,
             modifier = Modifier.weight(1f))

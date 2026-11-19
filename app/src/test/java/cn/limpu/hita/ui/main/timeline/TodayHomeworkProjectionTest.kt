@@ -27,6 +27,7 @@ class TodayHomeworkProjectionTest {
         assertEquals(2, result.local.invalidDeadline)
         assertEquals("due", result.local.earliestDeadline?.id)
         assertEquals(Instant.parse("2026-11-17T15:59:00Z").toEpochMilli(), result.local.earliestDeadline?.dueAt)
+        assertEquals(listOf("old", "due"), result.local.pending.map { it.id })
     }
     @Test fun `grader preserves source account completion and missing deadline semantics`() {
         val grader = GraderState(accountId = "1", ready = true, summaryItems = listOf(

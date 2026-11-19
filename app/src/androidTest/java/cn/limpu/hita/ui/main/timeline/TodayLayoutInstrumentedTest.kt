@@ -27,16 +27,16 @@ class TodayLayoutInstrumentedTest {
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
     private val window = TodayDateWindow.from(Instant.parse("2026-11-18T04:00:00Z"), ZoneId.of("Asia/Shanghai"))
     private val now = window.start + 12 * 3_600_000L
-    private fun state(key: String = "a", count: Int = 15) : TodayUiState {
-        val events = (0 until count).map { i -> EventItem().apply {
+    private fun state(key: String = "a") : TodayUiState {
+        val events = (0..14).map { i -> EventItem().apply {
             id = "$key-${i.toString().padStart(2, '0')}"; name = id
             from = Timestamp(now - 60_000); to = Timestamp(now + 3_600_000)
         } }
         val agenda = TodayProjection.project(window, events, now)
         return TodayUiState(now, window, scopeKey = key, status = TodayPageStatus.READY, agenda = agenda)
     }
-    private fun host(height: Int = 674, scale: Float = 1f, count: Int = 15, test: (androidx.compose.runtime.MutableState<TodayUiState>, ActivityScenario<ComponentActivity>) -> Unit) {
-        val rendered = mutableStateOf(state(count = count))
+    private fun host(height: Int = 674, scale: Float = 1f, test: (androidx.compose.runtime.MutableState<TodayUiState>, ActivityScenario<ComponentActivity>) -> Unit) {
+        val rendered = mutableStateOf(state())
         ActivityScenario.launch(ComponentActivity::class.java).use { scenario ->
             scenario.onActivity { activity -> activity.setContentView(ComposeView(activity).apply {
                 setContent { HitaComposeTheme {
@@ -119,16 +119,6 @@ class TodayLayoutInstrumentedTest {
         settle()
     }
 
-    @Test fun sixCoursesFitWithoutScrolling() = host(count = 6) { _, _ ->
-        val viewport = bounds(tag("today-agenda-scroll"))
-        for (i in 0 until 6) {
-            val id = "a-0$i"
-            val node = await { it.text?.toString() == id }
-            val rect = bounds(node)
-            assertTrue("$id must start inside the viewport: $rect vs $viewport", rect.top >= viewport.top)
-            assertTrue("$id must end above the summaries: $rect vs $viewport", rect.bottom <= viewport.bottom)
-        }
-    }
     @Test fun summariesStayFixedAndLastEventDoesNotOverlapThem() = host { _, _ ->
         val before = bounds(tag("today-fixed-summaries"))
         scroll()

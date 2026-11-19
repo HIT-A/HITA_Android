@@ -106,8 +106,9 @@ class TodayScreenInstrumentedTest {
         }
     }
 
-    @Test fun summariesUseTheExistingHomeworkRouteAndKeepKnownCounts() {
-        val local = TodayHomeworkSourceSummary(TodayHomeworkSource.LOCAL, TodaySourceStatus.READY, dueToday = 1, overdue = 0)
+    @Test fun summariesUseTheExistingHomeworkRouteAndShowPendingItems() {
+        val local = TodayHomeworkSourceSummary(TodayHomeworkSource.LOCAL, TodaySourceStatus.READY, dueToday = 1, overdue = 0,
+            pending = listOf(TodayHomeworkDeadline(TodayHomeworkSource.LOCAL, null, "fixture-home", "实验报告", "计算机", now + 3_600_000)))
         val grader = TodayHomeworkSourceSummary(TodayHomeworkSource.GRADER, TodaySourceStatus.DISCONNECTED)
         val rendered = mutableStateOf(state(emptyList()).copy(homework = TodayHomeworkSummary(local, grader)))
         var action: TodayAction? = null
@@ -119,13 +120,12 @@ class TodayScreenInstrumentedTest {
             assertEquals(TodayAction.OpenHomework(TodayHomeworkSource.LOCAL), action)
             scenario.onActivity { rendered.value = rendered.value.copy(homework = TodayHomeworkSummary(local,
                 grader.copy(status = TodaySourceStatus.READY, dueToday = 1, overdue = 0))) }
-            awaitText(base.getString(R.string.today_homework_card))
-            awaitText("2")
+            awaitText("实验报告")
             assertFalse(hasText(base.getString(R.string.today_source_status, "Grader", base.getString(R.string.today_disconnected))))
         }
     }
 
-    @Test fun examCardNamesTheNearestExamInsteadOfCountingEndedOnes() {
+    @Test fun examCardListsUpcomingExamsWithoutCountsOrPlace() {
         fun exam(id: String, start: String, end: String) = event(id,
             Instant.parse(start).toEpochMilli(), Instant.parse(end).toEpochMilli()).apply {
             type = EventItem.TYPE.EXAM; timetableId = "fixture"; place = "A101"
@@ -144,11 +144,10 @@ class TodayScreenInstrumentedTest {
                 setContent { HitaComposeTheme { TodayScreen(rendered, { action = it }) } }
             }) }
             awaitText(base.getString(R.string.today_exam_card))
-            awaitText("1")
-            awaitText("Future exam 12-06 19:00 A101")
-            assertFalse(hasText(base.getString(R.string.today_exam_empty)))
-            assertFalse(hasText(base.getString(R.string.today_exam_ended_count, 1)))
-            awaitText(base.getString(R.string.today_homework_local_short))
+            awaitText("12-06 19:00 Future exam")
+            assertFalse(hasText("A101"))
+            assertFalse(hasText(base.getString(R.string.today_exam_none)))
+            awaitText(base.getString(R.string.today_exam_card))
             clickText(base.getString(R.string.today_exam_card))
             assertEquals(TodayAction.OpenExams, action)
         }

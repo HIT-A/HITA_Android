@@ -10,6 +10,9 @@ internal data class TodayHomeworkCardModel(
     val overdue: Int get() = known.sumOf { it.overdue ?: 0 }
     val pendingDate: Int get() = known.sumOf { (it.undated ?: 0) + (it.invalidDeadline ?: 0) }
     val retained: Boolean get() = known.any { it.status == TodaySourceStatus.FAILED }
+    val items: List<TodayHomeworkDeadline>
+        get() = known.flatMap { it.pending }
+            .sortedWith(compareBy<TodayHomeworkDeadline> { it.dueAt }.thenBy { it.id })
 }
 
 internal fun todayHomeworkCard(summary: TodayHomeworkSummary): TodayHomeworkCardModel {

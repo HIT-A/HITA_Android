@@ -5,9 +5,9 @@ internal enum class TodayLayoutMode { FIXED_FULL, FIXED_COMPACT, PAGE_SCROLL }
 /** Geometry only: source failures, ticks and scope changes cannot switch the page layout. */
 internal object TodayLayoutPolicy {
     /** 单行课程条的高度与间距；行高不足 [FULL_ROW_HEIGHT_DP] 时改用它们。 */
-    const val DENSE_ROW_HEIGHT_DP = 40f
-    const val DENSE_ROW_GAP_DP = 6f
-    const val FULL_ROW_HEIGHT_DP = 96f
+    const val DENSE_ROW_HEIGHT_DP = 44f
+    const val DENSE_ROW_GAP_DP = 8f
+    const val FULL_ROW_HEIGHT_DP = 108f
 
     fun choose(widthDp: Float, heightDp: Float, bottomClearanceDp: Float, fontScale: Float): TodayLayoutMode {
         val contentWidth = widthDp - 40f
