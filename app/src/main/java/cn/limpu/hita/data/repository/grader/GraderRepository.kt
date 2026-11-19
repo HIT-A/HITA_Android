@@ -4,7 +4,7 @@ import android.app.Application
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import cn.limpu.hita.data.model.grader.GraderSummaryItem
-import cn.limpu.hita.data.model.grader.GraderTask
+import cn.limpu.hita.data.model.homework.ImportedTodo
 import cn.limpu.hita.data.source.preference.GraderPreferenceSource
 import cn.limpu.hita.data.source.web.grader.GraderAuthenticationException
 import cn.limpu.hita.data.source.web.grader.GraderInvalidResponseException
@@ -28,7 +28,7 @@ enum class GraderError { AUTHENTICATION, NETWORK, STORAGE, INVALID_RESPONSE }
 data class GraderState(
     val accountId: String? = null,
     val accountName: String? = null,
-    val tasks: List<GraderTask> = emptyList(),
+    val tasks: List<ImportedTodo> = emptyList(),
     val summaryItems: List<GraderSummaryItem> = emptyList(),
     val ready: Boolean = false,
     val syncing: Boolean = false,
@@ -70,14 +70,11 @@ class GraderRepository internal constructor(
     suspend fun connect(cookieHeader: String): Boolean = synchronize(cookieHeader)
     suspend fun refresh(): Boolean = synchronize(null)
 
-    suspend fun setCompleted(id: String, completed: Boolean): Boolean = withContext(Dispatchers.IO) {
+    suspend fun setCompleted(accountId: String, id: String, completed: Boolean): Boolean = withContext(Dispatchers.IO) {
         mutex.withLock {
-            val accountId = current.accountId ?: return@withLock false
-            if (sessionSuppressed) return@withLock false
+            if (sessionSuppressed || current.accountId != accountId) return@withLock false
             try {
-                val before = store.load()
-                if (before.account?.id != accountId || before.assignments.none { it.id == id }) return@withLock false
-                val snapshot = store.setCompleted(accountId, id, completed)
+                val snapshot = store.setCompleted(accountId, id, completed) ?: return@withLock false
                 publish(snapshot.toState(syncing = current.syncing).copy(needsLogin = current.needsLogin))
                 true
             } catch (_: GraderStorageException) {
@@ -188,7 +185,7 @@ class GraderRepository internal constructor(
     private fun GraderSnapshot.toState(syncing: Boolean = false): GraderState = GraderState(
         accountId = account?.id,
         accountName = account?.name,
-        tasks = visibleTasks(System.currentTimeMillis()),
+        tasks = todoTasks(),
         summaryItems = summaryItems(),
         ready = true,
         syncing = syncing,

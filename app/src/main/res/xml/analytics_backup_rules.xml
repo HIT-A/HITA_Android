@@ -9,6 +9,7 @@
     复制过去的只是不可解密数据，纯属暴露面）
   - ai_settings.xml / ai_settings_secure_v2.xml：用户自定义 API Key
   - grader_secure_v1.xml：作业平台会话 cookie
+  - geniusta_secure_v1.xml：GeniusTA 会话 ID 与 cookie
   - local_user_profile.xml：用户 token / publicKey / 学号（hitauser 模块）
   - app_webview/：WebView cookie jar，含 CAS CASTGC、aTrust、WebVPN 票据
 
@@ -22,6 +23,7 @@
     <exclude domain="sharedpref" path="ai_settings.xml" />
     <exclude domain="sharedpref" path="ai_settings_secure_v2.xml" />
     <exclude domain="sharedpref" path="grader_secure_v1.xml" />
+    <exclude domain="sharedpref" path="geniusta_secure_v1.xml" />
     <exclude domain="sharedpref" path="local_user_profile.xml" />
     <exclude domain="sharedpref" path="usage_analytics.xml" />
     <exclude domain="sharedpref" path="usage_analytics_settings.xml" />

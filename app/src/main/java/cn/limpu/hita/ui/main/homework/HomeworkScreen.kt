@@ -6,12 +6,11 @@ import android.content.Intent
 import android.webkit.CookieManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.animateContentSize
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -38,10 +37,12 @@ import cn.limpu.hita.data.model.homework.HomeworkItem
 import cn.limpu.hita.data.model.homework.HomeworkSubmissionFormat
 import cn.limpu.hita.data.model.homework.HomeworkSubmissionMethod
 import cn.limpu.hita.data.repository.grader.GraderState
+import cn.limpu.hita.data.repository.geniusta.GeniusTaState
 import cn.limpu.hita.data.repository.homework.HomeworkState
 import cn.limpu.hita.data.repository.homework.HomeworkStore
 import java.time.LocalDate
 import java.time.LocalTime
+import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlinx.coroutines.launch
@@ -55,36 +56,26 @@ private val HOMEWORK_YEAR_WEEKDAY: DateTimeFormatter =
 private val HOMEWORK_WEEKDAY_SHORT: DateTimeFormatter =
     DateTimeFormatter.ofPattern("EEEEE", Locale.SIMPLIFIED_CHINESE)
 
-/**
- * 待办页：所有日期的待办常驻显示。
- *
- * 结构自顶向下：快捷添加 → 未完成的按日期分组（升序，未安排置底）→
- * 一个整体折叠的「已完成」区块 → 评阅入口。选中日期的快捷入口只决定新增项落在哪天，
- * 不再过滤列表内容，因此不存在「切到别的日子就看不到待办」的情况。
- */
+/** One chronological todo list, with date headings and one collapsible completed section. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun HomeworkScreen(
     viewModel: HomeworkViewModel,
-    /**
-     * 仅供 UI 测试覆盖评阅入口可见性；生产传 `null`，由 [HomeworkViewModel.graderVisible]
-     * 按深圳校区 + 已登录判定。
-     */
     graderVisibleOverride: Boolean? = null,
-    /** 仅测试用：替换评阅卡片状态，验证失败态下的按钮组合。 */
     graderStateOverride: GraderState? = null,
+    geniusTaStateOverride: GeniusTaState? = null,
 ) {
     val state by viewModel.state.observeAsState(HomeworkState())
     val busy by viewModel.busy.observeAsState(false)
     val today by viewModel.today.observeAsState(LocalDate.now().toString())
     val observedGrader by viewModel.graderState.observeAsState(GraderState())
     val grader = graderStateOverride ?: observedGrader
+    val observedGeniusTa by viewModel.geniusTaState.observeAsState(GeniusTaState())
+    val geniusTa = geniusTaStateOverride ?: observedGeniusTa
     val graderVisible by viewModel.graderVisible.observeAsState(viewModel.graderVisible.value == true)
     val showGrader = graderVisibleOverride ?: graderVisible
     val now by viewModel.now.observeAsState(System.currentTimeMillis())
-    val graderTasks = remember(grader.tasks, now) {
-        grader.tasks.filter { it.dueAt >= now }.sortedBy { it.dueAt }
-    }
+    var geniusLogin by remember { mutableStateOf(false) }
     var dateOverride by rememberSaveable { mutableStateOf<String?>(null) }
     var showCompleted by rememberSaveable { mutableStateOf(false) }
     var quickDraft by rememberSaveable { mutableStateOf("") }
@@ -103,8 +94,16 @@ internal fun HomeworkScreen(
     var pickerForEditor by rememberSaveable { mutableStateOf(false) }
     val selectedDate = dateOverride ?: today
     val selectedDay = LocalDate.parse(selectedDate)
-    // 一次扫描产出所有日期的分组；键盘输入或时间刷新都不会重复遍历。
-    val board = remember(state.items) { buildHomeworkBoard(state.items) }
+    val deviceZone = ZoneId.systemDefault()
+    val board = remember(state.items, showGrader, grader.accountId, grader.tasks, geniusTa.accountId, geniusTa.tasks, deviceZone) {
+        val imported = buildList {
+            if (showGrader) {
+                grader.accountId?.let { add(ImportedTodoGroup(TodoPlatform.GRADER, it, grader.tasks)) }
+            }
+            geniusTa.accountId?.let { add(ImportedTodoGroup(TodoPlatform.GENIUSTA, it, geniusTa.tasks)) }
+        }
+        buildHomeworkBoard(state.items, imported, deviceZone)
+    }
     val context = LocalContext.current
     val graderLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         viewModel.refreshToday()
@@ -137,8 +136,8 @@ internal fun HomeworkScreen(
         pickerForEditor = editor
         pickerDate = value
     }
-    fun complete(item: HomeworkItem, value: Boolean) {
-        viewModel.complete(item.id, value) {
+    fun complete(key: TodoKey, value: Boolean) {
+        viewModel.complete(key, value) {
             scope.launch {
                 snackbar.currentSnackbarData?.dismiss()
                 val result = snackbar.showSnackbar(
@@ -146,7 +145,7 @@ internal fun HomeworkScreen(
                     actionLabel = context.getString(R.string.homework_undo),
                     withDismissAction = true,
                 )
-                if (result == SnackbarResult.ActionPerformed) viewModel.complete(item.id, !value)
+                if (result == SnackbarResult.ActionPerformed) viewModel.complete(key, !value)
             }
         }
     }
@@ -160,11 +159,28 @@ internal fun HomeworkScreen(
         }
     }
 
-    LaunchedEffect(graderTasks, now, showGrader) {
-        if (!showGrader) return@LaunchedEffect
-        graderTasks.firstOrNull()?.let { task ->
-            delay((task.dueAt - now).coerceAtLeast(0L) + 1L)
+    val nextDue = remember(board, now, showCompleted) {
+        val pending = board.pending.nextImportedDeadline(now)
+        val completed = if (showCompleted) board.completed.nextImportedDeadline(now) else null
+        when {
+            pending == null -> completed
+            completed == null -> pending
+            else -> minOf(pending, completed)
+        }
+    }
+    LaunchedEffect(nextDue, now) {
+        if (nextDue != null) {
+            delay((nextDue - System.currentTimeMillis()).coerceAtLeast(0L) + 1L)
             viewModel.refreshToday()
+        }
+    }
+    val graderError = if (showGrader) grader.error?.messageRes else null
+    val geniusError = if (!geniusLogin) geniusTa.error?.messageRes else null
+    LaunchedEffect(graderError, geniusError) {
+        val message = listOfNotNull(graderError, geniusError).joinToString("\n") { context.getString(it) }
+        if (message.isNotEmpty()) {
+            snackbar.currentSnackbarData?.dismiss()
+            snackbar.showSnackbar(message, withDismissAction = true)
         }
     }
     // A saved dialog request is recreated on rotation and dismissed with its composition.
@@ -195,7 +211,7 @@ internal fun HomeworkScreen(
     }
 
     CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onBackground) {
-        Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+        Box(Modifier.fillMaxSize()) {
             LazyColumn(
                 state = listState,
                 modifier = Modifier.fillMaxSize().imePadding(),
@@ -217,9 +233,28 @@ internal fun HomeworkScreen(
                         draft = quickDraft,
                         onDraftChange = { if (it.length <= HomeworkStore.MAX_TITLE_LENGTH) quickDraft = it },
                         enabled = state.ready && !busy,
-                        plannedDate = selectedDate,
                         onAdd = ::addQuickly,
                         onAddWithDate = { openEditor() },
+                    )
+                }
+                item(key = "platform-connections") {
+                    TodoPlatformConnections(
+                        grader = grader.takeIf { showGrader },
+                        geniusTa = geniusTa,
+                        onGraderLogin = { graderLauncher.launch(Intent(context, GraderLoginActivity::class.java)) },
+                        onGraderRefresh = viewModel::refreshGrader,
+                        onGraderDisconnect = {
+                            viewModel.disconnectGrader {
+                                val cookies = CookieManager.getInstance()
+                                cookies.setCookie(
+                                    "https://grader.hitsz.edu.cn",
+                                    "sessionid=; Max-Age=0; Path=/; Secure; HttpOnly",
+                                ) { cookies.flush() }
+                            }
+                        },
+                        onGeniusTaLogin = { geniusLogin = true },
+                        onGeniusTaRefresh = viewModel::refreshGeniusTa,
+                        onGeniusTaDisconnect = viewModel::disconnectGeniusTa,
                     )
                 }
                 if (!state.ready && !state.failed) {
@@ -233,111 +268,42 @@ internal fun HomeworkScreen(
                         }
                     }
                 }
-                if (state.ready && board.totalCount == 0) {
+                if (state.ready && board.pending.isEmpty() && board.completed.isEmpty()) {
                     item(key = "empty") { HomeworkEmptyState() }
                 }
-                if (state.ready) {
-                    val split = board.groups.splitUndated()
-                    val undated = split.undated
-                    split.dated.forEach { group ->
-                        item(key = "group-${group.date}", contentType = "group") {
-                            HomeworkGroupSection(
-                                label = groupLabel(group.date, today),
-                                subtitle = daySubtitle(group.date),
-                                pending = group.pending,
-                                completed = emptyList(),
-                                busy = busy,
-                                onComplete = ::complete,
-                                onEdit = ::openEditor,
-                            )
-                        }
-                    }
-                    if (undated != null) {
-                        item(key = "group-undated", contentType = "group") {
-                            HomeworkGroupSection(
-                                label = stringResource(R.string.homework_undated_section),
-                                subtitle = stringResource(R.string.homework_undated_section_subtitle, undated.pending.size),
-                                pending = undated.pending,
-                                completed = emptyList(),
-                                busy = busy,
-                                onComplete = ::complete,
-                                onEdit = ::openEditor,
-                            )
-                        }
-                    }
-                    if (board.completedCount > 0) {
-                        item(key = "completed-toggle") {
-                            CompletedSectionHeader(
-                                count = board.completedCount,
-                                expanded = showCompleted,
-                                onToggle = { showCompleted = !showCompleted },
-                            )
-                        }
-                        if (showCompleted) {
-                            val completedSplit = board.completedGroups.splitUndated()
-                            val undatedCompleted = completedSplit.undated
-                            completedSplit.dated.forEach { group ->
-                                item(key = "done-${group.date}", contentType = "group") {
-                                    HomeworkGroupSection(
-                                        label = groupLabel(group.date, today),
-                                        subtitle = daySubtitle(group.date),
-                                        pending = emptyList(),
-                                        completed = group.completed,
-                                        busy = busy,
-                                        onComplete = ::complete,
-                                        onEdit = ::openEditor,
-                                    )
-                                }
-                            }
-                            if (undatedCompleted != null) {
-                                item(key = "done-undated", contentType = "group") {
-                                    HomeworkGroupSection(
-                                        label = stringResource(R.string.homework_undated_section),
-                                        subtitle = stringResource(
-                                            R.string.homework_undated_section_subtitle,
-                                            undatedCompleted.completed.size,
-                                        ),
-                                        pending = emptyList(),
-                                        completed = undatedCompleted.completed,
-                                        busy = busy,
-                                        onComplete = ::complete,
-                                        onEdit = ::openEditor,
-                                    )
-                                }
-                            }
-                        }
+                fun rowBusy(key: TodoKey): Boolean = when (key) {
+                    is TodoKey.Personal -> busy
+                    is TodoKey.Imported -> when (key.platform) {
+                        TodoPlatform.GRADER -> grader.syncing
+                        TodoPlatform.GENIUSTA -> geniusTa.syncing
                     }
                 }
-                if (showGrader) {
-                    item(key = "grader-connection") {
-                        GraderConnectionCard(
-                            state = grader,
-                            onLogin = { graderLauncher.launch(Intent(context, GraderLoginActivity::class.java)) },
-                            onRefresh = viewModel::refreshGrader,
-                            onDisconnect = {
-                                viewModel.disconnectGrader {
-                                    CookieManager.getInstance().setCookie(
-                                        "https://grader.hitsz.edu.cn",
-                                        "sessionid=; Max-Age=0; Path=/; Secure; HttpOnly",
-                                    ) { CookieManager.getInstance().flush() }
-                                }
-                            },
-                            empty = graderTasks.isEmpty(),
+                todoRows(board.pending, today, now, ::rowBusy, ::complete, ::openEditor)
+                if (board.completed.isNotEmpty()) {
+                    item(key = "completed-toggle") {
+                        CompletedSectionHeader(
+                            count = board.completed.size,
+                            expanded = showCompleted,
+                            onToggle = { showCompleted = !showCompleted },
                         )
                     }
-                    if (graderTasks.isNotEmpty()) {
-                        item(key = "grader-pending-heading") {
-                            Text(stringResource(R.string.grader_pending_count, graderTasks.size),
-                                style = MaterialTheme.typography.titleSmall)
-                        }
-                        items(graderTasks, key = { "grader-${it.id}" }) { task ->
-                            GraderTaskRow(task, grader.syncing) { viewModel.completeGrader(task.id, it) }
-                        }
+                    if (showCompleted) {
+                        todoRows(board.completed, today, now, ::rowBusy, ::complete, ::openEditor)
                     }
                 }
             }
             SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).imePadding().padding(bottom = 92.dp))
         }
+    }
+
+    if (geniusLogin) {
+        GeniusTaLoginDialog(
+            state = geniusTa,
+            onDismiss = { geniusLogin = false },
+            onLogin = { username, password ->
+                viewModel.connectGeniusTa(username, password) { geniusLogin = false }
+            },
+        )
     }
 
     if (editing) {
@@ -432,9 +398,7 @@ private fun HomeworkPlannerHeader(
     onSelectDate: (String) -> Unit,
     onPickDate: () -> Unit,
 ) {
-    val counts = remember(board.groups) {
-        board.groups.mapNotNull { group -> group.date?.let { it to group.pending.size } }.toMap()
-    }
+    val counts = board.pendingByDate
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = { onSelectDate(selectedDay.minusDays(1).toString()) }) {
@@ -476,7 +440,7 @@ private fun HomeworkPlannerHeader(
                 onClick = {},
                 enabled = false,
                 label = {
-                    Text(stringResource(R.string.homework_pending_count, board.pendingCount))
+                    Text(stringResource(R.string.homework_pending_count, board.pending.size))
                 },
             )
         }
@@ -535,46 +499,45 @@ private fun HomeworkWeekStrip(
     }
 }
 
-/** 一个日期分组的卡片壳；未完成在上、已完成在下（同组内已完成只在展开时出现）。 */
-@Composable
-private fun HomeworkGroupSection(
-    label: String,
-    subtitle: String,
-    pending: List<HomeworkItem>,
-    completed: List<HomeworkItem>,
-    busy: Boolean,
-    onComplete: (HomeworkItem, Boolean) -> Unit,
+private fun List<TodoRow>.nextImportedDeadline(now: Long): Long? =
+    firstOrNull { it.key is TodoKey.Imported && it.dueAt != null && it.dueAt >= now }?.dueAt
+
+private fun LazyListScope.todoRows(
+    rows: List<TodoRow>,
+    today: String,
+    now: Long,
+    isBusy: (TodoKey) -> Boolean,
+    onComplete: (TodoKey, Boolean) -> Unit,
     onEdit: (HomeworkItem) -> Unit,
 ) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .animateContentSize()
-            .background(MaterialTheme.colorScheme.surfaceContainerLow, RoundedCornerShape(20.dp))
-            .padding(horizontal = 12.dp, vertical = 10.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(label, style = MaterialTheme.typography.titleSmall)
-            Text(
-                subtitle,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.weight(1f),
-            )
-            if (pending.isNotEmpty()) {
-                Text(
-                    stringResource(R.string.homework_pending_count, pending.size),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.primary,
-                )
+    itemsIndexed(rows, key = { _, row -> row.key.listKey }, contentType = { _, _ -> "todo" }) { index, row ->
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            if (index == 0 || row.date != rows[index - 1].date) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        row.date?.let { groupLabel(it, today) } ?: stringResource(R.string.homework_undated_section),
+                        style = MaterialTheme.typography.titleSmall,
+                    )
+                    row.date?.let { date ->
+                        Text(
+                            daySubtitle(date),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
             }
-        }
-        pending.forEach { item ->
-            HomeworkRow(item, busy, { onComplete(item, it) }, { onEdit(item) })
-        }
-        completed.forEach { item ->
-            HomeworkRow(item, busy, { onComplete(item, it) }, { onEdit(item) })
+            HomeworkRow(
+                row = row,
+                busy = isBusy(row.key),
+                now = now,
+                onComplete = { onComplete(row.key, it) },
+                onEdit = row.personal?.let { personal -> { onEdit(personal) } },
+            )
         }
     }
 }
@@ -617,31 +580,30 @@ private fun HomeworkQuickAdd(
     draft: String,
     onDraftChange: (String) -> Unit,
     enabled: Boolean,
-    plannedDate: String,
     onAdd: () -> Unit,
     onAddWithDate: () -> Unit,
 ) {
-    Column {
-        OutlinedTextField(
-            value = draft,
-            onValueChange = onDraftChange,
-            modifier = Modifier.fillMaxWidth(),
-            enabled = enabled,
-            singleLine = true,
-            placeholder = { Text(stringResource(R.string.homework_quick_add_date, plannedDate)) },
-            shape = RoundedCornerShape(20.dp),
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-            keyboardActions = KeyboardActions(onDone = { onAdd() }),
-            trailingIcon = {
+    OutlinedTextField(
+        value = draft,
+        onValueChange = onDraftChange,
+        modifier = Modifier.fillMaxWidth(),
+        enabled = enabled,
+        singleLine = true,
+        placeholder = { Text(stringResource(R.string.homework_quick_add)) },
+        shape = RoundedCornerShape(20.dp),
+        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+        keyboardActions = KeyboardActions(onDone = { onAdd() }),
+        trailingIcon = {
+            Row {
+                IconButton(onClick = onAddWithDate, enabled = enabled) {
+                    Icon(painterResource(R.drawable.ic_baseline_access_time_24), stringResource(R.string.homework_add_options))
+                }
                 IconButton(onClick = onAdd, enabled = enabled && draft.isNotBlank()) {
                     Icon(painterResource(R.drawable.ic_baseline_add_24), stringResource(R.string.homework_add))
                 }
-            },
-        )
-        TextButton(onClick = onAddWithDate, enabled = enabled) {
-            Text(stringResource(R.string.homework_add_with_date))
-        }
-    }
+            }
+        },
+    )
 }
 
 @Composable
@@ -679,37 +641,44 @@ private fun daySubtitle(date: String): String =
     LocalDate.parse(date).format(HOMEWORK_YEAR_WEEKDAY)
 
 @Composable
-private fun HomeworkRow(item: HomeworkItem, busy: Boolean, onComplete: (Boolean) -> Unit, onEdit: () -> Unit) {
+private fun HomeworkRow(row: TodoRow, busy: Boolean, now: Long, onComplete: (Boolean) -> Unit, onEdit: (() -> Unit)?) {
+    val item = row.personal
+    val imported = row.key as? TodoKey.Imported
+    val overdue = imported != null && row.dueAt != null && row.dueAt < now
     Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             Checkbox(
-                checked = item.completed, onCheckedChange = onComplete, enabled = !busy,
-                modifier = Modifier.semantics { contentDescription = item.title },
+                checked = row.completed, onCheckedChange = onComplete, enabled = !busy,
+                modifier = Modifier.semantics { contentDescription = row.title },
             )
             Column(
-                modifier = Modifier.weight(1f).clickable(enabled = !busy, onClick = onEdit).padding(vertical = 12.dp),
+                modifier = Modifier.weight(1f)
+                    .then(if (onEdit != null) Modifier.clickable(enabled = !busy, onClick = onEdit) else Modifier)
+                    .padding(vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 Text(
-                    item.title,
-                    textDecoration = if (item.completed) TextDecoration.LineThrough else TextDecoration.None,
-                    color = if (item.completed) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
+                    row.title,
+                    textDecoration = if (row.completed) TextDecoration.LineThrough else TextDecoration.None,
+                    color = if (row.completed) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
                 )
                 Text(
-                    item.deadlineText?.let { stringResource(R.string.homework_deadline, it) }
+                    row.deadlineText?.let {
+                        stringResource(if (imported == null) R.string.homework_deadline else R.string.homework_imported_deadline, it)
+                    }
                         ?: stringResource(R.string.homework_no_deadline),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                if (item.subject.isNotBlank()) {
+                if (row.course.isNotBlank()) {
                     Text(
-                        stringResource(R.string.homework_subject, item.subject),
+                        stringResource(R.string.homework_subject, row.course),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
                 // 只在真的填过提交信息时补一行，避免每行都堆一排「未填写」。
-                if (item.hasSubmissionInfo) {
+                if (item != null && item.hasSubmissionInfo) {
                     val parts = buildList {
                         when (item.submissionMethod) {
                             HomeworkSubmissionMethod.ONLINE -> add(stringResource(R.string.homework_submission_online))
@@ -732,13 +701,31 @@ private fun HomeworkRow(item: HomeworkItem, busy: Boolean, onComplete: (Boolean)
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
+                if (imported != null) {
+                    Text(
+                        stringResource(R.string.homework_imported_source, stringResource(imported.platform.titleRes)),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                if (overdue) {
+                    Text(
+                        stringResource(R.string.homework_overdue),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
             }
-            IconButton(onClick = onEdit, enabled = !busy) {
-                Icon(
-                    painterResource(R.drawable.ic_baseline_edit_24),
-                    stringResource(R.string.homework_edit),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+            if (onEdit != null) {
+                IconButton(onClick = onEdit, enabled = !busy) {
+                    Icon(
+                        painterResource(R.drawable.ic_baseline_edit_24),
+                        stringResource(R.string.homework_edit),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            } else {
+                Spacer(Modifier.width(12.dp))
             }
         }
     }

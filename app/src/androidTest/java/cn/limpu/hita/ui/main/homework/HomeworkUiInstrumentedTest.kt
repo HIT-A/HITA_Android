@@ -14,6 +14,9 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import cn.limpu.hita.R
+import cn.limpu.hita.data.model.homework.ImportedTodo
+import cn.limpu.hita.data.repository.geniusta.GeniusTaRepository
+import cn.limpu.hita.data.repository.geniusta.GeniusTaState
 import cn.limpu.hita.data.repository.homework.HomeworkRepository
 import cn.limpu.hita.data.repository.grader.GraderError
 import cn.limpu.hita.data.repository.grader.GraderRepository
@@ -33,7 +36,7 @@ class HomeworkUiInstrumentedTest {
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
     private val automation get() = instrumentation.uiAutomation
 
-    @Test fun dailyScreenFiltersDatesAndSupportsEditingCompletionAndLegacyTasks() = runBlocking {
+    @Test fun dailyScreenSupportsEditingCompletionAndLegacyTasks() = runBlocking {
         val preferenceName = "homework-ui-" + UUID.randomUUID()
         val isolatedApp = object : Application() {
             init { attachBaseContext(base) }
@@ -59,6 +62,7 @@ class HomeworkUiInstrumentedTest {
                             HomeworkViewModel(
                                 repository,
                                 GraderRepository(isolatedApp),
+                                GeniusTaRepository(isolatedApp),
                                 easRepository,
                             ) as T
                     })[HomeworkViewModel::class.java]
@@ -69,6 +73,8 @@ class HomeworkUiInstrumentedTest {
                         }
                     })
                 }
+                awaitText(base.getString(R.string.homework_platform_login, base.getString(R.string.geniusta_title)))
+                assertFalse(hasText(base.getString(R.string.grader_login_title)))
                 // 所有日期的待办常驻显示：不再因为选中日期而隐藏其它日子。
                 awaitText("fixture-today")
                 awaitText("fixture-yesterday")
@@ -135,10 +141,11 @@ class HomeworkUiInstrumentedTest {
         } finally {
             base.deleteSharedPreferences("$preferenceName-timeline_homework_v1")
             base.deleteSharedPreferences("$preferenceName-grader_secure_v1")
+            base.deleteSharedPreferences("$preferenceName-geniusta_secure_v1")
         }
     }
 
-    @Test fun graderCardShowsTrimmedHintAndReloginOnRefreshFailure() = runBlocking {
+    @Test fun bothPlatformControlsAndImportedTodosShareTheBoard() = runBlocking {
         val preferenceName = "homework-grader-" + UUID.randomUUID()
         val isolatedApp = object : Application() {
             init { attachBaseContext(base) }
@@ -156,7 +163,7 @@ class HomeworkUiInstrumentedTest {
                     val model = ViewModelProvider(activity, object : ViewModelProvider.Factory {
                         @Suppress("UNCHECKED_CAST")
                         override fun <T : ViewModel> create(modelClass: Class<T>): T =
-                            HomeworkViewModel(repository, GraderRepository(isolatedApp), easRepository) as T
+                            HomeworkViewModel(repository, GraderRepository(isolatedApp), GeniusTaRepository(isolatedApp), easRepository) as T
                     })[HomeworkViewModel::class.java]
                     activity.setContentView(ComposeView(activity).apply {
                         setContent {
@@ -166,28 +173,36 @@ class HomeworkUiInstrumentedTest {
                                     graderVisibleOverride = true,
                                     graderStateOverride = GraderState(
                                         accountId = "account",
-                                        accountName = "学号 20230001",
+                                        tasks = listOf(ImportedTodo("older", "fixture-grader", "fixture-course", 1L, false)),
                                         ready = true,
                                         error = GraderError.NETWORK,
+                                    ),
+                                    geniusTaStateOverride = GeniusTaState(
+                                        accountId = "genius",
+                                        ready = true,
+                                        tasks = listOf(ImportedTodo("completed", "fixture-geniusta", "fixture-course", 2L, true)),
                                     ),
                                 )
                             }
                         }
                     })
                 }
-                // 已连接用户下的说明只保留前半句，后半句已删除。
-                val hint = base.getString(R.string.grader_local_completion_hint)
-                awaitText(hint)
-                assertEquals("已在 Grader 提交过的作业会自动隐藏。", hint)
-
-                // 刷新失败：只显示错误文本 + 就地「重新登录」，不弹任何对话框。
-                awaitText(base.getString(R.string.grader_network_error))
-                awaitText(base.getString(R.string.grader_relogin))
+                awaitText(base.getString(R.string.homework_platform_relogin, base.getString(R.string.grader_title)))
+                awaitText(base.getString(R.string.homework_platform_refresh, base.getString(R.string.geniusta_title)))
                 assertFalse("不得为重新登录弹窗", hasText(base.getString(R.string.grader_login_title)))
+
+                awaitText("fixture-grader")
+                awaitText(base.getString(R.string.homework_imported_source, base.getString(R.string.grader_title)))
+                awaitText(base.getString(R.string.homework_overdue))
+                assertFalse("手动完成项应默认收起", hasText("fixture-geniusta"))
+                clickText(base.getString(R.string.homework_completed_section, 1))
+                awaitText("fixture-geniusta")
+                awaitText(base.getString(R.string.homework_imported_source, base.getString(R.string.geniusta_title)))
             }
         } finally {
             base.deleteSharedPreferences("$preferenceName-timeline_homework_v1")
             base.deleteSharedPreferences("$preferenceName-grader_secure_v1")
+            base.deleteSharedPreferences("$preferenceName-geniusta_secure_v1")
         }
     }
 
