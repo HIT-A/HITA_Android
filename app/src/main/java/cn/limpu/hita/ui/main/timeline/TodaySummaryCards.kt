@@ -1,13 +1,16 @@
 package cn.limpu.hita.ui.main.timeline
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import cn.limpu.hita.R
@@ -100,33 +103,45 @@ private fun homeworkCard(state: TodayUiState): SummaryCardModel {
 @Composable
 private fun SummaryCard(model: SummaryCardModel, modifier: Modifier, compact: Boolean, action: (TodayAction) -> Unit) {
     val secondary = MaterialTheme.colorScheme.onSurfaceVariant
+    // 标题压深一档、正文加粗一级：白卡上用灰色正文，靠字重而不是颜色区分主次。
+    val titleColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.82f)
     val lineColor = if (model.warning) MaterialTheme.colorScheme.error else secondary
+    // 做实的白卡 + 细描边 + 轻阴影：两张摘要卡要像独立可点的卡片，不像分组的列表行。
+    val cardBorder = BorderStroke(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.10f))
+    val onClick: () -> Unit = { action(model.action) }
     if (compact) {
         TodayCard(modifier, padding = PaddingValues(horizontal = 14.dp, vertical = 12.dp), spacing = 4.dp,
-            onClick = { action(model.action) }) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Icon(painterResource(model.icon), null, Modifier.size(15.dp), tint = secondary)
-                Text(model.label, style = todayLabel(), maxLines = 1, overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f), color = secondary)
-            }
-            Text(model.lines.firstOrNull() ?: model.empty, style = todayCaption(), maxLines = 1,
-                overflow = TextOverflow.Ellipsis, color = lineColor)
+            onClick = onClick, elevation = 10.dp, opaque = true, border = cardBorder) {
+            SummaryCardTitle(model, secondary, titleColor)
+            Text(model.lines.firstOrNull() ?: model.empty, style = todayLabel(), fontWeight = FontWeight.Medium,
+                maxLines = 1, overflow = TextOverflow.Ellipsis,
+                color = if (model.lines.isEmpty()) secondary else lineColor)
         }
         return
     }
     TodayCard(modifier, padding = PaddingValues(horizontal = 14.dp, vertical = 14.dp), spacing = 4.dp,
-        onClick = { action(model.action) }) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Icon(painterResource(model.icon), null, Modifier.size(15.dp), tint = secondary)
-            Text(model.label, style = todayLabel(), maxLines = 1, overflow = TextOverflow.Ellipsis, color = secondary)
-        }
+        onClick = onClick, elevation = 10.dp, opaque = true, border = cardBorder) {
+        SummaryCardTitle(model, secondary, titleColor)
         if (model.lines.isEmpty()) {
             Text(model.empty, style = todayLabel(), maxLines = 1, overflow = TextOverflow.Ellipsis, color = secondary)
         } else {
             model.lines.forEach { line ->
-                Text(line, style = todayLabel(), maxLines = 1, overflow = TextOverflow.Ellipsis, color = lineColor)
+                Text(line, style = todayLabel(), fontWeight = FontWeight.Medium, maxLines = 1,
+                    overflow = TextOverflow.Ellipsis, color = lineColor)
             }
         }
+    }
+}
+
+/** 标题行：图标 + 标题 + 右端箭头，箭头暗示整张卡可以点进去。 */
+@Composable
+private fun SummaryCardTitle(model: SummaryCardModel, iconTint: Color, textColor: Color) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Icon(painterResource(model.icon), null, Modifier.size(15.dp), tint = iconTint)
+        Text(model.label, style = todayLabel(), fontWeight = FontWeight.SemiBold, maxLines = 1,
+            overflow = TextOverflow.Ellipsis, color = textColor, modifier = Modifier.weight(1f))
+        Icon(painterResource(R.drawable.ic_baseline_keyboard_arrow_right_24), null, Modifier.size(16.dp),
+            tint = iconTint.copy(alpha = 0.72f))
     }
 }
 

@@ -3,6 +3,7 @@ package cn.limpu.hita.ui.main.timeline
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -25,6 +26,7 @@ import androidx.compose.ui.unit.sp
 import cn.limpu.hita.R
 import cn.limpu.hita.data.model.timetable.EventItem
 import cn.limpu.hita.feature.timetable.display.EventTimePolicy
+import cn.limpu.hita.ui.design.HitaTheme
 import cn.limpu.hita.ui.design.hitaStyleCardShape
 
 @Composable
@@ -45,6 +47,7 @@ internal fun TodayEventCard(event: EventItem, state: TodayUiState, conflict: Boo
     dense: Boolean = false, onClick: () -> Unit) {
     val phase = EventTimePolicy.phase(event.from.time, event.to.time, state.now)
     val ended = phase == EventTimePolicy.Phase.ENDED
+    val active = phase == EventTimePolicy.Phase.ACTIVE
     val accent = todayCourseColor(event)
     val container = todayTonalContainer(accent, muted = ended)
     val strip = if (ended) accent.copy(alpha = 0.8f) else accent
@@ -67,17 +70,21 @@ internal fun TodayEventCard(event: EventItem, state: TodayUiState, conflict: Boo
         }
     }
     if (flat) Box(Modifier.fillMaxWidth().clickable(onClick = onClick).heightIn(min = 48.dp).padding(vertical = 6.dp)) { body() }
+    // 正在上的课抬高一点阴影，卡片从同色列表里浮出来。
     else TodayCard(container = container, padding = PaddingValues(horizontal = 16.dp, vertical = if (ended) 12.dp else 18.dp),
-        onClick = onClick, edgeTint = accent) { body() }
+        onClick = onClick, edgeTint = accent, elevation = if (active) 10.dp else 0.dp) { body() }
 }
 
 @Composable
 private fun EventBody(event: EventItem, state: TodayUiState, phase: EventTimePolicy.Phase, conflict: Boolean, accent: Color) {
     val ended = phase == EventTimePolicy.Phase.ENDED
+    val active = phase == EventTimePolicy.Phase.ACTIVE
     val secondary = MaterialTheme.colorScheme.onSurfaceVariant
     Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
-        Text(event.name, fontSize = if (ended) 16.sp else 19.sp, lineHeight = if (ended) 22.sp else 26.sp, fontWeight = FontWeight.Bold,
-            color = if (ended) secondary else MaterialTheme.colorScheme.onSurface)
+        // 标签放在标题上方而不是同行：课名较长时与标签争宽度会被挤成两行。
+        if (active) TodayActiveBadge()
+        Text(event.name, fontSize = if (ended) 16.sp else 19.sp, lineHeight = if (ended) 22.sp else 26.sp,
+            fontWeight = FontWeight.Bold, color = if (ended) secondary else MaterialTheme.colorScheme.onSurface)
         val time = todayEventTime(event, state.window)
         val periods = if (event.type == EventItem.TYPE.CLASS && event.fromNumber > 0 && event.lastNumber >= event.fromNumber)
             stringResource(R.string.today_periods, event.fromNumber, event.lastNumber) else null
@@ -87,12 +94,30 @@ private fun EventBody(event: EventItem, state: TodayUiState, phase: EventTimePol
         else if (ended) Text(stringResource(R.string.today_ended), style = todayLabel(), color = secondary)
         else event.teacher?.takeIf { it.isNotBlank() }?.let { Text(it, style = todayLabel(), color = secondary) }
         if (conflict) Text(stringResource(R.string.today_conflict), style = todayLabel(), color = MaterialTheme.colorScheme.error)
-        if (phase == EventTimePolicy.Phase.ACTIVE) {
+        if (active) {
             LinearProgressIndicator(progress = { EventTimePolicy.progress(event.from.time, event.to.time, state.now) },
                 modifier = Modifier.fillMaxWidth().padding(top = 3.dp).height(3.dp),
                 color = accent, trackColor = accent.copy(alpha = 0.12f),
                 gapSize = 0.dp, drawStopIndicator = {})
         }
+    }
+}
+
+/** 「进行中」标签：白底深字，浅色卡片上才分得出来；深色主题换成浅一档的半透明底。 */
+@Composable
+private fun TodayActiveBadge() {
+    Row(
+        modifier = Modifier.background(
+            if (HitaTheme.isDark) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.14f)
+            else MaterialTheme.colorScheme.surface.copy(alpha = 1f),
+            RoundedCornerShape(50),
+        ).padding(horizontal = 7.dp, vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Box(Modifier.size(5.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary))
+        Text(stringResource(R.string.today_active), fontSize = 10.sp, lineHeight = 14.sp,
+            fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
     }
 }
 

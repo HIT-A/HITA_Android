@@ -102,6 +102,9 @@ internal fun MainTopBar(
     )
 
     val isDarkTheme = HitaTheme.isDark
+    // 教学周与星期是首页最要紧的时间锚点，做黑体主标题；日期退到次行。
+    val todaySecondaryColor = if (isWallpaperTab) wallpaperTitleColor.copy(alpha = 0.82f)
+    else MaterialTheme.colorScheme.onSurfaceVariant
     LaunchedEffect(isWallpaperTab, isDarkTheme) {
         onSystemBars(isWallpaperTab, isDarkTheme)
     }
@@ -122,7 +125,7 @@ internal fun MainTopBar(
         verticalAlignment = Alignment.Bottom
     ) {
         when (selectedTabId) {
-            MainTab.TIMELINE -> TodayToolbarTitle(todayTitle, todaySubtitle, titleColor, onOpenDrawer)
+            MainTab.TIMELINE -> TodayToolbarTitle(todayTitle, todaySubtitle, titleColor, todaySecondaryColor, onOpenDrawer)
             MainTab.TIMETABLE -> TimetableToolbarTitle(
                 title = timetableTitle,
                 name = timetableName,
@@ -154,22 +157,22 @@ internal fun MainTopBar(
 }
 
 @Composable
-private fun TodayToolbarTitle(date: String, subtitle: String, textColor: Color, onOpenDrawer: () -> Unit) {
+private fun TodayToolbarTitle(heading: String, secondary: String, headingColor: Color, secondaryColor: Color, onOpenDrawer: () -> Unit) {
     Row(Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp),
         verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
-            Text(date, fontSize = 22.sp, lineHeight = 28.sp, fontWeight = FontWeight.Bold,
-                fontFamily = HitaTheme.fonts.display, color = textColor, maxLines = 1,
+            Text(heading, fontSize = 22.sp, lineHeight = 28.sp, fontWeight = FontWeight.Bold,
+                fontFamily = HitaTheme.fonts.display, color = headingColor, maxLines = 1,
                 overflow = TextOverflow.Ellipsis)
-            if (subtitle.isNotBlank()) {
-                Text(subtitle, fontSize = 12.sp, lineHeight = 16.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1,
+            if (secondary.isNotBlank()) {
+                Text(secondary, fontSize = 12.sp, lineHeight = 16.sp, color = secondaryColor, maxLines = 1,
                     overflow = TextOverflow.Ellipsis)
             }
         }
         IconButton(onClick = onOpenDrawer) {
             Icon(painterResource(R.drawable.ic_baseline_account_circle_24),
-                stringResource(R.string.today_account), tint = MaterialTheme.colorScheme.primary)
+                stringResource(R.string.today_account), tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(30.dp))
         }
     }
 }

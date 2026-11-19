@@ -63,11 +63,11 @@ class FragmentTimeLine : HiltBaseFragmentWithReceiver<ComposeViewBinding>() {
                         rendered.value = state
                         val calendar = Calendar.getInstance().apply { timeInMillis = state.now }
                         val context = requireContext()
-                        // 主标题是日期，次级是教学周与星期；周次未知时只留星期。
+                        // 主标题是教学周与星期，日期退到次行；周次未知时只留星期。
                         val date = TimeTools.getDateString(context, calendar, true, TimeTools.TTY_NONE)
                         val weekday = context.resources.getStringArray(R.array.dow2)[TimeTools.getDow(calendar.timeInMillis) - 1]
-                        controller?.setTimelineTitleText(date)
-                        controller?.setTimelineSubtitleText(state.weekNumber?.let { "第${it}周 $weekday" } ?: weekday)
+                        controller?.setTimelineTitleText(state.weekNumber?.let { "第${it}周 $weekday" } ?: weekday)
+                        controller?.setTimelineSubtitleText(date)
                         if (viewModel.consumeWidgetChange(state)) activity?.let(WidgetUtils::sendRefreshToAll)
                         // New Room content must reschedule an earlier event boundary immediately.
                         delay(viewModel.nextWakeDelay(state))

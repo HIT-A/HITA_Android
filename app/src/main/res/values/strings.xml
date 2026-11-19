@@ -2142,6 +2142,7 @@
     <string name="today_homework_undated">另有 %1$d 项期限待确认</string>
     <string name="today_homework_next">最近截止：%1$s %2$s</string>
     <string name="today_ended">已结束</string>
+    <string name="today_active">进行中</string>
     <string name="today_invalid">时间待确认</string>
     <string name="today_conflict">时间重叠</string>
     <string name="today_stale_action">账号或课表已变化，请重新选择</string>
