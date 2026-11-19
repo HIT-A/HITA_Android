@@ -23,6 +23,12 @@ class TodayVisualPresentationTest {
     @Test fun invalidTimeIsNotReorderedOrInvented() {
         assertEquals("11:35–10:00", todayEventTime(event("2026-11-18T03:35:00Z", "2026-11-18T02:00:00Z"), window))
     }
+    @Test fun examSubjectDropsTheBracketedKindPrefix() {
+        assertEquals("数字逻辑设计", examSubject("[考试] 数字逻辑设计"))
+        assertEquals("数字逻辑设计", examSubject("【考试】数字逻辑设计"))
+        assertEquals("数字逻辑设计", examSubject("数字逻辑设计"))
+        assertEquals("", examSubject("[考试]"))
+    }
     private fun source(source: TodayHomeworkSource, count: Int?, status: TodaySourceStatus = TodaySourceStatus.READY) =
         TodayHomeworkSourceSummary(source, status, dueToday = count, overdue = if (count != null) 1 else null)
     @Test fun disconnectedGraderKeepsLocalIdentityInsteadOfShowingATotal() {

@@ -55,8 +55,8 @@ private fun examCard(state: TodayUiState): SummaryCardModel {
         .map { it.first }
     val lines = (upcoming + summary.timeToConfirm).take(3).map { entry ->
         val time = entry.start?.let { examTime(state, it) } ?: stringResource(R.string.today_exam_time_unknown)
-        val title = entry.title.ifBlank { stringResource(R.string.today_exam_untitled) }
-        "$time $title"
+        val title = examSubject(entry.title).ifBlank { stringResource(R.string.today_exam_untitled) }
+        listOfNotNull(time, title, entry.place?.takeIf { it.isNotBlank() }).joinToString(" ")
     }
     return SummaryCardModel(
         stringResource(if (remote) R.string.today_exam_card_mixed else R.string.today_exam_card),
@@ -69,6 +69,11 @@ private fun examTime(state: TodayUiState, start: Long): String {
     val at = Instant.ofEpochMilli(start).atZone(state.window.zoneId)
     return at.format(DateTimeFormatter.ofPattern(if (at.toLocalDate() == state.window.date) "HH:mm" else "MM-dd HH:mm"))
 }
+
+/** 课表里的考试事件常带「[考试]」前缀，卡片只显示科目名。 */
+private val examTitlePrefix = Regex("""^\s*[\[【]考试[\]】]\s*""")
+
+internal fun examSubject(raw: String): String = raw.replace(examTitlePrefix, "").trim()
 
 @Composable
 private fun homeworkCard(state: TodayUiState): SummaryCardModel {
@@ -85,7 +90,9 @@ private fun homeworkCard(state: TodayUiState): SummaryCardModel {
     }
     val items = model.items.filter { it.dueAt < state.window.tomorrowStart }.take(3)
     return base.copy(lines = items.mapNotNull { item ->
-        item.title.ifBlank { item.course }.takeIf { it.isNotBlank() }
+        val title = item.title.ifBlank { item.course }.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+        // 标题后面补科目，两个来源的字段含义一致。
+        listOfNotNull(title, item.course.takeIf { it.isNotBlank() && it != title }).joinToString(" ")
     })
 }
 

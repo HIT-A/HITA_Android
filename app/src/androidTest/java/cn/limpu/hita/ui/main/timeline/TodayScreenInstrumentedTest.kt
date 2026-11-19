@@ -144,8 +144,7 @@ class TodayScreenInstrumentedTest {
                 setContent { HitaComposeTheme { TodayScreen(rendered, { action = it }) } }
             }) }
             awaitText(base.getString(R.string.today_exam_card))
-            awaitText("12-06 19:00 Future exam")
-            assertFalse(hasText("A101"))
+            awaitText("12-06 19:00 Future exam A101")
             assertFalse(hasText(base.getString(R.string.today_exam_none)))
             awaitText(base.getString(R.string.today_exam_card))
             clickText(base.getString(R.string.today_exam_card))

@@ -364,33 +364,6 @@ internal class MainViewModel @Inject constructor(
     fun setDrawer(open: Boolean) { if (open) refreshUser(); mutableState.value = state.value.copy(drawerOpen = open) }
     fun setTimelineTitle(title: String) { mutableState.value = state.value.copy(todayTitle = title) }
     fun setTimelineSubtitle(subtitle: String) { mutableState.value = state.value.copy(todaySubtitle = subtitle) }
-    private var miniRequest = 0L
-    private var miniScopeKey: Any? = null
-    fun refreshMiniCourse(scope: cn.limpu.hita.data.repository.ResolvedDisplayScope? = null) {
-        val request = ++miniRequest
-        val window = cn.limpu.hita.ui.main.timeline.TodayDateWindow.from(
-            java.time.Instant.now(), java.time.ZoneId.systemDefault())
-        val key = Triple(scope?.scope, scope?.timetableIds?.sorted(), window)
-        if (miniScopeKey != key) {
-            miniScopeKey = key
-            mutableState.value = state.value.copy(miniCourse = null)
-        }
-        if (scope == null) return
-        val ids = scope.timetableIds.toList()
-        viewModelScope.launch {
-            val events = withContext(Dispatchers.IO) {
-                try { timetableRepository.getUpcomingEventsSync(window.start, window.tomorrowStart, ids) }
-                catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
-                catch (_: Exception) { emptyList() }
-            }
-            if (request != miniRequest || state.value.currentScope != scope.scope ||
-                java.time.LocalDate.now(window.zoneId) != window.date) return@launch
-            val resolved = MiniCourseResolver.resolve(events, System.currentTimeMillis())
-            mutableState.value = state.value.copy(miniCourse = resolved.takeIf {
-                it.phase == MiniCoursePhase.ONGOING || it.phase == MiniCoursePhase.UPCOMING
-            })
-        }
-    }
     fun setTimetableTitle(title: String, showName: Boolean) { mutableState.value = state.value.copy(timetableTitle = title, showTimetableName = showName) }
     fun setTimetableName(name: String) { mutableState.value = state.value.copy(timetableName = name, showTimetableName = true) }
     fun setScopes(options: List<DisplayScopeResolver.ScopeOption>) { mutableState.value = state.value.copy(scopeOptions = options.toList()) }

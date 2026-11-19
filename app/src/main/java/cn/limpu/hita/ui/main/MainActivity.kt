@@ -193,7 +193,7 @@ class MainActivity : HiltBaseActivity<MainViewBinding>(),
             }
         }
         scopeResolver.options.observe(this, viewModel::setScopes)
-        scopeResolver.resolved.observe(this) { viewModel.setScope(it?.scope); viewModel.refreshMiniCourse(it) }
+        scopeResolver.resolved.observe(this) { viewModel.setScope(it?.scope) }
         blogRepository.tabUnseenLiveData.observe(this) { viewModel.setBlogDot(it == true) }
         timetableStyleRepository.wallpaperPathLiveData.observe(this) {
             viewModel.validateWallpaperPath(it)
@@ -214,15 +214,6 @@ class MainActivity : HiltBaseActivity<MainViewBinding>(),
                             is MainEffect.Message -> Toast.makeText(this@MainActivity, value.stringId, Toast.LENGTH_SHORT).show()
                         }
                     }
-                }
-            }
-        }
-        lifecycleScope.launch {
-            repeatOnLifecycle(Lifecycle.State.RESUMED) {
-                // 迷你课程条按分钟刷新：边界精度足够，且只在前台运行。
-                while (true) {
-                    viewModel.refreshMiniCourse(scopeResolver.resolved.value)
-                    kotlinx.coroutines.delay(60_000L - Math.floorMod(System.currentTimeMillis(), 60_000L))
                 }
             }
         }

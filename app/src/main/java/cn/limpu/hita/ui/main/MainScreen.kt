@@ -70,7 +70,6 @@ internal fun MainScreen(
     val selectedTab = state.navigation.selectedIndex
     val visibleTabs = state.navigation.visibleTabs
     val showBlogDot = state.blogDotVisible
-    val miniCourse = state.miniCourse
     val drawerOpen = state.drawerOpen
     val todayTitle = state.todayTitle
     val todaySubtitle = state.todaySubtitle
@@ -259,17 +258,6 @@ internal fun MainScreen(
                 scaleX = contentScale
                 scaleY = contentScale
                 transformOrigin = androidx.compose.ui.graphics.TransformOrigin(1f, 0.5f)
-            }
-            miniCourse?.takeIf { state.navigation.selectedTab != MainTab.TIMELINE }?.let { course ->
-                MiniCourseBar(
-                    state = course,
-                    // 点课程条回到今日页：mini 条只在今日有课时出现，回到列表即可看到这节课。
-                    onClick = { onSelectTab(visibleTabs.indexOf(MainTab.TIMELINE)) },
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .padding(bottom = dockBarChromePadding().calculateBottomPadding() + 64.dp)
-                        .then(drawerFollow),
-                )
             }
             if (usesDockTabBar(themeStyle)) {
                 DockTabBar(

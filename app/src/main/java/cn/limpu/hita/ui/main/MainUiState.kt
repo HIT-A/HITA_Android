@@ -19,8 +19,6 @@ internal data class MainUiState(
     val scopeOptions: List<DisplayScopeResolver.ScopeOption> = emptyList(),
     val currentScope: DisplayScope? = null,
     val blogDotVisible: Boolean = false,
-    /** 首页迷你课程条；null 表示暂无需要展示的课程。 */
-    val miniCourse: MiniCourseState? = null,
 )
 
 /** A bitmap belongs to the Activity's image loader, never the retained ViewModel. */
