@@ -82,13 +82,14 @@ private fun homeworkCard(state: TodayUiState): SummaryCardModel {
         else stringResource(R.string.today_homework_card)
     val action = TodayAction.OpenHomework(model?.singleSource ?: TodayHomeworkSource.LOCAL)
     val base = SummaryCardModel(label, R.drawable.ic_baseline_check_24, action, emptyList(),
-        stringResource(R.string.today_homework_none), model != null && model.overdue > 0)
+        stringResource(R.string.today_homework_none))
     if (model == null) return base.copy(lines = listOf(stringResource(
         if (state.status == TodayPageStatus.FAILED) R.string.today_read_failed else R.string.today_loading)))
     if (model.sources.any { it.status == TodaySourceStatus.FAILED }) {
         return base.copy(lines = listOf(stringResource(R.string.today_read_failed)))
     }
-    val items = model.items.filter { it.dueAt < state.window.tomorrowStart }.take(3)
+    // 与待办页的「Grader 待完成」保持一致：只看未过期的作业，按截止时间从近到远，最多三条。
+    val items = model.items.filter { it.dueAt >= state.now }.take(3)
     return base.copy(lines = items.mapNotNull { item ->
         val title = item.title.ifBlank { item.course }.takeIf { it.isNotBlank() } ?: return@mapNotNull null
         // 标题后面补科目，两个来源的字段含义一致。
