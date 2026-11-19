@@ -23,7 +23,6 @@ private data class SummaryCardModel(
     val action: TodayAction,
     val lines: List<String>,
     val empty: String,
-    val warning: Boolean = false,
 )
 
 @Composable
@@ -57,7 +56,7 @@ private fun examCard(state: TodayUiState): SummaryCardModel {
         .sortedBy { it.second }
         .map { it.first }
     val lines = (upcoming + summary.timeToConfirm).take(3).map { entry ->
-        val time = entry.start?.let { examTime(state, it) } ?: stringResource(R.string.today_exam_time_unknown)
+        val time = entry.start?.let { cardTime(state, it) } ?: stringResource(R.string.today_exam_time_unknown)
         val title = examSubject(entry.title).ifBlank { stringResource(R.string.today_exam_untitled) }
         listOfNotNull(time, title, entry.place?.takeIf { it.isNotBlank() }).joinToString(" ")
     }
@@ -68,8 +67,8 @@ private fun examCard(state: TodayUiState): SummaryCardModel {
 }
 
 @Composable
-private fun examTime(state: TodayUiState, start: Long): String {
-    val at = Instant.ofEpochMilli(start).atZone(state.window.zoneId)
+private fun cardTime(state: TodayUiState, millis: Long): String {
+    val at = Instant.ofEpochMilli(millis).atZone(state.window.zoneId)
     return at.format(DateTimeFormatter.ofPattern(if (at.toLocalDate() == state.window.date) "HH:mm" else "MM-dd HH:mm"))
 }
 
@@ -95,17 +94,16 @@ private fun homeworkCard(state: TodayUiState): SummaryCardModel {
     val items = model.items.filter { it.dueAt >= state.now }.take(3)
     return base.copy(lines = items.mapNotNull { item ->
         val title = item.title.ifBlank { item.course }.takeIf { it.isNotBlank() } ?: return@mapNotNull null
-        // 标题后面补科目，两个来源的字段含义一致。
-        listOfNotNull(title, item.course.takeIf { it.isNotBlank() && it != title }).joinToString(" ")
+        // 科目换成截止时间，格式与考试行的时刻一致。
+        "$title ${cardTime(state, item.dueAt)}"
     })
 }
 
 @Composable
 private fun SummaryCard(model: SummaryCardModel, modifier: Modifier, compact: Boolean, action: (TodayAction) -> Unit) {
     val secondary = MaterialTheme.colorScheme.onSurfaceVariant
-    // 标题压深一档、正文加粗一级：白卡上用灰色正文，靠字重而不是颜色区分主次。
+    // 标题压深一档、正文加粗一级：白卡上正文保持灰色，靠字重而不是颜色区分主次。
     val titleColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.82f)
-    val lineColor = if (model.warning) MaterialTheme.colorScheme.error else secondary
     // 做实的白卡 + 细描边 + 轻阴影：两张摘要卡要像独立可点的卡片，不像分组的列表行。
     val cardBorder = BorderStroke(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.10f))
     val onClick: () -> Unit = { action(model.action) }
@@ -114,8 +112,7 @@ private fun SummaryCard(model: SummaryCardModel, modifier: Modifier, compact: Bo
             onClick = onClick, elevation = 10.dp, opaque = true, border = cardBorder) {
             SummaryCardTitle(model, secondary, titleColor)
             Text(model.lines.firstOrNull() ?: model.empty, style = todayLabel(), fontWeight = FontWeight.Medium,
-                maxLines = 1, overflow = TextOverflow.Ellipsis,
-                color = if (model.lines.isEmpty()) secondary else lineColor)
+                maxLines = 1, overflow = TextOverflow.Ellipsis, color = secondary)
         }
         return
     }
@@ -127,7 +124,7 @@ private fun SummaryCard(model: SummaryCardModel, modifier: Modifier, compact: Bo
         } else {
             model.lines.forEach { line ->
                 Text(line, style = todayLabel(), fontWeight = FontWeight.Medium, maxLines = 1,
-                    overflow = TextOverflow.Ellipsis, color = lineColor)
+                    overflow = TextOverflow.Ellipsis, color = secondary)
             }
         }
     }

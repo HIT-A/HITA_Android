@@ -120,7 +120,7 @@ class TodayScreenInstrumentedTest {
             assertEquals(TodayAction.OpenHomework(TodayHomeworkSource.LOCAL), action)
             scenario.onActivity { rendered.value = rendered.value.copy(homework = TodayHomeworkSummary(local,
                 grader.copy(status = TodaySourceStatus.READY, dueToday = 1, overdue = 0))) }
-            awaitText("实验报告")
+            awaitText("实验报告 13:00")
             assertFalse(hasText(base.getString(R.string.today_source_status, "Grader", base.getString(R.string.today_disconnected))))
         }
     }
