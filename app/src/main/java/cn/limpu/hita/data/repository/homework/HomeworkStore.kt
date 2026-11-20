@@ -1,6 +1,8 @@
 package cn.limpu.hita.data.repository.homework
 
 import cn.limpu.hita.data.model.homework.HomeworkItem
+import cn.limpu.hita.data.model.homework.HomeworkSubmissionFormat
+import cn.limpu.hita.data.model.homework.HomeworkSubmissionMethod
 import com.google.gson.Gson
 import java.io.IOException
 import java.util.UUID
@@ -30,7 +32,16 @@ internal class HomeworkStore(
                 require(item.title.length <= MAX_TITLE_LENGTH && item.createdAt >= 0L) { "Invalid homework content" }
                 validateDate(item.plannedDate)
                 validateTime(item.plannedDate, item.plannedTime)
-                item
+                // Gson 遇到未知枚举名会把字段留成 null；旧版本写下的快照也可能缺字段。
+                // 这里统一回退到 UNKNOWN，而不是让一条脏数据拖垮整个快照。
+                item.copy(
+                    submissionMethod = item.submissionMethod
+                        ?: HomeworkSubmissionMethod.UNKNOWN,
+                    submissionFormat = item.submissionFormat
+                        ?: HomeworkSubmissionFormat.UNKNOWN,
+                    subject = item.subject?.orEmpty() ?: "",
+                    submissionDetail = item.submissionDetail?.orEmpty() ?: "",
+                )
             }.also { list ->
                 require(list.map { it.id }.distinct().size == list.size) { "Duplicate homework ids" }
             }

@@ -169,6 +169,6 @@ class TimetableBatchCoordinatorTest {
     }
 
     companion object {
-        private fun event(id: String) = EventItem().apply { this.id = id; subjectId = id; timetableId = "table"; place = "original" }
+        private fun event(id: String) = EventItem().apply { source = EventItem.SOURCE_MANUAL; this.id = id; subjectId = id; timetableId = "table"; place = "original" }
     }
 }

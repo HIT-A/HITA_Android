@@ -11,8 +11,8 @@ plugins {
 def envVersionCode = System.getenv("VERSION_CODE")
 def appVersionCodeValue = (envVersionCode != null && envVersionCode.matches("\\d+"))
     ? Integer.parseInt(envVersionCode)
-    : 2026111301
-def appVersionNameValue = "3.2.1"
+    : 2026111901
+def appVersionNameValue = "3.2.2"
 
 def keystorePropertiesFile = rootProject.file("keystore.properties")
 def keystoreProperties = new Properties()
@@ -63,6 +63,9 @@ android {
         applicationId "cn.limpu.hita"
         minSdkVersion 26
         targetSdk 35
+        // 应用类数已超过单 dex 上限；不开 multidex 时 D8 会把 .HApplication 分到非主 dex，
+        // 导致启动即 ClassNotFoundException。minSdk 26 下原生支持，无需 MultiDexApplication。
+        multiDexEnabled true
         compileSdk 36
         versionCode appVersionCodeValue
         versionName appVersionNameValue
@@ -161,6 +164,9 @@ dependencies {
     implementation project(path: ':timetable-core')
 
     testImplementation(libs.junit)
+    // Android 的 org.json 在 JVM 单测里是桩实现；用真实实现替换，
+    // 让依赖 JSONObject/JSONArray 的纯函数可以在 JVM 上被验证。
+    testImplementation(libs.orgJson)
     testImplementation(testFixtures(project(':timetable-core')))
     androidTestImplementation(libs.androidTestJunit)
     androidTestImplementation(libs.espressoCore)

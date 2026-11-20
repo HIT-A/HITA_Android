@@ -20,6 +20,7 @@ internal class SubjectPageInputs(
     val saveSubject: (String, SubjectInfoUpdate) -> Unit,
     val update: (Collection<EventItem>, (Result<Unit>) -> Unit) -> Unit,
     val delete: (Collection<EventItem>, (Result<Unit>) -> Unit) -> Unit,
+    val teachingSource: (String) -> LiveData<Boolean> = { androidx.lifecycle.MutableLiveData(false) },
 )
 
 data class SubjectDetails(
@@ -44,6 +45,7 @@ data class SubjectScreenState(
     val campus: EASToken.Campus = EASToken.Campus.SHENZHEN,
     val subjectMetaSupported: Boolean = false,
     val writing: Boolean = false,
+    val sourceReadOnly: Boolean = false,
 )
 
 data class SubjectWriteNotice(val updated: Boolean, val count: Int, val success: Boolean, val skippedTime: Boolean = false)
@@ -54,6 +56,6 @@ internal fun EventItem.subjectEditCopy() = EventItem().also { copy ->
     copy.place = place; copy.teacher = teacher; copy.subjectId = subjectId; copy.timetableId = timetableId
     copy.from = java.sql.Timestamp(from.time); copy.to = java.sql.Timestamp(to.time)
     copy.fromNumber = fromNumber; copy.lastNumber = lastNumber
-    copy.createdAt = java.sql.Timestamp(createdAt.time); copy.color = color
+    copy.createdAt = java.sql.Timestamp(createdAt.time); copy.color = color; copy.hidden = hidden
 }
 

@@ -11,7 +11,15 @@ import cn.limpu.hita.data.model.timetable.TeacherInfo
 
 @Dao
 interface EventItemDao {
-    @Query("SELECT * FROM events WHERE timetableId = :id AND type = 'CLASS'")
+    @Query("SELECT * FROM events WHERE timetableId=:id")
+    fun allEventsIncludingHidden(id: String): List<EventItem>
+
+    @Query("SELECT * FROM events WHERE timetableId=:id AND type='CLASS'")
+    fun versionClasses(id: String): List<EventItem>
+    @Query("DELETE FROM events WHERE timetableId=:id AND type='CLASS'")
+    fun deleteVersionClasses(id: String)
+
+    @Query("SELECT * FROM events WHERE timetableId = :id AND type = 'CLASS' AND hidden = 0")
     fun observeClassesFlow(id: String): kotlinx.coroutines.flow.Flow<List<EventItem>>
 
     /**
@@ -41,80 +49,91 @@ interface EventItemDao {
      *
      * 注意：这里故意不限制 timetableId；显示层或 Repository 需要根据当前场景做去重/过滤。
      */
-    @Query("SELECT * FROM events WHERE `from` < :toT AND `to` > :fromT")
+    @Query("SELECT * FROM events WHERE `from` < :toT AND `to` > :fromT AND hidden = 0")
     fun getEventsDuring(fromT: Long, toT: Long): LiveData<List<EventItem>>
 
     /** 按显示目标过滤的周窗口查询：只取给定课表集合内与窗口相交的事件。 */
-    @Query("SELECT * FROM events WHERE `from` < :toT AND `to` > :fromT AND timetableId IN (:timetableIds)")
+    @Query("SELECT * FROM events WHERE `from` < :toT AND `to` > :fromT AND timetableId IN (:timetableIds) AND hidden = 0")
     fun getEventsDuringForTimetables(fromT: Long, toT: Long, timetableIds: List<String>): LiveData<List<EventItem>>
 
-    @Query("SELECT * FROM events WHERE `from` < :toT AND `to` > :fromT AND timetableId IN (:timetableIds)")
+    /** One snapshot for today's and tomorrow's half-open windows. */
+    @Query("SELECT * FROM events WHERE `from` < :toT AND `to` > :fromT AND timetableId IN (:timetableIds) AND hidden = 0")
+    fun observeEventsOverlappingForTimetables(fromT: Long, toT: Long, timetableIds: List<String>): kotlinx.coroutines.flow.Flow<List<EventItem>>
+
+    /** Agenda window plus every exam in the same display scope, in one consistent snapshot. */
+    @Query("SELECT * FROM events WHERE timetableId IN (:timetableIds) AND hidden = 0 AND (type = 'EXAM' OR (`from` < :toT AND `to` > :fromT))")
+    fun observeAgendaAndExamsForTimetables(fromT: Long, toT: Long, timetableIds: List<String>): kotlinx.coroutines.flow.Flow<List<EventItem>>
+
+    @Query("SELECT * FROM events WHERE `from` < :toT AND `to` > :fromT AND timetableId IN (:timetableIds) AND hidden = 0")
     fun getEventsDuringForTimetablesSync(fromT: Long, toT: Long, timetableIds: List<String>): List<EventItem>
 
-    @Query("SELECT * FROM events WHERE `from` >= :fromT order by `from` asc LIMIT :limit")
+    @Query("SELECT * FROM events WHERE `from` >= :fromT AND hidden = 0 order by `from` asc LIMIT :limit")
     fun getEventsAfter(fromT: Long, limit: Int): LiveData<List<EventItem>>
 
-    @Query("SELECT * FROM events WHERE `from` >= :fromT AND `from` < :toT AND type is 'EXAM' order by `from` asc")
+    @Query("SELECT * FROM events WHERE `from` >= :fromT AND `from` < :toT AND type is 'EXAM' AND hidden = 0 order by `from` asc")
     fun getExamsDuring(fromT: Long, toT: Long): LiveData<List<EventItem>>
 
-    @Query("SELECT * FROM events WHERE `from` >= :fromT AND `from` < :toT AND type is 'EXAM' AND timetableId IN (:timetableIds) order by `from` asc")
+    @Query("SELECT * FROM events WHERE `from` >= :fromT AND `from` < :toT AND type is 'EXAM' AND timetableId IN (:timetableIds) AND hidden = 0 order by `from` asc")
     fun getExamsDuringForTimetables(fromT: Long, toT: Long, timetableIds: List<String>): LiveData<List<EventItem>>
 
-    @Query("SELECT * FROM events WHERE `from` >= :fromT AND `from` < :toT AND type is 'EXAM' AND timetableId IN (:timetableIds) order by `from` asc")
+    @Query("SELECT * FROM events WHERE `from` >= :fromT AND `from` < :toT AND type is 'EXAM' AND timetableId IN (:timetableIds) AND hidden = 0 order by `from` asc")
     fun getExamsDuringForTimetablesSync(fromT: Long, toT: Long, timetableIds: List<String>): List<EventItem>
 
-    @Query("SELECT * FROM events WHERE `from` >= :fromT AND timetableId IN (:timetableIds) order by `from` asc LIMIT :limit")
+    @Query("SELECT * FROM events WHERE `from` >= :fromT AND timetableId IN (:timetableIds) AND hidden = 0 order by `from` asc LIMIT :limit")
     fun getEventsAfterForTimetables(fromT: Long, limit: Int, timetableIds: List<String>): LiveData<List<EventItem>>
 
-    @Query("SELECT * FROM events WHERE `from` < :toT AND `to` > :fromT")
+    @Query("SELECT * FROM events WHERE `from` < :toT AND `to` > :fromT AND hidden = 0")
     fun getEventsDuringSync(fromT: Long, toT: Long): List<EventItem>
 
-    @Query("SELECT * FROM events WHERE `from` >= :fromT AND `from` < :toT AND type is 'EXAM' order by `from` asc")
+    @Query("SELECT * FROM events WHERE `from` >= :fromT AND `from` < :toT AND type is 'EXAM' AND hidden = 0 order by `from` asc")
     fun getExamsDuringSync(fromT: Long, toT: Long): List<EventItem>
 
-    @Query("SELECT * FROM events WHERE `from` < :toT AND `to` > :fromT")
+    @Query("SELECT * FROM events WHERE `from` < :toT AND `to` > :fromT AND hidden = 0")
     fun getEventsDurin(fromT: Long, toT: Long): LiveData<List<EventItem>>
 
 
-    @Query("SELECT * FROM events WHERE subjectId is :subjectId")
+    @Query("SELECT * FROM events WHERE subjectId is :subjectId AND hidden = 0")
     fun getClassesOfSubjectSync(subjectId: String): List<EventItem>
 
+    @Query("SELECT * FROM events WHERE subjectId = :subjectId")
+    fun getAllEventsOfSubjectSync(subjectId: String): List<EventItem>
 
-    @Query("SELECT * FROM events WHERE subjectId is :subjectId ORDER BY `from`")
+
+    @Query("SELECT * FROM events WHERE subjectId is :subjectId AND hidden = 0 ORDER BY `from`")
     fun getClassesOfSubject(subjectId: String): LiveData<List<EventItem>>
 
 
-    @Query("SELECT DISTINCT teacher,subject.name FROM events,subject WHERE events.timetableId is:timetableId  AND subject.timetableId is:timetableId  AND events.subjectId is subject.id AND events.teacher is NOT NULL")
+    @Query("SELECT DISTINCT teacher,subject.name FROM events,subject WHERE events.timetableId is:timetableId  AND subject.timetableId is:timetableId  AND events.subjectId is subject.id AND events.teacher is NOT NULL AND events.hidden = 0")
     fun getTeachersOfTimetable(timetableId: String): LiveData<MutableList<TeacherInfo>>
 
-    @Query("SELECT DISTINCT teacher FROM events WHERE subjectId is :subjectId AND timetableId is :timetableId AND  teacher is NOT NULL")
+    @Query("SELECT DISTINCT teacher FROM events WHERE subjectId is :subjectId AND timetableId is :timetableId AND teacher is NOT NULL AND hidden = 0")
     fun getTeachersOfSubject(timetableId: String, subjectId: String): LiveData<List<String>>
 
 
-    @Query("SELECT count(*) from events where subjectId is :subjectId")
+    @Query("SELECT count(*) from events where subjectId is :subjectId AND hidden = 0")
     fun countClassesOfSubject(subjectId: String): LiveData<Int>
 
-    @Query("SELECT count(*) from events where subjectId is :subjectId and `to` < :ts")
+    @Query("SELECT count(*) from events where subjectId is :subjectId and `to` < :ts AND hidden = 0")
     fun countClassesBeforeTimeOfSubject(subjectId: String, ts: Long): LiveData<Int>
 
 
     @Query("DELETE from events where timetableId in (:ids)")
     fun deleteEventsFromTimetablesSync(ids: List<String>)
 
-    @Query("select id from events where timetableId in (:ids)")
+    @Query("select id from events where timetableId in (:ids) AND hidden = 0")
     fun getEventIdsFromTimetablesSync(ids: List<String>):List<String>
 
-    @Query("select id from events where timetableId is :timetableId")
+    @Query("select id from events where timetableId is :timetableId AND hidden = 0")
     fun getEventIdsOfTimetableSync(timetableId: String):List<String>
 
-    @Query("select * from events where id in (:ids)")
+    @Query("select * from events where id in (:ids) AND hidden = 0")
     fun getEventInIdsSync(ids: List<String>):List<EventItem>
 
-    @Query("select * from events where timetableId is :timetableId")
+    @Query("select * from events where timetableId is :timetableId AND hidden = 0")
     fun getEventsOfTimetableSync(timetableId: String):List<EventItem>
 
     /** 历史默认课表清理使用：判断一个课表是否为空。 */
-    @Query("select count(*) from events where timetableId is :timetableId")
+    @Query("select count(*) from events where timetableId is :timetableId AND hidden = 0")
     fun countEventsOfTimetableSync(timetableId: String): Int
 
     /**
@@ -123,37 +142,37 @@ interface EventItemDao {
      * 如果一个默认课表里存在手动事件、考试或非 EAS 课程，就不能自动删除；
      * 只有纯 EAS 课程重复表才允许被清理。
      */
-    @Query("select count(*) from events where timetableId is :timetableId and not (source is 'EAS_IMPORT' and type is 'CLASS')")
+    @Query("select count(*) from events where timetableId is :timetableId and not (source is 'EAS_IMPORT' and type is 'CLASS') AND hidden = 0")
     fun countNonImportedClassEventsOfTimetableSync(timetableId: String): Int
 
     /** 历史默认课表清理和显示去重使用：只取 EAS 导入课程。 */
-    @Query("select * from events where timetableId is :timetableId and source is 'EAS_IMPORT' and type is 'CLASS'")
+    @Query("select * from events where timetableId is :timetableId and source is 'EAS_IMPORT' and type is 'CLASS' AND hidden = 0")
     fun getImportedClassEventsOfTimetableSync(timetableId: String): List<EventItem>
 
     /** 考试去重跨课表判断，避免同一场考试被导入到多张课表后重复提醒。 */
-    @Query("SELECT * FROM events WHERE type is 'EXAM'")
+    @Query("SELECT * FROM events WHERE type is 'EXAM' AND hidden = 0")
     fun getExamEventsSync(): List<EventItem>
 
-    @Query("select * from events where timetableId is :timetableId order by name asc, `from` asc")
+    @Query("select * from events where timetableId is :timetableId AND hidden = 0 order by name asc, `from` asc")
     fun getEventsOfTimetable(timetableId: String): LiveData<List<EventItem>>
 
-    @Query("select * from events where timetableId is :timetableId and `from` < :toMs and `to` > :fromMs order by `from` asc")
+    @Query("select * from events where timetableId is :timetableId and `from` < :toMs and `to` > :fromMs AND hidden = 0 order by `from` asc")
     fun getEventsOfTimetableDuringSync(timetableId: String, fromMs: Long, toMs: Long): List<EventItem>
 
-    @Query("select * from events where `from` < :toMs and `to` > :fromMs order by `from` asc")
+    @Query("select * from events where `from` < :toMs and `to` > :fromMs AND hidden = 0 order by `from` asc")
     fun getEventsOfAllTimetablesDuringSync(fromMs: Long, toMs: Long): List<EventItem>
 
-    @Query("select * from events where `from` < :toMs and `to` > :fromMs and timetableId in (:timetableIds) order by `from` asc")
+    @Query("select * from events where `from` < :toMs and `to` > :fromMs and timetableId in (:timetableIds) AND hidden = 0 order by `from` asc")
     fun getEventsOfTimetablesDuringSync(timetableIds: List<String>, fromMs: Long, toMs: Long): List<EventItem>
 
 
-    @Query("SELECT * from events where type is 'CLASS' and timetableId is :timetableId and fromNumber is :fromNumber")
+    @Query("SELECT * from events where type is 'CLASS' and timetableId is :timetableId and fromNumber is :fromNumber AND hidden = 0")
     fun getClassAtFromNumberSync(
         timetableId: String,
         fromNumber: Int
     ): List<EventItem>
 
-    @Query("SELECT * from events where type is 'CLASS' and timetableId is :timetableId and fromNumber+lastNumber-1 is :toNumber")
+    @Query("SELECT * from events where type is 'CLASS' and timetableId is :timetableId and fromNumber+lastNumber-1 is :toNumber AND hidden = 0")
     fun getClassAtToNumberSync(
         timetableId: String,
         toNumber: Int
@@ -165,6 +184,20 @@ interface EventItemDao {
 
     @Query("delete from events where id in (:ids)")
     fun deleteEventsInIdsSync(ids: List<String>)
+    @Query("UPDATE events SET hidden = 1 WHERE id IN (:ids) AND hidden = 0")
+    fun hideEventsInIdsSync(ids: List<String>): Int
+
+    @Query("UPDATE events SET hidden = :hidden WHERE id IN (:ids)")
+    fun setHiddenSync(ids: List<String>, hidden: Int): Int
+
+    @Query("SELECT * FROM events WHERE timetableId = :table AND source = 'EAS_IMPORT' AND type = 'CLASS' AND hidden != 0 ORDER BY `from`")
+    fun hiddenTeachingClasses(table: String): LiveData<List<EventItem>>
+
+    @Query("UPDATE events SET hidden = 0 WHERE id = :id")
+    fun unhideEventSync(id: String): Int
+
+    @Query("SELECT * FROM events WHERE id IN (:ids)")
+    fun getEventsInIdsIncludingHiddenSync(ids: List<String>): List<EventItem>
 
     @Insert
     fun addEvents(data:List<EventItem>)
@@ -181,14 +214,14 @@ interface EventItemDao {
     /**
      * 将某课表的所有课程时间加上offset
      */
-    @Query("update events set `from` = (`from`+:offset) , `to` = (`to` + :offset) where  timetableId is :timetableId and type is 'CLASS'")
+    @Query("update events set `from` = (`from`+:offset) , `to` = (`to` + :offset) where  timetableId is :timetableId and type is 'CLASS' AND hidden = 0")
     fun updateClassesAddOffset(timetableId: String, offset: Long)
 
 
-    @Query("SELECT * FROM events WHERE name LIKE '%' || :keyword || '%' ORDER BY `from` DESC LIMIT 50")
+    @Query("SELECT * FROM events WHERE name LIKE '%' || :keyword || '%' AND hidden = 0 ORDER BY `from` DESC LIMIT 50")
     fun searchEventsByNameSync(keyword: String): List<EventItem>
 
-    @Query("SELECT * FROM events WHERE name LIKE '%' || :keyword || '%' AND timetableId IN (:timetableIds) ORDER BY `from` DESC LIMIT 50")
+    @Query("SELECT * FROM events WHERE name LIKE '%' || :keyword || '%' AND timetableId IN (:timetableIds) AND hidden = 0 ORDER BY `from` DESC LIMIT 50")
     fun searchEventsByNameInTimetablesSync(keyword: String, timetableIds: List<String>): List<EventItem>
 
     @Query("delete from events")

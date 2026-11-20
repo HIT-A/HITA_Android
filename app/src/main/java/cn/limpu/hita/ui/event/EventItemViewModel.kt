@@ -39,6 +39,10 @@ class EventItemViewModel @Inject constructor(
         }
     }
 
+    fun copyAsPersonal(completed: (Result<Unit>) -> Unit) {
+        eventItemLiveData.value?.let { timetableWrites.copyAsPersonal(it, completed) }
+    }
+
     fun delete(){
         eventItemLiveData.value?.let {
             timetableWrites.delete(listOf(it))

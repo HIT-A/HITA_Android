@@ -21,6 +21,7 @@ import androidx.compose.ui.res.stringArrayResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import cn.limpu.hita.R
+import cn.limpu.hita.data.repository.isOccurrenceChange
 import cn.limpu.hita.data.repository.CourseChange
 import cn.limpu.hita.data.repository.CourseVetoReason
 import cn.limpu.hita.data.repository.KeptCourse
@@ -52,6 +53,10 @@ internal fun TimetableChangeDialog(
     onDismissBatch: (TimetableHeldBatch) -> Unit,
     onConfirmPending: (adopted: Set<String>, remember: Set<String>) -> Unit = { _, _ -> },
 ) {
+    if (state.pendingUpdates.any { update -> update.rows.any { it.isOccurrenceChange() } }) {
+        SourceOccurrenceChangesDialog(state.pendingUpdates, onDismiss, onConfirmPending)
+        return
+    }
     val pendingRows = remember(state.pendingUpdates) { state.pendingUpdates.flatMap { it.rows } }
     val adopted = remember(pendingRows) {
         mutableStateMapOf<String, Boolean>().apply {
@@ -178,6 +183,10 @@ private fun PendingChangeRowItem(
     val weekdayNames = stringArrayResource(R.array.dow2)
     val noneValue = stringResource(R.string.timetable_change_value_none)
     val field = when (row.kind) {
+        PendingChangeKind.LESSON_MOVED -> stringResource(R.string.timetable_diff_moved)
+        PendingChangeKind.LESSON_ADDED -> stringResource(R.string.timetable_diff_added)
+        PendingChangeKind.LESSON_REMOVED -> stringResource(R.string.timetable_diff_removed)
+        PendingChangeKind.LESSON_DETAILS -> stringResource(R.string.timetable_diff_details)
         PendingChangeKind.PLACE -> stringResource(R.string.timetable_change_field_place)
         PendingChangeKind.TEACHER -> stringResource(R.string.timetable_change_field_teacher)
         PendingChangeKind.TIME -> stringResource(R.string.timetable_change_field_time)

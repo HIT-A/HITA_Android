@@ -101,7 +101,7 @@ class SubjectActivity : HiltBaseActivity<ComposeViewBinding>() {
     }
 
     private fun pickCredit() {
-        if (!viewModel.screen.value.subjectMetaSupported) return
+        if (!viewModel.screen.value.subjectMetaSupported || viewModel.screen.value.sourceReadOnly) return
         val key = viewModel.resources.state.value.key ?: return
         val subject = viewModel.screen.value.subject ?: return
         PopUpFloatPicker()
@@ -128,6 +128,7 @@ class SubjectActivity : HiltBaseActivity<ComposeViewBinding>() {
     }
 
     private fun addCourse() {
+        if (viewModel.screen.value.sourceReadOnly) return
         val subject = viewModel.subjectLiveData.value ?: return
         val timetable = viewModel.timetableLiveData.value ?: return
         if (subject.id != viewModel.resources.state.value.key?.subjectId) return

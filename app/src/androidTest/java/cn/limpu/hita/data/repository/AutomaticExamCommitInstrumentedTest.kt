@@ -3,6 +3,7 @@ package cn.limpu.hita.data.repository
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import cn.limpu.hita.data.model.eas.ExamItem
 import cn.limpu.hita.data.model.timetable.EventItem
+import cn.limpu.hita.data.repository.today.TodayReadState
 import com.limpu.component.data.DataState
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
@@ -46,6 +47,7 @@ class AutomaticExamCommitInstrumentedTest {
                 task.cancel(); release.countDown(); holder.get(5, TimeUnit.SECONDS); task.join()
                 assertEquals(AutoImportResult.FAILED, result.await())
                 assertTrue(fixture.database.eventItemDao().getExamEventsSync().isEmpty())
+                assertTrue(fixture.examReads.state.value.terms.isEmpty())
                 assertEquals("Earlier course commit remains committed", 2, fixture.events().count { it.type == EventItem.TYPE.CLASS })
             } finally { release.countDown(); task.join(); holder.get(5, TimeUnit.SECONDS); executor.shutdownNow() }
         }
@@ -60,12 +62,29 @@ class AutomaticExamCommitInstrumentedTest {
             fixture.importer.startAutoImportCurrentTimetable(true) { result.complete(it) }!!.join()
             assertEquals(AutoImportResult.FAILED, result.await())
             assertTrue("Failed exam batch is completely retryable", fixture.database.eventItemDao().getExamEventsSync().isEmpty())
+            assertTrue(fixture.examReads.state.value.terms[TimetableImportFlowHarness.term().id] is TodayReadState.Failed)
             assertEquals(2, fixture.events().count { it.type == EventItem.TYPE.CLASS })
             fixture.database.openHelper.writableDatabase.execSQL("DROP TRIGGER reject_second_exam")
             val retried = CompletableDeferred<AutoImportResult>()
             fixture.importer.startAutoImportCurrentTimetable(true) { retried.complete(it) }!!.join()
             assertEquals(AutoImportResult.SUCCESS, retried.await())
             assertEquals(2, fixture.database.eventItemDao().getExamEventsSync().size)
+            val read = fixture.examReads.state.value.terms[TimetableImportFlowHarness.term().id] as TodayReadState.Ready
+            assertEquals(fixture.tables().single().id, read.value.targetTimetableId)
+            assertEquals(2, read.value.items.size)
         }
     }
+    @Test fun incompleteExamTimeIsRetainedOnlyAfterSuccessfulTargetTransaction() = runBlocking {
+        TimetableImportFlowHarness().use { fixture ->
+            fixture.fetchExams = { DataState(listOf(exam("complete"), exam("time unknown").apply { examTime = null })) }
+            val result = CompletableDeferred<AutoImportResult>()
+            fixture.importer.startAutoImportCurrentTimetable(true) { result.complete(it) }!!.join()
+            assertEquals(AutoImportResult.SUCCESS, result.await())
+            val read = fixture.examReads.state.value.terms[TimetableImportFlowHarness.term().id] as TodayReadState.Ready
+            assertEquals(fixture.tables().single().id, read.value.targetTimetableId)
+            assertEquals(2, read.value.items.size)
+            assertEquals(1, fixture.database.eventItemDao().getExamEventsSync().size)
+        }
+    }
+
 }

@@ -128,6 +128,7 @@ internal fun SubjectScreen(
     val onBack = actions.onBack
     val onOpenTimetable = actions.onOpenTimetable
     val onTeacherLongClick = actions.onTeacherLongClick
+    val sourceReadOnly = state.sourceReadOnly || state.classes.any { it.isTeachingCourse() }
     val onCreditClick = actions.onCreditClick
     val onContribute = actions.onContribute
     val onCandidateClick = actions.onCandidateClick
@@ -175,8 +176,9 @@ internal fun SubjectScreen(
             SelectionBar(
                 selectedCount = selectedEventIds.size,
                 onClearSelection = onClearSelection,
-                onEditSelected = { editScope = SubjectBatchEditScope.SELECTED },
+                onEditSelected = { if (!sourceReadOnly) editScope = SubjectBatchEditScope.SELECTED },
                 onDeleteSelected = { deleteScope = SubjectBatchDeleteScope.SELECTED },
+                readOnly = sourceReadOnly,
             )
         }
 
@@ -184,6 +186,9 @@ internal fun SubjectScreen(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(bottom = tokens.spacing.xl)
         ) {
+            if (sourceReadOnly) item {
+                Text(stringResource(R.string.teaching_read_only), modifier = Modifier.padding(horizontal = tokens.spacing.lg))
+            }
             item {
                 timetable?.let { tt ->
                     TimetableInfoCard(timetable = tt, onClick = { onOpenTimetable(tt) })
@@ -242,7 +247,7 @@ internal fun SubjectScreen(
                             modifier = Modifier
                                 .weight(1f)
                                 .height(144.dp)
-                                .clickable(onClick = onCreditClick)
+                                .clickable(enabled = !sourceReadOnly, onClick = onCreditClick)
                         )
                     }
                 }
@@ -293,6 +298,7 @@ internal fun SubjectScreen(
                     onCourseClick = onCourseClick,
                     onCourseLongClick = onCourseLongClick,
                     onAddCourse = onAddCourse,
+                    readOnly = sourceReadOnly,
                     onEditAll = { editScope = SubjectBatchEditScope.ALL },
                     onDeleteAll = { deleteScope = SubjectBatchDeleteScope.ALL },
                 )
@@ -305,7 +311,7 @@ internal fun SubjectScreen(
             } else {
                 realClasses.filter { it.id in selectedEventIds }
             }
-            if (targets.isNotEmpty()) {
+            if (targets.isNotEmpty() && !sourceReadOnly) {
                 SubjectBatchEditDialog(
                     scope = scope,
                     events = targets,
@@ -336,6 +342,7 @@ internal fun SubjectScreen(
                 SubjectBatchDeleteDialog(
                     scope = scope,
                     count = count,
+                    hiding = sourceReadOnly,
                     onDismiss = { deleteScope = null },
                     onConfirm = {
                         val targets = if (scope == SubjectBatchDeleteScope.ALL) realClasses
@@ -355,6 +362,7 @@ private fun SelectionBar(
     onClearSelection: () -> Unit,
     onEditSelected: () -> Unit,
     onDeleteSelected: () -> Unit,
+    readOnly: Boolean = false,
 ) {
     val tokens = HitaTheme.tokens
     Surface(color = MaterialTheme.colorScheme.surface) {
@@ -372,6 +380,7 @@ private fun SelectionBar(
             )
             Button(
                 onClick = onEditSelected,
+                enabled = !readOnly,
                 shape = RoundedCornerShape(16.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                 modifier = Modifier.padding(end = tokens.spacing.sm),
@@ -383,7 +392,7 @@ private fun SelectionBar(
                 shape = RoundedCornerShape(16.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
             ) {
-                Text(text = "删除")
+                Text(text = stringResource(if (readOnly) R.string.teaching_hide else R.string.menu_delete))
             }
             IconButton(onClick = onClearSelection) {
                 Icon(
@@ -933,6 +942,7 @@ private fun AllCoursesSection(
     onAddCourse: () -> Unit,
     onEditAll: () -> Unit,
     onDeleteAll: () -> Unit,
+    readOnly: Boolean = false,
 ) {
     val tokens = HitaTheme.tokens
     Card(
@@ -952,7 +962,7 @@ private fun AllCoursesSection(
                     fontSize = 18.sp,
                     fontWeight = FontWeight.Bold
                 )
-                IconButton(onClick = onEditAll) {
+                IconButton(onClick = onEditAll, enabled = !readOnly) {
                     Icon(
                         painter = painterResource(R.drawable.ic_baseline_edit_24),
                         contentDescription = stringResource(R.string.subject_batch_edit_all),
@@ -962,11 +972,11 @@ private fun AllCoursesSection(
                 IconButton(onClick = onDeleteAll) {
                     Icon(
                         painter = painterResource(R.drawable.ic_baseline_delete_24),
-                        contentDescription = stringResource(R.string.subject_batch_delete_all),
+                        contentDescription = stringResource(if (readOnly) R.string.teaching_hide else R.string.subject_batch_delete_all),
                         tint = MaterialTheme.colorScheme.error
                     )
                 }
-                IconButton(onClick = onAddCourse) {
+                IconButton(onClick = onAddCourse, enabled = !readOnly) {
                     Icon(
                         painter = painterResource(R.drawable.ic_baseline_add_24),
                         contentDescription = null,

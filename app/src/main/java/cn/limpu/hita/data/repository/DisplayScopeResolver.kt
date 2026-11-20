@@ -7,11 +7,13 @@ import androidx.annotation.WorkerThread
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MediatorLiveData
 import androidx.lifecycle.MutableLiveData
+import androidx.lifecycle.map
 import cn.limpu.hita.R
 import cn.limpu.hita.data.AppDatabase
 import cn.limpu.hita.data.model.timetable.DisplayScope
 import cn.limpu.hita.data.model.timetable.Timetable
 import cn.limpu.hita.data.model.timetable.TimetableGroupEntity
+import cn.limpu.hita.data.repository.today.TodayReadState
 import java.util.concurrent.Callable
 import java.util.concurrent.Executors
 import javax.inject.Inject
@@ -86,10 +88,19 @@ class DisplayScopeResolver internal constructor(
         }
     }
 
-    private val _resolved by lazy {
-        MediatorLiveData<ResolvedDisplayScope?>().apply {
-            addSource(inputs) { value = computeResolved() }
+    private val _readState by lazy {
+        MediatorLiveData<TodayReadState<ResolvedDisplayScope?>>(TodayReadState.Loading).apply {
+            addSource(inputs) {
+                value = if (latestTimetables == null) TodayReadState.Loading
+                else TodayReadState.Ready(computeResolved())
+            }
         }
+    }
+    val readState: LiveData<TodayReadState<ResolvedDisplayScope?>> get() = _readState
+
+    // Both APIs share the same resolution, fallback and Room subscription.
+    private val _resolved by lazy {
+        _readState.map { state -> (state as? TodayReadState.Ready)?.value }
     }
     val resolved: LiveData<ResolvedDisplayScope?> get() = _resolved
 

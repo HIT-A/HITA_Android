@@ -1,19 +1,45 @@
 package cn.limpu.hita.agent.remote
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PrServerClientTest {
     @Test
-    fun `builds branch safe submit idempotency key`() {
-        val key = buildSubmitIdempotencyKey("COMP3003", uniqueSuffix = 123456L)
-        assertEquals("android-comp3003-123456", key)
+    fun `submit key is content derived and stable`() {
+        val ops = listOf(mapOf("op" to "add_lecturer_review", "content" to "讲得很好"))
+        val first = buildSubmitIdempotencyKey("COMP3003", "shenzhen", ops)
+        val second = buildSubmitIdempotencyKey("COMP3003", "shenzhen", ops)
+
+        assertEquals(first, second)
+        assertTrue(first.startsWith("android-v1-"))
     }
 
     @Test
-    fun `sanitizes submit idempotency key input`() {
-        val key = buildSubmitIdempotencyKey("Comp:3003 / PR", uniqueSuffix = 42L)
-        assertEquals("android-comp-3003-pr-42", key)
+    fun `submit key changes when review content changes`() {
+        val a = buildSubmitIdempotencyKey("COMP3003", "shenzhen", listOf<Map<String, Any>>(mapOf("content" to "A")))
+        val b = buildSubmitIdempotencyKey("COMP3003", "shenzhen", listOf<Map<String, Any>>(mapOf("content" to "B")))
+
+        assertNotEquals(a, b)
+    }
+
+    @Test
+    fun `submit key is independent of op ordering`() {
+        val ops = listOf<Map<String, Any>>(mapOf("content" to "A"), mapOf("content" to "B"))
+
+        assertEquals(
+            buildSubmitIdempotencyKey("COMP3003", "shenzhen", ops),
+            buildSubmitIdempotencyKey("COMP3003", "shenzhen", ops.reversed()),
+        )
+    }
+
+    @Test
+    fun `submit key ignores course code casing and separators`() {
+        assertEquals(
+            buildSubmitIdempotencyKey("Comp:3003 / PR", "shenzhen", listOf<Map<String, Any>>(mapOf("op" to "x"))),
+            buildSubmitIdempotencyKey("comp-3003-pr", "shenzhen", listOf<Map<String, Any>>(mapOf("op" to "x"))),
+        )
     }
 
     @Test

@@ -49,7 +49,8 @@ data class TimetableHeldBatch(
     val matchedCount: Int,
     val courses: List<MergeCourse>,
     /** 源端未返回的本地课；用户保留当前课表后据此建立 veto 追踪。 */
-    val unmatchedLocal: List<MergeCourse> = emptyList()
+    val unmatchedLocal: List<MergeCourse> = emptyList(),
+    val ownerKey: String = "",
 )
 
 data class TimetableChangeState(
@@ -271,6 +272,21 @@ class TimetableChangeStore @Inject constructor(application: Application) {
                 pendingRevision = maxOf(System.currentTimeMillis(), state.pendingRevision + 1),
             )
         }
+    }
+
+    fun recordPendingUpdatesForTable(updates: List<PendingCourseUpdate>, owner: String, table: String) = synchronized(lock) {
+        mutate { state ->
+            val next = state.pendingUpdates.filterNot { it.timetableId == table && (it.ownerKey == owner || it.ownerKey.isNullOrBlank()) } + updates
+            if (next == state.pendingUpdates) state else state.copy(pendingUpdates = next,
+                pendingRevision = maxOf(System.currentTimeMillis(), state.pendingRevision + 1))
+        }
+    }
+
+    fun consumePendingRows(revision: Long, handled: Set<String>) = synchronized(lock) {
+        if (cached.pendingRevision != revision) return@synchronized
+        mutate { state -> state.copy(pendingUpdates = state.pendingUpdates.mapNotNull {
+            it.copy(rows = it.rows.filterNot { row -> row.fingerprint in handled }).takeIf { update -> update.rows.isNotEmpty() }
+        }) }
     }
 
     /** 采纳结果提交后调用；期间若有新一批待确认写入（revision 已变）则保留新数据。 */

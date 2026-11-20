@@ -300,7 +300,7 @@ class AddEventViewModel @Inject constructor(
             val selectedEvent = selectedEventLiveData.value?.data
             val weekly = dateModeLiveData.value == DateMode.WEEKLY
             val content = if (contentModeLiveData.value == ContentMode.EXISTING && selectedEvent != null) {
-                subjectToSave = if (weekly && selectedEvent.subjectId.isBlank()) {
+                subjectToSave = if (selectedEvent.isTeachingCourse() || (weekly && selectedEvent.subjectId.isBlank())) {
                     newManualSubject(timetable, selectedEvent.name)
                 } else {
                     null

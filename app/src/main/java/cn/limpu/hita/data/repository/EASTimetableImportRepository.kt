@@ -64,6 +64,7 @@ internal class EASTimetableImportRepository(
     private val timetableGroupDao: TimetableGroupDao,
     private val examImportRepository: ExamImportRepository,
     private val autoGroupImportedTimetable: (String) -> Unit,
+    private val examReads: ExamReadStateStore? = null,
 ) {
     private companion object {
         /** 研究生课表链路一次导入要串行访问学期、校历、总课表、已选与作息多个页面。 */
@@ -174,6 +175,8 @@ internal class EASTimetableImportRepository(
                                     !operation.tryBeginCommit(authEpoch.get(), easPreferenceSource.getEasToken(), SystemClock.elapsedRealtime())) {
                                     return@runInTransaction
                                 }
+                                val versions = TimetableVersionStore(database, snapshotOwnerKey)
+                                val beforeVersions = versions.allContent()
                                 val timetable = data.timetable
                                 if (importMode == TimetableImportMode.MERGE) {
                                     applyMergedTimetable(
@@ -182,7 +185,6 @@ internal class EASTimetableImportRepository(
                                         startDate.timeInMillis, data.schedule, data.isNewTimetable,
                                     )
                                 } else {
-                                    timetableSnapshotStore.capture(snapshotOwnerKey, term, timetable, TimetableSnapshotKind.BEFORE_REFRESH)
                                     eventItemDao.deleteCourseFromTimetable(timetable.id)
                                     subjectDao.saveSubjectsSync(data.pendingSubjects.values.toList())
                                     eventItemDao.saveEvents(data.events)
@@ -194,8 +196,15 @@ internal class EASTimetableImportRepository(
                                     timetable.code = data.timetableCode
                                     timetable.scheduleStructure = data.schedule
                                     timetableDao.saveTimetableSync(timetable)
+                                    val courses = data.events.groupBy { it.subjectId }.mapNotNull { (id, events) ->
+                                        data.pendingSubjects[id]?.let { subject -> MergeCourse(id, subject.name, subject.code,
+                                            events.map { it.toMergeLesson(startDate.timeInMillis) }) }
+                                    }
+                                    SourceTimetableStore(database).save(snapshotOwnerKey, timetable.id,
+                                        SourceTimetableState(accepted = courses, observed = courses))
                                 }
                                 cleanupDefaultDuplicateTimetablesAfterImport(timetable.id)
+                                versions.recordChanges(beforeVersions, "SOURCE")
                                 committed = data
                             }
                             val data = committed
@@ -203,9 +212,6 @@ internal class EASTimetableImportRepository(
                                 DataState(DataState.STATE.FETCH_FAILED, if (emptyEvents) "empty events" else "导入超时，请重试")
                             } else {
                                 // Post-commit bookkeeping must not report an already persisted import as failed.
-                                runCatching {
-                                    timetableSnapshotStore.capture(snapshotOwnerKey, term, data.timetable, TimetableSnapshotKind.IMPORTED)
-                                }.onFailure { LogUtils.e("import: snapshot capture after commit failed", it) }
                                 if (data.isNewTimetable) {
                                     runCatching { autoGroupImportedTimetable(data.timetable.id) }
                                         .onFailure { LogUtils.e("import: auto-group failed", it) }
@@ -276,7 +282,12 @@ internal class EASTimetableImportRepository(
         val events = mutableListOf<EventItem>()
         val pendingSubjects = linkedMapOf<String, TermSubject>()
         val subjectsByKey = mutableMapOf<String, TermSubject>()
-        subjectDao.getSubjectsSync(timetable.id).forEach { subject ->
+        val existingRows = eventItemDao.allEventsIncludingHidden(timetable.id)
+        val teachingSubjects = existingRows.filter { it.isTeachingCourse() }.mapTo(hashSetOf()) { it.subjectId }
+        val personalSubjects = existingRows.filter { it.source != EventItem.SOURCE_EAS_IMPORT }.mapTo(hashSetOf()) { it.subjectId }
+        subjectDao.getSubjectsSync(timetable.id).filterNot {
+            it.id.startsWith("personal:") || (it.id in personalSubjects && it.id !in teachingSubjects)
+        }.forEach { subject ->
             EasImportIdentity.registerSubject(
                 subjectsByKey,
                 subject,
@@ -483,14 +494,16 @@ internal class EASTimetableImportRepository(
         schedule: List<TimePeriodInDay>,
         isNewTimetable: Boolean
     ) = timetableMutationLock.exclusive {
-        val localEvents = eventItemDao.getImportedClassEventsOfTimetableSync(timetable.id)
+        val existingSourceState = SourceTimetableStore(database).state(snapshotOwnerKey, timetable.id)
+        val localEvents = eventItemDao.versionClasses(timetable.id).filter { it.isTeachingCourse() }
         val localSubjectsById = subjectDao.getSubjectsSync(timetable.id).associateBy { it.id }
 
         // 字段级信息保护：教师/地点「有→无」视为课表源字段抖动（信息减少不可信），
         // 沿用本地「同周次+同槽位」课次的值。在比对与落库前就地修正源端事件，
         // 使纯字段抖动不产生变更提示，课程因其他变更被采纳时也不清空本地字段。
-        val localLessonsBySubject = localEvents.groupBy { it.subjectId }
-            .mapValues { (_, subjectEvents) -> subjectEvents.map { it.toMergeLesson(startMillis) } }
+        val localLessonsBySubject = existingSourceState?.observed?.associate { it.subjectId to it.lessons }
+            ?: localEvents.groupBy { it.subjectId }
+                .mapValues { (_, subjectEvents) -> subjectEvents.map { it.toMergeLesson(startMillis) } }
         events.groupBy { it.subjectId }.forEach { (subjectId, courseEvents) ->
             val localLessons = localLessonsBySubject[subjectId] ?: return@forEach
             val protectedLessons = TimetableRefreshMergePolicy.inheritBlankLocalFields(
@@ -519,7 +532,7 @@ internal class EASTimetableImportRepository(
         val firstImport = isNewTimetable
 
         val plan = TimetableRefreshMergePolicy.plan(
-            local = localCourses,
+            local = existingSourceState?.observed ?: localCourses,
             incoming = incomingCourses,
             vetoes = timetableChangeStore.getVetoes(term.id),
             nowMillis = System.currentTimeMillis(),
@@ -528,6 +541,7 @@ internal class EASTimetableImportRepository(
         timetableChangeStore.putVetoes(term.id, plan.vetoes)
 
         if (plan.holdBatch) {
+            timetableChangeStore.recordPendingUpdatesForTable(emptyList(), snapshotOwnerKey, timetable.id)
             LogUtils.w(
                 "merge: hold batch term=${term.id} " +
                     "local=${plan.holdLocalCount} incoming=${plan.holdIncomingCount} " +
@@ -552,33 +566,34 @@ internal class EASTimetableImportRepository(
                     incomingCount = plan.holdIncomingCount,
                     matchedCount = plan.holdMatchedCount,
                     courses = incomingCourses,
-                    unmatchedLocal = plan.holdUnmatchedLocal
+                    unmatchedLocal = plan.holdUnmatchedLocal,
+                    ownerKey = snapshotOwnerKey,
                 )
             )
             return
         }
 
         // 本次刷新匹配正常：源端已恢复，丢弃此前挂起的过期异常批
-        timetableChangeStore.clearHeldBatch()
+        timetableChangeStore.currentState().heldBatch?.takeIf {
+            it.timetableId == timetable.id && (it.ownerKey.isNullOrBlank() || it.ownerKey == snapshotOwnerKey)
+        }?.let { timetableChangeStore.clearHeldBatch() }
         // 课重新在源端出现后，清理它的过期待确认项（否则"采用课表源"会误删已回归的课）
         timetableChangeStore.pruneResolvedDecisions(term.id, plan.matchedCourseKeys)
 
+        val sourceStore = SourceTimetableStore(database)
+        val sourceEvaluation = SourceTimetableDiff.evaluate(
+            existingSourceState, incomingCourses, System.currentTimeMillis(),
+            snapshotOwnerKey, timetable.id, term.id,
+        )
+        sourceStore.save(snapshotOwnerKey, timetable.id, sourceEvaluation.state)
         val ignored = timetableChangeStore.ignoredFingerprints()
-        val pending = plan.pendingUpdates.mapNotNull { update ->
+        val pending = sourceEvaluation.updates.mapNotNull { update ->
             val filtered = update.withTerm(term.id, timetable.id).filterRows(ignored)
-            filtered.takeIf { it.rows.isNotEmpty() }
+            filtered.takeIf { it.rows.isNotEmpty() }?.copy(localChanged = update.local != null &&
+                localCourses.firstOrNull { it.subjectId == update.subjectId }?.lessons?.sortedBy { it.fromMillis } !=
+                    update.local.lessons.sortedBy { it.fromMillis })
         }
-        timetableChangeStore.recordPendingUpdates(pending)
-
-        // 只有真实落库（有采纳的课）才捕获刷新前快照；纯保留/无变化不改数据，不打快照
-        if (plan.adopt.isNotEmpty()) {
-            timetableSnapshotStore.capture(
-                snapshotOwnerKey,
-                term,
-                timetable,
-                TimetableSnapshotKind.BEFORE_REFRESH
-            )
-        }
+        timetableChangeStore.recordPendingUpdatesForTable(pending, snapshotOwnerKey, timetable.id)
 
         database.runInTransaction {
             val replacedSubjectIds = plan.replacedLocal.mapTo(HashSet()) { it.subjectId }
@@ -613,15 +628,6 @@ internal class EASTimetableImportRepository(
                 timetableDao.saveTimetableSync(timetable)
             }
         }
-        if (plan.adopt.isNotEmpty()) {
-            timetableSnapshotStore.capture(
-                snapshotOwnerKey,
-                term,
-                timetable,
-                TimetableSnapshotKind.IMPORTED
-            )
-        }
-
         if ((plan.hasChanges || pending.isNotEmpty()) && !firstImport) {
             timetableChangeStore.recordApplied(
                 TimetableChangeInfo(
@@ -630,20 +636,7 @@ internal class EASTimetableImportRepository(
                     added = emptyList(),
                     keptCourses = plan.kept
                 ),
-                plan.decisions.map { decision ->
-                    TimetableDecisionItem(
-                        termId = term.id,
-                        timetableId = timetable.id,
-                        courseKey = decision.courseKey,
-                        subjectId = decision.subjectId,
-                        name = decision.name,
-                        reason = decision.reason,
-                        localLessonCount = decision.localLessonCount,
-                        firstSeenMillis = decision.firstSeenMillis,
-                        observationCount = decision.observationCount,
-                        incoming = decision.incoming
-                    )
-                }
+                emptyList()
             )
         }
         LogUtils.d(
@@ -887,39 +880,62 @@ internal class EASTimetableImportRepository(
                     // The timetable has already committed; an optional exam request must not
                     // turn that successful write into a generic import failure.
                     if (importState.state == DataState.STATE.SUCCESS) result = AutoImportResult.SUCCESS
-                    val examTimeout = if (graduate) remoteTimeout else DEFAULT_EXAM_TIMEOUT_MILLIS
-                    val examState = withTimeoutOrNull(examTimeout) { session.service.getExamItemsOnce(token, term) }
-                        ?: DataState(DataState.STATE.FETCH_FAILED)
-                    session.ensureCurrent()
-                    if (examState.state in setOf(DataState.STATE.NOT_LOGGED_IN, DataState.STATE.TOKEN_INVALID)) {
-                        result = AutoImportResult.NOT_LOGGED_IN
-                        return@whileCurrent
-                    }
-                    if (examState.state != DataState.STATE.SUCCESS) return@whileCurrent
-                    // A failed local exam transaction must report failure even after courses committed.
-                    result = AutoImportResult.FAILED
-                    val coroutine = currentCoroutineContext()
-                    val timetableCode = EASTimetableCode.of(session.campus, term, session.token.stutype)
-                    val importedExamCount = synchronized(tokenStateLock) {
-                        timetableMutationLock.exclusive {
-                            coroutine.ensureActive()
-                            session.ensureCurrent()
-                            database.runInTransaction<Int> {
-                                // A request may have been cancelled while SQLite's writer was held.
-                                // Once this guard passes, the complete exam batch commits atomically.
+                    val examTicket = examReads?.begin(session.scope, term.id)
+                    try {
+                        val examTimeout = if (graduate) remoteTimeout else DEFAULT_EXAM_TIMEOUT_MILLIS
+                        val examState = withTimeoutOrNull(examTimeout) { session.service.getExamItemsOnce(token, term) }
+                            ?: DataState(DataState.STATE.FETCH_FAILED)
+                        session.ensureCurrent()
+                        if (examState.state != DataState.STATE.SUCCESS) examReads?.finish(examTicket, examState)
+                        if (examState.state in setOf(DataState.STATE.NOT_LOGGED_IN, DataState.STATE.TOKEN_INVALID)) {
+                            result = AutoImportResult.NOT_LOGGED_IN
+                            return@whileCurrent
+                        }
+                        if (examState.state != DataState.STATE.SUCCESS) return@whileCurrent
+                        // A failed local exam transaction must report failure even after courses committed.
+                        result = AutoImportResult.FAILED
+                        val coroutine = currentCoroutineContext()
+                        val timetableCode = EASTimetableCode.of(session.campus, term, session.token.stutype)
+                        var committedExamTarget: String? = null
+                        val importedExamCount = synchronized(tokenStateLock) {
+                            timetableMutationLock.exclusive {
                                 coroutine.ensureActive()
                                 session.ensureCurrent()
-                                if (!operation.isCurrentSession(authEpoch.get(), easPreferenceSource.getEasToken())) {
-                                    return@runInTransaction 0
+                                database.runInTransaction<Int> {
+                                    // A request may have been cancelled while SQLite's writer was held.
+                                    // Once this guard passes, the complete exam batch commits atomically.
+                                    coroutine.ensureActive()
+                                    session.ensureCurrent()
+                                    if (!operation.isCurrentSession(authEpoch.get(), easPreferenceSource.getEasToken())) {
+                                        return@runInTransaction 0
+                                    }
+                                    val timetable = timetableDao.getTimetableByEASCodeCandidatesSync(
+                                        EASTimetableCode.candidates(term, session.campus, session.token.stutype), timetableCode, term.getCode()
+                                    ) ?: return@runInTransaction 0
+                                    examImportRepository.importAutomatically(examState.data.orEmpty(), timetable).importedCount.also {
+                                        committedExamTarget = timetable.id
+                                    }
                                 }
-                                val timetable = timetableDao.getTimetableByEASCodeCandidatesSync(
-                                    EASTimetableCode.candidates(term, session.campus, session.token.stutype), timetableCode, term.getCode()
-                                ) ?: return@runInTransaction 0
-                                examImportRepository.importAutomatically(examState.data.orEmpty(), timetable).importedCount
                             }
                         }
+                        synchronized(tokenStateLock) {
+                            session.ensureCurrent()
+                            // Binding is published only after the complete local transaction succeeded,
+                            // and the target is still present under the shared mutation lock.
+                            timetableMutationLock.exclusive {
+                                val target = committedExamTarget?.takeIf { timetableDao.getTimetableByIdSync(it) != null }
+                                examReads?.finish(examTicket, examState, target)
+                            }
+                        }
+                        if (importState.state == DataState.STATE.SUCCESS || importedExamCount > 0) result = AutoImportResult.SUCCESS
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (failure: Exception) {
+                        examReads?.finish(examTicket, DataState(DataState.STATE.FETCH_FAILED))
+                        throw failure
+                    } finally {
+                        examReads?.cancel(examTicket)
                     }
-                    if (importState.state == DataState.STATE.SUCCESS || importedExamCount > 0) result = AutoImportResult.SUCCESS
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled
@@ -956,6 +972,65 @@ internal class EASTimetableImportRepository(
             } catch (error: Exception) {
                 DataState(DataState.STATE.FETCH_FAILED, error.message)
             }
+        }
+    }
+
+    /** 备注 / 删除 / 保留上限只动快照文件，不需要访问教务，因此不要求会话新鲜度。 */
+    suspend fun setTimetableSnapshotNote(
+        session: EasQuerySession,
+        term: TermItem,
+        snapshotId: String,
+        note: String,
+    ): DataState<Boolean> = withContext(Dispatchers.IO) {
+        try {
+            val ownerKey = FollowedTeachingSectionStore.ownerKey(session.token)
+            DataState(
+                timetableSnapshotStore.setNote(ownerKey, term.id, snapshotId, note),
+                DataState.STATE.SUCCESS,
+            )
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            DataState(DataState.STATE.FETCH_FAILED, error.message)
+        }
+    }
+
+    suspend fun deleteTimetableSnapshot(
+        session: EasQuerySession,
+        term: TermItem,
+        snapshotId: String,
+    ): DataState<Boolean> = withContext(Dispatchers.IO) {
+        try {
+            val ownerKey = FollowedTeachingSectionStore.ownerKey(session.token)
+            DataState(
+                timetableSnapshotStore.delete(ownerKey, term.id, snapshotId),
+                DataState.STATE.SUCCESS,
+            )
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            DataState(DataState.STATE.FETCH_FAILED, error.message)
+        }
+    }
+
+    /** @return 被裁掉的条数 */
+    suspend fun trimTimetableSnapshots(
+        session: EasQuerySession,
+        term: TermItem,
+        limit: Int,
+    ): DataState<Int> = withContext(Dispatchers.IO) {
+        try {
+            val ownerKey = FollowedTeachingSectionStore.ownerKey(session.token)
+            // 记住用户选的上限：否则下一次写快照又会按默认值裁回去，选择等于没生效。
+            timetableSnapshotStore.setRetentionLimit(limit)
+            DataState(
+                timetableSnapshotStore.trim(ownerKey, term.id, limit),
+                DataState.STATE.SUCCESS,
+            )
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            DataState(DataState.STATE.FETCH_FAILED, error.message)
         }
     }
 

@@ -41,6 +41,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -217,6 +218,15 @@ private fun UnifiedResourceSearchScreen(
     var entryItems by remember { mutableStateOf(emptyList<ExternalResourceEntry>()) }
     var emptyText by remember { mutableStateOf("") }
     var loading by remember { mutableStateOf(true) }
+    // 搜索历史：只在查询为空时展示，点一条即可回填并重搜。
+    val historyStore = remember {
+        cn.limpu.hita.data.source.preference.ResourceSearchHistoryStore(
+            cn.limpu.hita.data.source.preference.SharedPreferenceStore {
+                context.getSharedPreferences("resource_search", android.content.Context.MODE_PRIVATE)
+            }
+        )
+    }
+    var history by remember { mutableStateOf(historyStore.list()) }
 
     fun exitBrowseMode() {
         isBrowseMode = false
@@ -287,6 +297,10 @@ private fun UnifiedResourceSearchScreen(
         }
         loading = true
         emptyText = ""
+        if (normalized.isNotBlank()) {
+            historyStore.record(normalized)
+            history = historyStore.list()
+        }
         viewModel.search(normalized)
     }
 
@@ -439,6 +453,52 @@ private fun UnifiedResourceSearchScreen(
                         )
                     }
                 } else {
+                    if (query.isBlank() && history.isNotEmpty()) {
+                        item(key = "history-header") {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(
+                                        start = tokens.spacing.lg,
+                                        end = tokens.spacing.sm,
+                                        top = tokens.spacing.sm,
+                                        bottom = tokens.spacing.xs,
+                                    )
+                            ) {
+                                Text(
+                                    text = "最近搜索",
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    fontSize = 13.sp,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                TextButton(onClick = {
+                                    historyStore.clear()
+                                    history = emptyList()
+                                }) {
+                                    Text(text = "清空", fontSize = 13.sp)
+                                }
+                            }
+                        }
+                        items(history, key = { "history:$it" }) { term ->
+                            Text(
+                                text = term,
+                                fontSize = 15.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        query = term
+                                        startSearch()
+                                    }
+                                    .padding(
+                                        horizontal = tokens.spacing.lg,
+                                        vertical = tokens.spacing.md,
+                                    )
+                            )
+                        }
+                    }
                     items(
                         searchItems,
                         key = { item ->

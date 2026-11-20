@@ -11,6 +11,7 @@ import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.widget.PopupMenu
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.ComposeView
@@ -31,6 +32,8 @@ import cn.limpu.hita.ui.main.timetable.compare.TimetableSocialSheet
 import cn.limpu.hita.ui.main.timetable.compare.TimetableComparisonActivity
 import cn.limpu.hita.ui.timetable.friend.FriendTimetableActivity
 import cn.limpu.hita.ui.timetable.share.TimetableShareActivity
+import cn.limpu.hita.ui.timetable.history.TimetableVersionsDialog
+import cn.limpu.hita.ui.timetable.history.TimetableHistoryViewModel
 import cn.limpu.hita.utils.ActivityUtils
 import cn.limpu.hita.utils.EventsUtils
 import dagger.hilt.android.AndroidEntryPoint
@@ -39,6 +42,9 @@ import kotlinx.coroutines.launch
 @AndroidEntryPoint
 class TimetableFragment : HiltBaseFragment<ComposeViewBinding>() {
     protected val viewModel: TimetableViewModel by viewModels()
+    private val historyViewModel: TimetableHistoryViewModel by viewModels()
+    private var historyOpen by mutableStateOf(false)
+    private var sourceDialogRequested by mutableStateOf(false)
     private var socialSheetOpen by mutableStateOf(false)
     private var mainPageController: MainPageController? = null
     private var viewOwner: Long? = null
@@ -48,7 +54,38 @@ class TimetableFragment : HiltBaseFragment<ComposeViewBinding>() {
     private var scopeDialog: AlertDialog? = null
 
     fun openTimetableSocialSheet() { socialSheetOpen = true }
+    fun openDeletionHistory() {
+        if (viewOwner == null) return
+        val tables = viewModel.resolvedScope.value?.timetables.orEmpty()
+            .filter { !it.code.isNullOrBlank() && !cn.limpu.hita.data.repository.TimetableVersionStore.isProjection(it) }
+        if (tables.isEmpty()) {
+            Toast.makeText(context, R.string.timetable_versions_read_only, Toast.LENGTH_SHORT).show()
+            return
+        }
+        fun open(id: String) {
+            historyViewModel.loadVersions(id)
+            historyOpen = true
+        }
+        if (tables.size == 1) {
+            open(tables.single().id)
+        } else {
+            scopeDialog?.dismiss()
+            scopeDialog = AlertDialog.Builder(requireContext())
+                .setTitle(R.string.timetable_history_select_table)
+                .setItems(tables.map { it.name.orEmpty() }.toTypedArray()) { _, which ->
+                    if (viewOwner != null) open(tables[which].id)
+                }
+                .setNegativeButton(R.string.button_cancel, null)
+                .show()
+        }
+    }
     fun navigateToWeek(mondayMillis: Long) = viewModel.navigateToWeek(mondayMillis)
+
+    /**
+     * 顶栏周号选择器的候选：复用 ViewModel 已有的「当前页所属课表」周次计算，
+     * 保证候选周与 `navigateToWeek` 判定周号的依据一致。
+     */
+    fun weekOptions(): List<WeekOption> = viewModel.weekOptions()
 
     override fun initViewBinding() = ComposeViewBinding(ComposeView(requireContext()).apply {
         setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
@@ -61,6 +98,22 @@ class TimetableFragment : HiltBaseFragment<ComposeViewBinding>() {
         val owner = viewModel.attachView().also { viewOwner = it }
         (view as ComposeView).setContent {
             HitaComposeTheme {
+                if (historyOpen) {
+                    val historyState by historyViewModel.versions.collectAsState()
+                    TimetableVersionsDialog(
+                        state = historyState,
+                        onDismiss = { historyOpen = false },
+                        onRetry = { historyState.timetableId?.let(historyViewModel::loadVersions) },
+                        onCompare = historyViewModel::compareVersion,
+                        onRestore = historyViewModel::restoreVersion,
+                        onBack = { historyState.timetableId?.let(historyViewModel::loadVersions) },
+                        onSourceChanges = { historyOpen = false; sourceDialogRequested = true },
+                        onLegacy = {
+                            historyOpen = false
+                            navigate(owner, Intent(requireContext(), cn.limpu.hita.ui.eas.imp.ImportTimetableActivity::class.java))
+                        },
+                    )
+                }
                 if (socialSheetOpen) TimetableSocialSheet(
                     onDismiss = { socialSheetOpen = false },
                     onShare = { navigate(owner, Intent(requireContext(), TimetableShareActivity::class.java)) },
@@ -80,6 +133,8 @@ class TimetableFragment : HiltBaseFragment<ComposeViewBinding>() {
                     onAdoptBatch = { viewModel.adoptHeldBatch() },
                     onDismissBatch = { viewModel.dismissHeldBatch() },
                     onConfirmPending = viewModel::confirmPendingChanges,
+                    sourceDialogRequested = sourceDialogRequested,
+                    onSourceDialogClosed = { sourceDialogRequested = false },
                 )
             }
         }
@@ -111,6 +166,8 @@ class TimetableFragment : HiltBaseFragment<ComposeViewBinding>() {
         viewOwner?.let(viewModel::detachView)
         viewOwner = null
         socialSheetOpen = false
+        historyOpen = false
+        sourceDialogRequested = false
         closeMenu()
         scopeDialog?.setOnCancelListener(null)
         scopeDialog?.dismiss()
@@ -162,10 +219,20 @@ class TimetableFragment : HiltBaseFragment<ComposeViewBinding>() {
         val open = Runnable {
             if (!viewModel.batches.owns(selection) || anchor !== target || target.parent == null) return@Runnable
             menu = PopupMenu(requireContext(), target, Gravity.NO_GRAVITY).apply {
-                menu.add(0, R.id.menu_edit_event, 0, R.string.menu_edit)
-                menu.add(0, R.id.menu_delete_event, 1, R.string.menu_delete).setIcon(R.drawable.ic_baseline_delete_24)
+                if (event.isTeachingCourse()) {
+                    menu.add(0, R.id.menu_edit_event, 0, R.string.teaching_copy_as_personal)
+                    menu.add(0, R.id.menu_delete_event, 1, R.string.teaching_hide)
+                } else {
+                    menu.add(0, R.id.menu_edit_event, 0, R.string.menu_edit)
+                    menu.add(0, R.id.menu_delete_event, 1, R.string.menu_delete).setIcon(R.drawable.ic_baseline_delete_24)
+                }
                 setOnMenuItemClickListener { item ->
-                    if (viewModel.batches.owns(selection)) showBatchScopePicker(owner, event, item.itemId == R.id.menu_edit_event)
+                    if (viewModel.batches.owns(selection)) {
+                        if (event.isTeachingCourse() && item.itemId == R.id.menu_edit_event) viewModel.copyTeachingAsPersonal(event) { result ->
+                            if (viewOwner == owner) Toast.makeText(context, if (result.isSuccess) R.string.teaching_copied else R.string.fail, Toast.LENGTH_SHORT).show()
+                        }
+                        else showBatchScopePicker(owner, event, item.itemId == R.id.menu_edit_event)
+                    }
                     true
                 }
                 setOnDismissListener { closeMenu() }

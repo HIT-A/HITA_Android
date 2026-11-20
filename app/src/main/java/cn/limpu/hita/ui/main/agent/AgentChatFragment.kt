@@ -58,6 +58,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -341,6 +342,36 @@ private fun AgentChatScreen(
     val sessions by viewModel.sessions.observeAsState(emptyList())
     val isLoading by viewModel.isLoading.observeAsState(false)
     val pendingAttachment by viewModel.pendingAttachment.observeAsState()
+    // 写操作确认：gate 只在有请求时给非空值，对话框随状态出现与消失。
+    val pendingConfirmation by viewModel.confirmationGate.state.collectAsState()
+    pendingConfirmation?.let { pending ->
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { viewModel.confirmationGate.reject() },
+            title = { androidx.compose.material3.Text(pending.request.title) },
+            text = {
+                androidx.compose.foundation.layout.Column(
+                    verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(tokens.spacing.xs),
+                ) {
+                    pending.request.detailLines.forEach { line ->
+                        androidx.compose.material3.Text(
+                            text = line,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                androidx.compose.material3.TextButton(
+                    onClick = { viewModel.confirmationGate.approve() },
+                ) { androidx.compose.material3.Text(pending.request.confirmLabel) }
+            },
+            dismissButton = {
+                androidx.compose.material3.TextButton(
+                    onClick = { viewModel.confirmationGate.reject() },
+                ) { androidx.compose.material3.Text(pending.request.cancelLabel) }
+            },
+        )
+    }
     val listState = rememberLazyListState()
     val context = LocalContext.current
     val density = LocalDensity.current

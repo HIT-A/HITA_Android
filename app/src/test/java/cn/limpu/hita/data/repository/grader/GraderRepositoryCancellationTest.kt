@@ -37,6 +37,7 @@ class GraderRepositoryCancellationTest {
                 assertFalse(state.syncing)
                 assertNull(state.accountId)
                 assertTrue(state.tasks.isEmpty())
+                assertTrue(state.summaryItems.isEmpty())
             } finally {
                 operation.cancel()
                 dispatcher.release()
@@ -46,6 +47,31 @@ class GraderRepositoryCancellationTest {
             dispatcher.release()
             ArchTaskExecutor.getInstance().setDelegate(null)
         }
+    }
+
+    @Test fun reloadAndDisconnectPublishCredentialFreeSummaryTogetherWithAccount() = runBlocking {
+        ArchTaskExecutor.getInstance().setDelegate(object : TaskExecutor() {
+            override fun executeOnDiskIO(runnable: Runnable) = runnable.run()
+            override fun postToMainThread(runnable: Runnable) = runnable.run()
+            override fun isMainThread() = true
+        })
+        try {
+            val store = GraderStore({ null }, { true })
+            store.replace(cn.limpu.hita.data.source.web.grader.GraderAccount("1", "synthetic"), "sessionid=synthetic",
+                listOf(cn.limpu.hita.data.source.web.grader.GraderAssignment("11", "expired", "course", 1L, true)))
+            val repository = GraderRepository(store, Dispatchers.Unconfined)
+            assertTrue(repository.reload())
+            val loaded = requireNotNull(repository.state.value)
+            assertEquals("1", loaded.accountId)
+            assertEquals("11", loaded.tasks.single().id)
+            assertEquals(1L, loaded.tasks.single().dueAt)
+            assertEquals("11", loaded.summaryItems.single().id)
+            assertTrue(repository.disconnect())
+            val disconnected = requireNotNull(repository.state.value)
+            assertNull(disconnected.accountId)
+            assertTrue(disconnected.tasks.isEmpty())
+            assertTrue(disconnected.summaryItems.isEmpty())
+        } finally { ArchTaskExecutor.getInstance().setDelegate(null) }
     }
 
     private class PausedPublicationDispatcher : CoroutineDispatcher() {

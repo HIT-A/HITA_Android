@@ -102,7 +102,7 @@ class TimetableManualSessionProtectionTest {
         applier.adoptCourse(term.id, "code:CS101")
         assertEquals("C303", db.eventItemDao().getImportedClassEventsOfTimetableSync(table.id).single().place)
         assertEquals("manual", db.eventItemDao().getEventInIdsSync(listOf("manual")).single().id)
-        assertEquals(1, db.subjectDao().getSubjectsSync(table.id).size)
+        assertEquals(2, db.subjectDao().getSubjectsSync(table.id).size)
     }
 
     @Test fun removingSourceCourseRetainsManualSessionAndSubject() = fixture { _, db, table, changes, applier ->
@@ -110,7 +110,9 @@ class TimetableManualSessionProtectionTest {
         decision(changes, table, null)
         applier.adoptCourse(term.id, "code:CS101")
         assertEquals(listOf("manual"), db.eventItemDao().getEventsOfTimetableSync(table.id).map { it.id })
-        assertEquals("subject", db.subjectDao().getSubjectsSync(table.id).single().id)
+        val personal = db.eventItemDao().getEventInIdsSync(listOf("manual")).single()
+        assertTrue(db.subjectDao().getSubjectsSync(table.id).any { it.id == personal.subjectId })
+        assertNotEquals("subject", personal.subjectId)
     }
 
     @Test fun removingSourceCourseDoesNotDeleteCrossTableReference() = fixture { _, db, table, changes, applier ->
@@ -126,11 +128,12 @@ class TimetableManualSessionProtectionTest {
         assertEquals("subject", db.subjectDao().getSubjectsSync(table.id).single().id)
     }
 
-    @Test fun removingSourceCourseCleansUpSubjectWhenNoEventsRemain() = fixture { _, db, table, changes, applier ->
+    @Test fun removingSourceCourseRetainsPersonalColorProfile() = fixture { _, db, table, changes, applier ->
+        db.subjectDao().changeSubjectColorSync("subject", 123)
         decision(changes, table, null)
         applier.adoptCourse(term.id, "code:CS101")
         assertTrue(db.eventItemDao().getEventsOfTimetableSync(table.id).isEmpty())
-        assertTrue(db.subjectDao().getSubjectsSync(table.id).isEmpty())
+        assertEquals(123, db.subjectDao().getSubjectsSync(table.id).single().color)
     }
 
     @Test fun restoringSourceSnapshotRetainsSubjectUsedByManualSession() = fixture { app, db, table, _, _ ->
@@ -145,6 +148,8 @@ class TimetableManualSessionProtectionTest {
         ))
         snapshots.restore("owner", snapshot.id)
         assertEquals(setOf("source", "manual"), db.eventItemDao().getEventsOfTimetableSync(table.id).map { it.id }.toSet())
-        assertEquals(setOf("subject", "added-subject"), db.subjectDao().getSubjectsSync(table.id).map { it.id }.toSet())
+        val personal = db.eventItemDao().getEventInIdsSync(listOf("manual")).single()
+        assertNotEquals("added-subject", personal.subjectId)
+        assertTrue(db.subjectDao().getSubjectsSync(table.id).any { it.id == personal.subjectId })
     }
 }

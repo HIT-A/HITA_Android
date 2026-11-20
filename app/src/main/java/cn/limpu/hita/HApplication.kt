@@ -18,6 +18,7 @@ import javax.inject.Inject
 import cn.limpu.hita.agent.remote.AgentBackendClient
 import cn.limpu.hita.data.analytics.UsageAnalyticsClient
 import cn.limpu.hita.data.work.CourseReminderScheduler
+import cn.limpu.hita.data.work.ExamReminderScheduler
 import cn.limpu.hita.data.work.WidgetRefreshScheduler
 import cn.limpu.hita.feature.livecourse.scheduler.LiveCourseScheduler
 import cn.limpu.hita.ui.widgets.WidgetUtils
@@ -43,6 +44,7 @@ class HApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        cn.limpu.hita.ui.campus.CampusCardSyncController.install(this)
 
         // 启用 Material You 动态配色（Android 12+ 自动跟随系统壁纸颜色）
         DynamicColors.applyToActivitiesIfAvailable(this)
@@ -97,6 +99,7 @@ class HApplication : Application() {
         // 初始化课程提醒（根据用户设置自动调度或取消）
         try {
             CourseReminderScheduler.autoSchedule(this)
+            ExamReminderScheduler.autoSchedule(this)
         } catch (e: Exception) {
             LogUtils.e("CourseReminderScheduler.autoSchedule failed", e)
         }

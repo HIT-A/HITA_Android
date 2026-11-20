@@ -104,6 +104,23 @@ class MainActivity : HiltBaseActivity<MainViewBinding>(),
         WindowCompat.setDecorFitsSystemWindows(window, false)
     }
 
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleWidgetDeepLink(intent)
+    }
+
+    /**
+     * 小组件列表项点击会带 (eventId, date)；能解析就切到今日页对齐到那一天。
+     *
+     * 解析失败不做任何跳转：宁可停在当前页，也不要打开一节不确定的课。
+     */
+    private fun handleWidgetDeepLink(intent: android.content.Intent?) {
+        // 只认合法的 (eventId, date)；解析失败就停在当前页。
+        if (cn.limpu.hita.ui.widgets.WidgetDeepLink.fromIntent(intent) == null) return
+        viewModel.selectTab(MainTab.TIMELINE)
+    }
+
     override fun initViews() {
         viewModel.initialize(savedState?.getString(STATE_SELECTED_TAB_NAME), savedState?.getInt(STATE_SELECTED_TAB) ?: 0)
         hostId = viewModel.attachHost()
@@ -128,16 +145,18 @@ class MainActivity : HiltBaseActivity<MainViewBinding>(),
         val actions = MainActions(
             selectTab = viewModel::selectTab,
             openDrawer = { viewModel.setDrawer(true) }, closeDrawer = { viewModel.setDrawer(false) },
-            selectTimetable = { index ->
-                viewModel.selectScope(index)?.let { monday ->
-                    (tabHost.find(MainTab.TIMETABLE) as? TimetableFragment)?.navigateToWeek(monday)
-                }
-            },
+            selectTimetable = { scope -> selectTodayScope(scope); Unit },
             theme = { ThemeTools.switchTheme(this); WidgetUtils.sendRefreshToAll(this) },
             wallpaper = ::showWallpaperOptions, wallpaperLongPress = ::showWallpaperRemove,
             timetableSetting = { FragmentTimetablePanel().show(supportFragmentManager, "panel") },
             timetableSocial = { (tabHost.find(MainTab.TIMETABLE) as? TimetableFragment)?.openTimetableSocialSheet() },
+            timetableHistory = { (tabHost.find(MainTab.TIMETABLE) as? TimetableFragment)?.openDeletionHistory() },
             addEvent = { PopupAddEvent().show(supportFragmentManager, "add_event") },
+            // 周号跳转：候选来自课表学期的起止时间，选中后直接翻到那一周。
+            weekOptions = { (tabHost.find(MainTab.TIMETABLE) as? TimetableFragment)?.weekOptions().orEmpty() },
+            pickWeek = { monday ->
+                (tabHost.find(MainTab.TIMETABLE) as? TimetableFragment)?.navigateToWeek(monday)
+            },
             drawerHeader = ::openDrawerHeader, drawerAvatar = ::showAvatarPicker,
             themeStyle = ::showThemeStyleMenu,
             agreement = { UserAgreementDialog().show(supportFragmentManager, "ua") },
@@ -262,7 +281,18 @@ class MainActivity : HiltBaseActivity<MainViewBinding>(),
     override fun setTitleText(string: String) = viewModel.setTimetableTitle(string, true)
     override fun setTimetableName(String: String) = viewModel.setTimetableName(String)
     override fun setSingleTitle(string: String) = viewModel.setTimetableTitle(string, false)
+    override fun selectTodayScope(scope: cn.limpu.hita.data.model.timetable.DisplayScope): Boolean {
+        val monday = viewModel.selectScope(scope) ?: return false
+        (tabHost.find(MainTab.TIMETABLE) as? TimetableFragment)?.navigateToWeek(monday)
+        return true
+    }
+    override fun openTodayHomework() {
+        if (MainTab.HOMEWORK in viewModel.state.value.navigation.visibleTabs) viewModel.selectTab(MainTab.HOMEWORK)
+        else startActivity(Intent(this, cn.limpu.hita.ui.main.homework.HomeworkActivity::class.java))
+    }
+
     override fun setTimelineTitleText(string: String) = viewModel.setTimelineTitle(string)
+    override fun setTimelineSubtitleText(string: String) = viewModel.setTimelineSubtitle(string)
 
     private fun openUrl(url: String) = startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
 

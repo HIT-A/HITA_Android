@@ -129,6 +129,7 @@ internal fun MainPillTabBar(
         isSumi -> Color(0xFFF7F2E7)
         else -> ActiveBlue
     }
+    val bodyHeight = pillBarHeight(density.fontScale, rememberPillBarLabelHeight())
     val barHazeStyle = HazeStyle(
         tint = Color.White.copy(alpha = 0.16f),
         blurRadius = 24.dp,
@@ -137,6 +138,7 @@ internal fun MainPillTabBar(
 
     Surface(
         modifier = modifier
+            .height(bodyHeight)
             .alpha(alpha)
             .then(
                 if (isCyber) {
@@ -256,8 +258,7 @@ internal fun MainPillTabBar(
                         Text(
                             text = stringResource(tab.titleRes),
                             color = tint,
-                            fontSize = 10.sp,
-                            lineHeight = 10.sp,
+                            style = pillBarLabelStyle(),
                             fontWeight = if (active) FontWeight.Bold else FontWeight.Normal,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,

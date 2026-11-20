@@ -8,8 +8,8 @@ import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
 
-class AddActivityTool : SuspendingReActTool {
-    override suspend fun execute(input: ReActToolInput): String? {
+class AddActivityTool : OutcomeReActTool {
+    override suspend fun executeWithOutcome(input: ReActToolInput): ReActToolOutcome {
         val activity = parseAddActivityInput(input.actionInput)
         val name = activity.name
         val fromMs = activity.fromMs
@@ -22,20 +22,52 @@ class AddActivityTool : SuspendingReActTool {
             if (fromMs < now - oneYear || fromMs > now + oneYear ||
                 toMs < now - oneYear || toMs > now + oneYear) {
                 LogUtils.w("[DEBUG] Timestamps out of reasonable range, rejecting: fromMs=$fromMs toMs=$toMs")
-                return "时间戳不合理，请重新描述时间（如'明天下午3点'）"
+                return ReActToolOutcome.Failed("时间戳不合理，请重新描述时间（如'明天下午3点'）", retryable = true)
             }
         }
 
-        if (name != null && fromMs != null && toMs != null) {
-            val timetableInput = TimetableAgentInput(
-                application = input.application,
-                action = TimetableAgentInput.Action.ADD_TIMETABLE_ARRANGEMENT,
-                timetableId = input.timetableId,
-                arrangement = ArrangementInput(name = name, fromMs = fromMs, toMs = toMs, place = place),
-            )
-            return ToolHelper.formatTimetableResult(ToolHelper.runTimetableTool(timetableInput, input.agentProvider, input.onTrace))
+        if (name == null || fromMs == null || toMs == null) {
+            return ReActToolOutcome.Failed("未找到活动信息", retryable = true)
         }
-        return "未找到活动信息"
+
+        val request = ConfirmationRequest(
+            title = "添加日程",
+            detailLines = buildDetailLines(name, fromMs, toMs, place),
+            confirmLabel = "加入日程",
+        )
+        val decision = WriteConfirmation.decide(
+            gate = input.confirmationGate,
+            request = request,
+            pendingText = "需要用户确认后才会添加日程：$name。",
+            cancelledText = "用户取消添加日程，未做任何修改。",
+        )
+        if (decision is WriteConfirmation.Decision.Halt) return decision.outcome
+
+        val timetableInput = TimetableAgentInput(
+            application = input.application,
+            action = TimetableAgentInput.Action.ADD_TIMETABLE_ARRANGEMENT,
+            timetableId = input.timetableId,
+            arrangement = ArrangementInput(name = name, fromMs = fromMs, toMs = toMs, place = place),
+        )
+        val result = ToolHelper.runTimetableTool(timetableInput, input.agentProvider, input.onTrace)
+        val text = ToolHelper.formatTimetableResult(result)
+        return when (result) {
+            is cn.limpu.hita.agent.core.AgentToolResult.Failure ->
+                ReActToolOutcome.Failed(text, retryable = false)
+            is cn.limpu.hita.agent.core.AgentToolResult.Success ->
+                if (text.isBlank()) ReActToolOutcome.OutcomeUnknown("日程已提交，但未收到确认信息。")
+                else ReActToolOutcome.Succeeded(text)
+        }
+    }
+
+    private fun buildDetailLines(name: String, fromMs: Long, toMs: Long, place: String): List<String> {
+        val format = SimpleDateFormat("M月d日 HH:mm", Locale.CHINA)
+        val endFormat = SimpleDateFormat("HH:mm", Locale.CHINA)
+        return buildList {
+            add("名称：$name")
+            add("时间：${format.format(java.util.Date(fromMs))}–${endFormat.format(java.util.Date(toMs))}")
+            if (place.isNotBlank()) add("地点：$place")
+        }
     }
 
     internal data class ParsedActivity(val name: String?, val fromMs: Long?, val toMs: Long?, val place: String)

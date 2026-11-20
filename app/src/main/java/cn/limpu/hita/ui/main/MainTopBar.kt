@@ -1,6 +1,8 @@
 package cn.limpu.hita.ui.main
 
+import cn.limpu.hita.ui.main.timetable.WeekOption
 import android.view.HapticFeedbackConstants
+import android.widget.ImageView
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.spring
@@ -9,20 +11,30 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -41,11 +53,14 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
 import cn.limpu.hita.R
 import cn.limpu.hita.data.repository.DisplayScopeResolver
 import cn.limpu.hita.ui.design.HitaTheme
@@ -60,12 +75,17 @@ import com.limpu.style.ThemeTools
 internal fun MainTopBar(
     selectedTabId: MainTab?,
     todayTitle: String,
+    todaySubtitle: String = "",
+    todayAvatar: String? = null,
     timetableTitle: String,
     timetableName: String,
     showTimetableName: Boolean,
     timetableOptions: List<DisplayScopeResolver.ScopeOption>,
     currentScope: DisplayScope?,
-    onTimetableSelected: (Int) -> Unit,
+    onTimetableSelected: (DisplayScope) -> Unit,
+    onTimetableTitleClick: () -> Unit = {},
+    weekOptionsProvider: () -> List<WeekOption> = { emptyList() },
+    onPickWeek: (Long) -> Unit = {},
     themeIcon: Int,
     wallpaperAlpha: Float,
     wallpaperTitleColor: Color,
@@ -75,6 +95,7 @@ internal fun MainTopBar(
     onWallpaperLongPress: () -> Unit,
     onTimetableSetting: () -> Unit,
     onTimetableSocial: () -> Unit,
+    onTimetableHistory: () -> Unit = {},
     onAddEvent: () -> Unit,
     onSystemBars: (Boolean, Boolean) -> Unit,
 ) {
@@ -88,6 +109,9 @@ internal fun MainTopBar(
     )
 
     val isDarkTheme = HitaTheme.isDark
+    // 教学周与星期是首页最要紧的时间锚点，做黑体主标题；日期退到次行。
+    val todaySecondaryColor = if (isWallpaperTab) wallpaperTitleColor.copy(alpha = 0.82f)
+    else MaterialTheme.colorScheme.onSurfaceVariant
     LaunchedEffect(isWallpaperTab, isDarkTheme) {
         onSystemBars(isWallpaperTab, isDarkTheme)
     }
@@ -108,7 +132,7 @@ internal fun MainTopBar(
         verticalAlignment = Alignment.Bottom
     ) {
         when (selectedTabId) {
-            MainTab.TIMELINE -> ToolbarTitle(todayTitle, titleColor)
+            MainTab.TIMELINE -> TodayToolbarTitle(todayTitle, todaySubtitle, todayAvatar, titleColor, todaySecondaryColor, onOpenDrawer)
             MainTab.TIMETABLE -> TimetableToolbarTitle(
                 title = timetableTitle,
                 name = timetableName,
@@ -116,11 +140,15 @@ internal fun MainTopBar(
                 timetableOptions = timetableOptions,
                 currentScope = currentScope,
                 onTimetableSelected = onTimetableSelected,
+                onTitleClick = onTimetableTitleClick,
+                weekOptionsProvider = weekOptionsProvider,
+                onPickWeek = onPickWeek,
                 titleColor = titleColor,
                 onWallpaper = onWallpaper,
                 onWallpaperLongPress = onWallpaperLongPress,
                 onTimetableSetting = onTimetableSetting,
                 onTimetableSocial = onTimetableSocial,
+                onTimetableHistory = onTimetableHistory,
                 onAddEvent = onAddEvent
             )
             MainTab.AGENT -> ToolbarTitle(stringResource(R.string.title_agent), titleColor)
@@ -132,6 +160,50 @@ internal fun MainTopBar(
                 onOpenDrawer = onOpenDrawer
             )
         }
+    }
+}
+
+@Composable
+private fun TodayToolbarTitle(heading: String, secondary: String, avatar: String?, headingColor: Color,
+    secondaryColor: Color, onOpenDrawer: () -> Unit) {
+    Row(Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp),
+        verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text(heading, fontSize = 22.sp, lineHeight = 28.sp, fontWeight = FontWeight.Bold,
+                fontFamily = HitaTheme.fonts.display, color = headingColor, maxLines = 1,
+                overflow = TextOverflow.Ellipsis)
+            if (secondary.isNotBlank()) {
+                Text(secondary, fontSize = 12.sp, lineHeight = 16.sp, color = secondaryColor, maxLines = 1,
+                    overflow = TextOverflow.Ellipsis)
+            }
+        }
+        val accountLabel = stringResource(R.string.today_account)
+        IconButton(onClick = onOpenDrawer, modifier = Modifier.semantics { contentDescription = accountLabel }) {
+            TodayAvatar(avatar)
+        }
+    }
+}
+
+/** 顶栏头像：与抽屉头部同一套 Glide 加载，没设置头像时用同一个占位图。 */
+@Composable
+private fun TodayAvatar(avatar: String?) {
+    Box(Modifier.size(30.dp).clip(CircleShape)) {
+        AndroidView(
+            modifier = Modifier.fillMaxSize(),
+            factory = { context -> ImageView(context).apply { scaleType = ImageView.ScaleType.FIT_CENTER } },
+            update = { image ->
+                // 同一张头像不重复下单，否则每次重组都会重新解码并闪一下。
+                val source = avatar.orEmpty()
+                if (image.tag != source) {
+                    image.tag = source
+                    if (source.isNotBlank()) {
+                        com.limpu.hitauser.util.ImageUtils.loadAvatarInto(image.context, source, image)
+                    } else {
+                        image.setImageResource(R.drawable.place_holder_avatar)
+                    }
+                }
+            },
+        )
     }
 }
 
@@ -163,16 +235,23 @@ private fun TimetableToolbarTitle(
     showName: Boolean,
     timetableOptions: List<DisplayScopeResolver.ScopeOption>,
     currentScope: DisplayScope?,
-    onTimetableSelected: (Int) -> Unit,
+    onTimetableSelected: (DisplayScope) -> Unit,
+    weekOptionsProvider: () -> List<WeekOption> = { emptyList() },
+    onPickWeek: (Long) -> Unit = {},
     titleColor: Color = MaterialTheme.colorScheme.onSurface,
+    onTitleClick: () -> Unit,
     onWallpaper: () -> Unit,
     onWallpaperLongPress: () -> Unit,
     onTimetableSetting: () -> Unit,
     onTimetableSocial: () -> Unit,
+    onTimetableHistory: () -> Unit,
     onAddEvent: () -> Unit,
 ) {
     var nameMenuExpanded by remember { mutableStateOf(false) }
     var settingsExpanded by remember { mutableStateOf(false) }
+    var weekMenuExpanded by remember { mutableStateOf(false) }
+    // 只在需要时求值：周列表依赖课表学期区间，展开菜单才读一次。
+    var cachedWeeks by remember { mutableStateOf<List<WeekOption>>(emptyList()) }
     val isAppleGlass = HitaTheme.preferenceStyle == ThemeTools.STYLE.APPLE_GLASS
     val isSoraCloud = HitaTheme.preferenceStyle == ThemeTools.STYLE.SORA_CLOUD
     val nameChipShape = if (isSoraCloud) soraCloudCardShape(10.dp) else RoundedCornerShape(12.dp)
@@ -194,7 +273,14 @@ private fun TimetableToolbarTitle(
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(
-            modifier = Modifier.height(56.dp),
+            modifier = Modifier
+                .widthIn(max = 112.dp)
+                .height(56.dp)
+                .clickable {
+                    // 标题与课表名称芯片共用同一个菜单：点标题即打开显示范围 / 周次选择，
+                    // 有可用范围时展开，没有时退回上层的默认处理。
+                    if (timetableOptions.isNotEmpty()) nameMenuExpanded = true else onTitleClick()
+                },
             contentAlignment = Alignment.CenterStart
         ) {
             Text(
@@ -207,7 +293,7 @@ private fun TimetableToolbarTitle(
                 overflow = TextOverflow.Ellipsis
             )
         }
-        AnimatedVisibility(visible = showName && name.isNotBlank()) {
+        AnimatedVisibility(visible = showName && name.isNotBlank(), modifier = Modifier.weight(1f)) {
             Box {
                 Text(
                     text = name,
@@ -245,7 +331,7 @@ private fun TimetableToolbarTitle(
                     expanded = nameMenuExpanded && timetableOptions.isNotEmpty(),
                     onDismissRequest = { nameMenuExpanded = false }
                 ) {
-                    timetableOptions.forEachIndexed { i, option ->
+                    timetableOptions.forEach { option ->
                         val isCurrent = option.scope == currentScope
                         DropdownMenuItem(
                             text = {
@@ -271,23 +357,73 @@ private fun TimetableToolbarTitle(
                             },
                             onClick = {
                                 nameMenuExpanded = false
-                                onTimetableSelected(i)
+                                onTimetableSelected(option.scope)
                             }
+                        )
+                    }
+                    if (timetableOptions.isNotEmpty()) {
+                        androidx.compose.material3.HorizontalDivider()
+                        DropdownMenuItem(
+                            text = {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        text = "按周跳转",
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                    Text(
+                                        text = "按周查看",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                            },
+                            onClick = {
+                                // 先收起范围菜单再开周菜单：两个 DropdownMenu 同时展开会互相遮挡。
+                                nameMenuExpanded = false
+                                cachedWeeks = weekOptionsProvider()
+                                weekMenuExpanded = true
+                            }
+                        )
+                    }
+                }
+                DropdownMenu(
+                    expanded = weekMenuExpanded,
+                    onDismissRequest = { weekMenuExpanded = false },
+                ) {
+                    cachedWeeks.forEach { option ->
+                        DropdownMenuItem(
+                            text = { Text("第 ${option.week} 周") },
+                            onClick = {
+                                weekMenuExpanded = false
+                                onPickWeek(option.mondayMillis)
+                            },
                         )
                     }
                 }
             }
         }
-        Spacer(modifier = Modifier.weight(1f))
-        androidx.compose.material3.IconButton(onClick = onTimetableSocial, modifier = Modifier.size(56.dp)) {
+        if (!showName || name.isBlank()) Spacer(modifier = Modifier.weight(1f))
+        androidx.compose.material3.IconButton(onClick = onTimetableSocial, modifier = Modifier.size(48.dp)) {
             Icon(painterResource(R.drawable.ic_baseline_share_24),
                 contentDescription = stringResource(R.string.timetable_social_title),
                 tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
+        androidx.compose.material3.IconButton(
+            onClick = onTimetableHistory,
+            enabled = currentScope != null,
+            modifier = Modifier.size(48.dp),
+        ) {
+            Icon(
+                painterResource(R.drawable.ic_history_24),
+                contentDescription = stringResource(R.string.timetable_versions_title),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = if (currentScope != null) 1f else 0.38f),
+            )
+        }
         Box {
             val settingsView = LocalView.current
             Box(
-                modifier = Modifier.size(56.dp).combinedClickable(
+                modifier = Modifier.size(48.dp).combinedClickable(
                     role = Role.Button,
                     onClickLabel = stringResource(R.string.timetable_settings_action),
                     onLongClickLabel = stringResource(R.string.timetable_wallpaper),
@@ -316,7 +452,7 @@ private fun TimetableToolbarTitle(
                     onClick = { settingsExpanded = false; onTimetableSetting() })
             }
         }
-        ToolbarIcon(R.drawable.ic_baseline_add_24, onClick = onAddEvent, iconSize = 28.dp)
+        ToolbarIcon(R.drawable.ic_baseline_add_24, onClick = onAddEvent, iconSize = 28.dp, buttonSize = 48.dp)
     }
 }
 
@@ -340,11 +476,12 @@ private fun ToolbarIcon(
     onClick: () -> Unit,
     onLongClick: (() -> Unit)? = null,
     iconSize: Dp = 24.dp,
+    buttonSize: Dp = 56.dp,
 ) {
     val view = LocalView.current
     Box(
         modifier = Modifier
-            .size(56.dp)
+            .size(buttonSize)
             .pointerInput(iconRes) {
                 detectTapGestures(
                     onLongPress = {

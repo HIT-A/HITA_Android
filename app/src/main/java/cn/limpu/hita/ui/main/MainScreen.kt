@@ -17,7 +17,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.ime
-import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBars
@@ -25,7 +24,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsTopHeight
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -34,7 +32,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
@@ -47,10 +44,6 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import cn.limpu.hita.R
-import cn.limpu.hita.ui.design.HitaTheme
-import cn.limpu.hita.ui.design.hitaSoraCloudBackground
-import cn.limpu.hita.ui.design.hitaDeepSpaceBackground
-import cn.limpu.hita.ui.design.hitaSumiBackground
 import com.limpu.style.ThemeTools
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
@@ -72,6 +65,7 @@ internal fun MainScreen(
     val showBlogDot = state.blogDotVisible
     val drawerOpen = state.drawerOpen
     val todayTitle = state.todayTitle
+    val todaySubtitle = state.todaySubtitle
     val timetableTitle = state.timetableTitle
     val timetableName = state.timetableName
     val showTimetableName = state.showTimetableName
@@ -84,6 +78,9 @@ internal fun MainScreen(
     val wallpaperTitleColor = Color(wallpaper.titleColor)
     val wallpaperLabelColor = Color(wallpaper.labelColor)
     val onTimetableSelected = actions.selectTimetable
+    val onTimetableTitleClick = actions.timetableTitleClick
+    val weekOptionsProvider = actions.weekOptions
+    val onPickWeek = actions.pickWeek
     val onSelectTab = actions.selectTab
     val onOpenDrawer = actions.openDrawer
     val onCloseDrawer = actions.closeDrawer
@@ -109,9 +106,6 @@ internal fun MainScreen(
     val drawerWidth = 260.dp
     val drawerWidthPx = with(density) { drawerWidth.toPx() }
     val isAppleGlass = themeStyle == ThemeTools.STYLE.APPLE_GLASS
-    val isSoraCloud = themeStyle == ThemeTools.STYLE.SORA_CLOUD
-    val isDeepSpace = themeStyle == ThemeTools.STYLE.DEEP_SPACE
-    val isSumi = themeStyle == ThemeTools.STYLE.SUMI
     val drawerProgress by animateFloatAsState(
         targetValue = if (drawerOpen) 1f else 0f,
         animationSpec = if (isAppleGlass) {
@@ -132,13 +126,7 @@ internal fun MainScreen(
         -drawerWidthPx * drawerProgress
     }
     val imeVisible = WindowInsets.ime.getBottom(density) > 0
-    val navBottomPx = WindowInsets.navigationBars.getBottom(density)
-    val threeButtonThresholdPx = with(density) { 32.dp.toPx() }
-    val systemNavAvoidance = if (navBottomPx >= threeButtonThresholdPx) {
-        with(density) { navBottomPx.toDp() } + 8.dp
-    } else {
-        12.dp
-    }
+    val systemNavAvoidance = pillBarBottomPadding(rememberMainNavigationBottom())
     val hazeState = remember { HazeState() }
     val liquidGlassBackdrop = rememberLayerBackdrop()
     val liquidGlassBackdropHandle = remember(liquidGlassBackdrop) {
@@ -156,27 +144,11 @@ internal fun MainScreen(
     )
     var showRewardCode by remember { mutableStateOf(false) }
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .then(if (useGlobalHaze) Modifier.haze(hazeState) else Modifier)
-                .then(if (isAppleGlass) Modifier.layerBackdrop(liquidGlassBackdrop) else Modifier)
-        ) {
-            if (isAppleGlass) {
-                AppleGlassBackground()
-            } else if (isSoraCloud) {
-                SoraCloudBackground()
-            } else if (isDeepSpace) {
-                DeepSpaceBackground()
-            } else if (isSumi) {
-                SumiBackground()
-            }
-
+    MainThemeBackground(
+        captureModifier = Modifier
+            .then(if (useGlobalHaze) Modifier.haze(hazeState) else Modifier)
+            .then(if (isAppleGlass) Modifier.layerBackdrop(liquidGlassBackdrop) else Modifier),
+        page = {
             // 用户壁纸只属于课表，不应透到“今日 / 助手 / 资讯 / 功能”页的状态栏区域。
             if (timetableWallpaper != null) {
                 Box(modifier = Modifier.fillMaxSize().graphicsLayer { alpha = wallpaperAlpha }) {
@@ -218,12 +190,17 @@ internal fun MainScreen(
                 MainTopBar(
                     selectedTabId = selectedTabId,
                     todayTitle = todayTitle,
+                    todaySubtitle = todaySubtitle,
+                    todayAvatar = drawerState.avatar,
                     timetableTitle = timetableTitle,
                     timetableName = timetableName,
                     showTimetableName = showTimetableName,
                     timetableOptions = timetableOptions,
                     currentScope = currentScope,
                     onTimetableSelected = onTimetableSelected,
+                    onTimetableTitleClick = onTimetableTitleClick,
+                    weekOptionsProvider = weekOptionsProvider,
+                    onPickWeek = onPickWeek,
                     themeIcon = themeIcon,
                     wallpaperAlpha = wallpaperAlpha,
                     wallpaperTitleColor = wallpaperTitleColor,
@@ -233,6 +210,7 @@ internal fun MainScreen(
                     onWallpaperLongPress = onWallpaperLongPress,
                     onTimetableSetting = onTimetableSetting,
                     onTimetableSocial = onTimetableSocial,
+                    onTimetableHistory = actions.timetableHistory,
                     onAddEvent = onAddEvent,
                     onSystemBars = actions.systemBars,
                 )
@@ -245,9 +223,8 @@ internal fun MainScreen(
                     tabContent(state.navigation.selectedTab, visibleTabs, Modifier.fillMaxSize())
                 }
             }
-        }
-
-
+        },
+    ) {
         if (!imeVisible) {
             val tabBarAlpha = if (showTimetableWallpaper) 0.72f else 1f
             val drawerFollow = Modifier.graphicsLayer {
@@ -351,79 +328,4 @@ internal fun MainScreen(
             )
         }
     }
-}
-
-@Composable
-private fun AppleGlassBackground() {
-    val colors = if (HitaTheme.isDark) {
-        listOf(
-            Color(0xFF080B10),
-            Color(0xFF111823),
-            Color(0xFF0C1017),
-        )
-    } else {
-        listOf(
-            Color(0xFFF5F9FE),
-            Color(0xFFEAF3FC),
-            Color(0xFFEFF7FF),
-        )
-    }
-    val atmosphere = if (HitaTheme.isDark) {
-        listOf(
-            Color.White.copy(alpha = 0.42f),
-            Color.Transparent,
-            MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
-        )
-    } else {
-        listOf(
-            Color.White.copy(alpha = 0.20f),
-            MaterialTheme.colorScheme.primary.copy(alpha = 0.045f),
-            Color(0xFF9CCBFA).copy(alpha = 0.16f)
-        )
-    }
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(
-                Brush.verticalGradient(
-                    colors = colors
-                )
-            )
-    )
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(
-                Brush.linearGradient(
-                    colors = atmosphere
-                )
-            )
-    )
-}
-
-@Composable
-private fun SoraCloudBackground() {
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .hitaSoraCloudBackground()
-    )
-}
-
-@Composable
-private fun DeepSpaceBackground() {
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .hitaDeepSpaceBackground()
-    )
-}
-
-@Composable
-private fun SumiBackground() {
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .hitaSumiBackground()
-    )
 }

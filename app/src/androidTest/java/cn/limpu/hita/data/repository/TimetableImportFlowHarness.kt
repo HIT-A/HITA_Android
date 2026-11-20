@@ -37,6 +37,7 @@ internal class TimetableImportFlowHarness(campus: EASToken.Campus = EASToken.Cam
     val preferences = EasPreferenceSource(application).also { it.saveEasToken(token) }
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     val state = preferences.querySessionState
+    val examReads = ExamReadStateStore.forSession(state, scope)
     val inProgress = AtomicBoolean()
     val calls = CopyOnWriteArrayList<String>()
     @Volatile var onSql: (String) -> Unit = {}
@@ -88,6 +89,7 @@ internal class TimetableImportFlowHarness(campus: EASToken.Campus = EASToken.Cam
         timetableGroupDao = database.timetableGroupDao(),
         examImportRepository = ExamImportRepository(database),
         autoGroupImportedTimetable = {},
+        examReads = examReads,
     )
 
     fun session(): EasQuerySession {

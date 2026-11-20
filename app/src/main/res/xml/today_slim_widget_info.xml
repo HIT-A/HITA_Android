@@ -7,6 +7,7 @@
     android:previewImage="@drawable/widget_slim_preview"
     android:resizeMode="vertical|horizontal"
     android:updatePeriodMillis="0"
-    android:widgetCategory="home_screen" />
+    android:widgetCategory="home_screen"
+    android:configure="cn.limpu.hita.ui.widgets.WidgetConfigureActivity" />
 
     <!--    android:configure="com.zj.weather.common.widget.WeatherWidgetConfigureActivity"-->

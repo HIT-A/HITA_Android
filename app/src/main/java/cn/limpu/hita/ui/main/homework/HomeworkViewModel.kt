@@ -9,6 +9,7 @@ import androidx.lifecycle.viewModelScope
 import cn.limpu.hita.data.model.eas.EASToken
 import cn.limpu.hita.data.repository.EASRepository
 import cn.limpu.hita.data.repository.homework.HomeworkRepository
+import cn.limpu.hita.data.repository.geniusta.GeniusTaRepository
 import cn.limpu.hita.data.repository.grader.GraderRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.time.LocalDate
@@ -19,6 +20,7 @@ import kotlinx.coroutines.launch
 class HomeworkViewModel @Inject constructor(
     private val repository: HomeworkRepository,
     private val graderRepository: GraderRepository,
+    private val geniusTaRepository: GeniusTaRepository,
     easRepository: EASRepository,
 ) : ViewModel() {
     val state = repository.state
@@ -27,13 +29,9 @@ class HomeworkViewModel @Inject constructor(
     private val mutableToday = MutableLiveData(LocalDate.now().toString())
     val today: LiveData<String> = mutableToday
     val graderState = graderRepository.state
+    val geniusTaState = geniusTaRepository.state
 
-    /**
-     * 评阅系统（grader.hitsz.edu.cn）只对深圳校区已登录学生开放；
-     * 未登录或非深圳校区时整块入口（登录卡片 + 待评任务列表）都不渲染。
-     * 数据源是 EAS token 的 LiveData，退出登录会 publish 空 token，UI 立即收起。
-     * 初始值直接取 getEasToken()，避免首帧闪出登录卡片。
-     */
+    /** Grader 入口沿用深圳教务登录条件；GeniusTA 使用独立账号。 */
     val graderVisible: LiveData<Boolean> = MediatorLiveData<Boolean>().apply {
         value = easRepository.getEasToken().isGraderAvailable()
         addSource(easRepository.observeEasToken()) { value = it.isGraderAvailable() }
@@ -41,16 +39,20 @@ class HomeworkViewModel @Inject constructor(
     private val mutableNow = MutableLiveData(System.currentTimeMillis())
     val now: LiveData<Long> = mutableNow
 
-    /** 同一可见期内只加载一次 Grader 数据；入口收起（退登/切校区）后重置，重新可见时再触发。 */
-    private var graderLoadedForVisiblePeriod = false
+    // 同一个可见期只加载一次，避免在入口隐藏时访问平台。
+    private var loadedForVisiblePeriod = false
+    private val graderReadConsumer = "homework:${System.identityHashCode(this)}"
 
     private val graderVisibilityObserver = Observer<Boolean> { visible ->
+        graderRepository.readCoordinator.setVisible(graderReadConsumer, visible)
         if (!visible) {
-            graderLoadedForVisiblePeriod = false
-        } else if (!graderLoadedForVisiblePeriod) {
-            graderLoadedForVisiblePeriod = true
+            loadedForVisiblePeriod = false
+        } else if (!loadedForVisiblePeriod) {
+            loadedForVisiblePeriod = true
             viewModelScope.launch {
-                if (graderRepository.reload() && graderState.value?.accountId != null) {
+                if (graderRepository.readCoordinator.load(graderReadConsumer) &&
+                    graderVisible.value == true && graderState.value?.accountId != null
+                ) {
                     graderRepository.refresh()
                 }
             }
@@ -59,13 +61,18 @@ class HomeworkViewModel @Inject constructor(
 
     init {
         reload()
-        // 入口不可见（未登录/非深圳）时不发起 Grader 请求；转入可见时才 reload/refresh。
         graderVisible.observeForever(graderVisibilityObserver)
+        viewModelScope.launch {
+            if (geniusTaRepository.reload() && geniusTaState.value?.needsLogin == false) {
+                geniusTaRepository.refresh()
+            }
+        }
     }
 
     override fun onCleared() {
         super.onCleared()
         graderVisible.removeObserver(graderVisibilityObserver)
+        graderRepository.readCoordinator.setVisible(graderReadConsumer, false)
     }
 
     fun refreshToday() {
@@ -78,16 +85,43 @@ class HomeworkViewModel @Inject constructor(
     fun save(id: String?, title: String, date: String, time: String = "23:59", onSaved: () -> Unit) = update(onSaved) {
         if (id == null) repository.add(title, date, time) else repository.edit(id, title, date, time)
     }
-    fun complete(id: String, completed: Boolean, onCompleted: (() -> Unit)? = null) =
-        update(onCompleted) { repository.setCompleted(id, completed) }
+    internal fun complete(key: TodoKey, completed: Boolean, onCompleted: (() -> Unit)? = null) {
+        when (key) {
+            is TodoKey.Personal -> update(onCompleted) { repository.setCompleted(key.id, completed) }
+            is TodoKey.Imported -> viewModelScope.launch {
+                val success = when (key.platform) {
+                    TodoPlatform.GRADER -> graderRepository.setCompleted(key.accountId, key.id, completed)
+                    TodoPlatform.GENIUSTA -> geniusTaRepository.setCompleted(key.accountId, key.id, completed)
+                }
+                if (success) onCompleted?.invoke()
+            }
+        }
+    }
     fun delete(id: String, onDeleted: () -> Unit) = update(onDeleted) { repository.delete(id) }
 
     fun refreshGrader() {
         viewModelScope.launch { graderRepository.refresh() }
     }
 
-    fun completeGrader(id: String, completed: Boolean) {
-        viewModelScope.launch { graderRepository.setCompleted(id, completed) }
+    internal suspend fun shouldOpenGraderLoginAfterRetry(): Boolean =
+        !graderRepository.refresh() && graderVisible.value == true &&
+            graderState.value?.let { !it.syncing && it.error != null } == true
+
+    fun connectGeniusTa(username: String, password: String, onConnected: () -> Unit) {
+        viewModelScope.launch {
+            if (geniusTaRepository.connect(username, password)) onConnected()
+        }
+    }
+
+    fun refreshGeniusTa() {
+        viewModelScope.launch { geniusTaRepository.refresh() }
+    }
+
+    internal suspend fun shouldOpenGeniusTaLoginAfterRetry(): Boolean =
+        !geniusTaRepository.refresh() && geniusTaState.value?.let { !it.syncing && it.error != null } == true
+
+    fun disconnectGeniusTa() {
+        viewModelScope.launch { geniusTaRepository.disconnect() }
     }
 
     fun disconnectGrader(onDisconnected: () -> Unit) {
@@ -109,6 +143,5 @@ class HomeworkViewModel @Inject constructor(
     }
 }
 
-/** 评阅系统入口条件：EAS 已登录且为深圳校区。 */
 private fun EASToken?.isGraderAvailable(): Boolean =
     this?.let { it.isLogin() && it.campus == EASToken.Campus.SHENZHEN } ?: false

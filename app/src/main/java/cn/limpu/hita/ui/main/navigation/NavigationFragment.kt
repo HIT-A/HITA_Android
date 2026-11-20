@@ -65,6 +65,7 @@ import cn.limpu.hita.data.repository.EASRepository
 import cn.limpu.hita.data.source.preference.CourseReminderStore
 import cn.limpu.hita.data.source.preference.OptionalTabFeatures
 import cn.limpu.hita.data.source.preference.OptionalTabStore
+import cn.limpu.hita.data.work.ExamReminderScheduler
 import cn.limpu.hita.data.work.CourseReminderScheduler
 import cn.limpu.hita.feature.livecourse.guard.LiveCourseGuardService
 import cn.limpu.hita.feature.livecourse.scheduler.LiveCourseScheduler
@@ -105,6 +106,8 @@ class NavigationFragment : androidx.fragment.app.Fragment() {
 
     private val viewModel: NavigationViewModel by viewModels()
     private var reminderEnabledState by mutableStateOf(false)
+    /** 当前提醒规则的一句话摘要，随设置页返回后刷新。 */
+    private var reminderRuleSummaryState by mutableStateOf("")
     private var liveCourseEnabledState by mutableStateOf(false)
     private var liveCourseStrongReminderState by mutableStateOf(false)
     private var usageAnalyticsEnabledState by mutableStateOf(true)
@@ -147,6 +150,7 @@ class NavigationFragment : androidx.fragment.app.Fragment() {
         reminderEnabledState = CourseReminderStore(requireContext()).isEnabled()
         usageAnalyticsEnabledState = UsageAnalyticsClient.isEnabled(requireContext())
         optionalTabFeaturesState = OptionalTabStore(requireContext()).features()
+        reminderRuleSummaryState = reminderRuleSummary(requireContext())
         LiveCourseSettings(requireContext()).also { settings ->
             liveCourseEnabledState = settings.isEnabled()
             liveCourseStrongReminderState = settings.isStrongReminderEnabled()
@@ -163,6 +167,10 @@ class NavigationFragment : androidx.fragment.app.Fragment() {
                         optionalTabFeatures = optionalTabFeaturesState,
                         reminderEnabled = reminderEnabledState,
                         onToggleReminder = { toggleCourseReminder(!reminderEnabledState) },
+                        reminderRuleSummary = reminderRuleSummaryState,
+                        onOpenReminderSettings = {
+                            ActivityUtils.startActivity(requireContext(), cn.limpu.hita.ui.settings.CourseReminderSettingsActivity::class.java)
+                        },
                         liveCourseEnabled = liveCourseEnabledState,
                         onToggleLiveCourse = { toggleLiveCourse(!liveCourseEnabledState) },
                         onOpenLiveCourseSystemSettings = { openLiveCourseSystemSettings() },
@@ -176,6 +184,19 @@ class NavigationFragment : androidx.fragment.app.Fragment() {
                             ActivityUtils.startActivity(requireContext(), MoreFeaturesActivity::class.java)
                         },
                         onOpenNotices = { openNotices() },
+                        onOpenCampusExtension = { extension ->
+                            val target = when (extension) {
+                                CampusExtension.CAMPUS_CARD ->
+                                    cn.limpu.hita.ui.campus.CampusCardActivity::class.java
+                                CampusExtension.SILENT_POD ->
+                                    cn.limpu.hita.ui.campus.SilentPodActivity::class.java
+                                CampusExtension.LIBRARY ->
+                                    cn.limpu.hita.ui.campus.UniversityTownLibraryActivity::class.java
+                                CampusExtension.LAB_CENTER ->
+                                    cn.limpu.hita.ui.campus.LabCenterActivity::class.java
+                            }
+                            ActivityUtils.startActivity(requireContext(), target)
+                        },
                         onAvatarClick = { showAvatarPicker() },
                         onUserClick = { openUserCard() },
                         onTimetableManager = { ActivityUtils.startTimetableManager(requireContext()) },
@@ -209,6 +230,8 @@ class NavigationFragment : androidx.fragment.app.Fragment() {
     override fun onStart() {
         super.onStart()
         reminderEnabledState = CourseReminderStore(requireContext()).isEnabled()
+        // 设置页可能改了规则；回到本页时必须重算摘要，否则界面显示的是旧值。
+        reminderRuleSummaryState = reminderRuleSummary(requireContext())
         LiveCourseSettings(requireContext()).also { settings ->
             liveCourseEnabledState = settings.isEnabled()
             liveCourseStrongReminderState = settings.isStrongReminderEnabled()
@@ -325,8 +348,31 @@ class NavigationFragment : androidx.fragment.app.Fragment() {
             reminderEnabledState = false
             CourseReminderStore(requireContext()).setEnabled(false)
             CourseReminderScheduler.autoSchedule(requireContext())
+            ExamReminderScheduler.autoSchedule(requireContext())
             Toast.makeText(requireContext(), "课程提醒已关闭", Toast.LENGTH_SHORT).show()
         }
+    }
+
+    /**
+     * 把规则翻成一句可读摘要。
+     *
+     * 只读 `leads.first()`：UI 只允许单档课前提醒，多档会让同一节课连发多条。
+     */
+    private fun reminderRuleSummary(context: android.content.Context): String {
+        val rules = CourseReminderStore(context).rules()
+        val start = rules.leads.firstOrNull()
+        val end = rules.endLeads.firstOrNull()
+        val startText = when {
+            start == null -> "课前提醒已关闭"
+            start == 0 -> "上课时提醒"
+            else -> "课前 ${start} 分钟提醒"
+        }
+        val endText = when {
+            end == null -> null
+            end == 0 -> "下课时提醒"
+            else -> "下课前 ${end} 分钟提醒"
+        }
+        return (listOf(startText) + listOfNotNull(endText)).joinToString(" · ")
     }
 
     private fun enableCourseReminder() {
@@ -334,7 +380,9 @@ class NavigationFragment : androidx.fragment.app.Fragment() {
         val reminderStore = CourseReminderStore(requireContext())
         reminderStore.setEnabled(true)
         CourseReminderScheduler.autoSchedule(requireContext())
-        Toast.makeText(requireContext(), "课程提醒已开启（上课前15分钟提醒）", Toast.LENGTH_SHORT).show()
+        ExamReminderScheduler.autoSchedule(requireContext())
+        reminderRuleSummaryState = reminderRuleSummary(requireContext())
+        Toast.makeText(requireContext(), "提醒已开启", Toast.LENGTH_SHORT).show()
     }
 
     private fun toggleLiveCourse(enable: Boolean) {
@@ -485,12 +533,15 @@ private fun NavigationScreen(
     onCourseSubmit: () -> Unit,
     onUsefulLinks: () -> Unit,
     onToggleReminder: () -> Unit,
+    reminderRuleSummary: String,
+    onOpenReminderSettings: () -> Unit,
     onToggleLiveCourse: () -> Unit,
     onOpenLiveCourseSystemSettings: () -> Unit,
     onToggleLiveCourseStrongReminder: () -> Unit,
     onToggleUsageAnalytics: () -> Unit,
     onOpenMoreFeatures: () -> Unit,
     onOpenNotices: () -> Unit,
+    onOpenCampusExtension: (CampusExtension) -> Unit,
 ) {
     val tokens = HitaTheme.tokens
     // 「更多功能」副标题只列底栏当前真实显示的模块：直接复用 MainTab.visibleFor，
@@ -540,6 +591,24 @@ private fun NavigationScreen(
                 .padding(horizontal = tokens.spacing.lg)
                 .height(80.dp)
         )
+        // 扩展：深圳校区的已登录账号才有。全部不可用时整栏不渲染，
+        // 与「更多」页其它分组保持一致（不留空标题）。
+        val campusExtensions = CampusExtension.available(
+            campus = easToken.campus,
+            loggedIn = easToken.isLogin(),
+        )
+        if (campusExtensions.isNotEmpty()) {
+            NavigationGroup(title = stringResource(R.string.extension_section_title)) {
+                campusExtensions.forEach { extension ->
+                    NavigationRow(
+                        icon = extension.iconRes,
+                        title = stringResource(extension.titleRes),
+                        subtitle = stringResource(extension.subtitleRes),
+                        onClick = { onOpenCampusExtension(extension) },
+                    )
+                }
+            }
+        }
         NavigationGroup(title = stringResource(R.string.navi_jw_title)) {
             NavigationRow(icon = R.drawable.ic_baseline_today_24, title = stringResource(R.string.ade_exam), onClick = onExam)
             NavigationRow(icon = R.drawable.ic_baseline_format_list_bulleted_24, title = stringResource(R.string.jw_tabs_cj), onClick = onScores)
@@ -588,8 +657,9 @@ private fun NavigationScreen(
             NavigationRow(
                 icon = R.drawable.ic_baseline_access_alarm_24,
                 title = "课程提醒",
-                subtitle = "上课前15分钟提醒",
-                onClick = onToggleReminder,
+                // 文案反映当前实际规则，避免固定写「15 分钟」与实际设置不一致。
+                subtitle = reminderRuleSummary,
+                onClick = onOpenReminderSettings,
                 trailing = {
                     Switch(
                         checked = reminderEnabled,
@@ -641,6 +711,33 @@ private fun NavigationScreen(
                         tint = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
+            )
+            val resetContext = LocalContext.current
+            val resetCoordinator = remember { cn.limpu.hita.data.repository.AppResetCoordinator(resetContext) }
+            NavigationRow(
+                icon = R.drawable.ic_baseline_delete_24,
+                title = "重置本地设置",
+                subtitle = "恢复提醒、显示范围、搜索历史等默认值",
+                danger = true,
+                onClick = {
+                    MaterialAlertDialogBuilder(resetContext)
+                        .setTitle("重置本地设置？")
+                        .setMessage(
+                            "会清除：" + resetCoordinator.affectedLabels().joinToString("、") +
+                                "。\n\n课表、课程、账号与登录状态不受影响，重置后需重新设置。"
+                        )
+                        .setPositiveButton("重置") { _, _ ->
+                            val report = resetCoordinator.reset()
+                            val text = if (report.isFullSuccess) {
+                                "已重置 ${report.cleared.size} 项设置"
+                            } else {
+                                "已重置 ${report.cleared.size} 项，未清除：" + report.failed.joinToString("、")
+                            }
+                            Toast.makeText(resetContext, text, Toast.LENGTH_LONG).show()
+                        }
+                        .setNegativeButton(R.string.cancel, null)
+                        .show()
+                },
             )
         }
         Spacer(modifier = Modifier.height(tokens.spacing.xl))

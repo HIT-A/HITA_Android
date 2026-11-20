@@ -3,6 +3,8 @@ package cn.limpu.hita.agent.llm
 import android.app.Application
 import cn.limpu.hita.agent.core.AgentProvider
 import cn.limpu.hita.agent.core.AgentTraceEvent
+import cn.limpu.hita.agent.tools.ConfirmationGate
+import cn.limpu.hita.agent.tools.ConfirmationRequestCodec
 import cn.limpu.hita.agent.tools.ReActToolInput
 import cn.limpu.hita.agent.tools.ReActToolRegistry
 import cn.limpu.hita.agent.timetable.TimetableAgentInput
@@ -30,6 +32,11 @@ object LlmChatService {
         agentProvider: AgentProvider<TimetableAgentInput, TimetableAgentOutput>,
         onTrace: (AgentTraceEvent) -> Unit,
         onResult: (LlmChatResult) -> Unit,
+        /**
+         * 写操作确认通道。调用方（聊天页面）负责把请求转成对话框并把用户选择回传；
+         * 默认 [ConfirmationGate.unavailable] 时写工具拒绝落盘。
+         */
+        confirmationGate: ConfirmationGate = ConfirmationGate.unavailable,
     ) {
         withContext(Dispatchers.IO) {
             try {
@@ -61,6 +68,7 @@ object LlmChatService {
                     onResourceCards = { cards ->
                         resourceCards.addUnique(cards)
                     },
+                    confirmationGate = confirmationGate,
                 )
                 if (reactResult == null) {
                     return@withContext emitResultToMain(onResult, LlmChatResult.Error(error = "本地 AI 推理失败"))
@@ -86,6 +94,7 @@ object LlmChatService {
         agentProvider: AgentProvider<TimetableAgentInput, TimetableAgentOutput>,
         onTrace: (AgentTraceEvent) -> Unit,
         onResourceCards: (List<AgentResourceCard>) -> Unit,
+        confirmationGate: ConfirmationGate,
     ): Pair<String, String>? {
         val messages = mutableListOf(
             ChatMessage(role = "system", content = contextMessage),
@@ -204,6 +213,20 @@ object LlmChatService {
                     thinking
                 )
             }
+            // 写工具需要一个通道把待确认请求交给 UI：这里包一层确认门，
+            // 工具询问确认时先把请求发到 trace，聊天页据此弹出对话框并把选择回传。
+            // 真正的「执行/拒绝」判定仍由 WriteConfirmation 统一做。
+            val wrappingGate = ConfirmationGate { request ->
+                emitTraceToMain(
+                    onTrace,
+                    AgentTraceEvent(
+                        stage = ConfirmationRequestCodec.STAGE,
+                        message = request.title,
+                        payload = ConfirmationRequestCodec.encode(request),
+                    ),
+                )
+                confirmationGate.request(request)
+            }
             val observation = toolRegistry.get(parsed.action)
                 ?.execute(ReActToolInput(
                     actionInput = parsed.actionInput,
@@ -214,6 +237,7 @@ object LlmChatService {
                     agentProvider = agentProvider,
                     onTrace = onTrace,
                     onResourceCards = onResourceCards,
+                    confirmationGate = wrappingGate,
                 ))
                 ?: "未知工具：${toolDisplayName(parsed.action)}"
             runCatching {

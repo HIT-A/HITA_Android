@@ -171,9 +171,21 @@ class CourseReadmeActivity : AppCompatActivity() {
     }
 
     private fun openLink(link: String) {
+        // 课程资料里的链接常来自第三方 README；只允许白名单 https 目标，
+        // 其余提示并保留复制能力，避免任意 scheme 或站外跳转。
+        val target = cn.limpu.hita.ui.subject.ExternalLinkPolicy.allowed(link)
+        if (target == null) {
+            val clipboard = getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+            clipboard.setPrimaryClip(android.content.ClipData.newPlainText(link, link))
+            android.widget.Toast.makeText(
+                this,
+                getString(R.string.external_link_unsupported) + " · " + getString(R.string.external_link_copied),
+                android.widget.Toast.LENGTH_SHORT,
+            ).show()
+            return
+        }
         runCatching {
-            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(link))
-            startActivity(intent)
+            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(target)))
         }
     }
 }
@@ -352,6 +364,8 @@ private fun ReadmeContent(
                     setTextColor(textColor)
                     movementMethod = LinkMovementMethod.getInstance()
                     linksClickable = true
+                    // 可选中：README 里的命令、代码片段与链接可直接长按复制。
+                    setTextIsSelectable(true)
                 }
             },
             update = { textView ->

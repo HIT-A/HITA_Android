@@ -8,6 +8,7 @@ import cn.limpu.hita.data.model.timetable.Timetable
 import cn.limpu.hita.data.repository.ScheduleEventCreator
 import cn.limpu.hita.data.repository.TimetableWriteOperation
 import cn.limpu.hita.data.repository.TimetableWriteStore
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertThrows
@@ -395,6 +396,29 @@ class TimetableWriteUseCaseTest {
 
         assertEquals(2, harness.results.size)
         assertTrue(harness.results.all { it.isSuccess })
+    }
+
+    @Test
+    fun `restore reports failure without refreshing widgets when persistence rejects stale history`() {
+        val harness = Harness()
+        harness.store.onWrite = { throw IllegalStateException("stale deletion") }
+        harness.useCase.restoreDeleted("table", "history", harness::recordResult)
+        harness.repositoryQueue.runAll()
+        harness.deliveries.runAll()
+        assertEquals(1, harness.results.size)
+        assertTrue(harness.results.single().isFailure)
+        assertFalse(harness.trace.contains("refresh"))
+    }
+
+    @Test
+    fun `restore refreshes widgets after persistence and then delivers success`() {
+        val harness = Harness()
+        harness.useCase.restoreDeleted("table", "history", harness::recordResult)
+        harness.repositoryQueue.runAll()
+        assertEquals(TimetableWriteOperation.RestoreDeleted("table", "history"), harness.store.operations.single())
+        assertEquals(listOf("write", "refresh"), harness.trace)
+        harness.deliveries.runAll()
+        assertTrue(harness.results.single().isSuccess)
     }
 
     private class Harness {

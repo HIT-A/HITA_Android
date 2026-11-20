@@ -82,8 +82,13 @@ internal fun NavigationRow(
     subtitle: String = "",
     onClick: () -> Unit,
     trailing: @Composable (() -> Unit)? = null,
+    danger: Boolean = false,
 ) {
     val tokens = HitaTheme.tokens
+    // 危险入口只换前景色，布局与普通行完全一致；取色来自主题 error 令牌，
+    // 深浅色模式由 MaterialTheme 统一给出对比度，不做硬编码分叉。
+    val titleColor = if (danger) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
+    val subtitleColor = if (danger) MaterialTheme.colorScheme.error.copy(alpha = 0.8f) else MaterialTheme.colorScheme.onSurfaceVariant
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -100,7 +105,7 @@ internal fun NavigationRow(
         ) {
             Text(
                 text = title,
-                color = MaterialTheme.colorScheme.onSurface,
+                color = titleColor,
                 fontSize = 14.sp,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
@@ -108,7 +113,7 @@ internal fun NavigationRow(
             if (subtitle.isNotBlank()) {
                 Text(
                     text = subtitle,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = subtitleColor,
                     fontSize = 12.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,

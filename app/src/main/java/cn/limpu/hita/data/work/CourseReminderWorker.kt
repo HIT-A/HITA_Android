@@ -11,6 +11,7 @@ import androidx.core.app.NotificationCompat
 import androidx.work.Worker
 import androidx.work.WorkerParameters
 import cn.limpu.hita.R
+import cn.limpu.hita.data.model.timetable.EventItem
 import cn.limpu.hita.data.repository.DisplayScopeResolver
 import cn.limpu.hita.data.repository.TimetableRepository
 import cn.limpu.hita.data.source.preference.CourseReminderStore
@@ -18,11 +19,11 @@ import cn.limpu.hita.ui.main.MainActivity
 import cn.limpu.hita.utils.TimeTools
 import kotlinx.coroutines.runBlocking
 import java.util.Calendar
-import kotlin.math.max
 
 /**
- * 课程提醒 Worker
- * 每15分钟检查一次是否有即将开始的课程
+ * 课程提醒 Worker。
+ *
+ * 一次运行只处理当前已经到期的（事件, 档位），然后把下一次触发点排进同一条一次性链。
  */
 class CourseReminderWorker(appContext: Context, params: WorkerParameters) : Worker(appContext, params) {
 
@@ -30,137 +31,118 @@ class CourseReminderWorker(appContext: Context, params: WorkerParameters) : Work
         val store = CourseReminderStore(applicationContext)
         if (!store.isEnabled()) return Result.success()
 
-        val minutes = store.getReminderMinutes()
         val app = applicationContext as? Application ?: return Result.success()
-        val timetableRepo = TimetableRepository(app)
-        // 跟随主课表显示目标:只提醒当前显示课表/组合内的课程。
-        val scopeIds = DisplayScopeResolver(app).currentSync()?.timetableIds.orEmpty()
-
+        val rules = store.rules()
         val now = System.currentTimeMillis()
-        val windowEnd = now + minutes * 60 * 1000
+        val scopeIds = DisplayScopeResolver(app).currentSync()?.timetableIds.orEmpty()
+        val events = runBlocking {
+            TimetableRepository(app).getUpcomingEventsSync(now, now + LOOKAHEAD_WINDOW_MS, scopeIds)
+        }.filter { it.type == EventItem.TYPE.CLASS }
+            .map { it.toReminderEvent() }
 
-        // doWork() 已在后台线程执行，无需 Dispatchers.IO
-        val upcomingDayEvents = runBlocking {
-            timetableRepo.getUpcomingEventsSync(now, now + LOOKAHEAD_WINDOW_MS, scopeIds)
+        val sent = getSentReminders().toMutableSet()
+        val due = CourseReminderSchedule.dueNow(
+            candidates = events.flatMap { event -> CourseReminderSchedule.candidatesFor(event, rules) },
+            now = now,
+            sentKeys = sent,
+        )
+        due.forEach { reminder ->
+            val event = events.first { it.id == reminder.eventId }
+            sendNotification(event, reminder)
+            sent += reminder.key
         }
-        val upcomingEvents = upcomingDayEvents.filter { event ->
-            event.type == cn.limpu.hita.data.model.timetable.EventItem.TYPE.CLASS &&
-                event.from.time in (now + 1)..windowEnd
-        }
+        if (due.isNotEmpty()) saveSentReminders(sent)
 
-        // 获取已发送提醒的课程 ID（使用 SharedPreferences 简单存储）
-        val sentReminders = getSentReminders()
-        val newEvents = upcomingEvents.filter { it.id !in sentReminders }
-
-        if (newEvents.isNotEmpty()) {
-            newEvents.forEach { sendNotification(it) }
-            // 记录已发送提醒
-            saveSentReminders(sentReminders + newEvents.map { it.id })
-        }
-
-        scheduleNextReminderCheck(upcomingDayEvents, now, minutes, sentReminders + newEvents.map { it.id })
+        val next = CourseReminderSchedule.nextDue(events, now, rules, sent)
+        CourseReminderScheduler.scheduleNextCheck(
+            applicationContext,
+            next?.delayMs(now) ?: DEFAULT_RECHECK_DELAY_MS,
+        )
         return Result.success()
     }
 
-    private fun scheduleNextReminderCheck(
-        events: List<cn.limpu.hita.data.model.timetable.EventItem>,
-        now: Long,
-        reminderMinutes: Int,
-        sentReminders: Set<String>
-    ) {
-        val nextEvent = events
-            .asSequence()
-            .filter { it.type == cn.limpu.hita.data.model.timetable.EventItem.TYPE.CLASS }
-            .filter { it.id !in sentReminders }
-            .filter { it.from.time > now }
-            .minByOrNull { it.from.time }
-
-        val delayMs = if (nextEvent == null) {
-            DEFAULT_RECHECK_DELAY_MS
-        } else {
-            max(0L, nextEvent.from.time - reminderMinutes * 60_000L - now)
-        }
-        CourseReminderScheduler.scheduleNextCheck(applicationContext, delayMs)
-    }
-
-    private fun sendNotification(event: cn.limpu.hita.data.model.timetable.EventItem) {
+    private fun sendNotification(event: ReminderEvent, reminder: ReminderDue) {
+        val lead = reminder.lead
         val manager = applicationContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         ensureChannel(manager)
-
         val intent = Intent(applicationContext, MainActivity::class.java).apply {
-            flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
         val pendingIntent = PendingIntent.getActivity(
             applicationContext,
             event.id.hashCode(),
             intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
-
-        val actualMinutes = ((event.from.time - System.currentTimeMillis()) / 60_000L)
-            .coerceAtLeast(1L)
-
-        val title = "即将上课"
-        val content = buildString {
-            append("${event.name}")
-            if (!event.place.isNullOrBlank()) {
-                append(" @ ${event.place}")
-            }
-            append(" 将在 ${actualMinutes}分钟后开始")
+        // 课前按下课剩余时长描述，下课前同样的文案会说不通，因此按 phase 分开算。
+        val isEnd = reminder.phase == ReminderPhase.END
+        val anchorMillis = if (isEnd) (event.endMillis ?: event.startMillis) else event.startMillis
+        val remaining = ((anchorMillis - System.currentTimeMillis()) / 60_000L).coerceAtLeast(0L)
+        val whenText = when {
+            isEnd && remaining == 0L -> "即将下课"
+            isEnd -> "将在 ${remaining}分钟后下课"
+            remaining == 0L -> "即将开始"
+            else -> "将在 ${remaining}分钟后开始"
         }
-
+        val content = buildString {
+            append(event.name)
+            if (event.place.isNotBlank()) append(" @ ${event.place}")
+            append(" ")
+            append(whenText)
+        }
         val notification = NotificationCompat.Builder(applicationContext, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_nav_today)
-            .setContentTitle(title)
+            .setContentTitle(
+                when {
+                    isEnd && lead == 0 -> "课程结束"
+                    isEnd -> "即将下课"
+                    lead == 0 -> "课程开始"
+                    else -> "即将上课"
+                }
+            )
             .setContentText(content)
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_REMINDER)
             .build()
-
-        manager.notify(event.id.hashCode(), notification)
+        manager.notify(reminder.key.hashCode(), notification)
     }
 
     private fun ensureChannel(manager: NotificationManager) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
-                CHANNEL_ID,
-                "课程提醒",
-                NotificationManager.IMPORTANCE_HIGH
-            ).apply {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        manager.createNotificationChannel(
+            NotificationChannel(CHANNEL_ID, "课程提醒", NotificationManager.IMPORTANCE_HIGH).apply {
                 description = "在课程开始前提醒"
                 enableVibration(true)
                 vibrationPattern = longArrayOf(0, 500, 200, 500)
             }
-            manager.createNotificationChannel(channel)
-        }
+        )
     }
 
     private fun getSentReminders(): Set<String> {
         val prefs = applicationContext.getSharedPreferences(SP_NAME, Context.MODE_PRIVATE)
         val today = TimeTools.getDateString(Calendar.getInstance())
-        val savedDate = prefs.getString(KEY_DATE, "")
-        
-        // 如果是新的一天，清空记录
-        return if (savedDate != today) {
-            emptySet()
-        } else {
-            prefs.getStringSet(KEY_SENT_IDS, emptySet()) ?: emptySet()
-        }
+        if (prefs.getString(KEY_DATE, "") != today) return emptySet()
+        return prefs.getStringSet(KEY_SENT_IDS, emptySet()).orEmpty()
     }
 
     private fun saveSentReminders(ids: Set<String>) {
         val prefs = applicationContext.getSharedPreferences(SP_NAME, Context.MODE_PRIVATE)
-        val today = TimeTools.getDateString(Calendar.getInstance())
-        // doWork() runs on a WorkManager background thread, so a blocking write is allowed here
-        // and is the correct choice: `apply` may lose the "already notified" set if the process
-        // dies right after posting a notification, which would re-notify the same course.
         prefs.edit()
             .putStringSet(KEY_SENT_IDS, HashSet(ids))
-            .putString(KEY_DATE, today)
+            .putString(KEY_DATE, TimeTools.getDateString(Calendar.getInstance()))
             .commit()
     }
+
+    private fun EventItem.toReminderEvent() = ReminderEvent(
+        id = id,
+        startMillis = from.time,
+        section = fromNumber.takeIf { it > 0 },
+        name = name,
+        place = place.orEmpty(),
+        endMillis = to.time,
+    )
 
     companion object {
         private const val CHANNEL_ID = "course_reminder"

@@ -20,11 +20,21 @@ import kotlinx.coroutines.launch
 class HomeworkFragment : Fragment() {
     private val viewModel: HomeworkViewModel by viewModels()
 
-    override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View =
-        ComposeView(requireContext()).apply {
+    override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
+        val standaloneHost = activity as? HomeworkActivity
+        return ComposeView(requireContext()).apply {
             setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
-            setContent { HitaComposeTheme { HomeworkScreen(viewModel) } }
+            setContent {
+                HitaComposeTheme {
+                    if (standaloneHost == null) {
+                        HomeworkScreen(viewModel)
+                    } else {
+                        standaloneHost.HomeworkPage { HomeworkScreen(viewModel) }
+                    }
+                }
+            }
         }
+    }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)

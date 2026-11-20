@@ -57,6 +57,11 @@ class AgentChatViewModel @Inject constructor(
     private val jobs = mutableMapOf<Request, Job>()
     private val placeholders = mutableMapOf<Request, AgentChatMessage>()
 
+    /** 写操作确认门；聊天页订阅 [ChatConfirmationGate.state] 弹对话框。 */
+    val confirmationGate = ChatConfirmationGate().also { gate ->
+        gate.sessionIdProvider = { currentSessionId }
+    }
+
     private val _messages = MutableLiveData<List<AgentChatMessage>>(emptyList())
     val messages: LiveData<List<AgentChatMessage>> = _messages
     private val _status = MutableLiveData("")
@@ -278,9 +283,17 @@ class AgentChatViewModel @Inject constructor(
         val operation = UsageAnalyticsClient.begin(UsageAnalyticsEvent.AI_CHAT_STARTED)
         var outcome = "failure"
         try {
-            val result = chatRunner.run(history, media, provider) { trace ->
-                if (!cleared && jobs.containsKey(request) && !delivery.isDeleted(request.sessionId)) showTrace(request, trace, media != null)
-            }
+            val result = chatRunner.run(
+                history = history,
+                media = media,
+                provider = provider,
+                onTrace = { trace ->
+                    if (!cleared && jobs.containsKey(request) && !delivery.isDeleted(request.sessionId)) {
+                        showTrace(request, trace, media != null)
+                    }
+                },
+                confirmationGate = confirmationGate,
+            )
             currentCoroutineContext().ensureActive()
             if (cleared || delivery.isDeleted(request.sessionId)) return
             val final = when (result) {
@@ -336,6 +349,8 @@ class AgentChatViewModel @Inject constructor(
 
     override fun onCleared() {
         cleared = true
+        // 页面销毁时让挂起的确认请求以拒绝收场，避免工具协程永久等待。
+        confirmationGate.cancelAll()
         jobs.values.toList().forEach { it.cancel() }
         jobs.clear()
         placeholders.clear()

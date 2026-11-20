@@ -42,16 +42,21 @@ class TimetableRecoveryProtocolInstrumentedTest {
         }
     }
 
-    @Test fun committedHeldAdoptionReplaysAfterSnapshotPublicationFailure() =
+    @Test fun legacySnapshotOutboxReplaysAfterSnapshotPublicationFailure() =
         TimetableRecoveryTestFixture().use { f ->
             f.seedPendingState()
             val failure = f.denyDirectoryWrites(f.snapshotFile.parentFile!!) {
-                runCatching { f.applier.adoptHeldBatch() }
+                runCatching {
+                    TimetableChangeRecovery(f.application, f.database, f.changes, f.snapshots, TimetableMutationLock()).commit {
+                        f.snapshots.capture(f.owner, f.term, f.table(), TimetableSnapshotKind.BEFORE_USER_ADOPT)
+                        f.changes.consumeHeldBatch()
+                    }
+                }
             }
 
             // The Room commit is durable even though the post-commit snapshot publication failed.
             assertNull("file publication failure must not roll back committed courses", failure.exceptionOrNull())
-            assertEquals(listOf("Incoming"), f.imported().map { it.name })
+            assertEquals(listOf("Original"), f.imported().map { it.name })
             assertEquals(1, f.database.timetableChangeOutboxDao().pending().size)
 
             val restored = f.reconstructFromDurableBytes()
@@ -100,7 +105,8 @@ class TimetableRecoveryProtocolInstrumentedTest {
                 assertTrue(recovery.recover())
                 assertTrue(r.database.timetableChangeOutboxDao().pending().isEmpty())
                 assertNull(r.changes.currentState().heldBatch)
-                assertEquals(1, r.snapshots.snapshots(r.owner, r.term.id).size)
+                assertTrue(r.snapshots.snapshots(r.owner, r.term.id).isEmpty())
+                assertEquals(2, TimetableVersionStore.forApplication(r.application, r.database).list("table").size)
             }
         }
 }

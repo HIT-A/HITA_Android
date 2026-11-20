@@ -2,6 +2,7 @@ package cn.limpu.hita.ui.eas.imp
 
 import android.os.Bundle
 import android.view.HapticFeedbackConstants
+import android.widget.EditText
 import android.widget.Toast
 import androidx.activity.viewModels
 import androidx.compose.foundation.background
@@ -64,6 +65,7 @@ import cn.limpu.hita.data.analytics.UsageAnalyticsDimensions
 import cn.limpu.hita.data.analytics.UsageAnalyticsEvent
 import cn.limpu.hita.data.model.eas.TermItem
 import cn.limpu.hita.data.model.timetable.TimePeriodInDay
+import cn.limpu.hita.data.repository.SnapshotRetention
 import cn.limpu.hita.data.repository.TimetableSnapshotKind
 import cn.limpu.hita.data.repository.TimetableVersionSnapshot
 import cn.limpu.hita.ui.base.ComposeViewBinding
@@ -306,6 +308,9 @@ class ImportTimetableActivity :
                 snapshots = state.data.orEmpty()
             }
         }
+        viewModel.snapshotActionErrorLiveData.observe(this) { message ->
+            if (message != null) Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+        }
         viewModel.restoreSnapshotLiveData.observe(this) { state ->
             when (state.state) {
                 DataState.STATE.SUCCESS -> {
@@ -493,12 +498,96 @@ class ImportTimetableActivity :
                 TimetableSnapshotKind.BEFORE_RESTORE -> "恢复前"
                 TimetableSnapshotKind.BEFORE_USER_ADOPT -> "用户采纳前"
             }
-            "$kind · ${dateFormat.format(Date(snapshot.createdAtMillis))}\n" +
-                "${snapshot.courseCount} 门课程 · ${snapshot.lessonCount} 个课次"
-        }.toTypedArray()
+            val title = snapshot.note.ifBlank { kind }
+            "$title · ${dateFormat.format(Date(snapshot.createdAtMillis))}\n" +
+                "$kind · ${snapshot.courseCount} 门课程 · ${snapshot.lessonCount} 个课次"
+        }
+        val listView = android.widget.ListView(this).apply {
+            adapter = object : android.widget.BaseAdapter() {
+                override fun getCount() = labels.size
+                override fun getItem(position: Int) = labels[position]
+                override fun getItemId(position: Int) = position.toLong()
+                override fun getView(position: Int, convertView: android.view.View?, parent: android.view.ViewGroup?): android.view.View {
+                    val view = convertView ?: android.widget.TextView(this@ImportTimetableActivity).apply {
+                        val padH = (20 * resources.displayMetrics.density).toInt()
+                        val padV = (14 * resources.displayMetrics.density).toInt()
+                        setPadding(padH, padV, padH, padV)
+                        setTextAppearance(android.R.style.TextAppearance_Material_Body1)
+                    }
+                    (view as android.widget.TextView).text = labels[position]
+                    return view
+                }
+            }
+            setOnItemClickListener { _, _, position, _ -> confirmRestoreSnapshot(snapshots[position]) }
+            setOnItemLongClickListener { _, _, position, _ ->
+                showSnapshotActions(snapshots[position])
+                true
+            }
+        }
         AlertDialog.Builder(this)
-            .setTitle("课表版本记录")
-            .setItems(labels) { _, index -> confirmRestoreSnapshot(snapshots[index]) }
+            .setTitle(R.string.timetable_versions_legacy)
+            .setView(listView)
+            .setMessage("点击版本恢复；长按可改备注或删除")
+            .setNeutralButton("保留上限") { _, _ -> chooseSnapshotRetention() }
+            .setNegativeButton(R.string.cancel, null)
+            .show()
+    }
+
+    /** 长按列表项进入备注 / 删除；列表本身保持「点一下就是恢复」的主路径。 */
+    private fun showSnapshotActions(snapshot: TimetableVersionSnapshot) {
+        val options = arrayOf(
+            if (snapshot.note.isBlank()) "添加备注" else "修改备注",
+            "删除这个版本",
+        )
+        AlertDialog.Builder(this)
+            .setTitle("管理这个版本")
+            .setItems(options) { _, which ->
+                when (which) {
+                    0 -> editSnapshotNote(snapshot)
+                    else -> confirmDeleteSnapshot(snapshot)
+                }
+            }
+            .setNegativeButton(R.string.cancel, null)
+            .show()
+    }
+
+    private fun editSnapshotNote(snapshot: TimetableVersionSnapshot) {
+        val input = EditText(this).apply {
+            setText(snapshot.note)
+            hint = "例如：期末备份、换教材前"
+            setSingleLine(true)
+        }
+        AlertDialog.Builder(this)
+            .setTitle("版本备注")
+            .setView(input)
+            .setPositiveButton("保存") { _, _ -> viewModel.setSnapshotNote(snapshot.id, input.text.toString()) }
+            .setNegativeButton(R.string.cancel, null)
+            .show()
+    }
+
+    private fun confirmDeleteSnapshot(snapshot: TimetableVersionSnapshot) {
+        AlertDialog.Builder(this)
+            .setTitle("删除这个版本？")
+            .setMessage("只删除这一条版本记录，不会影响当前课表和其它版本。")
+            .setPositiveButton("删除") { _, _ -> viewModel.deleteSnapshot(snapshot.id) }
+            .setNegativeButton(R.string.cancel, null)
+            .show()
+    }
+
+    private fun chooseSnapshotRetention() {
+        // 上限由 SnapshotRetention.MAX_LIMIT 决定，避免这里给一个会被静默压掉的选项。
+        val limits = intArrayOf(5, 12, 30, SnapshotRetention.MAX_LIMIT)
+        val options = limits.map { "保留最新 $it 条" }.toTypedArray()
+        AlertDialog.Builder(this)
+            .setTitle("每个学期保留多少个版本")
+            .setItems(options) { _, which ->
+                AlertDialog.Builder(this)
+                    .setTitle("确认裁剪？")
+                    .setMessage("只保留最新 ${limits[which]} 条版本，更旧的会从本机删除。")
+                    .setPositiveButton("裁剪") { _, _ -> viewModel.trimSnapshots(limits[which]) }
+                    .setNegativeButton(R.string.cancel, null)
+                    .show()
+            }
             .setNegativeButton(R.string.cancel, null)
             .show()
     }
@@ -585,7 +674,7 @@ private fun ImportTimetableScreen(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "版本记录",
+                        text = stringResource(R.string.timetable_versions_legacy),
                         maxLines = 1,
                         style = MaterialTheme.typography.labelLarge
                     )

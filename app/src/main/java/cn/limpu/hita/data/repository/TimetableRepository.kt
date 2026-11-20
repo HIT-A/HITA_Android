@@ -24,6 +24,14 @@ import cn.limpu.hita.data.model.timetable.TermSubject
 import cn.limpu.hita.data.model.timetable.TimePeriodInDay
 import cn.limpu.hita.data.model.timetable.Timetable
 import cn.limpu.hita.data.model.timetable.TimetableGroupEntity
+import cn.limpu.hita.data.repository.today.TodayReadState
+import cn.limpu.hita.data.repository.today.asTodayReadState
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.CancellationException
 import cn.limpu.hita.data.source.preference.EasPreferenceSource
 import cn.limpu.hita.data.model.timetable.WEEK_MILLS
 import cn.limpu.hita.utils.TimeTools
@@ -82,6 +90,12 @@ class TimetableRepository @Inject internal constructor(
         ApplicationDisplayScopeSelector(application),
     )
 
+    /** 课表编辑历史：删除写入可恢复记录，恢复时按历史行回放。 */
+    private val editHistoryStore = EventEditHistoryStore(
+        eventDao = database.eventItemDao(),
+        historyDao = database.eventEditHistoryDao(),
+    )
+
     companion object {
         private const val EXAM_REMINDER_DAYS = 30
     }
@@ -118,6 +132,30 @@ class TimetableRepository @Inject internal constructor(
         if (timetableIds.isEmpty()) return MutableLiveData(emptyList())
         return MTransformations.map(
             eventItemDao.getEventsDuringForTimetables(from, to, timetableIds), ::dedupeDisplayEvents)
+    }
+
+    /** Recollect to retry. A query failure never becomes a successfully read empty list. */
+    fun observeTimelineWindow(
+        from: Long,
+        to: Long,
+        timetableIds: List<String>,
+        includeAllExams: Boolean = false,
+    ): Flow<TodayReadState<List<EventItem>>> = flow {
+        require(from < to)
+        if (timetableIds.isEmpty()) emit(emptyList())
+        else emitAll(if (includeAllExams) eventItemDao.observeAgendaAndExamsForTimetables(from, to, timetableIds)
+            else eventItemDao.observeEventsOverlappingForTimetables(from, to, timetableIds))
+    }.asTodayReadState().combine(flow { emitAll(easPreferenceSource.querySessionState.changes) }) { state, _ ->
+        // Account changes reproject the raw snapshot without another SQL query. Retained data
+        // must also be filtered again, so a failed read cannot retain another owner's courses.
+        when (state) {
+            TodayReadState.Loading -> TodayReadState.Loading
+            is TodayReadState.Ready -> TodayReadState.Ready(dedupeDisplayEvents(state.value))
+            is TodayReadState.Failed -> TodayReadState.Failed(state.retained?.let(::dedupeDisplayEvents), state.failure)
+        }
+    }.catch { failure ->
+        if (failure is CancellationException) throw failure
+        emit(TodayReadState.Failed(null, failure))
     }
 
     /**
@@ -1082,14 +1120,19 @@ class TimetableRepository @Inject internal constructor(
     }
 
     fun actionSaveTimetable(timetable: Timetable) {
-        executor.execute {
-            timetableDao.saveTimetableSync(timetable)
-        }
+        executor.execute { saveTimetableSync(timetable) }
     }
 
     @WorkerThread
     fun saveTimetableSync(timetable: Timetable) {
-        timetableDao.saveTimetableSync(timetable)
+        database.runInTransaction {
+            val current = timetableDao.getTimetableByIdSync(timetable.id)
+            val value = if (current != null && !current.code.isNullOrBlank()) current.apply {
+                name = timetable.name
+                groupId = timetable.groupId
+            } else timetable
+            timetableDao.saveTimetableSync(value)
+        }
     }
 
     /** 课表起点与课次偏移同事务写入；以库中最新课表为准，不修改调用方对象。 */
@@ -1097,6 +1140,7 @@ class TimetableRepository @Inject internal constructor(
     internal fun changeTimetableStartDateSync(timetable: Timetable, startTime: Long): Boolean = timetableMutationLock.exclusive {
         database.runInTransaction<Boolean> {
             val current = timetableDao.getTimetableByIdSync(timetable.id) ?: return@runInTransaction false
+            require(current.code.isNullOrBlank() && !eventItemDao.versionClasses(current.id).any { it.isTeachingCourse() }) { "教务课程时间由教务维护" }
             val calendar = TimeTools.getMonday(startTime)
             val offset = calendar.timeInMillis - current.startTime.time
             current.endTime.time = current.endTime.time + offset
@@ -1112,6 +1156,7 @@ class TimetableRepository @Inject internal constructor(
     internal fun changeTimetableStructureSync(timetable: Timetable, tp: TimePeriodInDay, position: Int): Boolean = timetableMutationLock.exclusive {
         database.runInTransaction<Boolean> {
             val current = timetableDao.getTimetableByIdSync(timetable.id) ?: return@runInTransaction false
+            require(current.code.isNullOrBlank() && !eventItemDao.versionClasses(current.id).any { it.isTeachingCourse() }) { "教务课程时间由教务维护" }
             current.setScheduleStructure(tp, position)
             timetableDao.saveTimetableSync(current)
             val fromToChange = eventItemDao.getClassAtFromNumberSync(current.id, position + 1)
@@ -1142,28 +1187,90 @@ class TimetableRepository @Inject internal constructor(
         executor.execute(block)
     }
 
+    /** Read history and current events consistently; callers run this on a worker thread. */
     @WorkerThread
-    override fun writeSync(operation: TimetableWriteOperation): Boolean = when (operation) {
+    fun deletedEventHistorySync(timetableId: String): List<DeletedEventHistory> =
+        database.runInTransaction(java.util.concurrent.Callable { editHistoryStore.deletedHistory(timetableId) })
+
+    @WorkerThread
+    override fun writeSync(operation: TimetableWriteOperation): Boolean = timetableMutationLock.exclusive {
+        TimetableVersionStore.forApplication(application, database).commit("MANUAL") { writeOperationSync(operation) }
+    }
+
+    private fun writeOperationSync(operation: TimetableWriteOperation): Boolean = when (operation) {
         is TimetableWriteOperation.Add -> addScheduleEventsSync(operation.result, operation.subject)
         is TimetableWriteOperation.Update -> {
             if (operation.events.isEmpty()) false else {
+                val stored = eventItemDao.getEventsInIdsIncludingHiddenSync(operation.events.map { it.id })
+                require((stored + operation.events).none { it.isTeachingCourse() ||
+                    it.source.startsWith("${EventItem.SOURCE_FOLLOWED_SCHOOL}:") ||
+                    it.source.startsWith("${EventItem.SOURCE_COURSE_PLAN}:") }) { "教务课程只读，请复制为个人日程后修改" }
+                val teachingSubjects = operation.events.map { it.timetableId }.distinct().flatMap {
+                    eventItemDao.versionClasses(it).filter { row -> row.isTeachingCourse() }.map { row -> row.subjectId }
+                }.toSet()
+                require(operation.events.none { it.subjectId.isNotBlank() && it.subjectId in teachingSubjects }) { "个人日程须使用独立的课程归属" }
                 eventItemDao.updateEventsSync(operation.events)
                 true
             }
         }
         is TimetableWriteOperation.Delete -> {
             if (operation.eventIds.isEmpty()) false else {
-                eventItemDao.deleteEventsInIdsSync(operation.eventIds)
-                true
+                // 隐藏/删除与历史写入必须同进同退：只写一半会让「误删可恢复」这个承诺在部分失败时失效。
+                database.runInTransaction(java.util.concurrent.Callable { deletePersonalOrHideTeaching(operation.eventIds) })
             }
         }
         is TimetableWriteOperation.DeleteSubjects -> {
             if (operation.subjects.isEmpty()) false else {
-                // Preserve the existing subject-then-events sequence; this is not a new transaction.
-                subjectDao.deleteSubjectsSync(operation.subjects)
-                eventItemDao.deleteEventsFromSubjectsSync(operation.subjects.map { it.id })
-                true
+                // 整门课删除与单条删除走同一套可恢复语义：教务课软隐藏、手动课物理删除，都保留历史行。
+                // 科目行本身不删——课次仍需要它来展示名称与教师，真正隐藏的是课次。
+                database.runInTransaction(java.util.concurrent.Callable {
+                    operation.subjects.forEach { subject ->
+                        val events = eventItemDao.getClassesOfSubjectSync(subject.id)
+                        val teaching = events.filter { it.isTeachingCourse() }
+                        if (teaching.isNotEmpty()) TeachingVisibilityStore(database).set(teaching, true)
+                        else {
+                            deletePersonalOrHideTeaching(events.map { it.id })
+                            subjectDao.deleteUnusedSubjectsInTimetableSync(subject.timetableId, listOf(subject.id))
+                        }
+                    }
+                    true
+                })
             }
+        }
+        is TimetableWriteOperation.SetTeachingVisibility -> {
+            val events = eventItemDao.getEventsInIdsIncludingHiddenSync(operation.eventIds)
+            require(events.all { it.isTeachingCourse() })
+            TeachingVisibilityStore(database).set(events, operation.hidden)
+            events.isNotEmpty()
+        }
+        is TimetableWriteOperation.CopyAsPersonal -> {
+            val source = requireNotNull(eventItemDao.getEventsInIdsIncludingHiddenSync(listOf(operation.eventId)).singleOrNull())
+            require(source.isTeachingCourse())
+            val copy = EventEditHistoryStore.eventCodec().let { it.fromJson(it.toJson(source), EventItem::class.java) }.apply {
+                id = java.util.UUID.randomUUID().toString()
+                type = EventItem.TYPE.OTHER
+                this.source = EventItem.SOURCE_MANUAL
+                subjectId = ""
+                hidden = 0
+                createdAt = java.sql.Timestamp(System.currentTimeMillis())
+            }
+            eventItemDao.addEvents(listOf(copy))
+            true
+        }
+        is TimetableWriteOperation.RestoreVersion -> TimetableVersionStore.forApplication(application, database)
+            .restore(operation.timetableId, operation.versionId, operation.expectedRevision)
+        is TimetableWriteOperation.RestoreDeleted -> {
+            database.runInTransaction(java.util.concurrent.Callable {
+                checkNotNull(timetableDao.getTimetableByIdSync(operation.timetableId)) {
+                    "The target timetable no longer exists"
+                }
+                checkNotNull(editHistoryStore.restore(operation.historyId, operation.timetableId)) {
+                    "The deletion is no longer safe to restore"
+                }
+                TeachingVisibilityStore(database).set(eventItemDao.getEventsInIdsIncludingHiddenSync(
+                    listOfNotNull(database.eventEditHistoryDao().getByIdSync(operation.historyId)?.eventId)), false)
+                true
+            })
         }
         is TimetableWriteOperation.ChangeStartDate ->
             changeTimetableStartDateSync(operation.timetable, operation.startTime)
@@ -1171,13 +1278,22 @@ class TimetableRepository @Inject internal constructor(
             changeTimetableStructureSync(operation.timetable, operation.period, operation.position)
     }
 
+    private fun deletePersonalOrHideTeaching(ids: List<String>): Boolean {
+        val events = eventItemDao.getEventsInIdsIncludingHiddenSync(ids)
+        val (teaching, personal) = events.partition { it.isTeachingCourse() }
+        if (teaching.isNotEmpty()) TeachingVisibilityStore(database).set(teaching, true)
+        return editHistoryStore.delete(personal.map { it.id }) || teaching.isNotEmpty()
+    }
+
+    fun hiddenTeachingClasses(table: String) = eventItemDao.hiddenTeachingClasses(table)
+
     @WorkerThread
     override fun writeSync(operation: TimetableWriteOperation, beforeWrite: () -> Unit): Boolean =
-        if (operation is TimetableWriteOperation.Add) {
-            addScheduleEventsSync(operation.result, operation.subject, beforeWrite)
-        } else {
-            beforeWrite()
-            writeSync(operation)
+        timetableMutationLock.exclusive {
+            TimetableVersionStore.forApplication(application, database).commit("MANUAL") {
+                beforeWrite()
+                writeOperationSync(operation)
+            }
         }
 
     /** The subject, sessions and necessary timetable extension either all commit or all roll back. */
@@ -1192,7 +1308,17 @@ class TimetableRepository @Inject internal constructor(
                 val current = checkNotNull(timetableDao.getTimetableByIdSync(result.timetable.id)) {
                     "The target timetable no longer exists"
                 }
-                if (subject != null) subjectDao.saveSubjectSync(subject)
+                require(result.events.none { it.isTeachingCourse() ||
+                    it.source.startsWith("${EventItem.SOURCE_FOLLOWED_SCHOOL}:") ||
+                    it.source.startsWith("${EventItem.SOURCE_COURSE_PLAN}:") }) { "不能手动创建教务来源课程" }
+                val existing = eventItemDao.getEventsInIdsIncludingHiddenSync(result.events.map { it.id })
+                require(existing.none { it.isTeachingCourse() }) { "不能覆盖教务课程" }
+                val teachingSubjects = eventItemDao.versionClasses(current.id).filter { it.isTeachingCourse() }.mapTo(hashSetOf()) { it.subjectId }
+                require(result.events.none { it.subjectId.isNotBlank() && it.subjectId in teachingSubjects }) { "请创建独立的个人课程" }
+                if (subject != null) {
+                    require(eventItemDao.getAllEventsOfSubjectSync(subject.id).none { it.isTeachingCourse() }) { "教务课程资料由教务维护" }
+                    subjectDao.saveSubjectSync(subject)
+                }
                 eventItemDao.addEvents(result.events)
                 val maxEndTime = result.events.maxOf { it.to.time }
                 if (maxEndTime > current.endTime.time) {
@@ -1240,10 +1366,12 @@ class TimetableRepository @Inject internal constructor(
                 val events = calendar.components.filterIsInstance<VEvent>()
                 var importedCount = 0
                 
-                for (event in events) {
-                    val ei = IcsImportEventMapper.map(event, timetableId) ?: continue
-                    eventItemDao.insertEventSync(ei)
-                    importedCount++
+                TimetableVersionStore.forApplication(application, database).commit("IMPORT") {
+                    for (event in events) {
+                        val ei = IcsImportEventMapper.map(event, timetableId) ?: continue
+                        eventItemDao.insertEventSync(ei)
+                        importedCount++
+                    }
                 }
                 
                 res.postValue(DataState(importedCount))
@@ -1267,7 +1395,7 @@ class TimetableRepository @Inject internal constructor(
                     events = calendar.components.filterIsInstance<VEvent>(),
                     sourceName = sourceName
                 )
-                database.runInTransaction {
+                TimetableVersionStore.forApplication(application, database).commit("IMPORT") {
                     timetableDao.saveTimetableSync(bundle.timetable)
                     subjectDao.saveSubjectsSync(bundle.subjects)
                     eventItemDao.saveEvents(bundle.events)
@@ -1297,7 +1425,7 @@ class TimetableRepository @Inject internal constructor(
         executor.execute {
             try {
                 val bundle = SharedTimetableImporter.buildBundleFromShare(snapshot)
-                database.runInTransaction {
+                TimetableVersionStore.forApplication(application, database).commit("IMPORT") {
                     timetableDao.saveTimetableSync(bundle.timetable)
                     subjectDao.saveSubjectsSync(bundle.subjects)
                     eventItemDao.saveEvents(bundle.events)
@@ -1326,6 +1454,9 @@ class TimetableRepository @Inject internal constructor(
                 subjectDao.clear()
                 timetableDao.clear()
                 timetableGroupDao.getGroupsSync().forEach { timetableGroupDao.deleteGroupByIdSync(it.id) }
+                database.timetableVersionDao().clearVersions()
+                database.timetableVersionDao().clearSources()
+                database.teachingVisibilityDao().clear()
             }
         }
     }

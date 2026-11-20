@@ -15,6 +15,7 @@ import cn.limpu.hita.data.repository.DisplayScopeResolver
 import cn.limpu.hita.data.repository.DisplayScopeSelector
 import cn.limpu.hita.data.repository.EASRepository
 import cn.limpu.hita.data.repository.EasSettingsRepository
+import cn.limpu.hita.data.source.preference.IdentityVisibilityStore
 import cn.limpu.hita.data.source.preference.OptionalTabStore
 import com.limpu.hitauser.data.model.CheckUpdateResult
 import com.limpu.hitauser.data.repository.LocalUserRepository
@@ -27,6 +28,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.suspendCancellableCoroutine
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
@@ -57,6 +59,7 @@ internal class MainViewModel @Inject constructor(
     private val settings: EasSettingsRepository,
     private val wallpapers: WallpaperStore,
     private val scopeSelector: DisplayScopeSelector,
+    private val timetableRepository: cn.limpu.hita.data.repository.TimetableRepository,
 ) : ViewModel() {
     private val mutableState = MutableStateFlow(MainUiState())
     val state = mutableState.asStateFlow()
@@ -74,6 +77,7 @@ internal class MainViewModel @Inject constructor(
     private var activeSilentRenewal: PendingSilentRenewal? = null
     private var noticeFetched = false
     private var pendingNotice: MainNoticeSelection = MainNoticeSelection.None
+    private val promptLedger = StartupPromptLedger()
     private val startup = MainStartupCoordinator(object : MainStartupSettings {
         override fun autoImportEnabled() = settings.isAutoReimportEnabled()
         override fun lastSuccessfulImport() = settings.getLastAutoReimportTs()
@@ -92,8 +96,12 @@ internal class MainViewModel @Inject constructor(
     fun attachHost(): Long {
         val host = ++hostSequence
         activeHost = host
-        if (pendingNotice != MainNoticeSelection.None) emit(host, MainEffect.Notice(pendingNotice))
-        pendingUpdate?.let { emit(host, MainEffect.Update(it)) }
+        if (pendingNotice != MainNoticeSelection.None && claimNotice(pendingNotice)) {
+            emit(host, MainEffect.Notice(pendingNotice))
+        }
+        pendingUpdate?.let { result ->
+            if (claimUpdate(result)) emit(host, MainEffect.Update(result))
+        }
         pendingSilentRenewal?.takeIf { it.request.session == MainSession.from(eas.getEasToken()) }?.let {
             startup.silentRenewalConsumed()
             emit(host, it.effect, it.request.session)
@@ -150,8 +158,19 @@ internal class MainViewModel @Inject constructor(
                 application.getString(R.string.eas_account_not_logged_in_subtitle),
                 application.getString(R.string.eas_session_expired_short),
             ),
+            hideIdentity = IdentityVisibilityStore(application).isHidden(),
+            signedInTitle = application.getString(R.string.identity_hidden_title),
+            campusLabel = campusLabel(eas.getEasToken().campus),
         ))
     }
+
+    private fun campusLabel(campus: EASToken.Campus): String = application.getString(
+        when (campus) {
+            EASToken.Campus.SHENZHEN -> R.string.eas_campus_shenzhen
+            EASToken.Campus.BENBU -> R.string.eas_campus_benbu
+            EASToken.Campus.WEIHAI -> R.string.eas_campus_weihai
+        }
+    )
 
     private fun execute(actions: List<MainStartupAction>) {
         actions.forEach { action ->
@@ -195,9 +214,10 @@ internal class MainViewModel @Inject constructor(
         val host = activeHost ?: return
         updateJob = viewModelScope.launch {
             val result = requests.checkUpdate(versionCode)
-            if (result.data?.shouldUpdate == true) {
-                pendingUpdate = requireNotNull(result.data)
-                emit(host, MainEffect.Update(requireNotNull(result.data)))
+            val update = result.data
+            if (update?.shouldUpdate == true && claimUpdate(update)) {
+                pendingUpdate = update
+                emit(host, MainEffect.Update(update))
             }
         }
     }
@@ -208,8 +228,28 @@ internal class MainViewModel @Inject constructor(
             val notices = requests.notices()
             pendingNotice = MainNoticePolicy.select(notices, AppNoticeCenter.seenNoticeIds(application), BuildConfig.VERSION_CODE.toLong())
             noticeFetched = true
-            if (pendingNotice != MainNoticeSelection.None) emit(host, MainEffect.Notice(pendingNotice))
+            if (pendingNotice != MainNoticeSelection.None && claimNotice(pendingNotice)) {
+                emit(host, MainEffect.Notice(pendingNotice))
+            }
         }
+    }
+
+    /**
+     * 版本公告与更新对话框共用一次提示：键都是「被提示的那个版本号」。
+     *
+     * 版本公告的 `minAppVersion` 是它要求升级到的版本；更新对话框是
+     * `latestVersionCode`。用同一个键才能让两者互斥，而不是各记各的。
+     */
+    private fun claimNotice(selection: MainNoticeSelection): Boolean {
+        if (selection !is MainNoticeSelection.Version) return true
+        val prompted = selection.notice.minAppVersion ?: BuildConfig.VERSION_CODE.toLong() + 1
+        return promptLedger.claimVersionPrompt(prompted)
+    }
+
+    private fun claimUpdate(result: CheckUpdateResult): Boolean {
+        val remote = result.latestVersionCode
+        if (remote <= BuildConfig.VERSION_CODE.toLong()) return true
+        return promptLedger.claimVersionPrompt(remote)
     }
 
     fun noticeFinished(selection: MainNoticeSelection) {
@@ -317,15 +357,20 @@ internal class MainViewModel @Inject constructor(
         accountChanged(eas.getEasToken())
     }
     fun selectTab(index: Int) { mutableState.value = state.value.copy(navigation = state.value.navigation.selectIndex(index)) }
+    /** 按 Tab 选择，避免调用方自己算可见列表下标。 */
+    fun selectTab(tab: MainTab) {
+        mutableState.value = state.value.copy(navigation = state.value.navigation.select(tab))
+    }
     fun setDrawer(open: Boolean) { if (open) refreshUser(); mutableState.value = state.value.copy(drawerOpen = open) }
     fun setTimelineTitle(title: String) { mutableState.value = state.value.copy(todayTitle = title) }
+    fun setTimelineSubtitle(subtitle: String) { mutableState.value = state.value.copy(todaySubtitle = subtitle) }
     fun setTimetableTitle(title: String, showName: Boolean) { mutableState.value = state.value.copy(timetableTitle = title, showTimetableName = showName) }
     fun setTimetableName(name: String) { mutableState.value = state.value.copy(timetableName = name, showTimetableName = true) }
     fun setScopes(options: List<DisplayScopeResolver.ScopeOption>) { mutableState.value = state.value.copy(scopeOptions = options.toList()) }
     fun setScope(scope: DisplayScope?) { mutableState.value = state.value.copy(currentScope = scope) }
     fun setBlogDot(show: Boolean) { mutableState.value = state.value.copy(blogDotVisible = show) }
-    fun selectScope(index: Int): Long? {
-        val option = state.value.scopeOptions.getOrNull(index) ?: return null
+    fun selectScope(scope: DisplayScope): Long? {
+        val option = state.value.scopeOptions.firstOrNull { it.scope == scope } ?: return null
         scopeSelector.select(option.scope)
         return mainScopeTargetMonday(option.startMillis, option.endMillis, System.currentTimeMillis())
     }

@@ -10,29 +10,32 @@ import java.util.Calendar
 import java.util.Locale
 
 object ExamEventMapper {
-    fun toEvent(exam: ExamItem, timetableId: String, logTag: String = "ExamEventMapper"): EventItem? {
+    fun toEvent(exam: ExamItem, timetableId: String, logTag: String = "ExamEventMapper", zoneId: java.time.ZoneId = java.time.ZoneId.systemDefault()): EventItem? {
         return try {
             val date = exam.examDate?.trim()?.takeIf { it.isNotEmpty() } ?: return null
             val timeRange = exam.examTime?.trim()?.takeIf { it.isNotEmpty() } ?: return null
             val times = timeRange.split("-")
             if (times.size != 2) return null
 
+            val zone = java.util.TimeZone.getTimeZone(zoneId)
             val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
             val timeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
+            dateFormat.timeZone = zone
+            timeFormat.timeZone = zone
             val parsedDate = parseStrict(dateFormat, date) ?: return null
             val parsedStart = parseStrict(timeFormat, times[0].trim()) ?: return null
             val parsedEnd = parseStrict(timeFormat, times[1].trim()) ?: return null
             if (!parsedEnd.after(parsedStart)) return null
-            val startClock = Calendar.getInstance().apply { time = parsedStart }
-            val endClock = Calendar.getInstance().apply { time = parsedEnd }
-            val calendarStart = Calendar.getInstance().apply {
+            val startClock = Calendar.getInstance(zone).apply { time = parsedStart }
+            val endClock = Calendar.getInstance(zone).apply { time = parsedEnd }
+            val calendarStart = Calendar.getInstance(zone).apply {
                 time = parsedDate
                 set(Calendar.HOUR_OF_DAY, startClock.get(Calendar.HOUR_OF_DAY))
                 set(Calendar.MINUTE, startClock.get(Calendar.MINUTE))
                 set(Calendar.SECOND, 0)
                 set(Calendar.MILLISECOND, 0)
             }
-            val calendarEnd = Calendar.getInstance().apply {
+            val calendarEnd = Calendar.getInstance(zone).apply {
                 time = parsedDate
                 set(Calendar.HOUR_OF_DAY, endClock.get(Calendar.HOUR_OF_DAY))
                 set(Calendar.MINUTE, endClock.get(Calendar.MINUTE))

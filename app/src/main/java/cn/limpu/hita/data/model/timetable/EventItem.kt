@@ -45,6 +45,8 @@ class EventItem :Serializable,Comparable<EventItem>{
     @ColumnInfo(name = "created_at")
     var createdAt //创建时间
             : Timestamp = Timestamp(System.currentTimeMillis())
+    /** 1 means a teaching-source course was hidden instead of physically deleted. */
+    var hidden: Int = 0
 
 
     @Ignore
@@ -157,6 +159,8 @@ class EventItem :Serializable,Comparable<EventItem>{
         result = 31 * result + color
         return result
     }
+
+    fun isTeachingCourse(): Boolean = type == TYPE.CLASS && source == SOURCE_EAS_IMPORT
 
     companion object{
         const val SOURCE_EAS_IMPORT = "EAS_IMPORT"

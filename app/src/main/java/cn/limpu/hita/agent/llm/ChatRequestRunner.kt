@@ -3,6 +3,7 @@ package cn.limpu.hita.agent.llm
 import android.app.Application
 import cn.limpu.hita.agent.core.AgentProvider
 import cn.limpu.hita.agent.core.AgentTraceEvent
+import cn.limpu.hita.agent.tools.ConfirmationGate
 import cn.limpu.hita.agent.timetable.TimetableAgentInput
 import cn.limpu.hita.agent.timetable.TimetableAgentOutput
 import cn.limpu.hita.data.repository.EASRepository
@@ -19,6 +20,7 @@ interface ChatRequestRunner {
         media: ChatMediaContent?,
         provider: AgentProvider<TimetableAgentInput, TimetableAgentOutput>,
         onTrace: (AgentTraceEvent) -> Unit,
+        confirmationGate: ConfirmationGate = ConfirmationGate.unavailable,
     ): LlmChatResult
 }
 
@@ -31,10 +33,20 @@ class LlmChatRequestRunner @Inject constructor(
         media: ChatMediaContent?,
         provider: AgentProvider<TimetableAgentInput, TimetableAgentOutput>,
         onTrace: (AgentTraceEvent) -> Unit,
+        confirmationGate: ConfirmationGate,
     ): LlmChatResult {
         var result: LlmChatResult? = null
         if (media == null) {
-            LlmChatService.chat(history, null, application, easRepository, provider, onTrace) { result = it }
+            LlmChatService.chat(
+                history = history,
+                timetableId = null,
+                application = application,
+                easRepository = easRepository,
+                agentProvider = provider,
+                onTrace = onTrace,
+                onResult = { result = it },
+                confirmationGate = confirmationGate,
+            )
         } else {
             LlmChatService.chatWithAttachment(
                 history, media.base64, media.mimeType, null, application, easRepository, provider,

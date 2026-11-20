@@ -27,6 +27,13 @@ class TodayWidget : AppWidgetProvider() {
         const val EVENT_EXTRA = "cn.limpu.hita.EXTRA_ITEM"
     }
 
+    override fun onDeleted(context: Context, appWidgetIds: IntArray) {
+        // 系统会复用 appWidgetId；不清理会让新实例继承旧实例的范围与背景。
+        val prefs = cn.limpu.hita.ui.widgets.WidgetPrefs(context)
+        appWidgetIds.forEach(prefs::delete)
+        super.onDeleted(context, appWidgetIds)
+    }
+
     override fun onUpdate(
         context: Context,
         appWidgetManager: AppWidgetManager,

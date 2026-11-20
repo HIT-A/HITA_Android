@@ -1,6 +1,7 @@
 package cn.limpu.hita.data.repository.grader
 
-import cn.limpu.hita.data.model.grader.GraderTask
+import cn.limpu.hita.data.model.grader.GraderSummaryItem
+import cn.limpu.hita.data.model.homework.ImportedTodo
 import cn.limpu.hita.data.source.web.grader.GraderAccount
 import cn.limpu.hita.data.source.web.grader.GraderAssignment
 import cn.limpu.hita.data.source.web.grader.GraderParser
@@ -16,15 +17,28 @@ internal data class GraderSnapshot(
     val cookie: String? = null,
     val assignmentsByAccount: Map<String, List<GraderAssignment>> = emptyMap(),
     val completedByAccount: Map<String, Set<String>> = emptyMap(),
-    /** 远端已提交的作业 id，按账号隔离；与本地手动完成取并集后过滤待办。 */
+    /** 远端已提交的 ID，按账号隔离；待办页不显示这些记录。 */
     val submittedByAccount: Map<String, Set<String>> = emptyMap(),
 ) {
     val assignments: List<GraderAssignment> get() = account?.let { assignmentsByAccount[it.id] }.orEmpty()
 
-    fun visibleTasks(now: Long): List<GraderTask> {
+    fun summaryItems(): List<GraderSummaryItem> {
         val id = account?.id ?: return emptyList()
         val completed = completedByAccount[id].orEmpty() + submittedByAccount[id].orEmpty()
-        return GraderParser.visibleTasks(assignments, completed, now)
+        return assignments.filter { it.published }.map {
+            GraderSummaryItem(id, it.id, it.title, it.courseTitle, it.dueAt, it.id in completed)
+        }
+    }
+
+    fun todoTasks(): List<ImportedTodo> {
+        val id = account?.id ?: return emptyList()
+        val completed = completedByAccount[id].orEmpty()
+        val submitted = submittedByAccount[id].orEmpty()
+        return assignments.mapNotNull { assignment ->
+            val dueAt = assignment.dueAt ?: return@mapNotNull null
+            if (!assignment.published || assignment.id in submitted) return@mapNotNull null
+            ImportedTodo(assignment.id, assignment.title, assignment.courseTitle, dueAt, assignment.id in completed)
+        }
     }
 }
 
@@ -55,9 +69,13 @@ internal class GraderStore(private val read: () -> String?, private val write: (
     }
 
     @Synchronized
-    fun setCompleted(accountId: String, id: String, completed: Boolean): GraderSnapshot {
+    fun setCompleted(accountId: String, id: String, completed: Boolean): GraderSnapshot? {
         val current = load()
-        if (current.account?.id != accountId || current.assignments.none { it.id == id }) return current
+        if (
+            current.account?.id != accountId ||
+            id in current.submittedByAccount[accountId].orEmpty() ||
+            current.assignments.none { it.id == id && it.published && it.dueAt != null }
+        ) return null
         val previous = current.completedByAccount[accountId].orEmpty()
         val next = if (completed) previous + id else previous - id
         if (previous == next) return current

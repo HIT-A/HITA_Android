@@ -33,7 +33,9 @@ data class TimetableVersionSnapshot(
     val timetable: SnapshotTimetable,
     val subjects: List<SnapshotSubject>,
     val events: List<SnapshotEvent>,
-    val fingerprint: String
+    val fingerprint: String,
+    /** 用户给这一版课表起的备注；旧快照文件没有该字段，Gson 反序列化后为默认空串。 */
+    val note: String = "",
 ) {
     val courseCount: Int
         get() = subjects.size
@@ -99,6 +101,13 @@ internal class TimetableSnapshotStore(
     private val eventDao = database.eventItemDao()
     private val subjectDao = database.subjectDao()
     private val gson = Gson()
+    /**
+     * 用户选择的每学期保留条数；与 iOS 的可配置保留策略对齐。未设置时用默认值。
+     */
+    private val preferences = appContext.getSharedPreferences(SNAPSHOT_PREFS, Context.MODE_PRIVATE)
+    private fun retentionLimit(): Int =
+        preferences.getInt(KEY_RETENTION, SnapshotRetention.DEFAULT_LIMIT)
+            .coerceIn(1, SnapshotRetention.MAX_LIMIT)
     private val directory = File(appContext.filesDir, "timetable_snapshots")
     private val payloadFile = File(directory, "v1.json")
     private val atomicFile = TimetableAtomicFile(payloadFile)
@@ -134,7 +143,7 @@ internal class TimetableSnapshotStore(
         }
         if (changed) {
             val retained = current.groupBy { it.ownerKey to it.termId }.values.flatMap { group ->
-                group.sortedByDescending { it.createdAtMillis }.take(MAX_PER_TERM)
+                group.sortedByDescending { it.createdAtMillis }.take(retentionLimit())
             }
             persist(Payload(snapshots = retained))
         }
@@ -176,9 +185,72 @@ internal class TimetableSnapshotStore(
         snapshot
     }
 
+    fun hasSnapshots(ownerKey: String, timetableId: String): Boolean = synchronized(lock) {
+        payload().snapshots.orEmpty().any { it.ownerKey == ownerKey && it.timetable.id == timetableId }
+    }
+
     fun snapshots(ownerKey: String, termId: String): List<TimetableVersionSnapshot> = synchronized(lock) {
         payload().snapshots.orEmpty().filter { it.ownerKey == ownerKey && it.termId == termId }
             .sortedByDescending { it.createdAtMillis }
+    }
+
+    /**
+     * 给一条快照写备注。空字符串等价于清除备注。
+     *
+     * @return 是否命中该账号下属于 [termId] 的快照
+     */
+    fun setNote(ownerKey: String, termId: String, snapshotId: String, note: String): Boolean = synchronized(lock) {
+        mutateSnapshot(ownerKey, termId, snapshotId) { it.copy(note = SnapshotRetention.normalizedNote(note)) }
+    }
+
+    /** 删除单条快照；其余快照与其它学期不受影响。 */
+    fun delete(ownerKey: String, termId: String, snapshotId: String): Boolean = synchronized(lock) {
+        val current = payload()
+        val kept = current.snapshots.orEmpty().filterNot {
+            it.ownerKey == ownerKey && it.termId == termId && it.id == snapshotId
+        }
+        if (kept.size == current.snapshots?.size) return@synchronized false
+        persist(current.copy(snapshots = kept))
+        true
+    }
+
+    /**
+     * 按保留上限裁剪：超出 [limit] 时只保留该学期最新的若干条。
+     *
+     * 与 [publishCommitted] 使用同一排序口径（`createdAtMillis` 倒序），避免两处规则漂移。
+     */
+    /** 保存保留上限；之后裁剪立即按新值执行。 */
+    fun setRetentionLimit(limit: Int): Boolean {
+        val clamped = limit.coerceIn(1, SnapshotRetention.MAX_LIMIT)
+        return preferences.edit().putInt(KEY_RETENTION, clamped).commit()
+    }
+
+    fun retentionLimitValue(): Int = retentionLimit()
+
+    fun trim(ownerKey: String, termId: String, limit: Int = retentionLimit()): Int = synchronized(lock) {
+        val current = payload()
+        val all = current.snapshots.orEmpty()
+        val removed = SnapshotRetention.removedCount(all, ownerKey, termId, limit)
+        if (removed == 0) return@synchronized 0
+        persist(current.copy(snapshots = SnapshotRetention.apply(all, ownerKey, termId, limit)))
+        removed
+    }
+
+    private fun mutateSnapshot(
+        ownerKey: String,
+        termId: String,
+        snapshotId: String,
+        transform: (TimetableVersionSnapshot) -> TimetableVersionSnapshot,
+    ): Boolean {
+        val current = payload()
+        val all = current.snapshots.orEmpty()
+        val index = all.indexOfFirst {
+            it.ownerKey == ownerKey && it.termId == termId && it.id == snapshotId
+        }
+        if (index < 0) return false
+        val updated = all.toMutableList().also { it[index] = transform(it[index]) }
+        persist(current.copy(snapshots = updated))
+        return true
     }
 
     fun restore(
@@ -194,22 +266,14 @@ internal class TimetableSnapshotStore(
         ).commit {
             beforeCommit()
             val current = timetableDao.getTimetableByIdSync(snapshot.timetable.id)
-            if (current != null) {
-                val termParts = snapshot.termId.split('-')
-                val term = TermItem(
-                    yearCode = termParts.take(2).joinToString("-"),
-                    yearName = termParts.take(2).joinToString("-"),
-                    termCode = termParts.lastOrNull().orEmpty(),
-                    termName = ""
-                )
-                capture(ownerKey, term, current, TimetableSnapshotKind.BEFORE_RESTORE)
-            }
-            val oldSubjectIds = eventDao.getImportedClassEventsOfTimetableSync(snapshot.timetable.id)
-                .mapTo(hashSetOf()) { it.subjectId }
+            TimetableVersionStore.forApplication(appContext as Application, database).protectPersonalSubjects(
+                snapshot.timetable.id, snapshot.subjects.mapTo(hashSetOf()) { it.id })
+            val before = eventDao.versionClasses(snapshot.timetable.id).filter { it.isTeachingCourse() }
+            val visibility = TeachingVisibilityStore(database)
+            visibility.rememberExisting(before)
+            val colors = subjectDao.getSubjectsSync(snapshot.timetable.id).associate { it.id to it.color }
+            // Retain source profiles: later version restoration must still find personal colors.
             eventDao.deleteCourseFromTimetable(snapshot.timetable.id)
-            if (oldSubjectIds.isNotEmpty()) {
-                subjectDao.deleteUnusedSubjectsInTimetableSync(snapshot.timetable.id, oldSubjectIds.toList())
-            }
             val restored = snapshot.timetable.toEntity().apply {
                 // Source snapshots restore courses, not current local display management.
                 if (current != null) {
@@ -218,8 +282,8 @@ internal class TimetableSnapshotStore(
                 }
             }
             timetableDao.saveTimetableSync(restored)
-            subjectDao.saveSubjectsSync(snapshot.subjects.map { it.toEntity() })
-            eventDao.saveEvents(snapshot.events.map { it.toEntity() })
+            subjectDao.saveSubjectsSync(snapshot.subjects.map { it.toEntity().apply { color = colors[id] ?: color } })
+            eventDao.saveEvents(visibility.apply(before, snapshot.events.map { it.toEntity() }, snapshot.timetable.startMillis))
         }
         snapshot
     }
@@ -328,6 +392,7 @@ internal class TimetableSnapshotStore(
 
     companion object {
         private val draft = ThreadLocal<SnapshotDraft>()
-        private const val MAX_PER_TERM = 12
+        private const val SNAPSHOT_PREFS = "timetable_snapshot_prefs"
+        private const val KEY_RETENTION = "retention_limit"
     }
 }

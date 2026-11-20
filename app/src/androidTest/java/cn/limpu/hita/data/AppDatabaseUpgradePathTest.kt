@@ -42,6 +42,16 @@ class AppDatabaseUpgradePathTest {
         }
     }
 
+    @Test fun version20UpgradesToPersonalVisibilityWithoutLosingData() {
+        seed(20)
+        assertMigratedDatabase(20)
+    }
+
+    @Test fun version19UpgradesToCourseVersionStorageWithoutLosingData() {
+        seed(19)
+        assertMigratedDatabase(19)
+    }
+
     /**
      * 诊断版的中间构建把 15→16 的索引以不带反引号的 SQL 建好后，版本号已记为 16；
      * Room 按 schema 逐字比对索引 SQL，旧写法会让后续升级直接拒绝打开数据库。
@@ -101,9 +111,11 @@ class AppDatabaseUpgradePathTest {
     }
 
     private fun event(db: androidx.sqlite.db.SupportSQLiteDatabase, id: String, type: String, source: String, place: String) {
+        val hiddenColumn = if (db.version >= 19) ", hidden" else ""
+        val hiddenValue = if (db.version >= 19) ", 0" else ""
         db.execSQL(
-            "INSERT INTO events (id, type, source, name, place, teacher, subjectId, timetableId, `from`, `to`, fromNumber, lastNumber, created_at) " +
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO events (id, type, source, name, place, teacher, subjectId, timetableId, `from`, `to`, fromNumber, lastNumber, created_at$hiddenColumn) " +
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?$hiddenValue)",
             arrayOf<Any?>(id, type, source, "操作系统-$id", place, "教师", "subject", "table",
                 START + 8 * 3600000L, START + 10 * 3600000L, 1, 2, 3L)
         )
