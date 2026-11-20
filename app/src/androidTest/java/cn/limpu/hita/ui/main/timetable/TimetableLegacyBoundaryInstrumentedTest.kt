@@ -122,7 +122,11 @@ class TimetableLegacyBoundaryInstrumentedTest {
         val table = Timetable().apply { name = "Timetable boundary fixture" }
         // Real subject identity for the Hilt host; blank resource query avoids live HTTP.
         val subject = TermSubject().apply { timetableId = table.id; name = ""; code = null }
-        val event = EventItem().apply { timetableId = table.id; subjectId = subject.id; name = "Boundary fixture"; place = "original" }
+        val event = EventItem().apply {
+            type = EventItem.TYPE.CLASS
+            source = EventItem.SOURCE_MANUAL
+            timetableId = table.id; subjectId = subject.id; name = "Boundary fixture"; place = "original"
+        }
         try {
             db.timetableDao().saveTimetableSync(table)
             db.subjectDao().saveSubjectSync(subject)

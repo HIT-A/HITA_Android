@@ -102,7 +102,7 @@ class TodayScreenInstrumentedTest {
                 assertTrue(activity.supportFragmentManager.findFragmentById(R.id.today_homework_container)
                     is cn.limpu.hita.ui.main.homework.HomeworkFragment)
             }
-            awaitText(base.getString(R.string.today_homework_title))
+            awaitText(base.getString(R.string.title_homework))
         }
     }
 

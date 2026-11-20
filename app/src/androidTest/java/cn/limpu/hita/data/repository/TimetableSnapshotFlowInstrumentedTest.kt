@@ -30,6 +30,9 @@ class TimetableSnapshotFlowInstrumentedTest {
     @Test fun cancellationWhileRestoreWaitsForSQLiteKeepsCurrentLessons() = runBlocking {
         TimetableImportFlowHarness().use { fixture ->
             fixture.import()
+            // New imports no longer write the legacy snapshot file; seed the compatibility backup explicitly.
+            fixture.snapshots.capture(FollowedTeachingSectionStore.ownerKey(fixture.token),
+                TimetableImportFlowHarness.term(), fixture.tables().single(), TimetableSnapshotKind.IMPORTED)
             val snapshot = fixture.importer.getTimetableSnapshots(fixture.session(), TimetableImportFlowHarness.term()).data!!.single()
             fixture.fetchCourses = { DataState(listOf(TimetableImportFlowHarness.course("Changed"))) }
             fixture.import()
@@ -57,6 +60,8 @@ class TimetableSnapshotFlowInstrumentedTest {
     @Test fun cancellationAfterRestoreCommitBoundaryStillRestoresWholeSnapshot() = runBlocking {
         TimetableImportFlowHarness().use { fixture ->
             fixture.import()
+            fixture.snapshots.capture(FollowedTeachingSectionStore.ownerKey(fixture.token),
+                TimetableImportFlowHarness.term(), fixture.tables().single(), TimetableSnapshotKind.IMPORTED)
             val snapshot = fixture.importer.getTimetableSnapshots(fixture.session(), TimetableImportFlowHarness.term()).data!!.single()
             fixture.fetchCourses = { DataState(listOf(TimetableImportFlowHarness.course("Changed"))) }; fixture.import()
             val entered = CountDownLatch(1); val release = CountDownLatch(1); val once = AtomicBoolean()
@@ -105,12 +110,34 @@ class TimetableSnapshotFlowInstrumentedTest {
             assertEquals(1, requireNotNull(arrivals.poll(5, TimeUnit.SECONDS)).data!!.size)
             ImportMetadataHarness.main { fixture.model.restoreSnapshot(snapshot.id) }
             assertTrue(restored.await(5, TimeUnit.SECONDS))
-            assertEquals(2, requireNotNull(arrivals.poll(5, TimeUnit.SECONDS)).data!!.size)
+            // Legacy restore rewrites courses only; the version rows are the durable signal. The recovery
+            // transaction always records the pre-image as INITIAL and the committed content as SOURCE.
+            // Read the table directly: TimetableVersionStore.list() would fabricate an INITIAL row.
+            val summaries = fixture.database.timetableVersionDao()
+                .summaries(FollowedTeachingSectionStore.ownerKey(fixture.preferences.getEasToken()), table.id)
+            assertEquals("One pre-image plus exactly one restore commit",
+                listOf("SOURCE", "INITIAL"), summaries.map { it.reason })
+            assertNull("A snapshot restore is a source commit, not a version restore",
+                summaries.first().restoredFrom)
+            assertEquals("Changed", versionNames(fixture, table.id, "INITIAL").single())
+            assertEquals("Original", versionNames(fixture, table.id, "SOURCE").single())
+            assertEquals("The compatibility file is not appended by a restore", 1,
+                TimetableSnapshotStore(fixture.application, fixture.database).snapshots(
+                    FollowedTeachingSectionStore.ownerKey(fixture.preferences.getEasToken()), term.id).size)
             InstrumentationRegistry.getInstrumentation().waitForIdleSync()
             assertEquals("One initial list plus exactly one successful restore refresh", 2, seen.size)
             assertTrue(fixture.dates.isEmpty()); assertTrue(fixture.schedules.isEmpty())
             assertEquals("Original", fixture.database.eventItemDao().getEventsOfTimetableSync(table.id).single().name)
             assertEquals("Local title", fixture.database.timetableDao().getTimetableByIdSync(table.id)!!.name)
         } finally { ImportMetadataHarness.main { fixture.model.snapshotsLiveData.removeObserver(observer); fixture.model.restoreSnapshotLiveData.removeObserver(resultObserver) } }
+    }
+
+    private fun versionNames(fixture: ImportMetadataHarness, tableId: String, reason: String): List<String> {
+        val owner = FollowedTeachingSectionStore.ownerKey(fixture.preferences.getEasToken())
+        val dao = fixture.database.timetableVersionDao()
+        val summary = dao.summaries(owner, tableId).single { it.reason == reason }
+        val stored = requireNotNull(dao.get(owner, tableId, summary.id))
+        return EventEditHistoryStore.eventCodec()
+            .fromJson(stored.payload, CourseVersionContent::class.java).events.map { it.name }
     }
 }

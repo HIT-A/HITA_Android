@@ -182,8 +182,16 @@ class TimetableBatchUiInstrumentedTest {
         val table = Timetable().apply { name = "Batch UI fixture" }
         // Real subject identity for the Hilt host; blank resource query avoids live HTTP.
         val subject = TermSubject().apply { timetableId = table.id; name = ""; code = null }
-        val first = EventItem().apply { timetableId = table.id; subjectId = subject.id; name = "first"; place = "original" }
-        val second = EventItem().apply { timetableId = table.id; subjectId = subject.id; name = "second"; place = "original second" }
+        val first = EventItem().apply {
+            type = EventItem.TYPE.CLASS
+            source = EventItem.SOURCE_MANUAL
+            timetableId = table.id; subjectId = subject.id; name = "first"; place = "original"
+        }
+        val second = EventItem().apply {
+            type = EventItem.TYPE.CLASS
+            source = EventItem.SOURCE_MANUAL
+            timetableId = table.id; subjectId = subject.id; name = "second"; place = "original second"
+        }
         try {
             db.timetableDao().saveTimetableSync(table)
             db.subjectDao().saveSubjectSync(subject)

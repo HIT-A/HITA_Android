@@ -44,6 +44,8 @@ class TimetableHostInstrumentedTest {
         }
         val subject = TermSubject().apply { timetableId = table.id; name = "Lifecycle fixture" }
         val event = EventItem().apply {
+            type = EventItem.TYPE.CLASS
+            source = EventItem.SOURCE_MANUAL
             timetableId = table.id; subjectId = subject.id; name = subject.name
             from = Timestamp(table.startTime.time + 8 * 3_600_000L); to = Timestamp(from.time + 3_600_000)
         }

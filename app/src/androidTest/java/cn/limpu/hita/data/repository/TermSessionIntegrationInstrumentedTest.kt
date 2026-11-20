@@ -36,10 +36,12 @@ class TermSessionIntegrationInstrumentedTest : TermRepositoryContractHarness() {
         assertEquals("new facade", fixture.rows().single().termName)
         val pending = fixture.queryFlow(request = second.createTermQueryRequest())
         val pendingCall = fixture.scripted.awaitCall()
-        main { fixture.repository.logout() }
-        fixture.scripted.complete(pendingCall, DataState(listOf(remoteTerm(label = "obsolete"))))
-        pending.awaitCompletion()
-        drain(EasQueryCoordinator.forSession(fixture.preferences.querySessionState))
+        val coordinator = EasQueryCoordinator.forSession(fixture.preferences.querySessionState)
+        awaitScheduledCleanup(coordinator) {
+            main { fixture.repository.logout() }
+            fixture.scripted.complete(pendingCall, DataState(listOf(remoteTerm(label = "obsolete"))))
+            pending.awaitCompletion()
+        }
         assertTrue(pending.cancelled)
         assertFalse(second.captureQuerySession().loggedIn)
         assertTrue(fixture.rows().isEmpty())
@@ -67,19 +69,21 @@ class TermSessionIntegrationInstrumentedTest : TermRepositoryContractHarness() {
             fixture.onSql = { call ->
                 if (call.thread !== blocker && call.sql.startsWith("BEGIN", true)) cleanupAttempted.countDown()
             }
-            main { fixture.repository.logout() }
-            assertTrue("Actual logout must schedule cleanup", cleanupAttempted.await(20, TimeUnit.SECONDS))
-            assertTrue(fixture.preferences.querySessionState.storage.contains("pending_owner:BENBU:student"))
-            fixture.preferences.saveEasToken(accountToken().apply { sessionGeneration++ })
-            val current = fixture.queryFlow(request = fixture.newFacade().createTermQueryRequest())
-            release.countDown()
-            fixture.scripted.complete(fixture.scripted.awaitCall(), DataState(listOf(remoteTerm(label = "new session"))))
-            current.awaitCompletion()
-            fixture.scripted.complete(oldCall, DataState(listOf(remoteTerm(label = "late old result"))))
-            old.awaitCompletion()
-            drain(EasQueryCoordinator.forSession(fixture.preferences.querySessionState))
+            val coordinator = EasQueryCoordinator.forSession(fixture.preferences.querySessionState)
+            awaitScheduledCleanup(coordinator) {
+                main { fixture.repository.logout() }
+                assertTrue("Actual logout must schedule cleanup", cleanupAttempted.await(20, TimeUnit.SECONDS))
+                assertTrue(fixture.preferences.querySessionState.storage.contains("pending_owner:BENBU:student"))
+                fixture.preferences.saveEasToken(accountToken().apply { sessionGeneration++ })
+                val current = fixture.queryFlow(request = fixture.newFacade().createTermQueryRequest())
+                release.countDown()
+                fixture.scripted.complete(fixture.scripted.awaitCall(), DataState(listOf(remoteTerm(label = "new session"))))
+                current.awaitCompletion()
+                fixture.scripted.complete(oldCall, DataState(listOf(remoteTerm(label = "late old result"))))
+                old.awaitCompletion()
+                assertFalse(current.states.any { it.fromCache })
+            }
             assertTrue(old.cancelled)
-            assertFalse(current.states.any { it.fromCache })
             assertEquals("new session", fixture.rows().single().termName)
             assertNull(dao.getScoreSync("BENBU:student", "year", "term", "NORMAL"))
             assertNull(dao.getDetailSync("BENBU:student", "detail"))
@@ -99,8 +103,12 @@ class TermSessionIntegrationInstrumentedTest : TermRepositoryContractHarness() {
             "CREATE TEMP TRIGGER reject_restart_cleanup BEFORE DELETE ON score_term_cache " +
                 "BEGIN SELECT RAISE(ABORT, 'injected cleanup failure'); END")
         val original = EasQueryCoordinator.forSession(fixture.preferences.querySessionState)
-        main { fixture.repository.logout() }
-        drain(original)
+        awaitScheduledCleanup(original) { main { fixture.repository.logout() } }
+        assertTrue(
+            "Actual logout must attempt the term delete before reconstructing the coordinator",
+            fixture.sql.any { it.sql.startsWith("DELETE FROM score_term_cache", ignoreCase = true) },
+        )
+        assertEquals("cached", fixture.rows().single().termName)
         assertTrue(fixture.preferences.querySessionState.storage.contains("pending_owner:BENBU:student"))
         original.applicationScope.cancel()
         fixture.database.openHelper.writableDatabase.execSQL("DROP TRIGGER reject_restart_cleanup")
@@ -111,8 +119,7 @@ class TermSessionIntegrationInstrumentedTest : TermRepositoryContractHarness() {
         val recovered = EasQueryCoordinator.forSession(reopened)
         try {
             assertTrue(recovered.hasPendingCleanup("BENBU:student"))
-            recovered.replayPendingCleanup(fixture.database.scoreCacheDao())
-            drain(recovered)
+            awaitScheduledCleanup(recovered) { recovered.replayPendingCleanup(fixture.database.scoreCacheDao()) }
             assertTrue(fixture.rows().isEmpty())
             assertFalse(reopened.storage.contains("pending_owner:BENBU:student"))
             assertFalse(recovered.hasPendingCleanup("BENBU:student"))
@@ -140,9 +147,13 @@ class TermSessionIntegrationInstrumentedTest : TermRepositoryContractHarness() {
             fixture.sql.none { it.sql.contains("score_term_cache", true) })
     }
 
-    private fun drain(coordinator: EasQueryCoordinator) = runBlocking {
-        withTimeout(20_000) {
-            coordinator.applicationScope.coroutineContext[Job]!!.children.toList().joinAll()
-        }
+    private fun awaitScheduledCleanup(coordinator: EasQueryCoordinator, schedule: () -> Unit) {
+        val scopeJob = coordinator.applicationScope.coroutineContext[Job]!!
+        // Existing jobs include the exam session collector, which lives as long as this scope.
+        // Logout and replay register their new cleanup jobs before returning.
+        val existing = scopeJob.children.toSet()
+        schedule()
+        val pending = scopeJob.children.filterNot { it in existing }.toList()
+        runBlocking { withTimeout(20_000) { pending.joinAll() } }
     }
 }

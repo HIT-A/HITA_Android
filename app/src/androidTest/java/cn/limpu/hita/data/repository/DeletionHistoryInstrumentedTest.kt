@@ -38,7 +38,7 @@ class DeletionHistoryInstrumentedTest {
 
     @Test
     fun manualDeletionRestoresOnceAndKeepsConsumedHistory() {
-        val entry = delete(EventItem.SOURCE_MANUAL)
+        val entry = deleteManualCourse()
         assertTrue(repository.writeSync(restore(entry.id)))
         assertEquals(0, current().hidden)
         assertEquals(DeletedEventStatus.RESTORED, repository.deletedEventHistorySync(TABLE).single().status)
@@ -47,18 +47,25 @@ class DeletionHistoryInstrumentedTest {
     }
 
     @Test
-    fun teachingSourceDeletionUnhidesOriginalRow() {
-        val entry = delete(EventItem.SOURCE_EAS_IMPORT)
+    fun teachingCourseHideAndShowDoNotRecordDeletionHistory() {
+        val course = insertCourse(EventItem.SOURCE_EAS_IMPORT)
+        assertTrue(repository.writeSync(TimetableWriteOperation.Delete(listOf(EVENT))))
+        val hidden = db.teachingVisibilityDao().all(TABLE).single()
+        assertEquals(1, hidden.hidden)
         assertEquals(1, current().hidden)
-        assertEquals(DeletedEventStatus.AVAILABLE, entry.status)
-        repository.writeSync(restore(entry.id))
+        assertEquals(course, current())
+        assertEquals(0, db.eventEditHistoryDao().countSync())
+
+        assertTrue(repository.writeSync(TimetableWriteOperation.SetTeachingVisibility(listOf(EVENT), false)))
+        assertEquals(hidden.copy(hidden = 0), db.teachingVisibilityDao().all(TABLE).single())
         assertEquals(0, current().hidden)
-        assertEquals("测试课程", current().name)
+        assertEquals(course, current())
+        assertEquals(0, db.eventEditHistoryDao().countSync())
     }
 
     @Test
     fun historyInsertFailureRollsBackEventAndRestoredMarker() {
-        val entry = delete(EventItem.SOURCE_MANUAL)
+        val entry = deleteManualCourse()
         db.openHelper.writableDatabase.execSQL(
             "CREATE TRIGGER fail_restore_history BEFORE INSERT ON event_edit_history WHEN NEW.action = 'RESTORE' " +
                 "BEGIN SELECT RAISE(ABORT, 'injected marker failure'); END"
@@ -71,7 +78,7 @@ class DeletionHistoryInstrumentedTest {
 
     @Test
     fun deletedTimetableCannotBeResurrectedByHistory() {
-        val entry = delete(EventItem.SOURCE_MANUAL)
+        val entry = deleteManualCourse()
         db.timetableDao().deleteTimetablesInIdsSync(listOf(TABLE))
         assertTrue(runCatching { repository.writeSync(restore(entry.id)) }.isFailure)
         assertNull(db.timetableDao().getTimetableByIdSync(TABLE))
@@ -80,7 +87,7 @@ class DeletionHistoryInstrumentedTest {
 
     @Test
     fun anotherTimetableCannotRestoreThisDeletion() {
-        val entry = delete(EventItem.SOURCE_MANUAL)
+        val entry = deleteManualCourse()
         db.timetableDao().saveTimetablesSync(listOf(Timetable().apply { id = "other" }))
         assertTrue(runCatching {
             repository.writeSync(TimetableWriteOperation.RestoreDeleted("other", entry.id))
@@ -90,29 +97,45 @@ class DeletionHistoryInstrumentedTest {
     }
 
     @Test
-    fun modifiedHiddenCourseCannotBeOverwritten() {
-        val entry = delete(EventItem.SOURCE_EAS_IMPORT)
+    fun changedTeachingCourseCannotBeOverwrittenByLegacyDeletion() {
+        insertCourse(EventItem.SOURCE_EAS_IMPORT)
+        val history = db.eventEditHistoryDao()
+        // Seed the old soft-delete record directly; the current repository only sets visibility.
+        assertTrue(EventEditHistoryStore(db.eventItemDao(), history).delete(listOf(EVENT)))
+        val legacyEntries = history.historyOfTimetableSync(TABLE)
+        val entry = repository.deletedEventHistorySync(TABLE).single()
+        assertEquals(DeletedEventStatus.AVAILABLE, entry.status)
+
         db.eventItemDao().updateEventSync(current().apply { place = "新教室" })
-        assertTrue(runCatching { repository.writeSync(restore(entry.id)) }.isFailure)
+        assertEquals(DeletedEventStatus.CHANGED, repository.deletedEventHistorySync(TABLE).single().status)
+        assertThrows(IllegalStateException::class.java) { repository.writeSync(restore(entry.id)) }
         assertEquals("新教室", current().place)
         assertEquals(1, current().hidden)
-        assertEquals(DeletedEventStatus.CHANGED, repository.deletedEventHistorySync(TABLE).single().status)
+        assertEquals(legacyEntries, history.historyOfTimetableSync(TABLE))
+
+        assertTrue(repository.writeSync(TimetableWriteOperation.SetTeachingVisibility(listOf(EVENT), false)))
+        assertEquals("新教室", current().place)
+        assertEquals(0, current().hidden)
+        assertEquals(legacyEntries, history.historyOfTimetableSync(TABLE))
     }
 
     private fun current() = db.eventItemDao().getEventsInIdsIncludingHiddenSync(listOf(EVENT)).single()
     private fun restore(id: String) = TimetableWriteOperation.RestoreDeleted(TABLE, id)
-    private fun delete(source: String): DeletedEventHistory {
-        db.eventItemDao().addEvents(listOf(EventItem().apply {
-            id = EVENT
-            timetableId = TABLE
-            name = "测试课程"
-            this.source = source
-            from = Timestamp(1_800_000_000_000L)
-            to = Timestamp(1_800_003_600_000L)
-        }))
-        repository.writeSync(TimetableWriteOperation.Delete(listOf(EVENT)))
+    private fun deleteManualCourse(): DeletedEventHistory {
+        insertCourse(EventItem.SOURCE_MANUAL)
+        assertTrue(repository.writeSync(TimetableWriteOperation.Delete(listOf(EVENT))))
         return repository.deletedEventHistorySync(TABLE).single()
     }
+
+    private fun insertCourse(source: String): EventItem = EventItem().apply {
+        id = EVENT
+        type = EventItem.TYPE.CLASS
+        timetableId = TABLE
+        name = "测试课程"
+        this.source = source
+        from = Timestamp(1_800_000_000_000L)
+        to = Timestamp(1_800_003_600_000L)
+    }.also { db.eventItemDao().addEvents(listOf(it)) }
 
     companion object {
         private const val TABLE = "history-test-table"

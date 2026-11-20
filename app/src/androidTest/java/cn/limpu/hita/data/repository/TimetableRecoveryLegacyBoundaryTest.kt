@@ -49,7 +49,19 @@ class TimetableRecoveryLegacyBoundaryTest {
         assertNull(f.changes.currentState().heldBatch)
         assertTrue(f.changes.currentState().decisions.isEmpty())
         assertTrue(f.changes.getVetoes(f.term.id).isEmpty())
-        assertEquals(listOf("Original"), f.snapshots.snapshots(f.owner, f.term.id).single().events.map { it.name })
+        // Adoption no longer writes the legacy snapshot file; the same transaction appends the
+        // pre-image and the adopted courses to timetable_version (TimetableChangeRecovery.kt:45).
+        assertTrue(f.snapshots.snapshots(f.owner, f.term.id).isEmpty())
+        val versions = TimetableVersionStore.forApplication(f.application, f.database).list("table")
+        assertEquals(listOf("SOURCE", "INITIAL"), versions.map { it.reason })
+        assertEquals(listOf("Original"), versionNames(f, versions.single { it.reason == "INITIAL" }.id))
+        assertEquals(listOf("Incoming"), versionNames(f, versions.single { it.reason == "SOURCE" }.id))
+    }
+
+    private fun versionNames(f: TimetableRecoveryTestFixture, id: String): List<String> {
+        val stored = requireNotNull(f.database.timetableVersionDao().get(f.owner, "table", id))
+        return EventEditHistoryStore.eventCodec().fromJson(stored.payload, CourseVersionContent::class.java)
+            .events.map { it.name }
     }
 
 }

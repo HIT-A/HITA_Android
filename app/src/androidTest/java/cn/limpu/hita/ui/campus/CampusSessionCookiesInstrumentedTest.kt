@@ -28,6 +28,12 @@ class CampusSessionCookiesInstrumentedTest {
             val session = SilentPodSessionPolicy.SESSION_COOKIE
             val manager = CookieManager.getInstance()
             manager.setAcceptCookie(true)
+            // CookieManager persists across instrumentation runs on the same device; drop any session
+            // cookie a previous run left at a wider path before asserting path scoping.
+            for (path in listOf("/", "/space-reservation-fg", "/space-reservation-fg/")) {
+                setCookie(origin, "$session=; Path=$path; Max-Age=0; Secure; HttpOnly")
+            }
+            manager.flush()
             try {
                 setCookie(origin, "$session=hita-test; Path=/space-reservation-fg; Secure; HttpOnly")
                 setCookie(origin, "hita_unrelated=keep; Path=/; Secure; HttpOnly")
