@@ -9,11 +9,16 @@ import androidx.lifecycle.viewModelScope
 import cn.limpu.hita.data.model.eas.EASToken
 import cn.limpu.hita.data.repository.EASRepository
 import cn.limpu.hita.data.repository.homework.HomeworkRepository
+import cn.limpu.hita.data.repository.geniusta.GeniusTaError
 import cn.limpu.hita.data.repository.geniusta.GeniusTaRepository
 import cn.limpu.hita.data.repository.grader.GraderRepository
+import cn.limpu.hita.data.source.preference.TodoLoginCredential
+import cn.limpu.hita.data.source.preference.TodoLoginProvider
+import cn.limpu.hita.data.source.preference.TodoPlatformCredentialStore
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.time.LocalDate
 import javax.inject.Inject
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
 @HiltViewModel
@@ -21,6 +26,7 @@ class HomeworkViewModel @Inject constructor(
     private val repository: HomeworkRepository,
     private val graderRepository: GraderRepository,
     private val geniusTaRepository: GeniusTaRepository,
+    private val credentialStore: TodoPlatformCredentialStore,
     easRepository: EASRepository,
 ) : ViewModel() {
     val state = repository.state
@@ -38,6 +44,7 @@ class HomeworkViewModel @Inject constructor(
     }
     private val mutableNow = MutableLiveData(System.currentTimeMillis())
     val now: LiveData<Long> = mutableNow
+    private var geniusSync: Job? = null
 
     // 同一个可见期只加载一次，避免在入口隐藏时访问平台。
     private var loadedForVisiblePeriod = false
@@ -62,10 +69,8 @@ class HomeworkViewModel @Inject constructor(
     init {
         reload()
         graderVisible.observeForever(graderVisibilityObserver)
-        viewModelScope.launch {
-            if (geniusTaRepository.reload() && geniusTaState.value?.needsLogin == false) {
-                geniusTaRepository.refresh()
-            }
+        geniusSync = viewModelScope.launch {
+            if (geniusTaRepository.reload()) restoreGeniusTa()
         }
     }
 
@@ -103,31 +108,53 @@ class HomeworkViewModel @Inject constructor(
         viewModelScope.launch { graderRepository.refresh() }
     }
 
-    internal suspend fun shouldOpenGraderLoginAfterRetry(): Boolean =
-        !graderRepository.refresh() && graderVisible.value == true &&
-            graderState.value?.let { !it.syncing && it.error != null } == true
+    internal suspend fun savedGeniusTaLogin(): TodoLoginCredential? {
+        val saved = credentialStore.read(TodoLoginProvider.GENIUSTA) ?: return null
+        val currentAccount = geniusTaState.value?.accountId
+        return saved.takeIf { currentAccount == null || currentAccount == it.accountId }
+    }
 
-    fun connectGeniusTa(username: String, password: String, onConnected: () -> Unit) {
-        viewModelScope.launch {
-            if (geniusTaRepository.connect(username, password)) onConnected()
-        }
+    internal suspend fun forgetGeniusTaLogin(): Boolean =
+        credentialStore.forget(TodoLoginProvider.GENIUSTA)
+
+    internal suspend fun connectGeniusTa(
+        username: String,
+        password: String,
+        rememberDevice: Boolean,
+        expectedAccountId: String?,
+    ): TodoLoginResult {
+        geniusSync?.cancel()
+        if (!geniusTaRepository.connect(username, password, expectedAccountId)) return TodoLoginResult.Failed
+        val accountId = geniusTaState.value?.accountId ?: return TodoLoginResult.Failed
+        if (!rememberDevice) return TodoLoginResult.Connected
+        val saved = credentialStore.save(TodoLoginProvider.GENIUSTA, TodoLoginCredential(username, password, accountId))
+        return if (saved) TodoLoginResult.Connected else TodoLoginResult.ConnectedNotSaved
     }
 
     fun refreshGeniusTa() {
-        viewModelScope.launch { geniusTaRepository.refresh() }
+        if (geniusSync?.isActive == true) return
+        geniusSync = viewModelScope.launch { restoreGeniusTa() }
     }
 
-    internal suspend fun shouldOpenGeniusTaLoginAfterRetry(): Boolean =
-        !geniusTaRepository.refresh() && geniusTaState.value?.let { !it.syncing && it.error != null } == true
+    private suspend fun restoreGeniusTa() {
+        // Explicit logout has no active account, even if the user's encrypted login is retained.
+        val accountId = geniusTaState.value?.accountId ?: return
+        if (geniusTaState.value?.needsLogin != true && geniusTaRepository.refresh()) return
+        val state = geniusTaState.value ?: return
+        if (state.accountId != accountId || !state.needsLogin ||
+            (state.error != null && state.error != GeniusTaError.AUTHENTICATION)
+        ) return
+        val saved = credentialStore.read(TodoLoginProvider.GENIUSTA)?.takeIf { it.accountId == accountId } ?: return
+        geniusTaRepository.reconnect(saved.username, saved.password, accountId)
+    }
 
     fun disconnectGeniusTa() {
+        geniusSync?.cancel()
         viewModelScope.launch { geniusTaRepository.disconnect() }
     }
 
-    fun disconnectGrader(onDisconnected: () -> Unit) {
-        viewModelScope.launch {
-            if (graderRepository.disconnect()) onDisconnected()
-        }
+    fun disconnectGrader() {
+        viewModelScope.launch { graderRepository.disconnect() }
     }
 
     private fun update(onSuccess: (() -> Unit)? = null, operation: suspend () -> Boolean) {
@@ -142,6 +169,8 @@ class HomeworkViewModel @Inject constructor(
         }
     }
 }
+
+internal enum class TodoLoginResult { Failed, Connected, ConnectedNotSaved }
 
 private fun EASToken?.isGraderAvailable(): Boolean =
     this?.let { it.isLogin() && it.campus == EASToken.Campus.SHENZHEN } ?: false

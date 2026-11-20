@@ -16,8 +16,10 @@ internal data class GeniusTaSnapshot(
     val accountId: String? = null,
     val session: GeniusTaSession? = null,
     val cache: Map<String, GeniusTaAccountCache> = emptyMap(),
+    val disconnected: Boolean = false,
 ) {
-    val tasks: List<ImportedTodo> = accountId?.let(cache::get)?.let { active ->
+    val activeAccountId: String? get() = accountId.takeUnless { disconnected }
+    val tasks: List<ImportedTodo> = activeAccountId?.let(cache::get)?.let { active ->
         active.assignments.map { assignment ->
             ImportedTodo(assignment.id, assignment.title, assignment.courseTitle, assignment.dueAt, assignment.id in active.completed)
         }
@@ -49,7 +51,7 @@ internal class GeniusTaStore(private val read: () -> String?, private val commit
 
     fun setCompleted(accountId: String, id: String, completed: Boolean): GeniusTaSnapshot? {
         val before = load()
-        if (accountId != before.accountId) return null
+        if (accountId != before.activeAccountId) return null
         val cache = before.cache[accountId] ?: return null
         if (cache.assignments.none { it.id == id }) return null
         if ((id in cache.completed) == completed) return before
@@ -59,16 +61,24 @@ internal class GeniusTaStore(private val read: () -> String?, private val commit
 
     fun disconnect(): GeniusTaSnapshot {
         val before = load()
-        return if (before.accountId == null) before else save(before.copy(accountId = null, session = null))
+        return if (before.disconnected) before else save(before.copy(disconnected = true))
+    }
+
+    /** A login attempt can retire an active session, but may not discard a deliberately parked one. */
+    fun clearForReplacement(): GeniusTaSnapshot {
+        val before = load()
+        return if (before.activeAccountId == null) before else save(before.copy(accountId = null, session = null))
     }
 
     fun expireSession(): GeniusTaSnapshot {
         val before = load()
-        return if (before.session == null) before else save(before.copy(session = null))
+        return if (before.disconnected || before.session == null) before else save(before.copy(session = null))
     }
 
     fun activateCached(accountId: String): GeniusTaSnapshot {
         val before = load()
+        // A failed synchronization must not wake a deliberately disconnected account.
+        if (before.disconnected) return before
         check(before.accountId == null)
         return if (accountId in before.cache) save(before.copy(accountId = accountId)) else before
     }
@@ -80,6 +90,7 @@ internal class GeniusTaStore(private val read: () -> String?, private val commit
     }
 
     private fun encode(snapshot: GeniusTaSnapshot) = JsonObject().apply {
+        if (snapshot.disconnected) addProperty("disconnected", true)
         snapshot.accountId?.let { addProperty("account_id", it) }
         snapshot.session?.let { session ->
             add("session", JsonObject().apply {
@@ -109,6 +120,10 @@ internal class GeniusTaStore(private val read: () -> String?, private val commit
 
     private fun decode(encoded: String): GeniusTaSnapshot {
         val root = JsonParser().parse(encoded).asJsonObject
+        val disconnected = root.get("disconnected")?.asJsonPrimitive?.let {
+            require(it.isBoolean)
+            it.asBoolean
+        } ?: false
         val accountId = if (root.has("account_id")) root.id("account_id") else null
         val session = root.getAsJsonObject("session")?.let {
             GeniusTaSession(it.id("id"), it.text("cookie"), it.timestamp("expires_at"))
@@ -128,7 +143,7 @@ internal class GeniusTaStore(private val read: () -> String?, private val commit
         }
         require(accountId == null || accountId in cache)
         require(session == null || accountId != null)
-        return GeniusTaSnapshot(accountId, session, cache)
+        return GeniusTaSnapshot(accountId, session, cache, disconnected)
     }
 
     private fun JsonObject.id(key: String): String = text(key).also { require(isGeniusTaId(it)) }

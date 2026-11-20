@@ -13,8 +13,11 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -24,6 +27,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -44,6 +48,7 @@ import cn.limpu.hita.data.repository.geniusta.GeniusTaError
 import cn.limpu.hita.data.repository.geniusta.GeniusTaState
 import cn.limpu.hita.data.repository.grader.GraderError
 import cn.limpu.hita.data.repository.grader.GraderState
+import cn.limpu.hita.data.source.preference.TodoLoginCredential
 import cn.limpu.hita.ui.design.HitaPasswordField
 import kotlinx.coroutines.launch
 
@@ -75,11 +80,9 @@ internal fun TodoPlatformConnections(
     grader: GraderState?,
     geniusTa: GeniusTaState,
     onGraderLogin: () -> Unit,
-    onGraderRelogin: suspend () -> Unit,
     onGraderRefresh: () -> Unit,
     onGraderDisconnect: () -> Unit,
     onGeniusTaLogin: () -> Unit,
-    onGeniusTaRelogin: suspend () -> Unit,
     onGeniusTaRefresh: () -> Unit,
     onGeniusTaDisconnect: () -> Unit,
 ) {
@@ -108,13 +111,13 @@ internal fun TodoPlatformConnections(
             if (grader != null) {
                 TodoConnection(
                     TodoPlatform.GRADER, grader.accountId != null, grader.ready, grader.syncing, grader.needsLogin,
-                    grader.error != null, onGraderLogin, onGraderRelogin, onGraderRefresh, onGraderDisconnect,
+                    grader.error != null, onGraderLogin, onGraderRefresh, onGraderDisconnect,
                     modifier = Modifier.weight(1f),
                 )
             }
             TodoConnection(
                 TodoPlatform.GENIUSTA, geniusTa.accountId != null, geniusTa.ready, geniusTa.syncing, geniusTa.needsLogin,
-                geniusTa.error != null, onGeniusTaLogin, onGeniusTaRelogin, onGeniusTaRefresh, onGeniusTaDisconnect,
+                geniusTa.error != null, onGeniusTaLogin, onGeniusTaRefresh, onGeniusTaDisconnect,
                 modifier = Modifier.weight(1f),
             )
         }
@@ -130,30 +133,18 @@ private fun TodoConnection(
     needsLogin: Boolean,
     failed: Boolean,
     onLogin: () -> Unit,
-    onRelogin: suspend () -> Unit,
     onRefresh: () -> Unit,
     onDisconnect: () -> Unit,
     modifier: Modifier,
 ) {
     val title = stringResource(platform.titleRes)
-    var retrying by remember { mutableStateOf(false) }
-    val showRelogin = failed || (connected && needsLogin) || retrying
-    val scope = rememberCoroutineScope()
+    val showRelogin = failed || (connected && needsLogin)
     Surface(modifier, shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
         if (showRelogin || !connected) {
             val label = stringResource(if (showRelogin) R.string.homework_platform_relogin else R.string.homework_platform_login, title)
             TextButton(
-                onClick = {
-                    if (!showRelogin) {
-                        onLogin()
-                    } else if (!retrying) {
-                        retrying = true
-                        scope.launch {
-                            try { onRelogin() } finally { retrying = false }
-                        }
-                    }
-                },
-                enabled = ready && !syncing && !retrying,
+                onClick = onLogin,
+                enabled = ready && !syncing,
                 modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
                 contentPadding = PaddingValues(horizontal = 8.dp),
             ) {
@@ -187,23 +178,62 @@ private fun TodoConnection(
 internal fun GeniusTaLoginDialog(
     state: GeniusTaState,
     onDismiss: () -> Unit,
-    onLogin: (String, String) -> Unit,
+    readSavedLogin: suspend () -> TodoLoginCredential?,
+    forgetSavedLogin: suspend () -> Boolean,
+    onLogin: suspend (String, String, Boolean, String?) -> TodoLoginResult,
+    onConnected: (Boolean) -> Unit,
 ) {
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var attempted by remember { mutableStateOf(false) }
-    val dismiss = { if (!state.syncing) onDismiss() }
+    var rememberDevice by remember { mutableStateOf(false) }
+    var savedLoginAvailable by remember { mutableStateOf(false) }
+    var submitting by remember { mutableStateOf(false) }
+    var storageError by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    val busy = state.syncing || submitting
+    suspend fun submit(expectedAccountId: String? = null) {
+        if (submitting || username.isBlank() || password.isEmpty()) return
+        submitting = true
+        attempted = true
+        val enteredPassword = password
+        password = ""
+        try {
+            when (onLogin(username.trim(), enteredPassword, rememberDevice, expectedAccountId)) {
+                TodoLoginResult.Failed -> Unit
+                TodoLoginResult.Connected -> onConnected(true)
+                TodoLoginResult.ConnectedNotSaved -> onConnected(false)
+            }
+        } finally {
+            submitting = false
+        }
+    }
+    LaunchedEffect(Unit) {
+        val saved = readSavedLogin() ?: return@LaunchedEffect
+        savedLoginAvailable = true
+        // Do not replace anything the user already entered before the keystore returned.
+        if (username.isEmpty() && password.isEmpty() && !attempted) {
+            username = saved.username
+            password = saved.password
+            rememberDevice = true
+            submit(saved.accountId)
+        }
+    }
+    val dismiss = { if (!busy) onDismiss() }
     AlertDialog(
         onDismissRequest = dismiss,
         properties = DialogProperties(securePolicy = SecureFlagPolicy.SecureOn),
         title = { Text(stringResource(R.string.homework_platform_login, stringResource(R.string.geniusta_title))) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
                 OutlinedTextField(
                     value = username,
                     onValueChange = { if (it.length <= 255) username = it },
                     label = { Text(stringResource(R.string.geniusta_username)) },
-                    enabled = !state.syncing,
+                    enabled = !busy,
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -211,27 +241,44 @@ internal fun GeniusTaLoginDialog(
                     value = password,
                     onValueChange = { if (it.length <= 1024) password = it },
                     label = { Text(stringResource(R.string.geniusta_password)) },
-                    enabled = !state.syncing,
+                    enabled = !busy,
                     modifier = Modifier.fillMaxWidth(),
                 )
-                if (attempted && !state.syncing) state.error?.let {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(checked = rememberDevice, onCheckedChange = { rememberDevice = it }, enabled = !busy)
+                    Text(stringResource(R.string.todo_platform_remember_password), style = MaterialTheme.typography.bodyMedium)
+                }
+                if (savedLoginAvailable) {
+                    TextButton(
+                        enabled = !busy,
+                        onClick = {
+                            scope.launch {
+                                storageError = !forgetSavedLogin()
+                                if (!storageError) {
+                                    savedLoginAvailable = false
+                                    rememberDevice = false
+                                    username = ""
+                                    password = ""
+                                    attempted = false
+                                }
+                            }
+                        },
+                    ) { Text(stringResource(R.string.todo_platform_forget_password)) }
+                }
+                if (storageError) Text(stringResource(R.string.todo_platform_credential_error), color = MaterialTheme.colorScheme.error)
+                if (attempted && !busy) state.error?.let {
                     Text(stringResource(it.messageRes), color = MaterialTheme.colorScheme.error)
                 }
             }
         },
         confirmButton = {
             TextButton(
-                enabled = !state.syncing && username.isNotBlank() && password.isNotEmpty(),
-                onClick = {
-                    attempted = true
-                    val enteredPassword = password
-                    password = ""
-                    onLogin(username.trim(), enteredPassword)
-                },
+                enabled = !busy && username.isNotBlank() && password.isNotEmpty(),
+                onClick = { scope.launch { submit() } },
             ) { Text(stringResource(R.string.homework_platform_sign_in)) }
         },
         dismissButton = {
-            TextButton(onClick = dismiss, enabled = !state.syncing) { Text(stringResource(R.string.homework_cancel)) }
+            TextButton(onClick = dismiss, enabled = !busy) { Text(stringResource(R.string.homework_cancel)) }
         },
     )
 }

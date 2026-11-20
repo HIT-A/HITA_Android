@@ -7,6 +7,7 @@ import android.os.Build
 import android.os.Bundle
 import android.view.accessibility.AccessibilityNodeInfo
 import androidx.compose.ui.platform.ComposeView
+import androidx.compose.runtime.mutableStateOf
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.ViewModel
 import androidx.test.core.app.ActivityScenario
@@ -15,16 +16,21 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import cn.limpu.hita.R
 import cn.limpu.hita.data.model.homework.ImportedTodo
+import cn.limpu.hita.data.repository.geniusta.GeniusTaError
 import cn.limpu.hita.data.repository.geniusta.GeniusTaRepository
 import cn.limpu.hita.data.repository.geniusta.GeniusTaState
 import cn.limpu.hita.data.repository.homework.HomeworkRepository
 import cn.limpu.hita.data.repository.grader.GraderError
 import cn.limpu.hita.data.repository.grader.GraderRepository
 import cn.limpu.hita.data.repository.grader.GraderState
+import cn.limpu.hita.data.source.preference.TodoLoginCredential
+import cn.limpu.hita.data.source.preference.TodoPlatformCredentialStore
 import cn.limpu.hita.ui.design.HitaComposeTheme
 import androidx.activity.ComponentActivity
 import java.time.LocalDate
 import java.util.UUID
+import java.util.concurrent.LinkedBlockingQueue
+import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.*
 import org.junit.Test
@@ -35,6 +41,38 @@ class HomeworkUiInstrumentedTest {
     private val base = ApplicationProvider.getApplicationContext<Application>()
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
     private val automation get() = instrumentation.uiAutomation
+
+    @Test fun geniusTaAutomaticallySubmitsSavedAccountOnceAndLeavesManualEntryAfterRejection() {
+        val attempts = LinkedBlockingQueue<String>()
+        val state = mutableStateOf(GeniusTaState(ready = true))
+        ActivityScenario.launch(ComponentActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                activity.setContentView(ComposeView(activity).apply {
+                    setContent {
+                        HitaComposeTheme {
+                            GeniusTaLoginDialog(
+                                state = state.value,
+                                onDismiss = {},
+                                readSavedLogin = { TodoLoginCredential("fixture-user", "fixture-password", "fixture-account") },
+                                forgetSavedLogin = { false },
+                                onLogin = { username, password, remember, expectedAccount ->
+                                    check(password == "fixture-password" && remember)
+                                    attempts.add("$username:$expectedAccount")
+                                    state.value = GeniusTaState(ready = true, error = GeniusTaError.AUTHENTICATION)
+                                    TodoLoginResult.Failed
+                                },
+                                onConnected = { error("rejected credentials cannot close the login form") },
+                            )
+                        }
+                    }
+                })
+            }
+            assertEquals("fixture-user:fixture-account", attempts.poll(10, TimeUnit.SECONDS))
+            awaitText(base.getString(R.string.geniusta_authentication_error))
+            awaitNode("manual password after rejected saved login") { it.isVisibleToUser && it.isEnabled && it.isEditable && it.isPassword }
+            assertTrue("A failed automatic submission must not loop", attempts.isEmpty())
+        }
+    }
 
     @Test fun dailyScreenSupportsEditingCompletionAndLegacyTasks() = runBlocking {
         val preferenceName = "homework-ui-" + UUID.randomUUID()
@@ -63,6 +101,7 @@ class HomeworkUiInstrumentedTest {
                                 repository,
                                 GraderRepository(isolatedApp),
                                 GeniusTaRepository(isolatedApp),
+                                TodoPlatformCredentialStore(isolatedApp),
                                 easRepository,
                             ) as T
                     })[HomeworkViewModel::class.java]
@@ -179,7 +218,13 @@ class HomeworkUiInstrumentedTest {
                     val model = ViewModelProvider(activity, object : ViewModelProvider.Factory {
                         @Suppress("UNCHECKED_CAST")
                         override fun <T : ViewModel> create(modelClass: Class<T>): T =
-                            HomeworkViewModel(repository, GraderRepository(isolatedApp), GeniusTaRepository(isolatedApp), easRepository) as T
+                            HomeworkViewModel(
+                                repository,
+                                GraderRepository(isolatedApp),
+                                GeniusTaRepository(isolatedApp),
+                                TodoPlatformCredentialStore(isolatedApp),
+                                easRepository,
+                            ) as T
                     })[HomeworkViewModel::class.java]
                     activity.setContentView(ComposeView(activity).apply {
                         setContent {

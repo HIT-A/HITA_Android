@@ -9,6 +9,7 @@ import cn.limpu.hita.data.source.preference.GraderPreferenceSource
 import cn.limpu.hita.data.source.web.grader.GraderAuthenticationException
 import cn.limpu.hita.data.source.web.grader.GraderInvalidResponseException
 import cn.limpu.hita.data.source.web.grader.GraderNetworkException
+import cn.limpu.hita.data.source.web.grader.GraderRemoteSnapshot
 import cn.limpu.hita.data.source.web.grader.GraderSessionPolicy
 import cn.limpu.hita.data.source.web.grader.GraderWebSource
 import kotlinx.coroutines.CancellationException
@@ -40,16 +41,20 @@ data class GraderState(
 class GraderRepository internal constructor(
     private val store: GraderStore,
     private val publicationDispatcher: CoroutineDispatcher,
+    private val fetchRemote: (String, String?, () -> Unit) -> GraderRemoteSnapshot,
 ) {
     @Inject constructor(application: Application) : this(
         GraderPreferenceSource(application).let { GraderStore(it::read, it::write) },
         Dispatchers.Main.immediate,
+        kotlin.run {
+            val source by lazy { GraderWebSource() }
+            return@run { cookie, expectedAccountId, checkActive -> source.fetch(cookie, expectedAccountId, checkActive) }
+        },
     )
-    private val source by lazy { GraderWebSource() }
     private val mutex = Mutex()
     @Volatile private var generation = 0L
     val readCoordinator = GraderReadCoordinator(::reload) { generation }
-    private var sessionSuppressed = false
+    private var pendingChange: SessionChange? = null
     private var current = GraderState()
     private val mutableState = MutableLiveData(current)
     val state: LiveData<GraderState> = mutableState
@@ -57,8 +62,8 @@ class GraderRepository internal constructor(
     suspend fun reload(): Boolean = withContext(Dispatchers.IO) {
         mutex.withLock {
             try {
-                val snapshot = if (sessionSuppressed) store.disconnect().also { sessionSuppressed = false } else store.load()
-                publish(snapshot.toState(syncing = current.syncing))
+                val snapshot = loadSnapshot()
+                if (!current.syncing) publish(snapshot.toState())
                 true
             } catch (_: GraderStorageException) {
                 publish(current.copy(ready = true, error = GraderError.STORAGE))
@@ -67,12 +72,14 @@ class GraderRepository internal constructor(
         }
     }
 
-    suspend fun connect(cookieHeader: String): Boolean = synchronize(cookieHeader)
-    suspend fun refresh(): Boolean = synchronize(null)
+    suspend fun connect(cookieHeader: String, expectedAccountId: String? = null): Boolean =
+        synchronize(cookieHeader, expectedAccountId)
+
+    suspend fun refresh(): Boolean = synchronize(null, null)
 
     suspend fun setCompleted(accountId: String, id: String, completed: Boolean): Boolean = withContext(Dispatchers.IO) {
         mutex.withLock {
-            if (sessionSuppressed || current.accountId != accountId) return@withLock false
+            if (pendingChange != null || current.accountId != accountId) return@withLock false
             try {
                 val snapshot = store.setCompleted(accountId, id, completed) ?: return@withLock false
                 publish(snapshot.toState(syncing = current.syncing).copy(needsLogin = current.needsLogin))
@@ -87,44 +94,64 @@ class GraderRepository internal constructor(
     suspend fun disconnect(): Boolean = withContext(Dispatchers.IO) {
         mutex.withLock {
             generation++
-            sessionSuppressed = true
-            // Hide the previous account even if durable removal fails; never report false success.
-            publish(GraderState(ready = true, needsLogin = true))
+            pendingChange = SessionChange.DISCONNECT
+            var error: GraderError? = null
             try {
-                store.disconnect()
-                sessionSuppressed = false
+                loadSnapshot()
                 true
             } catch (_: GraderStorageException) {
-                publish(current.copy(error = GraderError.STORAGE))
+                error = GraderError.STORAGE
                 false
+            } finally {
+                // Even a failed commit hides the account until the durable change can be retried.
+                publish(GraderState(ready = true, needsLogin = true, error = error))
             }
         }
     }
 
+    private fun loadSnapshot(): GraderSnapshot {
+        val snapshot = when (pendingChange) {
+            SessionChange.DISCONNECT -> store.disconnect()
+            SessionChange.REPLACE -> store.clearForReplacement()
+            null -> return store.load()
+        }
+        pendingChange = null
+        return snapshot
+    }
+
+    private enum class SessionChange { DISCONNECT, REPLACE }
+
     private data class Operation(val generation: Long, val cookie: String, val expectedAccountId: String?)
     private class Superseded : Exception()
 
-    private suspend fun synchronize(candidateCookie: String?): Boolean = withContext(Dispatchers.IO) {
+    private suspend fun synchronize(candidateCookie: String?, candidateAccountId: String?): Boolean = withContext(Dispatchers.IO) {
         var startedGeneration: Long? = null
         try {
             val operation = mutex.withLock {
+                // A refresh cannot supersede an explicit login while no account is shown.
+                if (candidateCookie == null && current.syncing && current.accountId == null) return@withContext false
                 val token = ++generation
                 startedGeneration = token
                 try {
                     val cookie: String
                     val expectedAccountId: String?
                     if (candidateCookie != null) {
-                        sessionSuppressed = true
                         publish(GraderState(ready = true, syncing = true))
-                        store.disconnect()
-                        sessionSuppressed = false
+                        coroutineContext.ensureActive()
+                        // Retry a failed user disconnect before the replacement can retire any active session.
+                        if (pendingChange == SessionChange.DISCONNECT) loadSnapshot()
+                        pendingChange = SessionChange.REPLACE
+                        loadSnapshot()
                         cookie = GraderSessionPolicy.sessionCookie(candidateCookie) ?: throw GraderAuthenticationException()
-                        expectedAccountId = null
+                        expectedAccountId = candidateAccountId
                     } else {
-                        if (sessionSuppressed) throw GraderStorageException()
-                        val snapshot = store.load()
+                        val snapshot = loadSnapshot()
+                        if (snapshot.disconnected) {
+                            publish(snapshot.toState())
+                            return@withContext false
+                        }
                         cookie = snapshot.cookie ?: throw GraderAuthenticationException()
-                        expectedAccountId = snapshot.account?.id ?: throw GraderAuthenticationException()
+                        expectedAccountId = snapshot.activeAccount?.id ?: throw GraderAuthenticationException()
                         publish(snapshot.toState(syncing = true))
                     }
                     Operation(token, cookie, expectedAccountId)
@@ -139,13 +166,14 @@ class GraderRepository internal constructor(
 
             try {
                 val context = coroutineContext
-                val remote = source.fetch(operation.cookie, operation.expectedAccountId) {
+                val remote = fetchRemote(operation.cookie, operation.expectedAccountId) {
                     context.ensureActive()
                     if (generation != operation.generation) throw Superseded()
                 }
                 context.ensureActive()
                 mutex.withLock {
                     if (generation != operation.generation) return@withLock false
+                    context.ensureActive()
                     val snapshot = store.replace(
                         remote.account,
                         operation.cookie,
@@ -175,7 +203,9 @@ class GraderRepository internal constructor(
         } catch (cancelled: CancellationException) {
             withContext(NonCancellable) {
                 mutex.withLock {
-                    if (generation == startedGeneration) publish(current.copy(syncing = false))
+                    if (generation == startedGeneration) {
+                        publish(current.copy(syncing = false, needsLogin = current.needsLogin || current.accountId == null))
+                    }
                 }
             }
             throw cancelled
@@ -183,13 +213,13 @@ class GraderRepository internal constructor(
     }
 
     private fun GraderSnapshot.toState(syncing: Boolean = false): GraderState = GraderState(
-        accountId = account?.id,
-        accountName = account?.name,
+        accountId = activeAccount?.id,
+        accountName = activeAccount?.name,
         tasks = todoTasks(),
         summaryItems = summaryItems(),
         ready = true,
         syncing = syncing,
-        needsLogin = account == null && !syncing,
+        needsLogin = activeAccount == null && !syncing,
     )
 
     /** Returning callers can immediately inspect state.value; no asynchronous postValue race. */

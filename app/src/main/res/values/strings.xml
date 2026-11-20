@@ -1842,6 +1842,11 @@
     <string name="homework_platform_refresh">刷新 %1$s</string>
     <string name="homework_platform_disconnect">退出 %1$s</string>
     <string name="homework_platform_sign_in">登录</string>
+    <string name="todo_platform_username">账号（学号或工号）</string>
+    <string name="todo_platform_remember_password">在此设备保存账号密码，下次自动登录</string>
+    <string name="todo_platform_forget_password">忘记本机保存的账号密码</string>
+    <string name="todo_platform_credential_error">无法保存或清除设备上的账号密码</string>
+    <string name="todo_platform_edit_login">重新输入账号密码</string>
     <string name="grader_title">Grader</string>
     <string name="grader_login_title">登录 Grader</string>
     <string name="grader_login_error">Grader 登录验证失败，请重试或重新完成统一认证。</string>

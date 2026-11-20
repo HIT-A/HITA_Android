@@ -184,16 +184,19 @@ class GeniusTaRepositoryTest {
             assertTrue(withContext(Dispatchers.IO) { requestStarted.await(10, TimeUnit.SECONDS) })
             assertTrue(repository.disconnect())
             assertNull(repository.state.value?.accountId)
-            assertNull(store().load().session)
+            assertEquals(cookieValue, store().load().session?.cookieValue)
         } finally {
             allowResponse.countDown()
         }
         assertFalse(refresh.await())
         assertTrue(requireNotNull(repository.state.value).tasks.isEmpty())
-        assertNull(store().load().accountId)
+        val restored = store().load()
+        assertTrue(restored.disconnected)
+        assertNull(restored.activeAccountId)
+        assertEquals(listOf(previous), restored.cache[accountId]?.assignments)
     }
 
-    @Test fun failedLogoutDoesNotReshowOrUseOldSessionAndReloadRetriesDurableRemoval() = runBlocking {
+    @Test fun failedLogoutDoesNotReshowOrUseOldSessionAndReloadRetriesDurableDisconnect() = runBlocking {
         seed()
         val repository = repository { error("Logout is local") }
         assertTrue(repository.reload())
@@ -205,8 +208,102 @@ class GeniusTaRepositoryTest {
         assertFalse(repository.refresh())
         refuseCommit = false
         assertTrue(repository.reload())
-        assertNull(store().load().session)
+        val restored = store().load()
+        assertTrue(restored.disconnected)
+        assertEquals(cookieValue, restored.session?.cookieValue)
         assertNull(repository.state.value?.accountId)
+    }
+
+    @Test fun restartedDormantConnectionRequiresSuccessfulExplicitLoginForTheExpectedAccount() = runBlocking {
+        seed()
+        val first = repository { error("Local disconnect never contacts the platform") }
+        assertTrue(first.disconnect())
+        val dormant = disk
+        val requests = mutableListOf<String>()
+        val freshValue = "synthetic-new-cookie"
+        var candidate = "test-account-b"
+        var coursesAvailable = false
+        val restarted = repository { request ->
+            val path = request.url.encodedPath
+            requests += path
+            if (path != "/api/v1/auth/login") {
+                assertEquals("gta_prod_session_$sessionId=$freshValue", request.header("Cookie"))
+            }
+            when (path) {
+                "/api/v1/auth/login" -> loginResponse(request, candidate, "gta_prod_session_$sessionId=$freshValue; Path=/; Secure; HttpOnly")
+                "/api/v1/auth/me" -> response(request, identity(candidate))
+                "/api/v1/courses" -> if (coursesAvailable) response(request, courses("test-course")) else response(request, "{}", 503)
+                "/api/v1/courses/test-course/assignments" -> response(request, newAssignments())
+                else -> error("Unexpected request route")
+            }
+        }
+        assertTrue(restarted.reload())
+        assertFalse(restarted.refresh())
+        assertFalse(restarted.reconnect("synthetic-user", "synthetic-password", accountId))
+        assertTrue(requests.isEmpty())
+        assertNull(restarted.state.value?.accountId)
+        assertTrue(requireNotNull(restarted.state.value).tasks.isEmpty())
+
+        assertFalse(restarted.connect("synthetic-user", "synthetic-password", accountId))
+        assertEquals(listOf("/api/v1/auth/login", "/api/v1/auth/me"), requests)
+        assertEquals(GeniusTaError.AUTHENTICATION, restarted.state.value?.error)
+        assertNull(restarted.state.value?.accountId)
+        assertEquals(dormant, disk)
+
+        candidate = accountId
+        assertFalse(restarted.connect("synthetic-user", "synthetic-password", accountId))
+        assertEquals(GeniusTaError.NETWORK, restarted.state.value?.error)
+        assertNull(restarted.state.value?.accountId)
+        assertTrue(requireNotNull(restarted.state.value).tasks.isEmpty())
+        assertEquals(dormant, disk)
+
+        coursesAvailable = true
+        assertTrue(restarted.connect("synthetic-user", "synthetic-password", accountId))
+        assertEquals(accountId, restarted.state.value?.accountId)
+        assertEquals("new-assignment", restarted.state.value?.tasks?.single()?.id)
+        val restored = store().load()
+        assertFalse(restored.disconnected)
+        assertEquals(freshValue, restored.session?.cookieValue)
+    }
+
+    @Test fun recoveryRequiresMatchingExpiredAccountAndDoesNotDuplicateNewerAuthentication() = runBlocking {
+        seed(expiresAt = 1)
+        val authStarted = CountDownLatch(1)
+        val allowAuth = CountDownLatch(1)
+        val requests = mutableListOf<String>()
+        val repository = repository { request ->
+            val path = request.url.encodedPath
+            requests += path
+            when (path) {
+                "/api/v1/auth/login" -> {
+                    authStarted.countDown()
+                    check(allowAuth.await(10, TimeUnit.SECONDS))
+                    loginResponse(request, accountId)
+                }
+                "/api/v1/auth/me" -> response(request, identity(accountId))
+                "/api/v1/courses" -> response(request, courses("test-course"))
+                "/api/v1/courses/test-course/assignments" -> response(request, newAssignments())
+                else -> error("Unexpected request route")
+            }
+        }
+        assertTrue(repository.reload())
+        assertTrue(requireNotNull(repository.state.value).needsLogin)
+        assertEquals(accountId, repository.state.value?.accountId)
+        assertFalse(repository.reconnect("synthetic-user", "synthetic-password", "test-account-b"))
+        assertTrue(requests.isEmpty())
+        val recovery = async { repository.reconnect("synthetic-user", "synthetic-password", accountId) }
+        try {
+            assertTrue(withContext(Dispatchers.IO) { authStarted.await(10, TimeUnit.SECONDS) })
+            assertFalse(repository.reconnect("synthetic-user", "synthetic-password", accountId))
+            assertFalse(repository.refresh())
+        } finally {
+            allowAuth.countDown()
+        }
+        assertTrue(recovery.await())
+        assertFalse(repository.reconnect("synthetic-user", "synthetic-password", accountId))
+        assertEquals(1, requests.count { it == "/api/v1/auth/login" })
+        assertEquals(accountId, repository.state.value?.accountId)
+        assertFalse(requireNotNull(repository.state.value).needsLogin)
     }
 
     @Test fun loginRejectsUnpairedOrInsecureCookie() = runBlocking {
@@ -221,8 +318,8 @@ class GeniusTaRepositoryTest {
         }
     }
 
-    private fun seed() {
-        store().replace(GeniusTaConnection(accountId, GeniusTaSession(sessionId, cookieValue, Long.MAX_VALUE)), listOf(previous))
+    private fun seed(expiresAt: Long = Long.MAX_VALUE) {
+        store().replace(GeniusTaConnection(accountId, GeniusTaSession(sessionId, cookieValue, expiresAt)), listOf(previous))
     }
 
     private fun repository(serve: (Request) -> Response): GeniusTaRepository {

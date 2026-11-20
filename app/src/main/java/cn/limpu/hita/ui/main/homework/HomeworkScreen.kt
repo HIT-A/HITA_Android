@@ -3,7 +3,6 @@ package cn.limpu.hita.ui.main.homework
 import android.app.DatePickerDialog
 import android.app.TimePickerDialog
 import android.content.Intent
-import android.webkit.CookieManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
@@ -235,19 +234,9 @@ internal fun HomeworkScreen(
                         grader = grader.takeIf { showGrader },
                         geniusTa = geniusTa,
                         onGraderLogin = openGraderLogin,
-                        onGraderRelogin = { if (viewModel.shouldOpenGraderLoginAfterRetry()) openGraderLogin() },
                         onGraderRefresh = viewModel::refreshGrader,
-                        onGraderDisconnect = {
-                            viewModel.disconnectGrader {
-                                val cookies = CookieManager.getInstance()
-                                cookies.setCookie(
-                                    "https://grader.hitsz.edu.cn",
-                                    "sessionid=; Max-Age=0; Path=/; Secure; HttpOnly",
-                                ) { cookies.flush() }
-                            }
-                        },
+                        onGraderDisconnect = viewModel::disconnectGrader,
                         onGeniusTaLogin = { geniusLogin = true },
-                        onGeniusTaRelogin = { if (viewModel.shouldOpenGeniusTaLoginAfterRetry()) geniusLogin = true },
                         onGeniusTaRefresh = viewModel::refreshGeniusTa,
                         onGeniusTaDisconnect = viewModel::disconnectGeniusTa,
                     )
@@ -295,8 +284,14 @@ internal fun HomeworkScreen(
         GeniusTaLoginDialog(
             state = geniusTa,
             onDismiss = { geniusLogin = false },
-            onLogin = { username, password ->
-                viewModel.connectGeniusTa(username, password) { geniusLogin = false }
+            readSavedLogin = viewModel::savedGeniusTaLogin,
+            forgetSavedLogin = viewModel::forgetGeniusTaLogin,
+            onLogin = viewModel::connectGeniusTa,
+            onConnected = { saved ->
+                geniusLogin = false
+                if (!saved) scope.launch {
+                    snackbar.showSnackbar(context.getString(R.string.todo_platform_credential_error), withDismissAction = true)
+                }
             },
         )
     }

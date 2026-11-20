@@ -9,6 +9,7 @@ import cn.limpu.hita.data.source.web.grader.GraderSessionPolicy
 import com.google.gson.JsonArray
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
+import kotlinx.coroutines.CancellationException
 
 internal class GraderStorageException : Exception("Grader storage unavailable")
 
@@ -19,11 +20,13 @@ internal data class GraderSnapshot(
     val completedByAccount: Map<String, Set<String>> = emptyMap(),
     /** 远端已提交的 ID，按账号隔离；待办页不显示这些记录。 */
     val submittedByAccount: Map<String, Set<String>> = emptyMap(),
+    val disconnected: Boolean = false,
 ) {
-    val assignments: List<GraderAssignment> get() = account?.let { assignmentsByAccount[it.id] }.orEmpty()
+    val activeAccount: GraderAccount? get() = account.takeUnless { disconnected }
+    val assignments: List<GraderAssignment> get() = activeAccount?.let { assignmentsByAccount[it.id] }.orEmpty()
 
     fun summaryItems(): List<GraderSummaryItem> {
-        val id = account?.id ?: return emptyList()
+        val id = activeAccount?.id ?: return emptyList()
         val completed = completedByAccount[id].orEmpty() + submittedByAccount[id].orEmpty()
         return assignments.filter { it.published }.map {
             GraderSummaryItem(id, it.id, it.title, it.courseTitle, it.dueAt, it.id in completed)
@@ -31,7 +34,7 @@ internal data class GraderSnapshot(
     }
 
     fun todoTasks(): List<ImportedTodo> {
-        val id = account?.id ?: return emptyList()
+        val id = activeAccount?.id ?: return emptyList()
         val completed = completedByAccount[id].orEmpty()
         val submitted = submittedByAccount[id].orEmpty()
         return assignments.mapNotNull { assignment ->
@@ -65,6 +68,7 @@ internal class GraderStore(private val read: () -> String?, private val write: (
             cookie = cookie,
             assignmentsByAccount = current.assignmentsByAccount + (account.id to GraderParser.unique(assignments)),
             submittedByAccount = current.submittedByAccount + (account.id to submitted),
+            disconnected = false,
         ))
     }
 
@@ -72,7 +76,7 @@ internal class GraderStore(private val read: () -> String?, private val write: (
     fun setCompleted(accountId: String, id: String, completed: Boolean): GraderSnapshot? {
         val current = load()
         if (
-            current.account?.id != accountId ||
+            current.activeAccount?.id != accountId ||
             id in current.submittedByAccount[accountId].orEmpty() ||
             current.assignments.none { it.id == id && it.published && it.dueAt != null }
         ) return null
@@ -83,7 +87,17 @@ internal class GraderStore(private val read: () -> String?, private val write: (
     }
 
     @Synchronized
-    fun disconnect(): GraderSnapshot = save(load().copy(account = null, cookie = null))
+    fun disconnect(): GraderSnapshot {
+        val current = load()
+        return if (current.disconnected) current else save(current.copy(disconnected = true))
+    }
+
+    /** A login attempt can retire an active session, but may not discard a deliberately parked one. */
+    @Synchronized
+    fun clearForReplacement(): GraderSnapshot {
+        val current = load()
+        return if (current.activeAccount == null) current else save(current.copy(account = null, cookie = null))
+    }
 
     private fun save(next: GraderSnapshot): GraderSnapshot = storage {
         if (!write(encode(next))) throw GraderStorageException()
@@ -94,6 +108,7 @@ internal class GraderStore(private val read: () -> String?, private val write: (
     private fun encode(value: GraderSnapshot): String {
         val root = JsonObject()
         root.addProperty("version", 1)
+        if (value.disconnected) root.addProperty("disconnected", true)
         value.account?.let {
             val account = JsonObject()
             account.addProperty("id", it.id)
@@ -136,6 +151,10 @@ internal class GraderStore(private val read: () -> String?, private val write: (
     private fun decode(raw: String): GraderSnapshot {
         val root = JsonParser().parse(raw).asJsonObject
         require(root.get("version").asInt == 1)
+        val disconnected = root.get("disconnected")?.asJsonPrimitive?.let {
+            require(it.isBoolean)
+            it.asBoolean
+        } ?: false
         val accountObject = root.getAsJsonObject("account")
         val account = accountObject?.let { GraderAccount(it.string("id").also(::requireId), it.string("name")) }
         val cookie = accountObject?.string("cookie")
@@ -170,7 +189,7 @@ internal class GraderStore(private val read: () -> String?, private val write: (
                 id.asString.also(::requireId)
             }.toSet()
         }.orEmpty()
-        return GraderSnapshot(account, cookie, caches, completed, submitted)
+        return GraderSnapshot(account, cookie, caches, completed, submitted, disconnected)
     }
 
     private fun JsonObject.string(key: String): String {
@@ -185,6 +204,8 @@ internal class GraderStore(private val read: () -> String?, private val write: (
 
     private inline fun <T> storage(action: () -> T): T = try {
         action()
+    } catch (cancelled: CancellationException) {
+        throw cancelled
     } catch (error: GraderStorageException) {
         throw error
     } catch (_: Exception) {
