@@ -43,6 +43,16 @@ class DataState<T> {
     //是否为重试状态
     var fromCache = false
 
+    /**
+     * 当前 [data] 来自本地缓存时，缓存写入的时间戳；null 表示是本次请求的结果。
+     *
+     * 界面据此告诉用户「你看的是几点拉到的数据」，避免把旧数据当成最新结果。
+     */
+    var cachedAtMillis: Long? = null
+
+    //保留了上一次成功的数据可看，但本次刷新失败
+    var refreshFailed = false
+
     //重试后的状态
     var stateRetried: STATE = STATE.NOTHING
 
@@ -72,6 +82,19 @@ class DataState<T> {
 
     fun setFromCache(retry: Boolean): DataState<T> {
         fromCache = retry
+        return this
+    }
+
+    /**
+     * 标记「展示的是上次成功的数据，本次刷新失败」。
+     *
+     * [cachedAtMillis] 是该数据的缓存时间；[message] 为本次失败原因，可为空。
+     * 调用后 [state] 保持原值（通常是 SUCCESS），界面按 [refreshFailed] 显示提示条。
+     */
+    fun setStale(cachedAtMillis: Long?, message: String? = null): DataState<T> {
+        this.cachedAtMillis = cachedAtMillis
+        this.refreshFailed = true
+        if (!message.isNullOrBlank()) this.message = message
         return this
     }
     fun setRetryState(retryState: STATE): DataState<T> {

@@ -73,6 +73,7 @@ import cn.limpu.hita.data.model.eas.TermItem
 import cn.limpu.hita.ui.base.ComposeViewBinding
 import cn.limpu.hita.ui.design.HitaComposeTheme
 import cn.limpu.hita.ui.design.HitaTheme
+import cn.limpu.hita.ui.design.StaleDataBanner
 import cn.limpu.hita.ui.design.hitaGlassCardBorder
 import cn.limpu.hita.ui.design.hitaGlassCardColors
 import cn.limpu.hita.ui.design.hitaGlassCardModifier
@@ -324,6 +325,11 @@ private fun GradeScreen(
                 containerColor = MaterialTheme.colorScheme.background
             )
         )
+
+        if (activeState?.refreshFailed == true) {
+            // 刷新失败但还有上次的成绩可看：提示数据是旧的，页面照常展示。
+            StaleDataBanner(cachedAtMillis = activeState?.cachedAtMillis, onRetry = onRefresh)
+        }
 
         when {
             activeState?.state == DataState.STATE.NOT_LOGGED_IN -> StateCard(

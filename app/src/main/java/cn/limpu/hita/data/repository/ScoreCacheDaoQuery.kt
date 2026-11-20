@@ -16,12 +16,20 @@ internal class ScoreCacheDaoQuery(
     private val scoreListType: Type,
 ) {
     fun read(owner: String, term: TermItem, testType: EASService.TestType): ScoreQueryResult? =
+        readWithTime(owner, term, testType)?.first
+
+    /** 缓存结果与它的写入时间一起返回，界面提示「显示的是几点拉到的成绩」时要用。 */
+    fun readWithTime(
+        owner: String,
+        term: TermItem,
+        testType: EASService.TestType,
+    ): Pair<ScoreQueryResult, Long>? =
         dao.getScoreSync(owner, term.yearCode, term.termCode, testType.name)?.let { entity ->
             runCatching {
                 ScoreQueryResult(
                     items = gson.fromJson<List<CourseScoreItem>>(entity.scoresJson, scoreListType).orEmpty(),
                     summary = entity.summaryJson?.let { gson.fromJson(it, ScoreSummary::class.java) },
-                )
+                ) to entity.cachedAt
             }.getOrNull()
         }
 

@@ -108,6 +108,8 @@ class ScoreInquiryViewModel @Inject constructor(
             DataState(state.data?.items ?: emptyList(), state.state).also {
                 it.message = state.message
                 it.fromCache = state.fromCache
+                it.cachedAtMillis = state.cachedAtMillis
+                it.refreshFailed = state.refreshFailed
                 it.listAction = state.listAction
                 it.stateRetried = state.stateRetried
             }

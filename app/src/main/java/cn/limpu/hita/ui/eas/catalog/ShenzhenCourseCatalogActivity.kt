@@ -99,6 +99,7 @@ import cn.limpu.hita.data.work.CourseSelectionAlarmScheduler
 import cn.limpu.hita.ui.base.ComposeViewBinding
 import cn.limpu.hita.ui.design.HitaComposeTheme
 import cn.limpu.hita.ui.design.HitaTheme
+import cn.limpu.hita.ui.design.StaleDataBanner
 import cn.limpu.hita.ui.design.hitaGlassCardBorder
 import cn.limpu.hita.ui.design.hitaGlassCardColors
 import cn.limpu.hita.ui.design.hitaGlassCardModifier
@@ -203,6 +204,7 @@ class ShenzhenCourseCatalogActivity :
                         studentType = studentType,
                         query = query,
                         page = pageState?.data,
+                        staleCachedAtMillis = pageState?.takeIf { it.refreshFailed }?.cachedAtMillis,
                         followedSectionIds = followedSectionIds,
                         coursePlanDraft = coursePlanDraft,
                         selectedCourses = selectedCoursesState?.data.orEmpty(),
@@ -642,6 +644,7 @@ private fun ShenzhenCourseCatalogScreen(
     studentType: String,
     query: ShenzhenCourseCatalogQuery?,
     page: ShenzhenCourseCatalogPage?,
+    staleCachedAtMillis: Long? = null,
     followedSectionIds: Set<String>,
     coursePlanDraft: CourseSelectionDraft?,
     selectedCourses: List<ShenzhenCourseCatalogItem>,
@@ -864,6 +867,11 @@ private fun ShenzhenCourseCatalogScreen(
                 }
             }
             return@Column
+        }
+
+        if (staleCachedAtMillis != null && page != null) {
+            // 刷新失败但还有上次的列表可看：提示数据是旧的，页面照常展示。
+            StaleDataBanner(cachedAtMillis = staleCachedAtMillis, onRetry = onRefresh)
         }
 
         Row(
