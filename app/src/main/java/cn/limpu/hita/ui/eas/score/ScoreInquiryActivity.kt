@@ -390,8 +390,8 @@ private fun ScoreInquiryScreen(
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(bottom = tokens.spacing.xl)
             ) {
-                if (scoresState?.refreshFailed == true && scores.isNotEmpty() && !isRefreshing) {
-                    // 刷新失败但还有上次成绩可看：提示数据是旧的，不挡住列表。
+                if (scoresState?.refreshFailed == true && !isRefreshing) {
+                    // 刷新失败但还有上次成绩可看（可能只剩官方汇总，列表为空）：提示数据是旧的。
                     item {
                         StaleDataBanner(cachedAtMillis = scoresState?.cachedAtMillis, onRetry = onRefresh)
                     }
