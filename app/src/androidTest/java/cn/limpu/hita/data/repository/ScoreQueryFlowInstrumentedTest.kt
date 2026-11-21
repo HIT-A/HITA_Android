@@ -58,6 +58,40 @@ class ScoreQueryFlowInstrumentedTest {
     }
 
     @Test
+    fun failedRemoteKeepsCachedScoresAndMarksThemStale() = runBlocking {
+        BackgroundTermConsumerHarness().use { harness ->
+            val term = BackgroundTermConsumerHarness.term()
+            val gson = Gson()
+            val cachedAt = 1_700_000_000_000L
+            harness.database.scoreCacheDao().saveScoreSync(
+                ScoreCacheEntity(
+                    ownerKey = "BENBU:student",
+                    termYearCode = term.yearCode,
+                    termTermCode = term.termCode,
+                    testType = EASService.TestType.NORMAL.name,
+                    scoresJson = gson.toJson(listOf(BackgroundTermConsumerHarness.score("cached"))),
+                    summaryJson = null,
+                    cachedAt = cachedAt,
+                )
+            )
+            harness.scoresOnce = { _, _, _ -> DataState(DataState.STATE.FETCH_FAILED, "offline") }
+
+            val states = harness.repository
+                .getPersonalScoresWithSummaryFlow(term, EASService.TestType.NORMAL)
+                .toList()
+
+            assertEquals(2, states.size)
+            assertEquals("cached", states[0].data?.items?.single()?.courseName)
+            assertEquals(cachedAt, states[0].cachedAtMillis)
+            assertEquals(DataState.STATE.SUCCESS, states[1].state)
+            assertTrue(states[1].refreshFailed)
+            assertEquals(cachedAt, states[1].cachedAtMillis)
+            assertEquals("offline", states[1].message)
+            assertEquals("cached", states[1].data?.items?.single()?.courseName)
+        }
+    }
+
+    @Test
     fun cancelledRemoteDoesNotWriteScoreCache() = runBlocking {
         BackgroundTermConsumerHarness().use { harness ->
             val entered = CompletableDeferred<Unit>()

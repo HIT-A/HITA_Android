@@ -207,6 +207,11 @@ class EmptyClassroomQueryRequestInstrumentedTest {
 
     @Test
     fun everyNonSuccessRemoteStateIsSuppressedWithCacheAndForwardedWithoutCache() = runBlocking {
+        val terminalStates = listOf(
+            DataState.STATE.FETCH_FAILED,
+            DataState.STATE.NOT_LOGGED_IN,
+            DataState.STATE.TOKEN_INVALID,
+        )
         for (state in DataState.STATE.entries.filter { it != DataState.STATE.SUCCESS }) {
             val remote = DataState<List<ClassroomItem>>(state, "original $state")
             var saves = 0
@@ -214,8 +219,20 @@ class EmptyClassroomQueryRequestInstrumentedTest {
                 .states().toList()
             val miss = request(save = { saves++ }, remote = { remote }).states().toList()
 
-            assertEquals("cached", hit.single().data?.single()?.name)
-            assertTrue(hit.single().fromCache)
+            if (state in terminalStates) {
+                // 刷新失败时先给缓存、再给一条「数据是旧的」，页面据此提示但仍展示列表。
+                assertEquals(2, hit.size)
+                assertEquals("cached", hit.first().data?.single()?.name)
+                assertTrue(hit.first().fromCache)
+                assertEquals(DataState.STATE.SUCCESS, hit.last().state)
+                assertTrue(hit.last().refreshFailed)
+                assertEquals("cached", hit.last().data?.single()?.name)
+                assertEquals("original $state", hit.last().message)
+            } else {
+                assertEquals("cached", hit.single().data?.single()?.name)
+                assertTrue(hit.single().fromCache)
+                assertFalse(hit.single().refreshFailed)
+            }
             assertSame(remote, miss.single())
             assertEquals(0, saves)
         }

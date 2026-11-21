@@ -78,6 +78,7 @@ import cn.limpu.hita.data.model.eas.TermItem
 import cn.limpu.hita.ui.base.ComposeViewBinding
 import cn.limpu.hita.ui.design.HitaComposeTheme
 import cn.limpu.hita.ui.design.HitaTheme
+import cn.limpu.hita.ui.design.StaleDataBanner
 import cn.limpu.hita.ui.eas.EASActivity
 import cn.limpu.hita.utils.TermNameFormatter
 import cn.limpu.hita.utils.TermUtils
@@ -517,12 +518,17 @@ private fun ExamScreen(
             onPickExamType = onPickExamType,
             onImportAll = onImportAll
         )
-        examState?.message?.takeIf { it.isNotBlank() }?.let { message ->
-            Text(
-                text = message,
-                color = MaterialTheme.colorScheme.error,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = tokens.spacing.lg, vertical = tokens.spacing.sm)
-            )
+        if (examState?.refreshFailed == true && exams.isNotEmpty() && !isRefreshing) {
+            // 刷新失败但还有上次的考试可看：只加一条提示，不挡住列表。
+            StaleDataBanner(cachedAtMillis = examState?.cachedAtMillis, onRetry = onRefresh)
+        } else {
+            examState?.message?.takeIf { it.isNotBlank() }?.let { message ->
+                Text(
+                    text = message,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = tokens.spacing.lg, vertical = tokens.spacing.sm)
+                )
+            }
         }
         if (!isRefreshing && onRelogin != null &&
             (remoteRefreshFailed || examState?.state == DataState.STATE.FETCH_FAILED ||

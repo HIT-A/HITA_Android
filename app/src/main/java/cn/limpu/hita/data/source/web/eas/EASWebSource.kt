@@ -235,21 +235,22 @@ class EASWebSource internal constructor(
         data: Map<String, String> = emptyMap(),
         refererPath: String = "/authentication/main"
     ): Connection.Response {
-        val jwHostName = jwHostName(token)
+        val configuredHost = jwHostName(token)
         val cookieJar = token.webCookies.takeIf { it.isNotEmpty() } ?: token.cookies
         if (token.webCookies.isEmpty()) {
             warmupJwSession(token)
         }
 
-        fun executeOnce(): Connection.Response {
+        fun executeAt(host: String): Connection.Response {
+            val base = host.trimEnd('/')
             val req = Jsoup.newSession()
-                .url("$jwHostName$path")
+                .url("$base$path")
                 .header("Accept", "*/*")
                 .header("Accept-Language", "zh-CN,zh;q=0.9")
                 .header("RoleCode", "01")
                 .header("X-Requested-With", "XMLHttpRequest")
-                .header("Origin", jwHostName)
-                .header("Referer", "$jwHostName$refererPath")
+                .header("Origin", base)
+                .header("Referer", "$base$refererPath")
                 .header("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
                 .userAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36")
                 .cookies(cookieJar)
@@ -261,16 +262,43 @@ class EASWebSource internal constructor(
             return req.execute().also { response -> cookieJar.putAll(response.cookies()) }
         }
 
-        var resp = executeOnce()
+        var resp = executeAt(configuredHost)
 
         // jw 会话可能独立过期：检测 401 后尝试静默重登一次并重试同一请求
         if (token.webCookies.isEmpty() && resp.statusCode() == 401 && tryRelogin(token)) {
             warmupJwSession(token)
-            resp = executeOnce()
+            resp = executeAt(configuredHost)
         }
+        resp = fallbackToDirectHostIfNeeded(token, configuredHost, resp, ::executeAt)
         onTokenRefreshed?.invoke(token)
         return resp
     }
+
+    /**
+     * 旧的校外代理根地址（jw-hitsz-edu-cn）现在挂在 aTrust 网关后面：请求会被 302 到
+     * trust 域名，最终拿到的是网关 HTML，接口永远解析不出数据。直连可用时改走直连，
+     * 并把 token 的 base 落成直连，避免之后每个页面都报「解析失败」。
+     */
+    private fun fallbackToDirectHostIfNeeded(
+        token: EASToken,
+        configuredHost: String,
+        response: Connection.Response,
+        executeAt: (String) -> Connection.Response,
+    ): Connection.Response {
+        val proxyConfigured = configuredHost.trimEnd('/').equals(jwProxyHostName, ignoreCase = true)
+        if (!proxyConfigured || !isUnusableJwResponse(response)) return response
+        LogUtils.w("jw: proxy host unusable, retrying direct host")
+        val direct = executeAt(jwDirectHostName)
+        if (isUnusableJwResponse(direct)) return response
+        // 落成直连地址而不是 null：保存 token 时 null 会被合并逻辑用旧值（代理）填回来。
+        token.webBaseUrl = jwDirectHostName
+        onTokenRefreshed?.invoke(token)
+        return direct
+    }
+
+    /** 拿不到可用数据：非 2xx，或者已经落到登录页 / aTrust 网关页。 */
+    private fun isUnusableJwResponse(response: Connection.Response): Boolean =
+        response.statusCode() !in 200..299 || isAuthExpiredResponse(response)
 
     private fun jwSelectionFormPostOnce(
         token: EASToken,
@@ -318,21 +346,22 @@ class EASWebSource internal constructor(
         body: String,
         refererPath: String = "/authentication/main"
     ): Connection.Response {
-        val jwHostName = jwHostName(token)
+        val configuredHost = jwHostName(token)
         val cookieJar = token.webCookies.takeIf { it.isNotEmpty() } ?: token.cookies
         if (token.webCookies.isEmpty()) {
             warmupJwSession(token)
         }
 
-        fun executeOnce(): Connection.Response {
+        fun executeAt(host: String): Connection.Response {
+            val base = host.trimEnd('/')
             return Jsoup.newSession()
-                .url("$jwHostName$path")
+                .url("$base$path")
                 .header("Accept", "*/*")
                 .header("Accept-Language", "zh-CN,zh;q=0.9")
                 .header("RoleCode", "01")
                 .header("X-Requested-With", "XMLHttpRequest")
-                .header("Origin", jwHostName)
-                .header("Referer", "$jwHostName$refererPath")
+                .header("Origin", base)
+                .header("Referer", "$base$refererPath")
                 .header("Content-Type", "application/json;charset=UTF-8")
                 .userAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36")
                 .cookies(cookieJar)
@@ -345,11 +374,12 @@ class EASWebSource internal constructor(
                 .also { response -> cookieJar.putAll(response.cookies()) }
         }
 
-        var response = executeOnce()
+        var response = executeAt(configuredHost)
         if (token.webCookies.isEmpty() && response.statusCode() == 401 && tryRelogin(token)) {
             warmupJwSession(token)
-            response = executeOnce()
+            response = executeAt(configuredHost)
         }
+        response = fallbackToDirectHostIfNeeded(token, configuredHost, response, ::executeAt)
         onTokenRefreshed?.invoke(token)
         return response
     }

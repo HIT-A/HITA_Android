@@ -77,6 +77,7 @@ import cn.limpu.hita.data.model.timetable.TermSubject
 import cn.limpu.hita.ui.base.ComposeViewBinding
 import cn.limpu.hita.ui.design.HitaComposeTheme
 import cn.limpu.hita.ui.design.HitaTheme
+import cn.limpu.hita.ui.design.StaleDataBanner
 import cn.limpu.hita.ui.eas.EASActivity
 import cn.limpu.hita.utils.TermNameFormatter
 import com.limpu.component.data.DataState
@@ -320,6 +321,11 @@ private fun ShenzhenCreditProgressScreen(
                 containerColor = MaterialTheme.colorScheme.background
             )
         )
+
+        if (state?.refreshFailed == true && progress != null) {
+            // 刷新失败但还有上次的培养方案可看：提示数据是旧的，页面照常展示。
+            StaleDataBanner(cachedAtMillis = state?.cachedAtMillis, onRetry = onRetry)
+        }
 
         when {
             state == null || state.state in listOf(

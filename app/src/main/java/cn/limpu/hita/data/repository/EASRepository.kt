@@ -779,12 +779,12 @@ class EASRepository @Inject internal constructor(
                     throw kotlinx.coroutines.CancellationException("A newer score query owns this key")
                 }
             }
-            val cached = if (useCache && owner != null) {
+            val cachedEntry = if (useCache && owner != null) {
                 try {
                     withContext(Dispatchers.IO) {
                         ensureTicket()
                         if (queryCoordinator.cleanOwnerSync(owner, scoreCacheDao)) {
-                            cache.read(owner, capturedTerm, testType)
+                            cache.readWithTime(owner, capturedTerm, testType)
                         } else null
                     }
                 } catch (cancelled: kotlinx.coroutines.CancellationException) {
@@ -794,9 +794,13 @@ class EASRepository @Inject internal constructor(
                     null
                 }
             } else null
+            val cached = cachedEntry?.first
+            val cachedAt = cachedEntry?.second
             if (cached != null) {
                 ensureTicket()
-                emit(DataState(cached, DataState.STATE.SUCCESS).setFromCache(true))
+                emit(DataState(cached, DataState.STATE.SUCCESS).setFromCache(true).apply {
+                    this.cachedAtMillis = cachedAt
+                })
             }
 
             if (!session.loggedIn) {
@@ -806,6 +810,7 @@ class EASRepository @Inject internal constructor(
             ensureTicket()
             val remote = scoreFlow(session, capturedTerm, testType)
             var emittedRemote = false
+            var emittedStale = false
             session.whileCurrent {
                 remote.collect { state ->
                     ensureTicket()
@@ -831,6 +836,14 @@ class EASRepository @Inject internal constructor(
                         }
                         ensureTicket()
                         emit(state)
+                    } else if (cached != null && !emittedRemote && !emittedStale && state.state.endsWithoutData()) {
+                        // 刷新失败时保留上次成绩，只标记「数据是旧的」，界面据此提示并可重试。
+                        emittedStale = true
+                        ensureTicket()
+                        emit(DataState(cached, DataState.STATE.SUCCESS).setFromCache(true).apply {
+                            this.cachedAtMillis = cachedAt
+                            setStale(cachedAt, state.message)
+                        })
                     } else if (cached == null && !emittedRemote) {
                         ensureTicket()
                         emit(state)
@@ -984,6 +997,9 @@ class EASRepository @Inject internal constructor(
                     }
             }
     }
+
+    /** 页面级缓存（考试快照等）按账号隔离时要用的 key；未登录时返回 null。 */
+    fun cacheOwnerKey(): String? = scoreCacheOwnerKey(easPreferenceSource.getEasToken())
 
     private fun scoreCacheOwnerKey(token: EASToken): String? {
         val identity = token.stuId

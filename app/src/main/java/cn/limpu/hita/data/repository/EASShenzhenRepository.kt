@@ -22,7 +22,6 @@ import com.google.gson.reflect.TypeToken
 import com.limpu.component.data.DataState
 import java.lang.reflect.Type
 import java.util.*
-import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.concurrent.thread
 import kotlinx.coroutines.Dispatchers
@@ -44,6 +43,7 @@ internal class EASShenzhenRepository(
     private val querySessionState = easPreferenceSource.querySessionState
     private val queryCoordinator = EasQueryCoordinator.forSession(querySessionState)
     private val shenzhenGradeCourseListType = object : TypeToken<List<ShenzhenGradeCourse>>() {}.type
+    private val shenzhenTrainingPlanListType = object : TypeToken<List<ShenzhenTrainingPlan>>() {}.type
 
     companion object {
         private const val JW_DIRECT_BASE_URL = "https://jw.hitsz.edu.cn"
@@ -123,13 +123,22 @@ internal class EASShenzhenRepository(
         page: Int,
         pageSize: Int = 20
     ): LiveData<DataState<ShenzhenCourseCatalogPage>> {
-        return shenzhenService.queryShenzhenAvailableCourses(
-            easPreferenceSource.getEasToken(),
-            term,
-            pool,
-            keyword,
-            page,
-            pageSize
+        val token = easPreferenceSource.getEasToken()
+        val ownerKey = scoreCacheOwnerKey(token)
+            ?: return shenzhenService.queryShenzhenAvailableCourses(
+                token, term, pool, keyword, page, pageSize
+            )
+        return getCachedPayload(
+            scope = EasQueryScope.from(token),
+            ownerKey = ownerKey,
+            cacheKey = "catalog:available:${term.id}:${pool.name}:$keyword:$page:$pageSize",
+            payloadType = ShenzhenCourseCatalogPage::class.java,
+            canRefreshRemotely = token.isLogin(),
+            remote = {
+                shenzhenService.queryShenzhenAvailableCourses(
+                    token, term, pool, keyword, page, pageSize
+                )
+            },
         )
     }
 
@@ -140,13 +149,22 @@ internal class EASShenzhenRepository(
         page: Int,
         pageSize: Int = 20
     ): LiveData<DataState<ShenzhenCourseCatalogPage>> {
-        return shenzhenService.queryShenzhenSchoolCourses(
-            easPreferenceSource.getEasToken(),
-            term,
-            studentType,
-            keyword,
-            page,
-            pageSize
+        val token = easPreferenceSource.getEasToken()
+        val ownerKey = scoreCacheOwnerKey(token)
+            ?: return shenzhenService.queryShenzhenSchoolCourses(
+                token, term, studentType, keyword, page, pageSize
+            )
+        return getCachedPayload(
+            scope = EasQueryScope.from(token),
+            ownerKey = ownerKey,
+            cacheKey = "catalog:school:${term.id}:$studentType:$keyword:$page:$pageSize",
+            payloadType = ShenzhenCourseCatalogPage::class.java,
+            canRefreshRemotely = token.isLogin(),
+            remote = {
+                shenzhenService.queryShenzhenSchoolCourses(
+                    token, term, studentType, keyword, page, pageSize
+                )
+            },
         )
     }
 
@@ -246,7 +264,7 @@ internal class EASShenzhenRepository(
         val token = easPreferenceSource.getEasToken()
         val ownerKey = scoreCacheOwnerKey(token)
             ?: return shenzhenService.getShenzhenGradeCourses(token, term)
-        return getCachedScoreDetail(
+        return getCachedPayload(
             scope = EasQueryScope.from(token),
             ownerKey = ownerKey,
             cacheKey = "grade-courses:${term.id}",
@@ -262,7 +280,7 @@ internal class EASShenzhenRepository(
         val token = easPreferenceSource.getEasToken()
         val ownerKey = scoreCacheOwnerKey(token)
             ?: return shenzhenService.getShenzhenGradeAnalysis(token, course)
-        return getCachedScoreDetail(
+        return getCachedPayload(
             scope = EasQueryScope.from(token),
             ownerKey = ownerKey,
             cacheKey = gradeAnalysisCacheKey(course),
@@ -281,7 +299,7 @@ internal class EASShenzhenRepository(
         ).joinToString(":")
     }
 
-    private fun <T : Any> getCachedScoreDetail(
+    private fun <T : Any> getCachedPayload(
         scope: EasQueryScope,
         ownerKey: String,
         cacheKey: String,
@@ -290,20 +308,36 @@ internal class EASShenzhenRepository(
         remote: () -> LiveData<DataState<T>>,
     ): LiveData<DataState<T>> {
         val result = MediatorLiveData<DataState<T>>()
-        val hasCachedResult = AtomicBoolean(false)
-        thread(name = "score-detail-cache-load") {
+        var cachedState: DataState<T>? = null
+        thread(name = "eas-page-cache-load") {
             val canRead = queryCoordinator.cleanOwnerSync(ownerKey, scoreCacheDao) && scope == querySessionState.current()
-            (if (canRead) scoreCacheDao.getDetailSync(ownerKey, cacheKey) else null)
-                ?.payloadJson
-                ?.let { payload -> runCatching { gson.fromJson<T>(payload, payloadType) }.getOrNull() }
-                ?.let { cached ->
-                    hasCachedResult.set(true)
-                    result.postValue(DataState(cached, DataState.STATE.SUCCESS).setFromCache(true))
-                }
+            val entity = if (canRead) scoreCacheDao.getDetailSync(ownerKey, cacheKey) else null
+            val cached = entity?.let { row ->
+                runCatching { gson.fromJson<T>(row.payloadJson, payloadType) }.getOrNull()
+                    ?.let { payload -> payload to row.cachedAt }
+            }
+            cached?.let { (payload, cachedAt) ->
+                val state = DataState(payload, DataState.STATE.SUCCESS)
+                    .setFromCache(true)
+                    .apply { cachedAtMillis = cachedAt }
+                cachedState = state
+                result.postValue(state)
+            }
 
             if (!canRefreshRemotely) {
-                if (!hasCachedResult.get()) {
+                val cached = cachedState
+                if (cached == null) {
                     result.postValue(DataState(DataState.STATE.NOT_LOGGED_IN))
+                } else {
+                    // 登录已失效但还有上次结果：继续展示，同时提示这次没能刷新。
+                    cached.data?.let { payload ->
+                        result.postValue(
+                            DataState(payload, DataState.STATE.SUCCESS)
+                                .setFromCache(true)
+                                .apply { cachedAtMillis = cached.cachedAtMillis }
+                                .setStale(cached.cachedAtMillis, "登录已失效")
+                        )
+                    }
                 }
                 return@thread
             }
@@ -322,7 +356,23 @@ internal class EASShenzhenRepository(
                                 }
                             }
                         }
-                    } else if (!hasCachedResult.get()) {
+                    } else if (state.state.endsWithoutData()) {
+                        val cached = cachedState
+                        // 已有上次成功的结果时不清空页面，只标记「数据是旧的、本次刷新失败」。
+                        if (cached != null) {
+                            val payload = cached.data
+                            result.value = if (payload != null) {
+                                DataState(payload, DataState.STATE.SUCCESS)
+                                    .setFromCache(true)
+                                    .apply { cachedAtMillis = cached.cachedAtMillis }
+                                    .setStale(cached.cachedAtMillis, state.message)
+                            } else {
+                                state
+                            }
+                        } else {
+                            result.value = state
+                        }
+                    } else if (cachedState == null) {
                         result.value = state
                     }
                 }
@@ -359,16 +409,44 @@ internal class EASShenzhenRepository(
     }
 
     fun getShenzhenTrainingPlans(): LiveData<DataState<List<ShenzhenTrainingPlan>>> {
-        return shenzhenService.getShenzhenTrainingPlans(easPreferenceSource.getEasToken())
+        val token = easPreferenceSource.getEasToken()
+        val ownerKey = scoreCacheOwnerKey(token)
+            ?: return shenzhenService.getShenzhenTrainingPlans(token)
+        return getCachedPayload(
+            scope = EasQueryScope.from(token),
+            ownerKey = ownerKey,
+            cacheKey = "training-plans",
+            payloadType = shenzhenTrainingPlanListType,
+            canRefreshRemotely = token.isLogin(),
+            remote = { shenzhenService.getShenzhenTrainingPlans(token) },
+        )
     }
 
     fun getShenzhenCreditProgress(term: TermItem? = null): LiveData<DataState<ShenzhenCreditProgress>> {
-        return shenzhenService.getShenzhenCreditProgress(
-            easPreferenceSource.getEasToken(),
-            selectedTerm = term,
-            includeDetails = true,
-            includeCourseRecords = true,
-            trackCoursesOnly = false,
+        val token = easPreferenceSource.getEasToken()
+        val ownerKey = scoreCacheOwnerKey(token)
+            ?: return shenzhenService.getShenzhenCreditProgress(
+                token,
+                selectedTerm = term,
+                includeDetails = true,
+                includeCourseRecords = true,
+                trackCoursesOnly = false,
+            )
+        return getCachedPayload(
+            scope = EasQueryScope.from(token),
+            ownerKey = ownerKey,
+            cacheKey = "credit-progress:${term?.id ?: "current"}",
+            payloadType = ShenzhenCreditProgress::class.java,
+            canRefreshRemotely = token.isLogin(),
+            remote = {
+                shenzhenService.getShenzhenCreditProgress(
+                    token,
+                    selectedTerm = term,
+                    includeDetails = true,
+                    includeCourseRecords = true,
+                    trackCoursesOnly = false,
+                )
+            },
         )
     }
 

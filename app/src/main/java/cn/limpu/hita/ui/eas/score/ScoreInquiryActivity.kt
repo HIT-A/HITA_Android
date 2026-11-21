@@ -74,6 +74,7 @@ import cn.limpu.hita.data.work.ScoreReminderScheduler
 import cn.limpu.hita.ui.base.ComposeViewBinding
 import cn.limpu.hita.ui.design.HitaComposeTheme
 import cn.limpu.hita.ui.design.HitaTheme
+import cn.limpu.hita.ui.design.StaleDataBanner
 import cn.limpu.hita.ui.eas.EASActivity
 import cn.limpu.hita.utils.TermNameFormatter
 import cn.limpu.hita.utils.WeightedScoreCalculator
@@ -389,6 +390,12 @@ private fun ScoreInquiryScreen(
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(bottom = tokens.spacing.xl)
             ) {
+                if (scoresState?.refreshFailed == true && !isRefreshing) {
+                    // 刷新失败但还有上次成绩可看（可能只剩官方汇总，列表为空）：提示数据是旧的。
+                    item {
+                        StaleDataBanner(cachedAtMillis = scoresState?.cachedAtMillis, onRetry = onRefresh)
+                    }
+                }
                 item {
                     ScoreSummaryCard(summary = summary, localEstimate = localEstimate)
                 }

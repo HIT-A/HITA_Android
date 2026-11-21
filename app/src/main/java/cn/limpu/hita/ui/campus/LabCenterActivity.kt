@@ -1,5 +1,6 @@
 package cn.limpu.hita.ui.campus
 
+import android.app.Application
 import android.os.Bundle
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
@@ -46,19 +47,24 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
-import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import cn.limpu.hita.R
 import cn.limpu.hita.data.model.campus.LabCourseProgress
 import cn.limpu.hita.data.model.campus.LabSessionItem
+import cn.limpu.hita.data.source.preference.EasPreferenceSource
+import cn.limpu.hita.data.source.preference.LabCenterCacheStore
 import cn.limpu.hita.data.source.web.campus.LabCenterClient
 import cn.limpu.hita.data.source.web.campus.LabCenterException
 import cn.limpu.hita.data.source.web.campus.LabCenterSessionPolicy
 import cn.limpu.hita.data.source.web.campus.LabCenterSessionExpiredException
 import cn.limpu.hita.ui.design.HitaComposeTheme
+import cn.limpu.hita.ui.design.HitaStaleBanner
 import cn.limpu.hita.ui.design.HitaTheme
+import cn.limpu.hita.ui.design.StaleDataBanner
+import cn.limpu.hita.ui.design.formatCachedAt
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 
@@ -78,8 +84,12 @@ class LabCenterActivity : AppCompatActivity() {
         setContent {
             HitaComposeTheme {
                 val state by viewModel.state.observeAsState(CampusServiceUiState.Loading)
+                val notice by viewModel.notice.observeAsState()
+                val refreshing by viewModel.refreshing.observeAsState(false)
                 LabCenterScreen(
                     state = state,
+                    notice = notice,
+                    refreshing = refreshing,
                     onBack = { finish() },
                     onRefresh = viewModel::refresh,
                     onSignIn = { awaitingLogin = true; LabCenterLoginActivity.start(this) },
@@ -98,32 +108,70 @@ class LabCenterActivity : AppCompatActivity() {
     }
 }
 
+/** 有旧数据可看时，刷新失败只需要一条提示，不必把整页换成错误。 */
+sealed interface LabCenterStaleReason {
+    data object RefreshFailed : LabCenterStaleReason
+    data object SignInExpired : LabCenterStaleReason
+}
+
+/** 页面顶部的「数据是旧的」提示；[cachedAtMillis] 是这份数据的拉取时间。 */
+data class LabCenterNotice(
+    val reason: LabCenterStaleReason,
+    val cachedAtMillis: Long,
+)
+
 /** 实验中心课表的状态持有者。 */
-class LabCenterViewModel : ViewModel() {
+class LabCenterViewModel(app: Application) : AndroidViewModel(app) {
 
     private val client = LabCenterClient()
+    private val cacheStore = LabCenterCacheStore(app)
+    private val easPreferences = EasPreferenceSource(app)
     private val _state = MutableLiveData<CampusServiceUiState<LabCourseProgress>>(
         CampusServiceUiState.Loading
     )
     val state: LiveData<CampusServiceUiState<LabCourseProgress>> = _state
+    private val _notice = MutableLiveData<LabCenterNotice?>()
+    val notice: LiveData<LabCenterNotice?> = _notice
+    private val _refreshing = MutableLiveData(false)
+    val refreshing: LiveData<Boolean> = _refreshing
+    private var generation = 0L
 
     init {
         refresh()
     }
 
     fun refresh() {
-        _state.value = CampusServiceUiState.Loading
+        val ownerKey = LabCenterCacheStore.ownerKey(easPreferences.getEasToken())
+        val cached = cacheStore.read(ownerKey)
+        // 有上次结果就先渲染，后台再去刷新：整学期课表实测要 10 秒以上，每次进页面空等不划算。
+        _state.value = if (cached != null) CampusServiceUiState.Ready(cached) else CampusServiceUiState.Loading
+        _refreshing.value = true
+        val requestGeneration = ++generation
         viewModelScope.launch {
-            _state.value = try {
+            var notice: LabCenterNotice? = null
+            val next = try {
                 val cookie = CampusCookieJar.header(LabCenterSessionPolicy.SCHEDULE_URL)
-                CampusServiceUiState.Ready(client.fetch(cookie))
+                val progress = client.fetch(cookie)
+                cacheStore.save(ownerKey, progress)
+                CampusServiceUiState.Ready(progress)
             } catch (_: LabCenterSessionExpiredException) {
-                CampusServiceUiState.RequiresSignIn
+                notice = cached?.let { LabCenterNotice(LabCenterStaleReason.SignInExpired, it.fetchedAtMillis) }
+                if (cached != null) CampusServiceUiState.Ready(cached) else CampusServiceUiState.RequiresSignIn
             } catch (error: LabCenterException) {
-                CampusServiceUiState.Failed(error.message.orEmpty())
+                notice = cached?.let { LabCenterNotice(LabCenterStaleReason.RefreshFailed, it.fetchedAtMillis) }
+                if (cached != null) CampusServiceUiState.Ready(cached) else CampusServiceUiState.Failed(error.message.orEmpty())
             } catch (error: Exception) {
-                CampusServiceUiState.Failed(error.message.orEmpty().ifBlank { "实验中心课表加载失败" })
+                notice = cached?.let { LabCenterNotice(LabCenterStaleReason.RefreshFailed, it.fetchedAtMillis) }
+                if (cached != null) {
+                    CampusServiceUiState.Ready(cached)
+                } else {
+                    CampusServiceUiState.Failed(error.message.orEmpty().ifBlank { "实验中心课表加载失败" })
+                }
             }
+            if (requestGeneration != generation) return@launch
+            _state.value = next
+            _notice.value = notice
+            _refreshing.value = false
         }
     }
 }
@@ -132,6 +180,8 @@ class LabCenterViewModel : ViewModel() {
 @Composable
 private fun LabCenterScreen(
     state: CampusServiceUiState<LabCourseProgress>,
+    notice: LabCenterNotice?,
+    refreshing: Boolean,
     onBack: () -> Unit,
     onRefresh: () -> Unit,
     onSignIn: () -> Unit,
@@ -152,7 +202,7 @@ private fun LabCenterScreen(
                 },
                 actions = {
                     IconButton(onClick = onRefresh) {
-                        if (state is CampusServiceUiState.Loading) {
+                        if (refreshing) {
                             CircularProgressIndicator(
                                 modifier = Modifier.size(22.dp),
                                 strokeWidth = 2.dp,
@@ -181,6 +231,21 @@ private fun LabCenterScreen(
                 .padding(padding)
                 .windowInsetsPadding(WindowInsets.statusBars),
         ) {
+            if (notice != null) {
+                // 旧数据继续可看，只用一条提示说明它不是最新的；会话失效时给「去登录」。
+                if (notice.reason == LabCenterStaleReason.SignInExpired) {
+                    HitaStaleBanner(
+                        message = stringResource(
+                            R.string.lab_center_stale_sign_in,
+                            formatCachedAt(notice.cachedAtMillis),
+                        ),
+                        onAction = onSignIn,
+                        actionLabel = stringResource(R.string.lab_center_sign_in),
+                    )
+                } else {
+                    StaleDataBanner(cachedAtMillis = notice.cachedAtMillis, onRetry = onRefresh)
+                }
+            }
             when (state) {
                 is CampusServiceUiState.Loading -> Box(
                     modifier = Modifier.fillMaxSize(),

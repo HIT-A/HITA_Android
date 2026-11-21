@@ -16,6 +16,7 @@ import cn.limpu.hita.data.model.eas.ExamItem
 import cn.limpu.hita.data.model.eas.TermItem
 import cn.limpu.hita.data.repository.ExamImportRepository
 import cn.limpu.hita.data.repository.EASRepository
+import cn.limpu.hita.data.source.preference.ExamCacheStore
 import cn.limpu.hita.data.source.preference.ExamMemoCodec
 import cn.limpu.hita.data.source.preference.ExamMemoStore
 import cn.limpu.hita.ui.eas.EASViewModel
@@ -57,6 +58,7 @@ class ExamViewModel internal constructor(
             previousTerm = null
             lastRefreshTime = 0L
             lastRemoteExams = emptyList()
+            lastRemoteFetchedAtMillis = null
             remoteRefreshFailure.value = false
             selectedTermLiveData.value = null
             selectedTermDisplay.updateOptions(emptyList())
@@ -73,10 +75,13 @@ class ExamViewModel internal constructor(
     internal val selectedTermDisplay = TermSelectionDisplaySource(selectedTermLiveData)
     val selectedExamTypeLiveData: MutableLiveData<ExamType> = MutableLiveData()
     private val examMemoStore = ExamMemoStore(context)
+    private val examCacheStore = ExamCacheStore(context)
     private val rawExamLiveData = MutableLiveData<DataState<List<ExamItem>>>()
     private val main = Handler(Looper.getMainLooper())
     private var memoUpdatePosted = false
     private var lastRemoteExams: List<ExamItem> = emptyList()
+    // lastRemoteExams 的拉取时间：来自本地快照时是那次成功的时间，刷新失败时提示条用它。
+    private var lastRemoteFetchedAtMillis: Long? = null
     // The merged list can keep cached exams and memos even when the remote refresh fails.
     private val remoteRefreshFailure = MutableLiveData(false)
     internal val remoteRefreshFailed: LiveData<Boolean> = remoteRefreshFailure
@@ -151,6 +156,7 @@ class ExamViewModel internal constructor(
             return
         }
         termLoadGate.cancel()
+        seedFromCache(selectedTerm)
         rawExamLiveData.value = DataState(
             ExamMemoCodec.merge(lastRemoteExams, examMemoStore.getAll()),
             DataState.STATE.LOADING
@@ -176,14 +182,31 @@ class ExamViewModel internal constructor(
             when (result.state) {
                 DataState.STATE.SUCCESS -> {
                     lastRemoteExams = result.data.orEmpty().filterNot(ExamItem::isMemo)
+                    lastRemoteFetchedAtMillis = System.currentTimeMillis()
+                    easRepo.cacheOwnerKey()?.let { ownerKey ->
+                        examCacheStore.save(ownerKey, selectedTerm.id, lastRemoteExams)
+                    }
                     rawExamLiveData.value = mergeExamDataState(lastRemoteExams, examMemoStore.getAll(), result)
                 }
                 DataState.STATE.FETCH_FAILED, DataState.STATE.NOT_LOGGED_IN -> {
-                    rawExamLiveData.value = mergeExamDataState(lastRemoteExams, examMemoStore.getAll(), result)
+                    rawExamLiveData.value = mergeExamDataState(lastRemoteExams, examMemoStore.getAll(), result).apply {
+                        // 还有旧数据可看时只标记「数据是旧的」，页面提示刷新失败但仍展示列表。
+                        if (state == DataState.STATE.SUCCESS && lastRemoteExams.isNotEmpty()) {
+                            setStale(lastRemoteFetchedAtMillis, result.message)
+                        }
+                    }
                 }
                 else -> rawExamLiveData.value = result
             }
         }
+    }
+
+    /** 先用上次成功的快照填上，避免进页面只看得到加载圈；没有快照时保留内存里的数据。 */
+    private fun seedFromCache(term: TermItem) {
+        val ownerKey = easRepo.cacheOwnerKey() ?: return
+        val cached = examCacheStore.read(ownerKey, term.id) ?: return
+        lastRemoteExams = cached.exams
+        lastRemoteFetchedAtMillis = cached.cachedAtMillis
     }
 
     private fun handleTermLoad(state: DataState<List<TermItem>>) {
@@ -254,6 +277,11 @@ class ExamViewModel internal constructor(
         }
         examInfoLiveData.value = DataState(filtered, state.state).apply {
             message = state.message
+            fromCache = state.fromCache
+            cachedAtMillis = state.cachedAtMillis
+            refreshFailed = state.refreshFailed
+            stateRetried = state.stateRetried
+            listAction = state.listAction
         }
     }
 

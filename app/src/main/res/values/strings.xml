@@ -2011,6 +2011,11 @@
     <string name="lab_center_refresh">刷新</string>
     <string name="lab_center_retry">重试</string>
     <string name="lab_center_sign_in">去登录</string>
+    <string name="lab_center_stale_sign_in">实验中心登录已失效，正在显示 %1$s 的数据</string>
+    <string name="lab_center_stale_sign_in_no_time">实验中心登录已失效，正在显示上次获取的数据</string>
+    <string name="stale_data_message">刷新失败，正在显示 %1$s 的数据</string>
+    <string name="stale_data_message_no_time">刷新失败，正在显示上次获取的数据</string>
+    <string name="stale_data_retry">重试</string>
     <string name="library_back">返回</string>
     <string name="library_refresh">刷新</string>
     <string name="library_retry">重试</string>

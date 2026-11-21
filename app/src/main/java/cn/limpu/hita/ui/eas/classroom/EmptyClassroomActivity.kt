@@ -60,6 +60,7 @@ import cn.limpu.hita.data.model.eas.TermItem
 import cn.limpu.hita.ui.base.ComposeViewBinding
 import cn.limpu.hita.ui.design.HitaComposeTheme
 import cn.limpu.hita.ui.design.HitaTheme
+import cn.limpu.hita.ui.design.StaleDataBanner
 import cn.limpu.hita.ui.eas.EASActivity
 import cn.limpu.hita.ui.eas.classroom.detail.EmptyClassroomDetailFragment
 import cn.limpu.hita.utils.TermNameFormatter
@@ -335,6 +336,10 @@ private fun EmptyClassroomScreen(
             onPickWeek = onPickWeek
         )
         val classrooms = classroomState?.data.orEmpty()
+        if (classroomState?.refreshFailed == true && classrooms.isNotEmpty() && !isRefreshing) {
+            // 刷新失败但还有上次结果可看：提示数据是旧的，不挡住网格。
+            StaleDataBanner(cachedAtMillis = classroomState?.cachedAtMillis, onRetry = onRefresh)
+        }
         // 占用状态依赖"当前节次"，不能跨时间缓存；但同一次组合内完全一致，
         // 因此按教室一次性求值，避免卡片在滚动/重组时各自重跑 Calendar 与 JSON 解析。
         val classroomStates = remember(classrooms, structureState?.data) {

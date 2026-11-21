@@ -43,12 +43,14 @@ internal class EmptyClassroomQueryRequest(
                     return@flow
                 }
 
+                var cachedAtMillis: Long? = null
                 val cached = if (useCache) {
                     try {
                         withContext(Dispatchers.IO) {
                             currentCoroutineContext().ensureActive()
                             val rows = readCache(captured.term, captured.building, week)
                             currentCoroutineContext().ensureActive()
+                            cachedAtMillis = rows.maxOfOrNull { it.cachedAt }
                             ClassroomQueryCache.decode(rows).also {
                                 currentCoroutineContext().ensureActive()
                             }
@@ -63,7 +65,9 @@ internal class EmptyClassroomQueryRequest(
 
                 currentCoroutineContext().ensureActive()
                 if (cached.isNotEmpty()) {
-                    emit(DataState(cached).setFromCache(true))
+                    emit(DataState(cached).setFromCache(true).apply {
+                        this.cachedAtMillis = cachedAtMillis
+                    })
                 } else if (hasInitialState) {
                     emit(DataState(DataState.STATE.NOTHING))
                 }
@@ -92,6 +96,13 @@ internal class EmptyClassroomQueryRequest(
                 } else if (cached.isEmpty()) {
                     currentCoroutineContext().ensureActive()
                     emit(remote)
+                } else if (remote.state.endsWithoutData()) {
+                    // 刷新失败时保留上次的空教室结果，只标记「数据是旧的」，界面据此提示并可重试。
+                    currentCoroutineContext().ensureActive()
+                    emit(DataState(cached, DataState.STATE.SUCCESS).setFromCache(true).apply {
+                        this.cachedAtMillis = cachedAtMillis
+                        setStale(cachedAtMillis, remote.message)
+                    })
                 }
             })
         }
