@@ -1,14 +1,14 @@
 <h1 align="center">HITA</h1>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Version-3.3.0-blue?style=for-the-badge" alt="version" />
+  <img src="https://img.shields.io/badge/Version-3.3.1-blue?style=for-the-badge" alt="version" />
   <img src="https://img.shields.io/badge/Platform-Android_8.0%2B_(API_26)-3DDC84?style=for-the-badge&logo=android&logoColor=white" alt="platform" />
   <img src="https://img.shields.io/badge/Kotlin-2.2.21-7F52FF?style=for-the-badge&logo=kotlin&logoColor=white" alt="kotlin" />
   <img src="https://img.shields.io/badge/Jetpack_Compose-Material3-4285F4?style=for-the-badge&logo=jetpackcompose&logoColor=white" alt="compose" />
   <img src="https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge" alt="license" />
 </p>
 
-[App 下载（Releases）](https://github.com/HIT-A/HITA_Android/releases/latest) | 最新版本 v3.3.0 | [更新内容](docs/releases/v3.3.0.md)
+[App 下载（Releases）](https://github.com/HIT-A/HITA_Android/releases/latest) | 最新版本 v3.3.1 | [更新内容](docs/releases/v3.3.1.md)
 
 用户群：1093659013（新版本与测试版会发在用户群，欢迎加入反馈）
 
@@ -21,7 +21,7 @@
 
 ### 当前主要功能
 - **课表与日程**：导入课表、按周查看、课程详情、自定义壁纸；冲突时段合并显示为"课程冲突"卡片，有 18:30 后的课程时给出"还有更多课程"提示；打开应用时自动刷新课表（10 分钟下限）并按课程粒度合并改动——时间/地点/教师调整与新增课次及时采纳，整门缺失或课次减少的课程保留本地，不被出问题的课表源覆盖，变更经课表页提醒与详情弹窗展示，可勾选采纳或记住忽略；课程详情支持长按批量修改/删除课时；教务刷新会保留账号隔离的版本快照，可随时恢复；支持 ICS 课表导入/导出；多份课表经「组合课表」同屏显示或分开独立显示，主课表顶栏按课表名切换显示目标并记住选择，今日时间线、桌面小组件、课程提醒与 AI 查询同步跟随；课表可自由重命名；课程文字提供默认/小字/大字三档；经典主题课程配色扩至 16 色板并同屏去重；支持离线课表口令分享（完整/忙闲两种模式）与好友课表只读查看，并可与好友按节次对比共同空闲与同节冲突
-- **教务服务**：成绩查询、学分绩与排名、空教室查询、深圳全校课表浏览；可关注教学班并同步到时间表、今日页和小组件；另提供学分统计与学习进度、培养方案完成度、成绩分析。威海研究生另有独立入口，支持课表、成绩、考试与培养方案，学期按研究生口径过滤
+- **教务服务**：成绩查询、学分绩与排名、空教室查询、深圳全校课表浏览；可关注教学班并同步到时间表、今日页和小组件；另提供学分统计与学习进度、培养方案完成度、成绩分析。威海研究生另有独立入口，支持课表、成绩、考试与培养方案，学期按研究生口径过滤；考试成绩、实验中心课表等查询结果会在本机保留上一次成功的数据，进页面先显示、后台再刷新，刷新失败时保留内容并提示数据时间
 - **待办**：按日期安排作业、快速添加、编辑改期、完成撤销与每日完成进度；位于底部导航第一栏。威海研究生可自动导入 Grader 作业与截止时间，已提交/已完成任务可折叠隐藏，完成状态按账号隔离保存在本机
 - **选课助手**：深圳选课池浏览、智能推荐与本地选课预览；草稿支持冲突提示和课表投影，不会自动提交选课
 - **课程资源**：应用内搜索课程资料与 README、支持追加型投稿

@@ -135,3 +135,19 @@ adb exec-out run-as <pkg> cat app_webview/Default/Cookies > ck.db
 
 静默窗口不会置 `leftForExternalVpn`：它不会真正外跳 aTrust 客户端，若置位会让回到
 前台时再触发一次续跳，抢在自动填充之前打断流程。
+
+## 代理根地址失效时的直连回退（2026-11-21 复核）
+
+旧登录可能把 `EASToken.webBaseUrl` 存成校外代理 `https://jw-hitsz-edu-cn.hitsz.edu.cn`。
+该地址现在由 aTrust 网关接管：没有有效 aTrust 会话时，`/component/queryXnxq` 等接口会被
+302 到 `trust.hitsz.edu.cn`，Jsoup 默认跟随跳转，最终拿到的是网关 HTML，学期列表解析不出来，
+页面会报「学期列表解析失败」。
+
+处理方式：
+
+- `ShenzhenWebAuthenticationClassifier` 把 `trust.hitsz.edu.cn`、`/controller/v1/public/verify`
+  与 aTrust 页面判为会话失效，界面从「解析失败」改为提示重新登录。
+- `EASWebSource.jwFormPost` / `jwJsonPost` 在代理根地址返回非 2xx 或登录 / 网关页面时，用同一份
+  cookie 改走直连 `https://jw.hitsz.edu.cn` 重试一次；直连成功就把 `webBaseUrl` 写成直连地址并
+  落盘。注意不能写 `null`：`mergeWithStoredEasToken` 会用存储里的旧代理值回填。
+- 直连只在校内网可达。纯蜂窝网络下直连超时，页面按会话失效提示登录，不会伪装成数据解析错误。

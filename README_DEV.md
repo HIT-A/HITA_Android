@@ -54,6 +54,7 @@ app 通过项目依赖使用 timetable-core 产出的 JAR；分享协议与比�
 ./project_health_check.sh        # 项目文件与仓库卫生检查
 ```
 
+- 当前版本 `3.3.1`：版本号在 [app/build.gradle](app/build.gradle) 的 `appVersionCodeValue` / `appVersionNameValue` 维护（CI 可用 `VERSION_CODE` 覆盖 versionCode），更新内容见 [docs/releases/v3.3.1.md](docs/releases/v3.3.1.md)。
 - 插件和库的版本统一维护在 [gradle/libs.versions.toml](gradle/libs.versions.toml)；模块保留各自的依赖作用域、Compose BOM 及已有版本差异，调整版本时应分别验证受影响模块。
 - 插件和库默认仅使用 [settings.gradle](settings.gradle) 中的远端仓库（阿里云 / 腾讯 / JitPack 等），不读取 Maven 本地仓库；CI 使用这一默认配置。
 - 需要使用本机发布的插件或库时，运行 `./gradlew assembleDebug -Phita.useMavenLocal=true`。同一开关会在插件和库的两个仓库域中将 `mavenLocal()` 放在首位；未设置或设为 `false` 时均关闭。个人默认偏好可写入 `~/.gradle/gradle.properties`，不要在仓库中启用。
@@ -107,6 +108,7 @@ app 通过项目依赖使用 timetable-core 产出的 JAR；分享协议与比�
 - 手动待办在内容下显示完整截止日期与时分，编辑时可选择时间；只有日期的旧记录按当天 23:59 截止，没有日期的旧记录仍保留为未安排。
 - 待办页的 Grader 区域通过学校统一认证单独登录，按账号读取所有课程的完整作业集合，只显示已发布且未过期的任务，不受手动待办所选日期限制。截止时间按北京时间展示；勾选完成只保存本地状态，不会向网站提交作业。
 - Grader 会话、缓存和按账号隔离的完成状态采用加密偏好原子保存，排除云备份及设备迁移；不会保存统一认证密码。刷新失败保留已有数据，过期会话需要重新登录。
+- 教务与校园服务页面（考试、成绩、空教室、个人成绩明细、培养方案、深圳课程浏览、实验中心）会把上一次成功的结果缓存在本机：进页面先渲染缓存、后台再刷新，刷新失败保留内容并在顶部提示数据时间，而不是把整页换成错误卡片。缓存按账号隔离（实验中心快照与考试快照存在偏好里，教务查询结果存在 `score_detail_cache`）。
 
 协议依据、验收记录和未验证范围见[威海研究生登录与 Grader 待办设计](docs/superpowers/specs/2026-11-07-weihai-graduate-grader-todos-design.md)。
 
