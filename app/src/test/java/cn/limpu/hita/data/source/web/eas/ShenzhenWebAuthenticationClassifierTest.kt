@@ -38,6 +38,40 @@ class ShenzhenWebAuthenticationClassifierTest {
     }
 
     @Test
+    fun `aTrust gateway page is classified as expired`() {
+        val gatewayPage = """
+            <html>
+            <head><meta charset="utf-8">
+            <title>aTrust 2.0</title></head>
+            <body><h1>302 Found</h1></body>
+            </html>
+        """.trimIndent()
+
+        assertTrue(
+            ShenzhenWebAuthenticationClassifier.isExpired(
+                200,
+                "https://trust.hitsz.edu.cn/controller/v1/public/verify?t=token",
+                gatewayPage
+            )
+        )
+        // 即使没有最终地址，网关页面本身也要能认出来。
+        assertTrue(ShenzhenWebAuthenticationClassifier.isExpired(200, null, gatewayPage))
+    }
+
+    @Test
+    fun `normal term list payload remains authenticated`() {
+        val body = """{"content":[{"XN":"2026","XQ":"1","XNMC":"2026-2027","XQMC":"秋季","SFDQXQ":"1"}]}"""
+
+        assertFalse(
+            ShenzhenWebAuthenticationClassifier.isExpired(
+                200,
+                "https://jw.hitsz.edu.cn/component/queryXnxq",
+                body
+            )
+        )
+    }
+
+    @Test
     fun `normal empty exam response remains authenticated`() {
         val body = """{"code":200,"content":{"total":0,"list":[]}}"""
 

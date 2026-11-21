@@ -17,9 +17,13 @@ internal object ShenzhenWebAuthenticationClassifier {
         if (
             host == "ids.hit.edu.cn" ||
             host == "ids-hit-edu-cn-s.hitsz.edu.cn" ||
+            // 校外代理（jw-hitsz-edu-cn）已经挂到 aTrust 网关后面：网关 302 到 trust 域名后
+            // 返回的是网关自己的 HTML，既不是学期列表也不是登录页，必须按会话失效处理。
+            host == "trust.hitsz.edu.cn" ||
             path.contains("/authserver/login") ||
             path.contains("/authentication/require") ||
-            path.contains("/session/invalid")
+            path.contains("/session/invalid") ||
+            path.contains("/controller/v1/public/verify")
         ) {
             return true
         }
@@ -56,6 +60,8 @@ internal object ShenzhenWebAuthenticationClassifier {
 
         return isJavaScriptChallenge || hasLoginForm ||
             title.contains("统一身份认证") ||
+            title.contains("atrust") ||
+            text.contains("atrust 2.0") ||
             title.contains("登录") ||
             text.contains("请登录") ||
             text.contains("未登录")
