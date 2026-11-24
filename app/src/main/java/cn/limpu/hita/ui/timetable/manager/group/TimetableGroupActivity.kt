@@ -54,10 +54,12 @@ import cn.limpu.hita.R
 import cn.limpu.hita.data.model.timetable.Timetable
 import cn.limpu.hita.data.model.timetable.TimetableGroupEntity
 import cn.limpu.hita.data.repository.TimetableRepository
+import cn.limpu.hita.feature.timetableshare.protocol.ShareMode
 import cn.limpu.hita.ui.base.ComposeViewBinding
 import cn.limpu.hita.ui.base.HiltBaseActivity
 import cn.limpu.hita.ui.design.HitaComposeTheme
 import cn.limpu.hita.ui.design.HitaTheme
+import cn.limpu.hita.ui.timetable.detail.TimetableDeletionConfirmation
 import cn.limpu.hita.utils.ActivityUtils
 import cn.limpu.hita.utils.TimeTools
 import dagger.hilt.android.AndroidEntryPoint
@@ -75,8 +77,8 @@ class TimetableGroupViewModel @Inject constructor(
     val timetablesLiveData: LiveData<List<Timetable>> = timetableRepository.getTimetables()
 
     /** 组成员各自导出一个口令（FULL）。 */
-    suspend fun exportMemberTokens(timetableIds: List<String>, nickname: String) =
-        sharingRepository.tokensForMine(timetableIds, nickname)
+    suspend fun exportMemberTokens(timetableIds: List<String>, nickname: String, mode: ShareMode) =
+        sharingRepository.tokensForMine(timetableIds, nickname, mode)
 
     /** 组成员各自导出一个 ICS 文件。 */
     suspend fun exportMemberIcs(timetableIds: List<String>) = exportRepository.mineIcs(timetableIds)
@@ -94,8 +96,8 @@ class TimetableGroupViewModel @Inject constructor(
         timetableRepository.actionRemoveFromGroup(timetableId)
     }
 
-    fun deleteTimetable(timetable: Timetable) {
-        timetableRepository.actionDeleteTimetables(listOf(timetable))
+    fun deleteTimetable(timetable: Timetable, completed: (Result<Unit>) -> Unit) {
+        timetableRepository.actionDeleteTimetables(listOf(timetable), completed)
     }
 
     fun dissolveGroup(groupId: String) {
@@ -246,19 +248,24 @@ private fun TimetableGroupScreen(
         )
     }
     deleteTarget?.let { target ->
-        AlertDialog(
-            onDismissRequest = { deleteTarget = null },
-            title = { Text(stringResource(R.string.dialog_title_sure_delete)) },
-            text = { Text(stringResource(R.string.timetable_group_delete_member_hint, target.name.orEmpty())) },
-            confirmButton = {
-                TextButton(onClick = {
-                    viewModel.deleteTimetable(target)
-                    deleteTarget = null
-                }) { Text(stringResource(R.string.button_confirm), color = MaterialTheme.colorScheme.error) }
+        // 明确写出「删本地」，并在失败后保留对话框与目标，不假装已删除。
+        var deleting by remember(target) { mutableStateOf(false) }
+        TimetableDeletionConfirmation(
+            names = listOf(target.name ?: stringResource(R.string.default_timetable_name)),
+            busy = deleting,
+            onDismiss = { if (!deleting) deleteTarget = null },
+            onConfirm = {
+                if (deleting) return@TimetableDeletionConfirmation
+                deleting = true
+                viewModel.deleteTimetable(target) { result ->
+                    deleting = false
+                    if (result.isFailure) {
+                        Toast.makeText(context, R.string.timetable_audit_write_failed, Toast.LENGTH_SHORT).show()
+                    } else {
+                        deleteTarget = null
+                    }
+                }
             },
-            dismissButton = {
-                TextButton(onClick = { deleteTarget = null }) { Text(stringResource(R.string.button_cancel)) }
-            }
         )
     }
     if (dissolveConfirmOpen && group != null) {
@@ -288,13 +295,14 @@ private fun TimetableGroupScreen(
             initiallySelected = emptySet(),
             busy = exportBusy,
             onDismiss = { if (!exportBusy) exportOpen = false },
-            onExportToken = { keys ->
+            onExportToken = { items, mode ->
                 exportScope.launch {
-                    if (exportBusy || keys.isEmpty()) return@launch
+                    val keys = items.map { it.key }
+                    if (exportBusy || keys.isEmpty() || mode == null) return@launch
                     exportBusy = true
                     try {
                         exportTokensResult = viewModel.exportMemberTokens(keys,
-                            context.getString(R.string.timetable_share_default_nickname))
+                            context.getString(R.string.timetable_share_default_nickname), mode)
                         exportOpen = false
                     } catch (e: kotlinx.coroutines.CancellationException) { throw e
                     } catch (e: Exception) {
@@ -302,8 +310,9 @@ private fun TimetableGroupScreen(
                     } finally { exportBusy = false }
                 }
             },
-            onExportIcs = { keys ->
+            onExportIcs = { items ->
                 exportScope.launch {
+                    val keys = items.map { it.key }
                     if (exportBusy || keys.isEmpty()) return@launch
                     exportBusy = true
                     try {

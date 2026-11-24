@@ -1811,6 +1811,7 @@
     <string name="homework_marked_done">已标记完成</string>
     <string name="homework_restored">已恢复为待完成</string>
     <string name="homework_undo">撤销</string>
+    <string name="homework_toggle_failed">未能更新完成状态，请重试</string>
     <string name="homework_empty_hint">按自己的节奏安排，点上方即可添加。</string>
     <string name="homework_character_count">%1$d / %2$d</string>
     <string name="homework_tomorrow">明天</string>
@@ -1959,6 +1960,10 @@
     <string name="silent_pod_error_auth">登录已失效，请重新登录</string>
     <string name="silent_pod_cancel_action">取消预约</string>
     <string name="silent_pod_error_unknown">读取静音仓数据时发生未知错误。</string>
+    <string name="silent_pod_write_unconfirmed">提交结果未确认。已保留这次操作，请先在「我的预约」核对，不要重复提交。</string>
+    <string name="silent_pod_write_confirmed">远端已有这条记录，已按已提交处理。</string>
+    <string name="silent_pod_write_absent">远端没有这条记录，可以重新提交。</string>
+    <string name="silent_pod_write_verify">核对结果</string>
     <string name="silent_pod_spaces_of_date">%1$s 的空间</string>
     <string name="silent_pod_empty_spaces">当天没有可预约的静音仓。</string>
     <string name="silent_pod_my_reservations">我的预约</string>

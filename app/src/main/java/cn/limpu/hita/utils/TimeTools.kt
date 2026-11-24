@@ -35,6 +35,10 @@ object TimeTools {
         res[Calendar.DAY_OF_WEEK] = Calendar.MONDAY
         res[Calendar.HOUR_OF_DAY] = 0
         res[Calendar.MINUTE] = 0
+        // 周起点应是整点边界：残留的秒/毫秒会让「表起点」晚于页面周一 0 点，
+        // 使同一张表在时间表被判为「非所选学期」，而今日按周次算得出「第1周」。
+        res[Calendar.SECOND] = 0
+        res[Calendar.MILLISECOND] = 0
         return res
     }
 
