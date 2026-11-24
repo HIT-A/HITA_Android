@@ -34,7 +34,6 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -47,10 +46,9 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.livedata.observeAsState
-import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -67,7 +65,6 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.limpu.component.data.DataState
 import cn.limpu.hita.R
 import cn.limpu.hita.data.model.resource.ExternalResourceEntry
 import cn.limpu.hita.data.model.resource.ResourceSource
@@ -181,12 +178,6 @@ class UnifiedResourceSearchActivity : AppCompatActivity() {
         }
     }
 }
-
-private data class BrowseState(
-    val path: String,
-    val source: ResourceSource,
-    val breadcrumb: String,
-)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -337,7 +328,7 @@ private fun UnifiedResourceSearchScreen(
 
         if (isBrowseMode) {
             Text(
-                text = browseStack.lastOrNull()?.breadcrumb.orEmpty(),
+                text = browseStack.joinToString(" / ") { it.title },
                 color = MaterialTheme.colorScheme.primary,
                 fontSize = 14.sp,
                 maxLines = 2,
@@ -461,14 +452,43 @@ private fun UnifiedResourceSearchScreen(
                         ResourcePlaceholder(message = stringResource(R.string.external_resource_empty))
                     }
                 }
-                emptyText.isNotBlank() -> {
-                    Text(
-                        text = emptyText,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier
-                            .align(Alignment.Center)
-                            .padding(tokens.spacing.xl)
-                    )
+                else -> {
+                    if (search?.stale == true && searchItems.isNotEmpty()) {
+                        Text(
+                            text = stringResource(R.string.resource_stale_notice),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = 12.sp,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = tokens.spacing.lg, vertical = tokens.spacing.xs),
+                        )
+                    }
+                    search?.failed?.takeIf { it.isNotEmpty() }?.let { failed ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = tokens.spacing.lg),
+                        ) {
+                            Text(
+                                text = stringResource(
+                                    R.string.resource_source_failed,
+                                    failed.joinToString(" / ") { it.displayTag },
+                                ),
+                                color = MaterialTheme.colorScheme.error,
+                                fontSize = 12.sp,
+                                modifier = Modifier.weight(1f),
+                            )
+                            TextButton(onClick = { viewModel.search(search.key.query) }) {
+                                Text(stringResource(R.string.resource_retry), fontSize = 12.sp)
+                            }
+                        }
+                    }
+                    if (search?.empty == true) {
+                        ResourcePlaceholder(message = stringResource(R.string.course_resource_empty))
+                    } else if (search?.loading == false && searchItems.isEmpty() && search.failed.isEmpty()) {
+                        ResourcePlaceholder(message = stringResource(R.string.course_resource_empty))
+                    }
                 }
             }
         }

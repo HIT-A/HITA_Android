@@ -42,6 +42,9 @@ import cn.limpu.hita.ui.main.navigation.NavigationFragment
 import cn.limpu.hita.ui.main.timeline.FragmentTimeLine
 import cn.limpu.hita.ui.main.timetable.TimetableFragment
 import cn.limpu.hita.ui.main.timetable.panel.FragmentTimetablePanel
+import cn.limpu.hita.ui.notice.AppNoticesActivity
+import cn.limpu.hita.ui.profile.AccountLogoutDialog
+import cn.limpu.hita.ui.profile.AccountLogoutTarget
 import cn.limpu.hita.ui.widgets.WidgetUtils
 import cn.limpu.hita.utils.ActivityUtils
 import cn.limpu.hita.utils.LogUtils
@@ -300,6 +303,14 @@ class MainActivity : HiltBaseActivity<MainViewBinding>(),
 
     private fun openUrl(url: String) = startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
 
+    /**
+     * 从抽屉/设置里的公告入口打开公告列表。
+     * 这里只负责导航；弹窗式的前台打扰由 MainViewModel 的排队逻辑决定。
+     */
+    private fun showStartupNotice() {
+        ActivityUtils.startActivity(this, AppNoticesActivity::class.java)
+    }
+
     private fun showAvatarPicker() {
         MaterialAlertDialogBuilder(this).setTitle(R.string.main_avatar_change)
             .setItems(arrayOf(getString(R.string.main_avatar_pick), getString(R.string.main_action_cancel))) { _, index ->
@@ -313,13 +324,28 @@ class MainActivity : HiltBaseActivity<MainViewBinding>(),
         if (!user.isValid() && !token.isLogin()) { showEasLoginSheet(); return }
         val profile = user.isValid()
         val title = if (profile) user.nickname.orEmpty() else token.name ?: token.username.orEmpty()
-        val items = if (profile) arrayOf(getString(R.string.main_view_profile), getString(R.string.eas_relogin_entry), getString(R.string.main_logout))
-            else arrayOf(getString(R.string.eas_relogin_entry), getString(R.string.main_logout))
-        MaterialAlertDialogBuilder(this).setTitle(title).setItems(items) { _, index ->
+        val targets = listOfNotNull(
+            AccountLogoutTarget.hita(user),
+            AccountLogoutTarget.academic(token),
+        )
+        val items = buildList {
+            if (profile) add(getString(R.string.main_view_profile))
+            add(getString(R.string.eas_relogin_entry))
+            targets.forEach { add(getString(it.actionLabel)) }
+        }
+        MaterialAlertDialogBuilder(this).setTitle(title).setItems(items.toTypedArray()) { _, index ->
             when {
                 profile && index == 0 -> user.id?.let { ActivityUtils.startProfileActivity(this, it, null) }
                 index == (if (profile) 1 else 0) -> showEasLoginSheet()
-                else -> viewModel.logout()
+                else -> {
+                    // 只退出被点名的会话；本地课表、待办等数据保留。
+                    val target = targets[index - (if (profile) 2 else 1)]
+                    AccountLogoutDialog.show(this, target) {
+                        target.signOut(this, localUserRepository, easRepository).also { signedOut ->
+                            if (signedOut) viewModel.accountChanged(easRepository.getEasToken())
+                        }
+                    }
+                }
             }
         }.show()
     }

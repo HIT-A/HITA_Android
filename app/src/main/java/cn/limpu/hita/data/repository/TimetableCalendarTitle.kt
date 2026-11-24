@@ -21,10 +21,10 @@ object TimetableCalendarTitle {
                     continue
                 }
             }
-            if (atMillis in table.startTime.time..table.endTime.time) {
-                val week = table.getWeekNumber(atMillis)
-                if (week > 0) return Result(week = week)
-            }
+            // 周次判定与今日页共用 getWeekNumber：原样比较毫秒边界时，
+            // 表起点残留的秒会让同一页被判「非所选学期」而今日显示「第1周」。
+            val week = table.getWeekNumber(atMillis)
+            if (week > 0) return Result(week = week)
         }
         val campuses = timetables.map { it.code?.substringBefore(':') }.toSet()
         val knownCampuses = campuses.isNotEmpty() && campuses.all { it in setOf("BENBU", "SHENZHEN", "WEIHAI") }

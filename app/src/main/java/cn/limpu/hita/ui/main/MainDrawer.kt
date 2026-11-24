@@ -213,6 +213,9 @@ internal fun MainDrawer(
                     onThemeStyle
                 )
                 DrawerItem(R.drawable.ic_info, stringResource(R.string.name_ua_and_pp), onAgreement)
+                if (noticeEntryVisible) {
+                    DrawerItem(R.drawable.ic_info, stringResource(R.string.notices_title), onNotices)
+                }
                 DrawerItem(
                     R.drawable.ic_baseline_edit_24,
                     stringResource(R.string.main_drawer_menu_report),

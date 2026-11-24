@@ -22,6 +22,8 @@ internal data class MainUiState(
     val showTeachingVersions: Boolean = false,
     val showDeletionHistory: Boolean = false,
     val noticeEntryVisible: Boolean = false,
+    /** 未读公告条数；只用于入口文字，不触发弹窗。 */
+    val noticeUnreadCount: Int = 0,
 )
 
 /** A bitmap belongs to the Activity's image loader, never the retained ViewModel. */

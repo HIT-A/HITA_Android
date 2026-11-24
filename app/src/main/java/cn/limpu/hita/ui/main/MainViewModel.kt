@@ -15,6 +15,7 @@ import cn.limpu.hita.data.repository.DisplayScopeResolver
 import cn.limpu.hita.data.repository.DisplayScopeSelector
 import cn.limpu.hita.data.repository.EASRepository
 import cn.limpu.hita.data.repository.EasSettingsRepository
+import cn.limpu.hita.data.notice.AppNotice
 import cn.limpu.hita.data.source.preference.IdentityVisibilityStore
 import cn.limpu.hita.data.source.preference.OptionalTabStore
 import com.limpu.hitauser.data.model.CheckUpdateResult
@@ -226,11 +227,21 @@ internal class MainViewModel @Inject constructor(
         if (noticeFetched || noticeJob?.isActive == true) return
         noticeJob = viewModelScope.launch {
             val notices = requests.notices()
-            pendingNotice = MainNoticePolicy.select(notices, AppNoticeCenter.seenNoticeIds(application), BuildConfig.VERSION_CODE.toLong())
+            val seen = AppNoticeCenter.seenNoticeIds(application)
+            pendingNotice = MainNoticePolicy.select(notices, seen, BuildConfig.VERSION_CODE.toLong())
             noticeFetched = true
-            if (pendingNotice != MainNoticeSelection.None && claimNotice(pendingNotice)) {
-                emit(host, MainEffect.Notice(pendingNotice))
+            publishNotices(notices)
+            if (pendingNotice == MainNoticeSelection.None) return@launch
+            // 关键公告按队列最多展示一条：已确认过的不在当前进程里重放，宿主重建不算已处理。
+            if (pendingNotice is MainNoticeSelection.Critical) {
+                val queued = promptLedger.nextCritical(notices, seen, System.currentTimeMillis())
+                if (queued == null) {
+                    pendingNotice = MainNoticeSelection.None
+                    return@launch
+                }
+                pendingNotice = MainNoticeSelection.Critical(queued)
             }
+            if (claimNotice(pendingNotice)) emit(host, MainEffect.Notice(pendingNotice))
         }
     }
 
@@ -253,7 +264,10 @@ internal class MainViewModel @Inject constructor(
     }
 
     fun noticeFinished(selection: MainNoticeSelection) {
+        if (selection is MainNoticeSelection.Critical) promptLedger.acknowledge(selection.notice)
         if (pendingNotice == selection) pendingNotice = MainNoticeSelection.None
+        // 关掉之后重新计数：入口保留，已处理的不再计入未读。
+        publishNotices(AppNoticeCenter.mergedActiveNotices(application))
     }
 
     /** The host is about to launch the silent WebView login; keep the request for its result. */
@@ -343,12 +357,6 @@ internal class MainViewModel @Inject constructor(
         }
     }
 
-    fun logout() {
-        if (localUsers.getLoggedInUser().isValid()) localUsers.logout(application)
-        eas.logout()
-        accountChanged(eas.getEasToken())
-    }
-
     fun reloginSucceeded() {
         pendingSessionExpired = null
         pendingSilentRenewal = null
@@ -368,6 +376,21 @@ internal class MainViewModel @Inject constructor(
     fun setTimetableName(name: String) { mutableState.value = state.value.copy(timetableName = name, showTimetableName = true) }
     fun setScopes(options: List<DisplayScopeResolver.ScopeOption>) { mutableState.value = state.value.copy(scopeOptions = options.toList()) }
     fun setScope(scope: DisplayScope?) { mutableState.value = state.value.copy(currentScope = scope) }
+    fun setTimetableActions(teachingVersions: Boolean, deletionHistory: Boolean) {
+        mutableState.value = state.value.copy(
+            showTeachingVersions = teachingVersions,
+            showDeletionHistory = deletionHistory,
+        )
+    }
+    /**
+     * 公告入口常驻，未读数只影响文案。
+     * 普通公告不再靠一次性弹窗触达，被关掉后仍能从入口重新读到。
+     */
+    fun publishNotices(notices: List<AppNotice>) {
+        val unread = notices.count { it.id !in AppNoticeCenter.seenNoticeIds(application) }
+        if (state.value.noticeEntryVisible && state.value.noticeUnreadCount == unread) return
+        mutableState.value = state.value.copy(noticeEntryVisible = true, noticeUnreadCount = unread)
+    }
     fun setBlogDot(show: Boolean) { mutableState.value = state.value.copy(blogDotVisible = show) }
     fun selectScope(scope: DisplayScope): Long? {
         val option = state.value.scopeOptions.firstOrNull { it.scope == scope } ?: return null

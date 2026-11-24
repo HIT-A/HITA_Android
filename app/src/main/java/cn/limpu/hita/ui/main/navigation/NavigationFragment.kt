@@ -165,6 +165,8 @@ class NavigationFragment : androidx.fragment.app.Fragment() {
                 HitaComposeTheme() {
                     val easToken by easRepository.observeEasToken()
                         .observeAsState(easRepository.getEasToken())
+                    val mainState by mainViewModel.state.collectAsState()
+                    val unreadNotices = mainState.noticeUnreadCount
                     NavigationScreen(
                         viewModel = viewModel,
                         localUser = remember(userStateVersion) { localUserRepository.getLoggedInUser() },
@@ -293,11 +295,19 @@ class NavigationFragment : androidx.fragment.app.Fragment() {
             }
             MaterialAlertDialogBuilder(requireContext())
                 .setTitle(title)
-                .setItems(items) { _: DialogInterface, which: Int ->
-                    when {
-                        localUser.isValid() && which == 0 -> {
-                            val userId = localUser.id ?: return@setItems
-                            ActivityUtils.startProfileActivity(requireContext(), userId, null)
+                .setItems(items.toTypedArray()) { _, index ->
+                    if (canOpenProfile && index == 0) {
+                        ActivityUtils.startProfileActivity(requireContext(), localUser.id, null)
+                    } else {
+                        val target = targets[index - if (canOpenProfile) 1 else 0]
+                        // 退出在对话框内一次确认：只结束所选会话，本地数据保留。
+                        AccountLogoutDialog.show(requireContext(), target) {
+                            target.signOut(requireContext(), localUserRepository, easRepository).also { signedOut ->
+                                if (signedOut) {
+                                    mainViewModel.accountChanged(easRepository.getEasToken())
+                                    userStateVersion++
+                                }
+                            }
                         }
                     }
                 }

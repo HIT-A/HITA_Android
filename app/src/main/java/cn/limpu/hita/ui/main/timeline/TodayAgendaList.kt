@@ -1,6 +1,10 @@
 package cn.limpu.hita.ui.main.timeline
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyListState
@@ -17,6 +21,7 @@ import cn.limpu.hita.R
 
 internal fun todayHasAgendaData(state: TodayUiState): Boolean = state.agenda != null && state.status != TodayPageStatus.LOADING
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun TodayAgendaPlaceholder(state: TodayUiState, action: (TodayAction) -> Unit) {
     TodayCard {
@@ -26,9 +31,24 @@ internal fun TodayAgendaPlaceholder(state: TodayUiState, action: (TodayAction) -
                     .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(6.dp)))
             }
             TodayPageStatus.NO_TARGET -> {
-                Text(stringResource(R.string.today_no_target))
-                TextButton(onClick = { action(TodayAction.SelectTimetable) }) { Text(stringResource(R.string.today_choose)) }
-                TextButton(onClick = { action(TodayAction.ImportTimetable) }) { Text(stringResource(R.string.today_import)) }
+                // 紧凑高度下三个入口会挤在一起，这里整体可滚，动作横排换行。
+                Column(Modifier.heightIn(max = 240.dp).verticalScroll(rememberScrollState())) {
+                    Text(stringResource(R.string.today_no_target))
+                    FlowRow(
+                        Modifier.padding(top = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        TextButton(onClick = { action(TodayAction.AddTimetable) }) {
+                            Text(stringResource(R.string.today_add_blank))
+                        }
+                        TextButton(onClick = { action(TodayAction.ImportTimetable) }) {
+                            Text(stringResource(R.string.today_import))
+                        }
+                        TextButton(onClick = { action(TodayAction.SelectTimetable) }) {
+                            Text(stringResource(R.string.today_choose))
+                        }
+                    }
+                }
             }
             else -> TodayAgendaFailure(state, action)
         }

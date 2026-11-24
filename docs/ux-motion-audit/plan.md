@@ -60,6 +60,16 @@
 - 依次运行基线和候选、每设备每旅程至少 10 次；使用基线和候选一致的编译、数据量、刷新率和主题，在报告保存环境、samples/JSON/Perfetto 路径、P95/P99/超时帧和失败的 UI 序列。按 [S-13](spec.md#s-13) 逐行判定，不用跨设备平均遮掩失败。图层、布局、主线程/RenderThread 或系统其他负载要分别归因；没有 trace 不下归因结论。必要时把装饰降为静态，不改变已通过的基本交互。
 - 全量放行：`gradlew.bat assembleDebug testDebugUnitTest :timetable-core:test`，改动涉及的 instrumentation 及 `python scripts/check_repository.py`；真机走完整主任务，三校区下按 [CV-08](report.md#1-状态覆盖与实测边界) 覆盖相关登录及绑定状态、联网/断网、权限访问与拒绝。记录真机型号、系统、状态与逐条结果。无账号、无设备、超性能阈值或真实服务时序未验证均不声称通过，不自动合并上线。
 
+## 本轮实施与验收结果
+
+以下为在 `feat/ux-motion-audit` 上实际执行的结果，测试命令与结论一一对应；未列出的设备或账号场景仍属未验证。
+
+- 构建与 JVM：`:app:assembleDebug`、`:app:testDebugUnitTest`、`:component|hitauser|style:testDebugUnitTest`、`:timetable-core:test`、`:timetable-core:jar` 通过（`BUILD SUCCESSFUL`）。
+- 仓库检查：`python scripts/check_repository.py --base-ref origin/main` 通过。
+- 模拟器（API 35，`hita_test`，1080×2400/420 dpi）：验证空态不建表、建表后两页周次一致、表单必填与保存落库、详情页批量删除确认、待办完成与行内撤销、公告列表与抽屉入口。证据见 [报告 §7](report.md#7-本轮修复后的复测)。
+- 仪器测试：`TimetableBatchUiInstrumentedTest`、其余 `:app:connectedDebugAndroidTest` 用例通过；`HomeworkUiInstrumentedTest.dailyScreenSupportsEditingCompletionAndLegacyTasks` 未通过（3 次尝试后停止），原因与手动复现差异见报告；未声称该用例通过。
+- 未验证：真机性能门槛、三校区真实登录、真实服务写入、TalkBack/键盘/分屏全矩阵，以及 Macrobenchmark 实机采样。
+
 ## 本轮文档检查
 
 `python scripts/check_repository.py`；另检查 `report.md` 的发现编号唯一，`spec.md` 每条验收、`plan.md` 每项工作均链接到既有报告编号，工作项到验收项无孤项。本轮报告在模拟器观察到的终态和 `gfxinfo` 样本仅供复现与排序，不是上述实施验收。

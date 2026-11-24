@@ -90,15 +90,24 @@ class HomeworkViewModel @Inject constructor(
     fun save(id: String?, title: String, date: String, time: String = "23:59", onSaved: () -> Unit) = update(onSaved) {
         if (id == null) repository.add(title, date, time) else repository.edit(id, title, date, time)
     }
+    /**
+     * 完成/恢复一条待办，返回是否真的写成功。
+     *
+     * 返回值的意义：撤销通道只能按持久化结果开合，不能把失败说成完成。
+     */
+    internal suspend fun setCompleted(key: TodoKey, completed: Boolean): Boolean = when (key) {
+        is TodoKey.Personal -> repository.setCompleted(key.id, completed)
+        is TodoKey.Imported -> when (key.platform) {
+            TodoPlatform.GRADER -> graderRepository.setCompleted(key.accountId, key.id, completed)
+            TodoPlatform.GENIUSTA -> geniusTaRepository.setCompleted(key.accountId, key.id, completed)
+        }
+    }
+
     internal fun complete(key: TodoKey, completed: Boolean, onCompleted: (() -> Unit)? = null) {
         when (key) {
             is TodoKey.Personal -> update(onCompleted) { repository.setCompleted(key.id, completed) }
             is TodoKey.Imported -> viewModelScope.launch {
-                val success = when (key.platform) {
-                    TodoPlatform.GRADER -> graderRepository.setCompleted(key.accountId, key.id, completed)
-                    TodoPlatform.GENIUSTA -> geniusTaRepository.setCompleted(key.accountId, key.id, completed)
-                }
-                if (success) onCompleted?.invoke()
+                if (setCompleted(key, completed)) onCompleted?.invoke()
             }
         }
     }

@@ -160,7 +160,12 @@ class AgentChatFragment : androidx.fragment.app.Fragment() {
                 HitaComposeTheme() {
                     AgentChatScreen(
                         viewModel = viewModel,
-                        onSend = ::sendMessage,
+                        foreground = this@AgentChatFragment.foreground,
+                        onResolveConfirmation = { pending, approved ->
+                            if (isResumed) viewModel.resolveConfirmation(pending, approved)
+                        },
+                        onSend = { viewModel.sendDraft(it, agentProvider) },
+                        onSuggestion = { sessionId, text -> viewModel.sendSuggestion(sessionId, text, agentProvider) },
                         onAttach = ::openFilePicker,
                         onNewSession = { viewModel.createNewSession() },
                         onDeleteSession = ::showDeleteSessionDialog,

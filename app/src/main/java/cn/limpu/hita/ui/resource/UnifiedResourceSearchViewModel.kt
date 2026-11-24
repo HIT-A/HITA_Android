@@ -78,7 +78,7 @@ internal data class ResourceSearchScreenState(
 )
 
 @HiltViewModel
-class UnifiedResourceSearchViewModel @Inject constructor(
+internal class UnifiedResourceSearchViewModel @Inject constructor(
     private val hoaRepository: HoaRepository,
     private val externalRepository: ExternalResourceRepository,
     private val easRepository: EASRepository,
@@ -175,8 +175,16 @@ class UnifiedResourceSearchViewModel @Inject constructor(
         update { it.copy(stack = emptyList(), directory = null) }
     }
 
-        val hoaLive = hoaRepository.searchCourses(query, hoaCampus)
-        val externalLive = externalRepository.searchCourses(query)
+    /** 首次进入（含重建）时按 Intent 恢复：优先浏览目录，否则重放查询。 */
+    internal fun restore(initialQuery: String, initialFolder: ResourceFolder?) {
+        if (mutableState.value.search != null || mutableState.value.directory != null) return
+        if (initialFolder != null) {
+            update { it.copy(stack = listOf(initialFolder), directory = ResourceFolderSnapshot(initialFolder.key)) }
+            loadDirectory(initialFolder.key)
+        } else {
+            search(initialQuery.ifBlank { savedState.get<String>(KEY_QUERY).orEmpty() })
+        }
+    }
 
     private fun launchSource(
         owner: Long,

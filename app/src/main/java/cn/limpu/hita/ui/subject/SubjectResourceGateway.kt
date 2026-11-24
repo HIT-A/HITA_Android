@@ -92,7 +92,9 @@ class AndroidSubjectResourceGateway @Inject constructor(
         observeSubjectResource(hoa.getCourseReadme(repo, campus), result)
 
     override fun search(query: String, result: (Result<List<ExternalCourseItem>>) -> Unit): SubjectRequest =
-        observeSubjectResource(external.searchCourses(query), result)
+        observeSubjectResource(external.searchCourses(query)) { outcome ->
+            result(outcome.map { it.items })
+        }
 
     override fun directory(path: String, source: ResourceSource, result: (Result<List<ExternalResourceEntry>>) -> Unit): SubjectRequest =
         observeSubjectResource(external.listDirectory(path, source), result)

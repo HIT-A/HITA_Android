@@ -161,15 +161,21 @@ class HomeworkUiInstrumentedTest {
                 }))
                 clickText(base.getString(R.string.homework_cancel))
                 awaitText(base.getString(R.string.homework_discard_title))
-                clickText(base.getString(R.string.homework_keep_editing))
+                clickDialogText(base.getString(R.string.homework_keep_editing))
                 awaitText("fixture-edited")
-                clickText(base.getString(R.string.homework_save))
+                // 编辑器内的 OutlinedTextField 用 Compose 语义接收输入；直接点保存按钮，
+                // 比依赖背景列表的滚动定位更接近真实触摸路径。
+                clickDialogText(base.getString(R.string.homework_save))
                 awaitText("fixture-edited")
 
-                // 完成 + 撤销
+                // 完成：条目进入折叠区，撤销入口在展开后的行内，而不是一次性 Snackbar。
                 val checkbox = awaitNode { it.isCheckable && it.contentDescription?.toString() == "fixture-edited" }
                 assertTrue(checkbox.performAction(AccessibilityNodeInfo.ACTION_CLICK))
-                awaitText(base.getString(R.string.homework_marked_done))
+                val completedHeaderAfterToggle = base.getString(R.string.homework_completed_section, 1)
+                awaitText(completedHeaderAfterToggle)
+                // 折叠区默认收起：先展开，撤销入口在行内而非一次性 Snackbar。
+                clickText(completedHeaderAfterToggle)
+                awaitText(base.getString(R.string.homework_undo))
                 clickText(base.getString(R.string.homework_undo))
                 awaitNode { it.isCheckable && it.contentDescription?.toString() == "fixture-edited" && !it.isChecked }
                 assertTrue(awaitNode {
@@ -307,6 +313,16 @@ class HomeworkUiInstrumentedTest {
         var target: AccessibilityNodeInfo? = node
         while (target != null && !target.isClickable) target = target.parent
         return target?.takeIf { it.isEnabled }
+    }
+
+    /** 对话框里的按钮不该靠滚动背景列表来命中。 */
+    private fun clickDialogText(text: String) {
+        val node = awaitNode("enabled dialog click target: $text", scroll = false) { candidate ->
+            candidate.isVisibleToUser && candidate.text?.toString() == text && clickableAncestor(candidate) != null
+        }
+        val target = requireNotNull(clickableAncestor(node))
+        assertTrue("Accessibility click was rejected: $text", target.performAction(AccessibilityNodeInfo.ACTION_CLICK))
+        instrumentation.waitForIdleSync()
     }
 
     private fun clickText(text: String, matchDescription: Boolean = true) {

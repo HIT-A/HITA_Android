@@ -98,6 +98,8 @@ class TimetableDetailActivity : HiltBaseActivity<ComposeViewBinding>() {
     private var selectedSubjectIds by mutableStateOf(emptySet<String>())
     private var isExporting by mutableStateOf(false)
     private var lastExportSuccess: Boolean? by mutableStateOf(null)
+    private var pendingSubjectDeletion by mutableStateOf<List<TermSubject>?>(null)
+    private var deletingSubjects by mutableStateOf(false)
 
     override fun initViewBinding(): ComposeViewBinding {
         return ComposeViewBinding(ComposeView(this))
@@ -158,11 +160,8 @@ class TimetableDetailActivity : HiltBaseActivity<ComposeViewBinding>() {
                     },
                     onClearSelection = { selectedSubjectIds = emptySet() },
                     onDeleteSelected = { subjects ->
-                        val toDelete = subjects.filter { selectedSubjectIds.contains(it.id) }
-                        if (toDelete.isNotEmpty()) {
-                            viewModel.startDeleteSubjects(toDelete)
-                            selectedSubjectIds = emptySet()
-                        }
+                        // 先在确认里写明要删哪些课程，确认后才落库；直接删会让人看不见影响范围。
+                        pendingSubjectDeletion = subjects.filter { selectedSubjectIds.contains(it.id) }
                     },
                     onAddSubject = {
                         PopupAddEvent(true)
@@ -188,6 +187,24 @@ class TimetableDetailActivity : HiltBaseActivity<ComposeViewBinding>() {
                             }).show(supportFragmentManager, "pick")
                     }
                 )
+
+                pendingSubjectDeletion?.let { targets ->
+                    TimetableDeletionConfirmation(
+                        names = targets.map { it.name },
+                        busy = deletingSubjects,
+                        subjects = true,
+                        onDismiss = { if (!deletingSubjects) pendingSubjectDeletion = null },
+                        onConfirm = {
+                            if (!deletingSubjects) {
+                                deletingSubjects = true
+                                viewModel.startDeleteSubjects(targets)
+                                selectedSubjectIds = emptySet()
+                                pendingSubjectDeletion = null
+                                deletingSubjects = false
+                            }
+                        },
+                    )
+                }
             }
         }
     }

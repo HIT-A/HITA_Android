@@ -98,6 +98,8 @@ class TimetableRepository @Inject internal constructor(
 
     companion object {
         private const val EXAM_REMINDER_DAYS = 30
+        /** 新建空表的默认学期长度，与常见 20 周教学周一致。 */
+        private const val DEFAULT_TERM_WEEKS = 20
     }
 
     private val manualEventFallbackColor by lazy {
@@ -445,8 +447,9 @@ class TimetableRepository @Inject internal constructor(
         return eventItemDao.searchEventsByNameInTimetablesSync(keyword, timetableIds)
     }
 
-    fun actionDeleteTimetables(timetables: List<Timetable>) {
-        val ids = timetables.map { it.id }
+    /** 调用方只关心结果时才传 completed；旧调用点保持「管杀不管埋」的语义。 */
+    fun actionDeleteTimetables(timetables: List<Timetable>, completed: (Result<Unit>) -> Unit = {}) {
+        val ids = timetables.map { it.id }.distinct()
         executor.execute {
             val result = runCatching {
                 timetableMutationLock.exclusive {
@@ -1103,7 +1106,9 @@ class TimetableRepository @Inject internal constructor(
         val newTable = Timetable()
         val c = TimeTools.getMonday(System.currentTimeMillis())
         newTable.startTime.time = c.timeInMillis
-        newTable.endTime.time = c.timeInMillis + WEEK_MILLS
+        // 空表代表一个学期，不是一周：只写一周会让今日显示「第1周」而时间表显示
+        // 「非所选学期」，同一张表在两个页面对不上。长度与默认周数保持一致。
+        newTable.endTime.time = c.timeInMillis + WEEK_MILLS * DEFAULT_TERM_WEEKS
         newTable.name = defaultPrefix + (max + 1).toString()
         return newTable
     }
