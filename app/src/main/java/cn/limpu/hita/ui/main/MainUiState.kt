@@ -19,6 +19,9 @@ internal data class MainUiState(
     val scopeOptions: List<DisplayScopeResolver.ScopeOption> = emptyList(),
     val currentScope: DisplayScope? = null,
     val blogDotVisible: Boolean = false,
+    val showTeachingVersions: Boolean = false,
+    val showDeletionHistory: Boolean = false,
+    val noticeEntryVisible: Boolean = false,
 )
 
 /** A bitmap belongs to the Activity's image loader, never the retained ViewModel. */
@@ -45,6 +48,8 @@ internal data class MainActions(
     val timetableSetting: () -> Unit,
     val timetableSocial: () -> Unit,
     val timetableHistory: () -> Unit = {},
+    val timetableVersions: () -> Unit = {},
+    val notices: () -> Unit = {},
     val addEvent: () -> Unit,
     val drawerHeader: () -> Unit,
     val drawerAvatar: () -> Unit,

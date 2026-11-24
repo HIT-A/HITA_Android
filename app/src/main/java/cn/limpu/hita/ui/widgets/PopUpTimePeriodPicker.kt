@@ -114,6 +114,7 @@ private fun TimePeriodPickerScreen(
     var m1 by remember { mutableIntStateOf(initM1) }
     var h2 by remember { mutableIntStateOf(initH2) }
     var m2 by remember { mutableIntStateOf(initM2) }
+    val valid = h2 * 60 + m2 > h1 * 60 + m1
 
     val hourEntries = remember { (0..23).map { if (it < 10) "0$it" else "$it" } }
     val minuteEntries = remember { (0..59).map { if (it < 10) "0$it" else "$it" } }
@@ -156,6 +157,7 @@ private fun TimePeriodPickerScreen(
                 onClick = {
                     onConfirm(TimeInDay(h1, m1), TimeInDay(h2, m2))
                 },
+                enabled = valid,
                 shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
                 colors = CardDefaults.cardColors(
                     containerColor = MaterialTheme.colorScheme.primary
@@ -170,6 +172,13 @@ private fun TimePeriodPickerScreen(
                     modifier = Modifier.padding(horizontal = tokens.spacing.md, vertical = tokens.spacing.xs)
                 )
             }
+        }
+        if (!valid) {
+            Text(
+                stringResource(R.string.ade_time_invalid),
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.padding(horizontal = tokens.spacing.lg, vertical = tokens.spacing.sm),
+            )
         }
 
         Row(

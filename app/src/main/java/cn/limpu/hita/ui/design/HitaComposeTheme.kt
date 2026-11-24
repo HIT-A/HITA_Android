@@ -232,6 +232,7 @@ fun HitaComposeTheme(
     CompositionLocalProvider(
         LocalHitaDesignTokens provides tokens,
         LocalHitaThemeState provides themeState,
+        LocalHitaReducedMotion provides rememberHitaReducedMotion(),
     ) {
         MaterialTheme(
             colorScheme = colorScheme,

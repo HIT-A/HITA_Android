@@ -46,11 +46,11 @@ class EventEditHistoryStore(
     )
 
     /** Teaching-source courses stay in the table; every other course is removed but remains recoverable. */
-    fun delete(eventIds: List<String>): Boolean {
+    fun delete(eventIds: List<String>, receiptId: String? = null): Boolean {
         val events = eventDao.getEventsInIdsIncludingHiddenSync(eventIds).filter { it.hidden == 0 }
         if (events.isEmpty()) return false
         events.forEach { event ->
-            append(event.timetableId, event.id, ACTION_DELETE, before = event, after = null)
+            append(event.timetableId, event.id, ACTION_DELETE, before = event, after = null, receiptId = receiptId)
         }
         val (hide, remove) = events.partition { it.hidesInsteadOfDeleting() }
         if (hide.isNotEmpty()) eventDao.hideEventsInIdsSync(hide.map { it.id })
@@ -87,13 +87,14 @@ class EventEditHistoryStore(
         return event
     }
 
-    fun deletedHistory(timetableId: String): List<DeletedEventHistory> {
+    fun deletedHistory(timetableId: String, personalOnly: Boolean = false): List<DeletedEventHistory> {
         val entries = history(timetableId)
         val deletions = entries.filter { it.action == ACTION_DELETE || it.action == ACTION_DELETE_RESTORED }
         val current = eventDao.getEventsInIdsIncludingHiddenSync(deletions.map { it.eventId })
             .associateBy { it.id }
-        return deletions.map { entry ->
+        return deletions.mapNotNull { entry ->
             val event = deletedEvent(entry)
+            if (personalOnly && (event == null || event.hidesInsteadOfDeleting())) return@mapNotNull null
             DeletedEventHistory(
                 id = entry.id,
                 name = event?.name,
@@ -144,13 +145,14 @@ class EventEditHistoryStore(
         action: String,
         before: EventItem?,
         after: EventItem?,
+        receiptId: String? = null,
     ) {
         // Keep ordering unambiguous for a batch of deletions and for clocks moving backwards.
         val latest = history(timetableId).maxOfOrNull { it.createdAt }
         val recordedAt = maxOf(clock(), latest?.let { it + 1 } ?: Long.MIN_VALUE)
         historyDao.insert(
             EventEditHistoryEntity(
-                id = ids(),
+                id = receiptId ?: ids(),
                 timetableId = timetableId,
                 eventId = eventId,
                 action = action,

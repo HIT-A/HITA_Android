@@ -12,6 +12,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.ui.res.stringResource
+import cn.limpu.hita.data.repository.today.TodayReadState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.key
 import androidx.compose.runtime.CompositionLocalProvider
@@ -68,6 +73,8 @@ internal fun TimetableRoute(
     onAdoptBatch: (TimetableHeldBatch) -> Unit,
     onDismissBatch: (TimetableHeldBatch) -> Unit,
     onConfirmPending: (Set<String>, Set<String>) -> Unit,
+    onManageTimetables: () -> Unit,
+    onCreateBlank: () -> Unit,
     sourceDialogRequested: Boolean = false,
     onSourceDialogClosed: () -> Unit = {},
 ) {
@@ -75,7 +82,9 @@ internal fun TimetableRoute(
     val currentPageStart by viewModel.currentPageStartDate.observeAsState(
         initial = viewModel.currentPageStartDate.value ?: mondayOf(System.currentTimeMillis())
     )
-    val resolvedScope by viewModel.resolvedScope.observeAsState()
+    val scopeReadState by viewModel.scopeReadState.observeAsState(TodayReadState.Loading)
+    val resolvedScope = (scopeReadState as? TodayReadState.Ready)?.value
+    val creatingBlank by viewModel.creatingBlankTimetable.observeAsState(false)
     val calendarPeriods by viewModel.academicCalendarPeriods.observeAsState(emptyList())
     val startTime by viewModel.startTimeLiveData.observeAsState(viewModel.currentStartTime())
     val periodLabel by viewModel.periodLabelLiveData.observeAsState(viewModel.isPeriodLabelEnabled())
@@ -84,10 +93,28 @@ internal fun TimetableRoute(
     val zoomCompressed by viewModel.zoomCompressedLiveData.observeAsState(viewModel.isZoomCompressed())
     val dateColorInt by viewModel.wallpaperDateColorLiveData.observeAsState(AndroidColor.WHITE)
     val labelColorInt by viewModel.wallpaperLabelColorLiveData.observeAsState(AndroidColor.WHITE)
-    val windowEvents by viewModel.currentWindow.observeAsState()
+    val query = resolvedScope?.let { TimetableWindowKey(currentPageStart, it.scope, it.timetableIds) }
+    val publishedWindow by viewModel.currentWindow.observeAsState()
+    val windowEvents = publishedWindow?.takeIf { it.key == query }
 
     LaunchedEffect(currentPageStart, resolvedScope, calendarPeriods) {
         onTitleState(buildTitleState(context, currentPageStart, resolvedScope, calendarPeriods))
+    }
+    if (resolvedScope == null) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            if (scopeReadState is TodayReadState.Ready) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(stringResource(R.string.timetable_audit_empty))
+                    TextButton(onClick = onManageTimetables, enabled = !creatingBlank) {
+                        Text(stringResource(R.string.timetable_audit_import))
+                    }
+                    TextButton(onClick = onCreateBlank, enabled = !creatingBlank) {
+                        Text(stringResource(R.string.timetable_add_blank))
+                    }
+                }
+            } else CircularProgressIndicator()
+        }
+        return
     }
 
     val style = remember(windowEvents, startTime, periodLabel) {
@@ -152,11 +179,14 @@ internal fun TimetableRoute(
             currentPageStart, events, displayStyle, currentScheduleStructure, wallpaperPath,
             dateColorInt, labelColorInt, eveningHintEnabled, zoomCompressed, colorAssignments,
             showTodayFab, changeState, batchState,
+            waitingForEvents = windowEvents == null,
         ),
         onWeek = viewModel::navigateToWeek,
-        onEventClick = onEventClick,
-        onEventLongClick = onEventLongClick,
-        onAddClick = onAddClick,
+        onEventClick = { if (query == viewModel.activeWindowKey()) onEventClick(it) },
+        onEventLongClick = { event, at -> if (query == viewModel.activeWindowKey()) onEventLongClick(event, at) },
+        onAddClick = { day, period ->
+            if (query == viewModel.activeWindowKey()) onAddClick(day, period)
+        },
         onChangeInfoViewed = onChangeInfoViewed,
         onAdoptCourse = onAdoptCourse,
         onDismissCourse = onDismissCourse,
@@ -185,6 +215,7 @@ internal data class TimetableScreenState(
     val showToday: Boolean,
     val changes: cn.limpu.hita.data.repository.TimetableChangeState?,
     val batch: TimetableBatchState,
+    val waitingForEvents: Boolean = false,
 )
 
 @Composable
@@ -231,6 +262,7 @@ internal fun TimetableScreen(
                     eveningHintEnabled = state.eveningHintEnabled,
                     compressed = state.compressed,
                 )
+                if (state.waitingForEvents) CircularProgressIndicator(Modifier.align(Alignment.Center))
                 }
             }
         }
@@ -251,7 +283,7 @@ internal fun TimetableScreen(
             ) {
                 Icon(
                     painter = painterResource(R.drawable.ic_baseline_settings_backup_restore_24),
-                    contentDescription = null
+                    contentDescription = stringResource(R.string.timetable_audit_return_week),
                 )
             }
         }

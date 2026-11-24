@@ -98,6 +98,7 @@ class FragmentTimeLine : HiltBaseFragmentWithReceiver<ComposeViewBinding>() {
             is TodayAction.OpenHomework -> controller?.openTodayHomework()
             TodayAction.OpenExams -> startActivity(Intent(requireContext(), ExamActivity::class.java))
             TodayAction.SelectTimetable -> startActivity(Intent(requireContext(), TimetableManagerActivity::class.java))
+            TodayAction.AddTimetable -> startActivity(TimetableManagerActivity.openAddIntent(requireContext()))
             TodayAction.ImportTimetable -> startActivity(Intent(requireContext(), ImportTimetableActivity::class.java))
             is TodayAction.Retry -> viewModel.retry(action.source)
             is TodayAction.SelectScope -> Unit // handled before snapshot acceptance

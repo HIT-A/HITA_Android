@@ -53,6 +53,9 @@ import cn.limpu.hita.data.source.web.campus.LibrarySmartWallSignInRequiredExcept
 import cn.limpu.hita.ui.design.HitaComposeTheme
 import cn.limpu.hita.ui.design.HitaTheme
 import cn.limpu.hita.utils.ActivityUtils
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.ZoneId
@@ -69,15 +72,16 @@ import java.util.Locale
 class UniversityTownLibraryActivity : AppCompatActivity() {
 
     private val viewModel: LibrarySmartWallViewModel by viewModels()
-    private var awaitingPortalLogin = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
             HitaComposeTheme {
                 val state by viewModel.state.observeAsState(CampusServiceUiState.Loading)
+                val refreshing by viewModel.refreshing.observeAsState(false)
                 LibrarySmartWallScreen(
                     state = state,
+                    refreshing = refreshing,
                     onBack = { finish() },
                     onRefresh = viewModel::refresh,
                     onSignIn = ::openPortalLogin,
@@ -86,17 +90,7 @@ class UniversityTownLibraryActivity : AppCompatActivity() {
         }
     }
 
-    override fun onResume() {
-        super.onResume()
-        // 从门户登录页返回：Cookie 已更新，立刻重取，而不是让用户再点一次刷新。
-        if (awaitingPortalLogin) {
-            awaitingPortalLogin = false
-            viewModel.refresh()
-        }
-    }
-
     private fun openPortalLogin() {
-        awaitingPortalLogin = true
         ActivityUtils.startInternalWebActivity(
             this,
             getString(R.string.extension_library_title),
@@ -113,17 +107,29 @@ class LibrarySmartWallViewModel : ViewModel() {
         CampusServiceUiState.Loading
     )
     val state: LiveData<CampusServiceUiState<LibrarySmartWallSnapshot>> = _state
+    private val _refreshing = MutableLiveData(false)
+    val refreshing: LiveData<Boolean> = _refreshing
+    private val requests = CampusRefreshGate<String>()
+    private var job: Job? = null
+    private var displayedKey: String? = null
 
     init {
         refresh()
     }
 
     fun refresh() {
-        _state.value = CampusServiceUiState.Loading
-        viewModelScope.launch {
-            _state.value = try {
-                val cookie = CampusCookieJar.header(LibrarySmartWallClient.PORTAL_URL)
+        val cookie = CampusCookieJar.header(LibrarySmartWallClient.PORTAL_URL)
+        val request = requests.begin(cookie) ?: return
+        job?.cancel()
+        if (displayedKey != cookie || _state.value !is CampusServiceUiState.Ready) {
+            _state.value = CampusServiceUiState.Loading
+        }
+        _refreshing.value = true
+        job = viewModelScope.launch {
+            val next = try {
                 CampusServiceUiState.Ready(client.fetch(cookieHeader = cookie.ifBlank { null }))
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (_: LibrarySmartWallSignInRequiredException) {
                 CampusServiceUiState.RequiresSignIn
             } catch (error: LibrarySmartWallException) {
@@ -132,6 +138,12 @@ class LibrarySmartWallViewModel : ViewModel() {
                 // 兜底：未预期异常也必须落到带原因的失败态，不能让页面停在加载中。
                 CampusServiceUiState.Failed(error.message.orEmpty().ifBlank { "图书馆数据加载失败" })
             }
+            ensureActive()
+            if (!requests.owns(request, cookie)) return@launch
+            requests.finish(request)
+            displayedKey = cookie
+            _refreshing.value = false
+            _state.value = next
         }
     }
 }
@@ -140,6 +152,7 @@ class LibrarySmartWallViewModel : ViewModel() {
 @Composable
 private fun LibrarySmartWallScreen(
     state: CampusServiceUiState<LibrarySmartWallSnapshot>,
+    refreshing: Boolean,
     onBack: () -> Unit,
     onRefresh: () -> Unit,
     onSignIn: () -> Unit,
@@ -159,8 +172,8 @@ private fun LibrarySmartWallScreen(
                     }
                 },
                 actions = {
-                    IconButton(onClick = onRefresh) {
-                        if (state is CampusServiceUiState.Loading) {
+                    IconButton(onClick = onRefresh, enabled = !refreshing) {
+                        if (refreshing) {
                             CircularProgressIndicator(
                                 modifier = Modifier.size(22.dp),
                                 strokeWidth = 2.dp,
@@ -199,7 +212,7 @@ private fun LibrarySmartWallScreen(
 
                 is CampusServiceUiState.RequiresSignIn -> ActionCard(
                     title = stringResource(R.string.campus_service_session_title),
-                    message = stringResource(R.string.library_sign_in_required),
+                    message = stringResource(R.string.campus_library_portal_refresh_hint),
                     action = stringResource(R.string.library_sign_in),
                     onAction = onSignIn,
                 )

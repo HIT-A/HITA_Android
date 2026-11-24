@@ -1,6 +1,7 @@
 package cn.limpu.hita.ui.timetable.manager
 
 import android.content.Intent
+import android.content.Context
 import android.view.HapticFeedbackConstants
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
@@ -67,6 +68,10 @@ import androidx.lifecycle.lifecycleScope
 import cn.limpu.hita.R
 import cn.limpu.hita.data.model.timetable.Timetable
 import cn.limpu.hita.data.model.timetable.TimetableGroupEntity
+import cn.limpu.hita.data.repository.TimetableVersionStore
+import cn.limpu.hita.feature.timetableshare.protocol.ShareMode
+import cn.limpu.hita.ui.timetable.detail.TimetableDeletionConfirmation
+import cn.limpu.hita.ui.timetable.export.TimetableExportItem
 import cn.limpu.hita.data.repository.FriendTimetableRepository
 import cn.limpu.hita.data.repository.SharedTimetableImporter
 import cn.limpu.hita.feature.timetableshare.protocol.FriendSaveResult
@@ -101,8 +106,16 @@ import javax.inject.Inject
 class TimetableManagerActivity : HiltBaseActivity<ComposeViewBinding>() {
 
     protected val viewModel: TimetableManagerViewModel by viewModels()
-    private var selectedTimetableIds by mutableStateOf(emptySet<String>())
+    private var selectedTimetableIds: Set<String>
+        get() = viewModel.selectedTimetableIds
+        set(value) { viewModel.selectedTimetableIds = value }
     private var addMenuOpen by mutableStateOf(false)
+
+    companion object {
+        private const val EXTRA_OPEN_ADD = "timetable.open_add"
+        fun openAddIntent(context: Context) = Intent(context, TimetableManagerActivity::class.java)
+            .putExtra(EXTRA_OPEN_ADD, true)
+    }
     private var renameTarget by mutableStateOf<Timetable?>(null)
     private var renameGroupTarget by mutableStateOf<TimetableGroupEntity?>(null)
     private var dissolveGroupTarget by mutableStateOf<TimetableGroupEntity?>(null)
@@ -142,6 +155,8 @@ class TimetableManagerActivity : HiltBaseActivity<ComposeViewBinding>() {
     }
 
     override fun initViews() {
+        addMenuOpen = intent.getBooleanExtra(EXTRA_OPEN_ADD, false)
+        intent.removeExtra(EXTRA_OPEN_ADD)
         onBackPressedDispatcher.addCallback(this, onBackPressedCallback)
         (binding.root as ComposeView).setContent {
             HitaComposeTheme() {
@@ -160,6 +175,7 @@ class TimetableManagerActivity : HiltBaseActivity<ComposeViewBinding>() {
                     onOpenGroup = { startActivity(TimetableGroupActivity.intent(getThis(), it.id)) },
                     onOpenFriends = { startActivity(FriendTimetableActivity.intent(getThis())) },
                     onAddClick = { addMenuOpen = true },
+                    onCreateBlank = viewModel::startNewTimetable,
                     onRenameTimetable = { renameTarget = it },
                     onRenameGroup = { renameGroupTarget = it },
                     onDissolveGroup = { dissolveGroupTarget = it },
@@ -174,27 +190,30 @@ class TimetableManagerActivity : HiltBaseActivity<ComposeViewBinding>() {
                         }
                     },
                     onClearSelection = { selectedTimetableIds = emptySet() },
-                    onDeleteSelected = { timetables ->
-                        val toDelete = timetables.filter { selectedTimetableIds.contains(it.id) }
-                        if (toDelete.isNotEmpty()) {
-                            viewModel.startDeleteTimetables(toDelete)
-                            selectedTimetableIds = emptySet()
-                        }
-                    },
+                    onDeleteSelected = viewModel::requestDelete,
                     onExport = { exportSheetOpen = true }
                 )
+
+                viewModel.deleteTarget?.let { target ->
+                    TimetableDeletionConfirmation(
+                        names = target.map { it.name ?: getString(R.string.default_timetable_name) },
+                        busy = viewModel.deleting,
+                        onDismiss = viewModel::cancelDelete,
+                        onConfirm = viewModel::confirmDelete,
+                    )
+                }
 
                 if (exportSheetOpen) {
                     val groups by viewModel.groupsLiveData.observeAsState(emptyList())
                     val allTimetables by viewModel.timetablesLiveData.observeAsState(emptyList())
-                    val memberCounts = allTimetables.groupingBy { it.groupId }.eachCount()
+                    val membersByGroup = allTimetables.groupBy { it.groupId }
                     val exportItems = groups.mapNotNull { group ->
-                        val count = memberCounts[group.id] ?: 0
-                        if (count == 0) null else cn.limpu.hita.ui.timetable.export.TimetableExportItem(
+                        val members = membersByGroup[group.id].orEmpty()
+                        if (members.isEmpty() || members.any(TimetableVersionStore::isProjection)) null else TimetableExportItem(
                             TimetableManagerViewModel.groupItemKey(group.id), group.name,
-                            getString(R.string.timetable_group_member_count, count))
-                    } + allTimetables.filter { it.groupId == null }.map {
-                        cn.limpu.hita.ui.timetable.export.TimetableExportItem(it.id,
+                            getString(R.string.timetable_group_member_count, members.size), members.mapTo(hashSetOf()) { it.id })
+                    } + allTimetables.filter { it.groupId == null && !TimetableVersionStore.isProjection(it) }.map {
+                        TimetableExportItem(it.id,
                             it.name ?: getString(R.string.default_timetable_name),
                             TimeTools.printDate(it.startTime.time))
                     }
@@ -203,8 +222,8 @@ class TimetableManagerActivity : HiltBaseActivity<ComposeViewBinding>() {
                         initiallySelected = selectedTimetableIds,
                         busy = exportBusy,
                         onDismiss = { if (!exportBusy) exportSheetOpen = false },
-                        onExportToken = { keys -> runExport(keys, token = true) },
-                        onExportIcs = { keys -> runExport(keys, token = false) },
+                        onExportToken = { items, mode -> runExport(items, requireNotNull(mode)) },
+                        onExportIcs = { items -> runExport(items, null) },
                     )
                 }
                 exportTokensResult?.let { tokens ->
@@ -355,16 +374,16 @@ class TimetableManagerActivity : HiltBaseActivity<ComposeViewBinding>() {
     }
 
     /** 导出执行：口令 → 结果弹层；ICS → 系统分享文件。 */
-    private fun runExport(keys: List<String>, token: Boolean) {
-        if (exportBusy || keys.isEmpty()) return
+    private fun runExport(items: List<TimetableExportItem>, mode: ShareMode?) {
+        if (exportBusy || items.isEmpty()) return
         exportBusy = true
         lifecycleScope.launch {
             try {
-                if (token) {
-                    exportTokensResult = viewModel.exportTokens(keys, getString(R.string.timetable_share_default_nickname))
+                if (mode != null) {
+                    exportTokensResult = viewModel.exportTokens(items, getString(R.string.timetable_share_default_nickname), mode)
                     exportSheetOpen = false
                 } else {
-                    val files = viewModel.exportIcsFiles(keys)
+                    val files = viewModel.exportIcsFiles(items.map { it.key })
                     exportSheetOpen = false
                     binding.root.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
                     Toast.makeText(getThis(), R.string.timetable_export_ics_done, Toast.LENGTH_SHORT).show()
@@ -468,6 +487,7 @@ private fun TimetableManagerScreen(
     onOpenGroup: (TimetableGroupEntity) -> Unit,
     onOpenFriends: () -> Unit,
     onAddClick: () -> Unit,
+    onCreateBlank: () -> Unit,
     onRenameTimetable: (Timetable) -> Unit,
     onRenameGroup: (TimetableGroupEntity) -> Unit,
     onDissolveGroup: (TimetableGroupEntity) -> Unit,
@@ -478,7 +498,8 @@ private fun TimetableManagerScreen(
     onExport: () -> Unit
 ) {
     val tokens = HitaTheme.tokens
-    val timetables by viewModel.timetablesLiveData.observeAsState(emptyList())
+    val loadedTimetables by viewModel.timetablesLiveData.observeAsState()
+    val timetables = loadedTimetables.orEmpty()
     val groups by viewModel.groupsLiveData.observeAsState(emptyList())
     val selectionMode = selectedTimetableIds.isNotEmpty()
 
@@ -518,7 +539,7 @@ private fun TimetableManagerScreen(
                 }
             },
             actions = {
-                IconButton(onClick = onExport, enabled = !exportBusy) {
+                IconButton(onClick = onExport, enabled = !exportBusy && timetables.isNotEmpty()) {
                     if (exportBusy) {
                         CircularProgressIndicator(
                             modifier = Modifier.size(22.dp),
@@ -568,16 +589,22 @@ private fun TimetableManagerScreen(
                         selected = selectedTimetableIds.contains(item.timetable.id),
                         selectionMode = selectionMode,
                         onClick = {
-                            if (selectionMode) onToggleSelection(item.timetable)
+                            if (selectionMode && !TimetableVersionStore.isProjection(item.timetable)) onToggleSelection(item.timetable)
                             else onOpenTimetable(item.timetable)
                         },
-                        onRename = { onRenameTimetable(item.timetable) },
-                        onLongSelect = { onStartSelection(item.timetable) },
+                        onRename = { if (!TimetableVersionStore.isProjection(item.timetable)) onRenameTimetable(item.timetable) },
+                        onLongSelect = { if (!TimetableVersionStore.isProjection(item.timetable)) onStartSelection(item.timetable) },
                     )
                 }
             }
             item(key = "add", span = { GridItemSpan(2) }) {
-                AddTimetableCard(onClick = onAddClick)
+                if (loadedTimetables?.isEmpty() == true) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth().padding(16.dp)) {
+                        Text(stringResource(R.string.timetable_audit_empty))
+                        TextButton(onClick = onAddClick, enabled = !viewModel.creating) { Text(stringResource(R.string.timetable_audit_import)) }
+                        TextButton(onClick = onCreateBlank, enabled = !viewModel.creating) { Text(stringResource(R.string.timetable_add_blank)) }
+                    }
+                } else AddTimetableCard(onClick = onAddClick)
             }
         }
     }

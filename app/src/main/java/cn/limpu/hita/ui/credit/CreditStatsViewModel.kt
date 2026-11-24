@@ -23,6 +23,8 @@ import cn.limpu.hita.ui.eas.reconcileSelectedTerm
 import cn.limpu.hita.ui.eas.sameTermKey
 import cn.limpu.hita.utils.TermUtils
 import com.limpu.component.data.DataState
+import cn.limpu.hita.ui.eas.requiresAcademicLogin
+import cn.limpu.hita.ui.eas.withAcademicLoading
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 
@@ -72,7 +74,7 @@ class CreditStatsViewModel @Inject constructor(
                     else -> UsageAnalyticsClient.finish(operation, UsageAnalyticsEvent.CREDIT_SUMMARY_LOAD_FAILED, mapOf("error_category" to "unknown"))
                 }
                 result
-            }
+            }.withAcademicLoading()
         }
 
     val creditStats: LiveData<CreditStatsState> = refreshTrigger.switchMap {
@@ -83,7 +85,7 @@ class CreditStatsViewModel @Inject constructor(
 
     fun refresh() {
         if (officialSupported) {
-            officialRefreshTrigger.value = true
+            retryOfficial()
         } else {
             refreshTrigger.value = true
         }
@@ -91,6 +93,13 @@ class CreditStatsViewModel @Inject constructor(
 
     fun retryOfficial(): Boolean {
         if (!officialSupported) return false
+        val terms = termsLiveData.value
+        if (selectedTermLiveData.value == null || terms.requiresAcademicLogin() ||
+            terms?.state != DataState.STATE.SUCCESS || terms.refreshFailed
+        ) {
+            termQueries.refresh()
+            return true
+        }
         officialRefreshTrigger.value = true
         return true
     }

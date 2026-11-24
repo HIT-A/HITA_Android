@@ -5,7 +5,7 @@ import cn.limpu.hita.feature.timetableshare.protocol.ShareMode
 data class ShareFormState(
     val timetableId: String,
     val nickname: String,
-    val mode: ShareMode = ShareMode.FULL,
+    val mode: ShareMode = ShareMode.BUSY,
     val revision: Long = 0,
     val token: String? = null,
     val generating: Boolean = false,

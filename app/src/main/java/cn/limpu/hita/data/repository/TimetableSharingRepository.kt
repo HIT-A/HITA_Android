@@ -46,10 +46,10 @@ class TimetableSharingRepository @Inject constructor(private val db: AppDatabase
         codec.encode(snapshot)
     }
 
-    /** 批量导出口令：每份课表一个 HITA1 口令（FULL 模式）；返回 课表名 to 口令。 */
-    suspend fun tokensForMine(timetableIds: List<String>, nickname: String): List<Pair<String, String>> =
+    /** One token per selected local table, in the explicitly confirmed disclosure mode. */
+    suspend fun tokensForMine(timetableIds: List<String>, nickname: String, mode: ShareMode): List<Pair<String, String>> =
         timetableIds.map { id ->
-            val token = generate(id, nickname, ShareMode.FULL)
+            val token = generate(id, nickname, mode)
             val name = withContext(Dispatchers.IO) { db.timetableDao().getTimetableByIdSync(id)?.name }.orEmpty()
             name to token
         }
@@ -58,12 +58,15 @@ class TimetableSharingRepository @Inject constructor(private val db: AppDatabase
      * 组合课表整体导出一个口令：成员课程合并成一份快照，作息与学期锚定最早开始的成员。
      * shareId 以 "group:<id>" 身份稳定，重复导出不换号。
      */
-    suspend fun generateGroupToken(groupId: String, nickname: String): Pair<String, String> = withContext(Dispatchers.IO) {
+    suspend fun generateGroupToken(
+        groupId: String, nickname: String, mode: ShareMode, expectedMemberIds: Set<String>,
+    ): Pair<String, String> = withContext(Dispatchers.IO) {
         db.runInTransaction(Callable {
             val group = db.timetableGroupDao().getGroupByIdSync(groupId)
                 ?: throw ShareFormatException(ShareError.INVALID_FIELDS)
             val members = db.timetableDao().getTimetablesSync()
                 .filter { it.groupId == groupId }.sortedBy { it.startTime.time }
+            check(members.mapTo(hashSetOf()) { it.id } == expectedMemberIds) { "The group changed before export" }
             if (members.isEmpty()) throw ShareFormatException(ShareError.EMPTY_SCHEDULE)
             val anchor = members.first()
             val synthetic = cn.limpu.hita.data.model.timetable.Timetable().apply {
@@ -96,7 +99,7 @@ class TimetableSharingRepository @Inject constructor(private val db: AppDatabase
             val identities = db.timetableShareDao()
             identities.insertIgnoreSync(ShareIdentityEntity(identityKey, termKey, UUID.randomUUID().toString()))
             val identity = checkNotNull(identities.getSync(identityKey, termKey))
-            val snapshot = builder.build(synthetic, events, identity.shareId, nickname, ShareMode.FULL)
+            val snapshot = builder.build(synthetic, events, identity.shareId, nickname, mode)
             group.name to codec.encode(snapshot)
         })
     }

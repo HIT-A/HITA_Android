@@ -109,6 +109,13 @@ android {
             shrinkResources false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
+        benchmark {
+            initWith release
+            applicationIdSuffix ".benchmark"
+            signingConfig signingConfigs.debug
+            matchingFallbacks = ['release']
+            debuggable false
+        }
     }
 
     packagingOptions {

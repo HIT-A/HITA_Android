@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="main_close_drawer">关闭账号与设置</string>
+    <string name="main_change_appearance">切换深浅色</string>
+    <string name="main_info_unread">有未读资讯</string>
+    <string name="main_timetable_week_picker">按周跳转</string>
+    <string name="main_timetable_week_option">第 %1$d 周</string>
+    <string name="main_timetable_event_target_stale">这项日程已删除、隐藏或移动，无法打开原位置</string>
+    <string name="resource_retry">重试</string>
+    <string name="resource_stale_notice">正在显示上次结果，本次刷新未完成</string>
+    <string name="resource_source_failed">%1$s 未能加载，其他来源的结果仍可查看</string>
+</resources>

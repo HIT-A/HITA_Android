@@ -1,16 +1,10 @@
 package cn.limpu.hita.ui.design
 
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.shape.CutCornerShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.draw.shadow
@@ -85,28 +79,16 @@ fun Modifier.hitaCyberGlow(
     }
 }
 
-/**
- * 赛博流光描边：青→紫→品红的渐变光沿边框无限流动（显卡 RGB 效果）。
- * 三层叠加（外层光晕、中层泛光、内层亮芯）模拟霓虹灯管。
- * 只在绘制层读取动画值，不触发重组；其他风格无操作。
- */
+/** 缓存静态霓虹，不为无状态的装饰持续请求帧。 */
 @Composable
-fun Modifier.hitaCyberFlowEdge(
+internal fun Modifier.hitaCyberNeonEdge(
     shape: Shape,
     width: Dp = 1.2.dp,
-    periodMs: Int = 4200,
     color1: Color = MaterialTheme.colorScheme.primary,
     color2: Color = MaterialTheme.colorScheme.secondary,
     color3: Color = MaterialTheme.colorScheme.tertiary,
 ): Modifier {
     if (!hitaIsCyber()) return this
-    val transition = rememberInfiniteTransition(label = "cyberFlow")
-    val progress by transition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(animation = tween(periodMs, easing = LinearEasing)),
-        label = "cyberFlowProgress"
-    )
     return this.drawWithCache {
         val outline = shape.createOutline(size, layoutDirection, this)
         val periodPx = 360.dp.toPx()
@@ -114,23 +96,20 @@ fun Modifier.hitaCyberFlowEdge(
         val ux = if (diagLen > 0f) size.width / diagLen else 1f
         val uy = if (diagLen > 0f) size.height / diagLen else 0f
         val colors = listOf(color1, color2, color3, color1)
+        val edgeBrush = Brush.linearGradient(
+            colors = colors,
+            start = Offset.Zero,
+            end = Offset(ux * periodPx, uy * periodPx),
+            tileMode = TileMode.Repeated
+        )
         val haloStroke = Stroke(width = width.toPx() * 3.2f)
         val midStroke = Stroke(width = width.toPx() * 1.8f)
         val coreStroke = Stroke(width = width.toPx())
         onDrawWithContent {
             drawContent()
-            // 让渐变沿对角线平移（重复平铺），颜色顺边框流动而轮廓保持不动
-            val shift = progress * periodPx
-            val start = Offset(ux * shift, uy * shift)
-            val flowBrush = Brush.linearGradient(
-                colors = colors,
-                start = start,
-                end = Offset(start.x + ux * periodPx, start.y + uy * periodPx),
-                tileMode = TileMode.Repeated
-            )
-            drawOutline(outline = outline, brush = flowBrush, alpha = 0.16f, style = haloStroke)
-            drawOutline(outline = outline, brush = flowBrush, alpha = 0.32f, style = midStroke)
-            drawOutline(outline = outline, brush = flowBrush, alpha = 0.95f, style = coreStroke)
+            drawOutline(outline = outline, brush = edgeBrush, alpha = 0.16f, style = haloStroke)
+            drawOutline(outline = outline, brush = edgeBrush, alpha = 0.32f, style = midStroke)
+            drawOutline(outline = outline, brush = edgeBrush, alpha = 0.95f, style = coreStroke)
         }
     }
 }

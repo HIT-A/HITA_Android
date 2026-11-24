@@ -1,6 +1,5 @@
 package cn.limpu.hita.ui.profile
 
-import android.content.Context
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.switchMap
@@ -30,10 +29,6 @@ class ProfileViewModel @Inject constructor(
 
     fun startRefresh(id: String) {
         profileController.value = StringTrigger.getActioning(id)
-    }
-
-    fun logout(context: Context) {
-        localUserRepository.logout(context)
     }
 
     fun isCurrentUser(id: String?): Boolean {

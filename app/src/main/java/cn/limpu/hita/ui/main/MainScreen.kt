@@ -1,13 +1,10 @@
 package cn.limpu.hita.ui.main
 
-import androidx.compose.animation.core.FastOutLinearInEasing
-import androidx.compose.animation.core.LinearOutSlowInEasing
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -17,7 +14,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.ime
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
@@ -26,6 +22,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -36,20 +33,24 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.paneTitle
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import cn.limpu.hita.R
+import cn.limpu.hita.ui.design.HitaMotion
+import cn.limpu.hita.ui.design.LocalHitaReducedMotion
 import com.limpu.style.ThemeTools
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.haze
-import kotlin.math.roundToInt
 
 @Composable
 internal fun MainScreen(
@@ -106,25 +107,17 @@ internal fun MainScreen(
     val drawerWidth = 260.dp
     val drawerWidthPx = with(density) { drawerWidth.toPx() }
     val isAppleGlass = themeStyle == ThemeTools.STYLE.APPLE_GLASS
+    val reduced = LocalHitaReducedMotion.current
+    BackHandler(enabled = drawerOpen, onBack = onCloseDrawer)
     val drawerProgress by animateFloatAsState(
         targetValue = if (drawerOpen) 1f else 0f,
-        animationSpec = if (isAppleGlass) {
-            tween(
-                durationMillis = if (drawerOpen) 240 else 200,
-                easing = if (drawerOpen) LinearOutSlowInEasing else FastOutLinearInEasing
-            )
-        } else {
-            spring(dampingRatio = 0.9f, stiffness = 300f)
-        },
+        animationSpec = HitaMotion.reveal(reduced, entering = drawerOpen),
         label = "drawer"
     )
-    val appleGlassContentOffsetPx = with(density) { 10.dp.toPx() }
-    val contentScale = if (isAppleGlass) 1f - drawerProgress * 0.008f else 1f - drawerProgress * 0.2f
-    val contentOffset = if (isAppleGlass) {
-        -appleGlassContentOffsetPx * drawerProgress
-    } else {
-        -drawerWidthPx * drawerProgress
-    }
+    val drawerVisible by remember { derivedStateOf { drawerProgress > 0f } }
+    val backgroundSemantics = if (drawerOpen) Modifier.clearAndSetSemantics {} else Modifier
+    val closeDrawerLabel = stringResource(R.string.main_close_drawer)
+    val drawerPaneLabel = stringResource(R.string.today_account)
     val imeVisible = WindowInsets.ime.getBottom(density) > 0
     val systemNavAvoidance = pillBarBottomPadding(rememberMainNavigationBottom())
     val hazeState = remember { HazeState() }
@@ -132,14 +125,14 @@ internal fun MainScreen(
     val liquidGlassBackdropHandle = remember(liquidGlassBackdrop) {
         LiquidGlassBackdropHandle(liquidGlassBackdrop)
     }
-    val useGlobalHaze = isAppleGlass
+    val useGlobalHaze = isAppleGlass && (drawerOpen || drawerVisible)
     val selectedTabId = visibleTabs.getOrNull(selectedTab)
     val timetableWallpaper = wallpaperBitmap.takeIf { selectedTabId == MainTab.TIMETABLE && wallpaperVisible }
     val showTimetableWallpaper = timetableWallpaper != null
     val wallpaperTargetAlpha = if (showTimetableWallpaper) 1f else 0f
     val wallpaperAlpha by animateFloatAsState(
         targetValue = wallpaperTargetAlpha,
-        animationSpec = spring(dampingRatio = 0.9f, stiffness = 300f),
+        animationSpec = HitaMotion.feedback(reduced || !showTimetableWallpaper),
         label = "wallpaper_alpha"
     )
     var showRewardCode by remember { mutableStateOf(false) }
@@ -180,12 +173,7 @@ internal fun MainScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(top = 6.dp)
-                    .graphicsLayer {
-                        translationX = contentOffset
-                        scaleX = contentScale
-                        scaleY = contentScale
-                        transformOrigin = androidx.compose.ui.graphics.TransformOrigin(1f, 0.5f)
-                    }
+                    .then(backgroundSemantics)
             ) {
                 MainTopBar(
                     selectedTabId = selectedTabId,
@@ -195,6 +183,9 @@ internal fun MainScreen(
                     timetableTitle = timetableTitle,
                     timetableName = timetableName,
                     showTimetableName = showTimetableName,
+                    hasWallpaper = wallpaperVisible && wallpaperBitmap != null,
+                    showTeachingVersions = state.showTeachingVersions,
+                    showDeletionHistory = state.showDeletionHistory,
                     timetableOptions = timetableOptions,
                     currentScope = currentScope,
                     onTimetableSelected = onTimetableSelected,
@@ -211,6 +202,7 @@ internal fun MainScreen(
                     onTimetableSetting = onTimetableSetting,
                     onTimetableSocial = onTimetableSocial,
                     onTimetableHistory = actions.timetableHistory,
+                    onTimetableVersions = actions.timetableVersions,
                     onAddEvent = onAddEvent,
                     onSystemBars = actions.systemBars,
                 )
@@ -227,12 +219,7 @@ internal fun MainScreen(
     ) {
         if (!imeVisible) {
             val tabBarAlpha = if (showTimetableWallpaper) 0.72f else 1f
-            val drawerFollow = Modifier.graphicsLayer {
-                translationX = contentOffset
-                scaleX = contentScale
-                scaleY = contentScale
-                transformOrigin = androidx.compose.ui.graphics.TransformOrigin(1f, 0.5f)
-            }
+            val tabBarSemantics = backgroundSemantics
             if (usesDockTabBar(themeStyle)) {
                 DockTabBar(
                     selectedTab = selectedTab,
@@ -240,13 +227,13 @@ internal fun MainScreen(
                     showBlogDot = showBlogDot,
                     alpha = tabBarAlpha,
                     themeStyle = themeStyle,
-                    hazeState = if (useGlobalHaze) hazeState else null,
+                    hazeState = null,
                     liquidGlassBackdrop = if (isAppleGlass) liquidGlassBackdropHandle else null,
                     onSelectTab = onSelectTab,
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
                         .padding(dockBarChromePadding())
-                        .then(drawerFollow)
+                        .then(tabBarSemantics)
                 )
             } else {
                 MainPillTabBar(
@@ -255,58 +242,56 @@ internal fun MainScreen(
                     showBlogDot = showBlogDot,
                     alpha = tabBarAlpha,
                     themeStyle = themeStyle,
-                    hazeState = if (useGlobalHaze) hazeState else null,
+                    hazeState = null,
                     liquidGlassBackdrop = if (isAppleGlass) liquidGlassBackdropHandle else null,
                     onSelectTab = onSelectTab,
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
                         .padding(bottom = systemNavAvoidance)
-                        .then(drawerFollow)
+                        .then(tabBarSemantics)
                 )
             }
         }
 
-        if (drawerProgress > 0.01f) {
+        if (drawerOpen || drawerVisible) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(
-                        Color.Black.copy(
-                            alpha = (if (isAppleGlass) 0.22f else 0.32f) * drawerProgress
-                        )
-                    )
-                    .pointerInput(drawerOpen) {
-                        detectTapGestures { onCloseDrawer() }
-                    }
+                    .graphicsLayer { alpha = drawerProgress * 0.28f }
+                    .background(Color.Black)
+                    .clickable(enabled = drawerOpen, role = Role.Button, onClick = onCloseDrawer)
+                    .semantics { contentDescription = closeDrawerLabel }
             )
         }
 
-        MainDrawer(
-            drawerState = drawerState,
-            themeStyle = themeStyle,
-            hazeState = if (useGlobalHaze) hazeState else null,
-            onHeaderClick = onDrawerHeader,
-            onAvatarClick = onDrawerAvatarClick,
-            onThemeStyle = onThemeStyle,
-            onAgreement = onDrawerAgreement,
-            onUserFeedback = onUserFeedback,
-            onAbout = onDrawerAbout,
-            onGitHubUser = onGitHubUser,
-            onGitHubProject = onGitHubProject,
-            onGitHubMingyu = onGitHubMingyu,
-            onGitHubRuannuo = onGitHubRuannuo,
-            onGitHubJixing = onGitHubJixing,
-            onGitHubRadiant = onGitHubRadiant,
-            onRewardCode = { showRewardCode = true },
-            modifier = Modifier
-                .align(Alignment.CenterEnd)
-                .width(drawerWidth)
-                .fillMaxHeight()
-                .offset { IntOffset(((1f - drawerProgress) * drawerWidthPx).roundToInt(), 0) }
-                .graphicsLayer {
-                    alpha = if (isAppleGlass) 0.88f + 0.12f * drawerProgress else 1f
-                }
-        )
+        if (drawerOpen || drawerVisible) {
+            MainDrawer(
+                drawerState = drawerState,
+                themeStyle = themeStyle,
+                hazeState = if (useGlobalHaze) hazeState else null,
+                onHeaderClick = onDrawerHeader,
+                onAvatarClick = onDrawerAvatarClick,
+                onThemeStyle = onThemeStyle,
+                onAgreement = onDrawerAgreement,
+                onUserFeedback = onUserFeedback,
+                onAbout = onDrawerAbout,
+                onGitHubUser = onGitHubUser,
+                onGitHubProject = onGitHubProject,
+                onGitHubMingyu = onGitHubMingyu,
+                onGitHubRuannuo = onGitHubRuannuo,
+                onGitHubJixing = onGitHubJixing,
+                onGitHubRadiant = onGitHubRadiant,
+                onRewardCode = { showRewardCode = true },
+                noticeEntryVisible = state.noticeEntryVisible,
+                onNotices = actions.notices,
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .width(drawerWidth)
+                    .fillMaxHeight()
+                    .graphicsLayer { translationX = (1f - drawerProgress) * drawerWidthPx }
+                    .then(if (drawerOpen) Modifier.semantics { paneTitle = drawerPaneLabel } else Modifier.clearAndSetSemantics {}),
+            )
+        }
 
         if (showRewardCode) {
             AlertDialog(

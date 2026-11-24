@@ -21,9 +21,11 @@ import cn.limpu.hita.data.model.timetable.Timetable
 import cn.limpu.hita.data.repository.DisplayScopeSelector
 import cn.limpu.hita.data.repository.IcsImportResult
 import cn.limpu.hita.data.repository.TimetableRepository
+import cn.limpu.hita.ui.timetable.export.TimetableExportItem
 import com.limpu.component.data.DataState
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.io.InputStream
+import cn.limpu.hita.data.repository.TimetableVersionStore
 import javax.inject.Inject
 
 @HiltViewModel
@@ -37,6 +39,23 @@ class TimetableManagerViewModel @Inject constructor(
     val timetablesLiveData:LiveData<List<Timetable>> = timetableRepository.getTimetables()
     val groupsLiveData = timetableRepository.getGroups()
 
+    var selectedTimetableIds by mutableStateOf(emptySet<String>())
+    var deleteTarget by mutableStateOf<List<Timetable>?>(null)
+        private set
+    var deleting by mutableStateOf(false)
+        private set
+    var creating by mutableStateOf(false)
+        private set
+
+    fun requestDelete(timetables: List<Timetable>) {
+        if (deleting || deleteTarget != null) return
+        val selection = timetables.filter { it.id in selectedTimetableIds && !TimetableVersionStore.isProjection(it) }
+        if (selection.isNotEmpty()) deleteTarget = selection
+    }
+
+    fun cancelDelete() {
+        if (!deleting) deleteTarget = null
+    }
     var tokenSheetOpen by mutableStateOf(false)
     var pendingIcsFile by mutableStateOf<Pair<android.net.Uri, String>?>(null)
     var tokenForm by mutableStateOf(FriendImportUiState())
@@ -137,14 +156,14 @@ class TimetableManagerViewModel @Inject constructor(
         }
     }
 
-    /** 按导出面板勾选项生成口令：组合整体一个合并口令，独立课表各自一个（FULL）。 */
-    suspend fun exportTokens(keys: List<String>, nickname: String): List<Pair<String, String>> {
+    /** A group token contains exactly the members shown in the export confirmation. */
+    suspend fun exportTokens(items: List<TimetableExportItem>, nickname: String, mode: ShareMode): List<Pair<String, String>> {
         val result = mutableListOf<Pair<String, String>>()
-        for (key in keys) {
-            if (key.startsWith(GROUP_KEY_PREFIX)) {
-                result += sharingRepository.generateGroupToken(key.removePrefix(GROUP_KEY_PREFIX), nickname)
+        for (item in items) {
+            if (item.key.startsWith(GROUP_KEY_PREFIX)) {
+                result += sharingRepository.generateGroupToken(item.key.removePrefix(GROUP_KEY_PREFIX), nickname, mode, item.memberIds)
             } else {
-                result += sharingRepository.tokensForMine(listOf(key), nickname)
+                result += sharingRepository.tokensForMine(listOf(item.key), nickname, mode)
             }
         }
         return result
@@ -163,17 +182,27 @@ class TimetableManagerViewModel @Inject constructor(
         return files
     }
 
-
-    init {
-        timetableRepository.actionPrepareTimetableList()
+    fun confirmDelete() {
+        val target = deleteTarget ?: return
+        if (deleting) return
+        deleting = true
+        timetableRepository.actionDeleteTimetables(target) { result ->
+            deleting = false
+            if (result.isSuccess) {
+                selectedTimetableIds = selectedTimetableIds - target.map { it.id }.toSet()
+                deleteTarget = null
+            }
+            importMessage = if (result.isSuccess) R.string.timetable_audit_delete_succeeded else R.string.timetable_audit_write_failed
+        }
     }
 
-    fun startDeleteTimetables(timetables:List<Timetable>){
-        timetableRepository.actionDeleteTimetables(timetables)
-    }
-
-    fun startNewTimetable(){
-        timetableRepository.actionNewTimetable()
+    fun startNewTimetable() {
+        if (creating) return
+        creating = true
+        timetableRepository.actionNewTimetable { result ->
+            creating = false
+            if (result.isFailure) importMessage = R.string.timetable_audit_write_failed
+        }
     }
 
     /** 重命名我的课表；非法名字回调 false。 */

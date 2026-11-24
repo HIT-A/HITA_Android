@@ -30,6 +30,14 @@ class TimetableWriteUseCase internal constructor(
     fun delete(events: Collection<EventItem>, onResult: ((Result<Unit>) -> Unit)? = null) =
         submit(TimetableWriteOperation.Delete(events.map { it.id }), onResult)
 
+    /** Gives a single personal deletion's exact history identity, never a later deletion of the same row. */
+    fun deleteForUndo(event: EventItem, onResult: (Result<String>) -> Unit) {
+        val historyId = java.util.UUID.randomUUID().toString()
+        submit(TimetableWriteOperation.Delete(listOf(event.id), historyId)) { outcome ->
+            onResult(outcome.map { historyId })
+        }
+    }
+
     fun deleteSubjects(subjects: Collection<TermSubject>, onResult: ((Result<Unit>) -> Unit)? = null) =
         submit(TimetableWriteOperation.DeleteSubjects(subjects.toList()), onResult)
 

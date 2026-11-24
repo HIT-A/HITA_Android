@@ -1,0 +1,35 @@
+plugins {
+    alias(libs.plugins.androidTest)
+    alias(libs.plugins.kotlinAndroid)
+}
+
+android {
+    namespace 'cn.limpu.hita.benchmark.test'
+    compileSdk 36
+    defaultConfig {
+        minSdk 31
+        targetSdk 35
+        testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
+    }
+    targetProjectPath = ':app'
+    experimentalProperties['android.experimental.self-instrumenting'] = true
+    buildTypes {
+        benchmark { debuggable true }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+    kotlinOptions { jvmTarget = '1.8' }
+}
+
+androidComponents {
+    beforeVariants(selector().all()) { it.enable = it.buildType == 'benchmark' }
+}
+
+dependencies {
+    implementation(libs.androidTestJunit)
+    implementation(libs.androidTestRunner)
+    implementation(libs.uiautomator)
+    implementation(libs.benchmarkMacroJunit4)
+}

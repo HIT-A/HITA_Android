@@ -103,14 +103,14 @@ fun Modifier.hitaGlassCardModifier(
     edgeTint: Color? = null,
 ): Modifier {
     if (hitaIsCyber()) {
-        // 赛博风格：彩色光晕 + 流光描边 + 扫描线纹理
+        // 赛博风格：彩色光晕 + 霓虹描边 + 扫描线纹理
         val isDark = HitaTheme.isDark
         val glow = edgeTint ?: MaterialTheme.colorScheme.primary
         val edge2 = edgeTint ?: MaterialTheme.colorScheme.secondary
         val edge3 = edgeTint ?: MaterialTheme.colorScheme.tertiary
         val glowElevation = min(elevation.value * 0.6f, 10f).dp
         return this
-            .hitaCyberFlowEdge(shape = shape, color1 = glow, color2 = edge2, color3 = edge3)
+            .hitaCyberNeonEdge(shape = shape, color1 = glow, color2 = edge2, color3 = edge3)
             .shadow(
                 elevation = glowElevation,
                 shape = shape,

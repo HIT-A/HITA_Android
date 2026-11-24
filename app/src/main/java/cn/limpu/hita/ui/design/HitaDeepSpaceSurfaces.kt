@@ -1,15 +1,8 @@
 package cn.limpu.hita.ui.design
 
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
@@ -115,25 +108,13 @@ fun Modifier.hitaDeepSpaceCardModifier(
 }
 
 /**
- * 深空星野背景：银河星带 + 星云微光 + 行星与星环 + 星座连线 + 星光轻闪。
- * 静谧、缓慢、不科幻——像长曝光下的夜空。
+ * 深空星野背景：银河星带、星云、行星与星座作为静态饰面。
  */
 @Composable
 fun Modifier.hitaDeepSpaceBackground(): Modifier {
     if (!hitaIsDeepSpace()) return this
     val isDark = HitaTheme.isDark
     val scheme = MaterialTheme.colorScheme
-    // 星光轻闪：极缓慢的呼吸，不做刺眼闪烁
-    val transition = rememberInfiniteTransition(label = "deepSpaceTwinkle")
-    val twinkle by transition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(3800, easing = LinearEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "deepSpaceTwinkleProgress"
-    )
     return this.drawWithCache {
         val w = size.width
         val h = size.height
@@ -161,8 +142,7 @@ fun Modifier.hitaDeepSpaceBackground(): Modifier {
         val fieldStars = List(80) {
             Triple(rnd.nextFloat() * w, rnd.nextFloat() * h, 0.4f + rnd.nextFloat() * 0.9f)
         }
-        // 参与轻闪的亮星（取星带中较亮的一部分）
-        val twinkleStars = bandStars.take(18)
+        val featuredStars = bandStars.take(18)
         // 星座连线（两组小星座，星图感）
         val constellations = listOf(
             listOf(
@@ -226,10 +206,8 @@ fun Modifier.hitaDeepSpaceBackground(): Modifier {
                 }
                 points.forEach { p -> drawCircle(constellationStar, 1.3.dp.toPx(), p) }
             }
-            // 星光轻闪（呼吸明暗）
-            val twinkleAlpha = 0.30f + 0.55f * twinkle
-            twinkleStars.forEach { (x, y, r) ->
-                drawCircle(Color.White.copy(alpha = twinkleAlpha), (r + 0.3f).dp.toPx(), Offset(x, y))
+            featuredStars.forEach { (x, y, r) ->
+                drawCircle(Color.White.copy(alpha = 0.42f), (r + 0.3f).dp.toPx(), Offset(x, y))
             }
             drawContent()
         }

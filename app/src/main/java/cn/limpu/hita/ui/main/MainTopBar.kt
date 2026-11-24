@@ -1,20 +1,15 @@
 package cn.limpu.hita.ui.main
 
 import cn.limpu.hita.ui.main.timetable.WeekOption
-import android.view.HapticFeedbackConstants
 import android.widget.ImageView
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -48,12 +43,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -63,11 +56,10 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import cn.limpu.hita.R
 import cn.limpu.hita.data.repository.DisplayScopeResolver
+import cn.limpu.hita.ui.design.HitaMotion
+import cn.limpu.hita.ui.design.LocalHitaReducedMotion
 import cn.limpu.hita.ui.design.HitaTheme
 import cn.limpu.hita.ui.design.hitaSoraCloudTopBarModifier
-import cn.limpu.hita.ui.design.soraCloudCardShape
-import cn.limpu.hita.ui.design.SoraInk
-import cn.limpu.hita.ui.design.SoraPaper
 import cn.limpu.hita.data.model.timetable.DisplayScope
 import com.limpu.style.ThemeTools
 
@@ -80,6 +72,9 @@ internal fun MainTopBar(
     timetableTitle: String,
     timetableName: String,
     showTimetableName: Boolean,
+    hasWallpaper: Boolean,
+    showTeachingVersions: Boolean,
+    showDeletionHistory: Boolean,
     timetableOptions: List<DisplayScopeResolver.ScopeOption>,
     currentScope: DisplayScope?,
     onTimetableSelected: (DisplayScope) -> Unit,
@@ -96,15 +91,16 @@ internal fun MainTopBar(
     onTimetableSetting: () -> Unit,
     onTimetableSocial: () -> Unit,
     onTimetableHistory: () -> Unit = {},
+    onTimetableVersions: () -> Unit = {},
     onAddEvent: () -> Unit,
     onSystemBars: (Boolean, Boolean) -> Unit,
 ) {
-    val isWallpaperTab = wallpaperAlpha > 0.5f
+    val isWallpaperTab = hasWallpaper && selectedTabId == MainTab.TIMETABLE && wallpaperAlpha > 0f
     val isSoraCloud = HitaTheme.preferenceStyle == ThemeTools.STYLE.SORA_CLOUD
 
     val titleColor by animateColorAsState(
         targetValue = if (isWallpaperTab) wallpaperTitleColor else MaterialTheme.colorScheme.onSurface,
-        animationSpec = spring(dampingRatio = 0.9f, stiffness = 300f),
+        animationSpec = HitaMotion.feedback(LocalHitaReducedMotion.current || !isWallpaperTab),
         label = "titleColor"
     )
 
@@ -119,7 +115,7 @@ internal fun MainTopBar(
         modifier = Modifier
             .fillMaxWidth()
             .statusBarsPadding()
-            .height(64.dp)
+            .heightIn(min = 64.dp)
             .then(
                 if (isSoraCloud && !isWallpaperTab) {
                     Modifier.hitaSoraCloudTopBarModifier()
@@ -137,6 +133,9 @@ internal fun MainTopBar(
                 title = timetableTitle,
                 name = timetableName,
                 showName = showTimetableName,
+                hasWallpaper = hasWallpaper,
+                showTeachingVersions = showTeachingVersions,
+                showDeletionHistory = showDeletionHistory,
                 timetableOptions = timetableOptions,
                 currentScope = currentScope,
                 onTimetableSelected = onTimetableSelected,
@@ -149,6 +148,7 @@ internal fun MainTopBar(
                 onTimetableSetting = onTimetableSetting,
                 onTimetableSocial = onTimetableSocial,
                 onTimetableHistory = onTimetableHistory,
+                onTimetableVersions = onTimetableVersions,
                 onAddEvent = onAddEvent
             )
             MainTab.AGENT -> ToolbarTitle(stringResource(R.string.title_agent), titleColor)
@@ -227,12 +227,14 @@ private fun ToolbarTitle(title: String, textColor: Color = MaterialTheme.colorSc
     }
 }
 
-@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 private fun TimetableToolbarTitle(
     title: String,
     name: String,
     showName: Boolean,
+    hasWallpaper: Boolean,
+    showTeachingVersions: Boolean,
+    showDeletionHistory: Boolean,
     timetableOptions: List<DisplayScopeResolver.ScopeOption>,
     currentScope: DisplayScope?,
     onTimetableSelected: (DisplayScope) -> Unit,
@@ -245,216 +247,88 @@ private fun TimetableToolbarTitle(
     onTimetableSetting: () -> Unit,
     onTimetableSocial: () -> Unit,
     onTimetableHistory: () -> Unit,
+    onTimetableVersions: () -> Unit,
     onAddEvent: () -> Unit,
 ) {
-    var nameMenuExpanded by remember { mutableStateOf(false) }
-    var settingsExpanded by remember { mutableStateOf(false) }
-    var weekMenuExpanded by remember { mutableStateOf(false) }
-    // 只在需要时求值：周列表依赖课表学期区间，展开菜单才读一次。
-    var cachedWeeks by remember { mutableStateOf<List<WeekOption>>(emptyList()) }
-    val isAppleGlass = HitaTheme.preferenceStyle == ThemeTools.STYLE.APPLE_GLASS
-    val isSoraCloud = HitaTheme.preferenceStyle == ThemeTools.STYLE.SORA_CLOUD
-    val nameChipShape = if (isSoraCloud) soraCloudCardShape(10.dp) else RoundedCornerShape(12.dp)
-    val nameChipColor = when {
-        isAppleGlass -> if (HitaTheme.isDark) {
-            Color(0xFF182330).copy(alpha = 0.72f)
-        } else {
-            Color(0xFFE5F1FC).copy(alpha = 0.88f)
-        }
-        isSoraCloud -> if (HitaTheme.isDark) {
-            Color(0xFF343028)
-        } else {
-            SoraPaper
-        }
-        else -> MaterialTheme.colorScheme.surface.copy(alpha = 0.8f)
-    }
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Box(
-            modifier = Modifier
-                .widthIn(max = 112.dp)
-                .height(56.dp)
-                .clickable {
-                    // 标题与课表名称芯片共用同一个菜单：点标题即打开显示范围 / 周次选择，
-                    // 有可用范围时展开，没有时退回上层的默认处理。
-                    if (timetableOptions.isNotEmpty()) nameMenuExpanded = true else onTitleClick()
-                },
-            contentAlignment = Alignment.CenterStart
-        ) {
-            Text(
-                text = title,
-                color = titleColor,
-                fontSize = 24.sp,
-                fontWeight = FontWeight.Bold,
-                fontFamily = HitaTheme.fonts.display,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
-        AnimatedVisibility(visible = showName && name.isNotBlank(), modifier = Modifier.weight(1f)) {
-            Box {
-                Text(
-                    text = name,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f),
-                    fontSize = 12.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier
-                        .padding(start = HitaTheme.tokens.spacing.md)
-                        .clip(nameChipShape)
-                        .background(nameChipColor)
-                        .then(
-                            if (isAppleGlass) {
-                                Modifier.border(
-                                    width = 0.5.dp,
-                                    color = Color.White.copy(
-                                        alpha = if (HitaTheme.isDark) 0.20f else 0.72f
-                                    ),
-                                    shape = nameChipShape
-                                )
-                            } else if (isSoraCloud) {
-                                Modifier.border(
-                                    width = 1.dp,
-                                    color = if (HitaTheme.isDark) Color(0xFFF4ECD9) else SoraInk,
-                                    shape = nameChipShape
-                                )
-                            } else {
-                                Modifier
-                            }
-                        )
-                        .clickable { nameMenuExpanded = true }
-                        .padding(horizontal = 6.dp, vertical = 3.dp)
-                )
-                DropdownMenu(
-                    expanded = nameMenuExpanded && timetableOptions.isNotEmpty(),
-                    onDismissRequest = { nameMenuExpanded = false }
-                ) {
-                    timetableOptions.forEach { option ->
-                        val isCurrent = option.scope == currentScope
+    var menu by remember(currentScope) { mutableStateOf<TimetableToolbarMenu?>(null) }
+    var cachedWeeks by remember(currentScope) { mutableStateOf<List<WeekOption>>(emptyList()) }
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val compact = maxWidth < 380.dp || androidx.compose.ui.platform.LocalDensity.current.fontScale > 1.3f
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.weight(1f)) {
+                Column(Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable {
+                    if (currentScope == null) onTitleClick()
+                    else {
+                        cachedWeeks = weekOptionsProvider()
+                        menu = TimetableToolbarMenu.Scope
+                    }
+                }.padding(vertical = 4.dp)) {
+                    Text(
+                        title,
+                        color = titleColor,
+                        fontSize = if (compact) 20.sp else 24.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = HitaTheme.fonts.display,
+                        maxLines = 2,
+                    )
+                    if (showName && name.isNotBlank()) {
+                        Text(name, color = titleColor.copy(alpha = 0.78f), style = MaterialTheme.typography.labelMedium,
+                            maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    }
+                }
+                DropdownMenu(expanded = menu == TimetableToolbarMenu.Scope, onDismissRequest = { menu = null }) {
+                    if (timetableOptions.size > 1) timetableOptions.forEach { option ->
+                        val selected = option.scope == currentScope
                         DropdownMenuItem(
                             text = {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(
-                                        option.name,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                        fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal,
-                                        color = if (isCurrent) MaterialTheme.colorScheme.primary
-                                            else MaterialTheme.colorScheme.onSurface,
-                                        modifier = Modifier.weight(1f, fill = false)
-                                    )
-                                    if (option.memberCount > 1) {
-                                        Spacer(Modifier.width(6.dp))
-                                        Text(
-                                            stringResource(R.string.timetable_group_member_count, option.memberCount),
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                }
+                                Text(option.name, fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal)
                             },
-                            onClick = {
-                                nameMenuExpanded = false
-                                onTimetableSelected(option.scope)
-                            }
+                            modifier = Modifier.semantics { this.selected = selected },
+                            onClick = { menu = null; onTimetableSelected(option.scope) }
                         )
                     }
-                    if (timetableOptions.isNotEmpty()) {
-                        androidx.compose.material3.HorizontalDivider()
+                    if (cachedWeeks.isNotEmpty()) {
                         DropdownMenuItem(
-                            text = {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(
-                                        text = "按周跳转",
-                                        color = MaterialTheme.colorScheme.onSurface,
-                                        modifier = Modifier.weight(1f),
-                                    )
-                                    Text(
-                                        text = "按周查看",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                }
-                            },
-                            onClick = {
-                                // 先收起范围菜单再开周菜单：两个 DropdownMenu 同时展开会互相遮挡。
-                                nameMenuExpanded = false
-                                cachedWeeks = weekOptionsProvider()
-                                weekMenuExpanded = true
-                            }
+                            text = { Text(stringResource(R.string.main_timetable_week_picker)) },
+                            onClick = { menu = TimetableToolbarMenu.Week }
                         )
                     }
                 }
-                DropdownMenu(
-                    expanded = weekMenuExpanded,
-                    onDismissRequest = { weekMenuExpanded = false },
-                ) {
+                DropdownMenu(expanded = menu == TimetableToolbarMenu.Week, onDismissRequest = { menu = null }) {
                     cachedWeeks.forEach { option ->
                         DropdownMenuItem(
-                            text = { Text("第 ${option.week} 周") },
-                            onClick = {
-                                weekMenuExpanded = false
-                                onPickWeek(option.mondayMillis)
-                            },
+                            text = { Text(stringResource(R.string.main_timetable_week_option, option.week)) },
+                            onClick = { menu = null; onPickWeek(option.mondayMillis) },
                         )
                     }
                 }
             }
-        }
-        if (!showName || name.isBlank()) Spacer(modifier = Modifier.weight(1f))
-        androidx.compose.material3.IconButton(onClick = onTimetableSocial, modifier = Modifier.size(48.dp)) {
-            Icon(painterResource(R.drawable.ic_baseline_share_24),
-                contentDescription = stringResource(R.string.timetable_social_title),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        androidx.compose.material3.IconButton(
-            onClick = onTimetableHistory,
-            enabled = currentScope != null,
-            modifier = Modifier.size(48.dp),
-        ) {
-            Icon(
-                painterResource(R.drawable.ic_history_24),
-                contentDescription = stringResource(R.string.timetable_versions_title),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = if (currentScope != null) 1f else 0.38f),
-            )
-        }
-        Box {
-            val settingsView = LocalView.current
-            Box(
-                modifier = Modifier.size(48.dp).combinedClickable(
-                    role = Role.Button,
-                    onClickLabel = stringResource(R.string.timetable_settings_action),
-                    onLongClickLabel = stringResource(R.string.timetable_wallpaper),
-                    onClick = {
-                        settingsView.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
-                        settingsExpanded = true
-                    },
-                    onLongClick = {
-                        settingsView.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
-                        onWallpaperLongPress()
-                    }
-                ),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(painterResource(R.drawable.ic_theme),
-                    contentDescription = stringResource(R.string.timetable_settings_action),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(24.dp))
+            if (!compact) {
+                ToolbarIcon(R.drawable.ic_baseline_share_24, R.string.timetable_social_title, onTimetableSocial, buttonSize = 48.dp)
             }
-            DropdownMenu(expanded = settingsExpanded, onDismissRequest = { settingsExpanded = false }) {
-                DropdownMenuItem(text = { Text(stringResource(R.string.timetable_wallpaper)) },
-                    onClick = { settingsExpanded = false; onWallpaper() })
-                DropdownMenuItem(text = { Text(stringResource(R.string.wallpaper_remove)) },
-                    onClick = { settingsExpanded = false; onWallpaperLongPress() })
-                DropdownMenuItem(text = { Text(stringResource(R.string.comparison_display_settings)) },
-                    onClick = { settingsExpanded = false; onTimetableSetting() })
+            Box {
+                ToolbarIcon(R.drawable.ic_theme, R.string.timetable_settings_action, { menu = TimetableToolbarMenu.Settings }, buttonSize = 48.dp)
+                DropdownMenu(expanded = menu == TimetableToolbarMenu.Settings, onDismissRequest = { menu = null }) {
+                    if (compact) DropdownMenuItem(text = { Text(stringResource(R.string.timetable_social_title)) },
+                        onClick = { menu = null; onTimetableSocial() })
+                    if (showTeachingVersions) DropdownMenuItem(text = { Text(stringResource(R.string.timetable_versions_title)) },
+                        onClick = { menu = null; onTimetableVersions() })
+                    if (showDeletionHistory) DropdownMenuItem(text = { Text(stringResource(R.string.timetable_deletion_history)) },
+                        onClick = { menu = null; onTimetableHistory() })
+                    DropdownMenuItem(text = { Text(stringResource(R.string.timetable_wallpaper)) },
+                        onClick = { menu = null; onWallpaper() })
+                    if (hasWallpaper) DropdownMenuItem(text = { Text(stringResource(R.string.wallpaper_remove)) },
+                        onClick = { menu = null; onWallpaperLongPress() })
+                    DropdownMenuItem(text = { Text(stringResource(R.string.comparison_display_settings)) },
+                        onClick = { menu = null; onTimetableSetting() })
+                }
             }
+            ToolbarIcon(R.drawable.ic_baseline_add_24, R.string.ade_title, onAddEvent, iconSize = 28.dp, buttonSize = 48.dp)
         }
-        ToolbarIcon(R.drawable.ic_baseline_add_24, onClick = onAddEvent, iconSize = 28.dp, buttonSize = 48.dp)
     }
 }
+
+private enum class TimetableToolbarMenu { Scope, Week, Settings }
 
 @Composable
 private fun NavigationToolbar(
@@ -465,40 +339,23 @@ private fun NavigationToolbar(
     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         ToolbarTitle(stringResource(R.string.title_navigation))
         Spacer(modifier = Modifier.weight(1f))
-        ToolbarIcon(themeIcon, onClick = onTheme)
-        ToolbarIcon(R.drawable.ic_baseline_menu_24, onClick = onOpenDrawer)
+        ToolbarIcon(themeIcon, R.string.main_change_appearance, onTheme)
+        ToolbarIcon(R.drawable.ic_baseline_menu_24, R.string.today_account, onOpenDrawer)
     }
 }
 
 @Composable
 private fun ToolbarIcon(
     iconRes: Int,
+    labelRes: Int,
     onClick: () -> Unit,
-    onLongClick: (() -> Unit)? = null,
     iconSize: Dp = 24.dp,
     buttonSize: Dp = 56.dp,
 ) {
-    val view = LocalView.current
-    Box(
-        modifier = Modifier
-            .size(buttonSize)
-            .pointerInput(iconRes) {
-                detectTapGestures(
-                    onLongPress = {
-                        view.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
-                        onLongClick?.invoke()
-                    },
-                    onTap = {
-                        view.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
-                        onClick()
-                    }
-                )
-            },
-        contentAlignment = Alignment.Center
-    ) {
+    IconButton(onClick = onClick, modifier = Modifier.size(buttonSize)) {
         Icon(
             painter = painterResource(iconRes),
-            contentDescription = null,
+            contentDescription = stringResource(labelRes),
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.size(iconSize)
         )

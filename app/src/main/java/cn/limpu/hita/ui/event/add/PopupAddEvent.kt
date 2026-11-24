@@ -8,6 +8,10 @@ import androidx.compose.ui.graphics.Color as ComposeColor
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import androidx.activity.OnBackPressedCallback
+import androidx.activity.OnBackPressedDispatcherOwner
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -30,9 +34,6 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Button
-import androidx.compose.material3.FloatingActionButton
-import androidx.compose.material3.FabPosition
-import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.IconButton
@@ -40,11 +41,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -78,6 +74,7 @@ import cn.limpu.hita.data.model.timetable.TimePeriodInDay
 import cn.limpu.hita.data.model.timetable.Timetable
 import cn.limpu.hita.data.repository.TeacherInfoRepository
 import cn.limpu.hita.data.repository.TimetableRepository
+import cn.limpu.hita.data.repository.TimetableVersionStore
 import cn.limpu.hita.ui.design.HitaComposeTheme
 import cn.limpu.hita.ui.design.HitaTheme
 import cn.limpu.hita.ui.widgets.PopUpCalendarPicker
@@ -97,6 +94,23 @@ class PopupAddEvent(private val addSubjectMode: Boolean = false) :
     var initCourseTime: CourseTime? = null
     var editEvent: EventItem? = null
     private lateinit var viewModel: AddEventViewModel
+    private var discardRequested by mutableStateOf(false)
+
+    private fun requestClose() {
+        if (viewModel.saveState.value == AddEventViewModel.SaveState.SAVING) return
+        if (viewModel.dirty) discardRequested = true else dismiss()
+    }
+
+    override fun onStart() {
+        super.onStart()
+        isCancelable = false
+        (dialog as? OnBackPressedDispatcherOwner)?.onBackPressedDispatcher?.addCallback(
+            viewLifecycleOwner,
+            object : OnBackPressedCallback(true) {
+                override fun handleOnBackPressed() = requestClose()
+            },
+        )
+    }
 
     fun setInitTimetable(timetable: Timetable?): PopupAddEvent {
         initTimetable = timetable
@@ -139,29 +153,35 @@ class PopupAddEvent(private val addSubjectMode: Boolean = false) :
         savedInstanceState: Bundle?
     ): View {
         viewModel = androidx.lifecycle.ViewModelProvider(this)[AddEventViewModel::class.java]
+        viewModel.init(addSubjectMode, initTimetable, initSubject, initCourseTime, editEvent)
         return ComposeView(requireContext()).apply {
             setContent {
                 HitaComposeTheme() {
                     PopupAddEventScreen(
                         viewModel = viewModel,
-                        addSubjectMode = addSubjectMode,
-                        editEvent = editEvent,
-                        onDismiss = { dismiss() },
+                        addSubjectMode = viewModel.addSubject,
+                        editEvent = viewModel.eventToEdit,
+                        onSaved = { dismiss() },
+                        onRequestClose = ::requestClose,
                         onShowTimetablePicker = { showTimetablePicker() },
                         onShowExistingEventPicker = { showExistingEventPicker() },
                         onShowDatePicker = { showDatePicker() },
                         onShowTimePicker = { showTimePicker() },
                         onShowCourseTimePicker = { mode -> showCourseTimePicker(mode) }
                     )
+                    if (discardRequested) {
+                        AlertDialog(
+                            onDismissRequest = { discardRequested = false },
+                            title = { Text(stringResource(R.string.ade_discard_title)) },
+                            confirmButton = { TextButton(onClick = { dismiss() }) { Text(stringResource(R.string.ade_discard)) } },
+                            dismissButton = { TextButton(onClick = { discardRequested = false }) { Text(stringResource(R.string.ade_keep_editing)) } },
+                        )
+                    }
                 }
             }
         }
     }
 
-    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
-        super.onViewCreated(view, savedInstanceState)
-        viewModel.init(addSubjectMode, initTimetable, initSubject, initCourseTime, editEvent)
-    }
 
     private fun showTimetablePicker() {
         DialogSelectableLiveList<Timetable>().setTitle(R.string.ade_pick_timetable)
@@ -171,7 +191,7 @@ class PopupAddEvent(private val addSubjectMode: Boolean = false) :
                     return TimetableRepository(requireActivity().application).getTimetables()
                         .switchMap {
                             val res = mutableListOf<DialogSelectableLiveList.ItemData<Timetable>>()
-                            for (data: Timetable in it) {
+                            for (data in it.filterNot(TimetableVersionStore::isProjection)) {
                                 res.add(DialogSelectableLiveList.ItemData(data.name, data))
                             }
                             MutableLiveData(res)
@@ -180,6 +200,7 @@ class PopupAddEvent(private val addSubjectMode: Boolean = false) :
             }).setOnConfirmListener(object :
                 DialogSelectableLiveList.OnConfirmListener<Timetable> {
                 override fun onConfirm(title: String?, key: Timetable) {
+                    viewModel.markEdited()
                     viewModel.timetableLiveData.value = DataState(key)
                 }
             }).show(childFragmentManager, "set_timetable")
@@ -216,6 +237,7 @@ class PopupAddEvent(private val addSubjectMode: Boolean = false) :
             }).setOnConfirmListener(object :
                 DialogSelectableLiveList.OnConfirmListener<EventItem> {
                 override fun onConfirm(title: String?, key: EventItem) {
+                    viewModel.markEdited()
                     viewModel.selectExistingEvent(key)
                 }
             }).show(childFragmentManager, "pick_existing_event")
@@ -234,6 +256,7 @@ class PopupAddEvent(private val addSubjectMode: Boolean = false) :
                         c.set(Calendar.MINUTE, 0)
                         c.set(Calendar.SECOND, 0)
                         c.set(Calendar.MILLISECOND, 0)
+                        viewModel.markEdited()
                         viewModel.setCustomDate(c.timeInMillis)
                     }
                 })
@@ -251,6 +274,7 @@ class PopupAddEvent(private val addSubjectMode: Boolean = false) :
                 .setInitialValue(initPeriod?.from, initPeriod?.to)
                 .setOnDialogConformListener(object : PopUpTimePeriodPicker.OnDialogConformListener {
                     override fun onClick(timePeriodInDay: TimePeriodInDay) {
+                        viewModel.markEdited()
                         viewModel.setCustomTimePeriod(
                             TimeInDay(timePeriodInDay.from.hour, timePeriodInDay.from.minute),
                             TimeInDay(timePeriodInDay.to.hour, timePeriodInDay.to.minute)
@@ -267,6 +291,7 @@ class PopupAddEvent(private val addSubjectMode: Boolean = false) :
                 .setInitialValue(tt, viewModel.timeRangeLiveDate.value?.data)
                 .setSelectListener(object : PopUpPickCourseTime.OnTimeSelectedListener {
                     override fun onSelected(data: CourseTime) {
+                        viewModel.markEdited()
                         viewModel.mergeCourseTimeSelection(data, mode == PopUpPickCourseTime.Mode.DATE_ONLY)
                     }
                 }).show(childFragmentManager, "pick_course_time")
@@ -286,7 +311,8 @@ private fun PopupAddEventScreen(
     viewModel: AddEventViewModel,
     addSubjectMode: Boolean,
     editEvent: EventItem?,
-    onDismiss: () -> Unit,
+    onSaved: () -> Unit,
+    onRequestClose: () -> Unit,
     onShowTimetablePicker: () -> Unit,
     onShowExistingEventPicker: () -> Unit,
     onShowDatePicker: () -> Unit,
@@ -306,46 +332,36 @@ private fun PopupAddEventScreen(
     val teacherState by viewModel.teacherLiveData.observeAsState()
     val locationState by viewModel.locationLiveData.observeAsState()
     val timetableState by viewModel.timetableLiveData.observeAsState()
-
-    var nameText by remember { mutableStateOf(editEvent?.name.orEmpty()) }
-    var locationText by remember { mutableStateOf(editEvent?.place.orEmpty()) }
-    var teacherText by remember { mutableStateOf(editEvent?.teacher.orEmpty()) }
-
-    // Sync LiveData -> local state when "已有日程" mode selects an event
-    LaunchedEffect(locationState?.data) {
-        locationState?.data?.let { locationText = it }
+    val nameState by viewModel.nameLiveData.observeAsState()
+    val saveState by viewModel.saveState.observeAsState(AddEventViewModel.SaveState.EDITING)
+    val saving = saveState == AddEventViewModel.SaveState.SAVING
+    val frozen = saving || saveState == AddEventViewModel.SaveState.SAVED
+    LaunchedEffect(saveState) {
+        if (saveState == AddEventViewModel.SaveState.SAVED) onSaved()
     }
-    LaunchedEffect(teacherState?.data) {
-        teacherState?.data?.let { teacherText = it }
-    }
+
+    val nameText = nameState.orEmpty()
+    val locationText = locationState?.data.orEmpty()
+    val teacherText = teacherState?.data.orEmpty()
 
     val scrollState = rememberScrollState()
     Scaffold(
         containerColor = ComposeColor.Transparent,
-        floatingActionButton = {
-            AnimatedVisibility(
-                visible = doneLiveData == true,
-                enter = scaleIn(),
-                exit = scaleOut()
-            ) {
-                FloatingActionButton(
-                    onClick = {
-                        viewModel.createEvent()
-                        onDismiss()
-                    },
-                    shape = CircleShape,
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary
-                ) {
-                    Icon(
-                        painter = painterResource(R.drawable.ic_baseline_done_24),
-                        contentDescription = stringResource(R.string.confirm),
-                        modifier = Modifier.size(24.dp)
-                    )
+        bottomBar = {
+            Surface {
+                Column(Modifier.fillMaxWidth().imePadding().padding(horizontal = tokens.spacing.lg, vertical = tokens.spacing.sm)) {
+                    if (saveState == AddEventViewModel.SaveState.FAILED) {
+                        Text(stringResource(R.string.ade_save_failed), color = MaterialTheme.colorScheme.error)
+                    }
+                    Row(Modifier.align(Alignment.End), verticalAlignment = Alignment.CenterVertically) {
+                        TextButton(onClick = onRequestClose, enabled = !frozen) { Text(stringResource(R.string.ade_close)) }
+                        Button(onClick = viewModel::createEvent, enabled = doneLiveData == true && !frozen) {
+                            Text(stringResource(if (saving) R.string.ade_saving else R.string.ade_save))
+                        }
+                    }
                 }
             }
         },
-        floatingActionButtonPosition = FabPosition.End
     ) { innerPadding ->
         Column(
             modifier = Modifier
@@ -371,7 +387,7 @@ private fun PopupAddEventScreen(
                     label = stringResource(R.string.ade_pick_timetable),
                     value = ttState?.data?.name,
                     isSelected = ttSelected,
-                    onClick = onShowTimetablePicker
+                    onClick = { if (!frozen) onShowTimetablePicker() }
                 )
             }
 
@@ -384,8 +400,11 @@ private fun PopupAddEventScreen(
                     option1 = stringResource(R.string.ade_content_existing),
                     option2 = stringResource(R.string.ade_content_custom),
                     selectedFirst = !isCustom,
-                    onSelectFirst = onShowExistingEventPicker,
-                    onSelectSecond = { viewModel.setContentMode(AddEventViewModel.ContentMode.CUSTOM) }
+                    onSelectFirst = { if (!frozen) onShowExistingEventPicker() },
+                    onSelectSecond = { if (!frozen && contentMode != AddEventViewModel.ContentMode.CUSTOM) {
+                        viewModel.markEdited()
+                        viewModel.setContentMode(AddEventViewModel.ContentMode.CUSTOM)
+                    } }
                 )
             }
 
@@ -394,9 +413,10 @@ private fun PopupAddEventScreen(
                 OutlinedTextField(
                     value = nameText,
                     onValueChange = {
-                        nameText = it
+                        viewModel.markEdited()
                         viewModel.nameLiveData.value = it
                     },
+                    enabled = !frozen,
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = tokens.spacing.xl, vertical = tokens.spacing.xs),
@@ -419,8 +439,14 @@ private fun PopupAddEventScreen(
                     option1 = stringResource(R.string.ade_date_single),
                     option2 = stringResource(R.string.ade_date_weekly),
                     selectedFirst = isSingle,
-                    onSelectFirst = { viewModel.setDateMode(AddEventViewModel.DateMode.SINGLE) },
-                    onSelectSecond = { viewModel.setDateMode(AddEventViewModel.DateMode.WEEKLY) }
+                    onSelectFirst = { if (!frozen && !isSingle) {
+                        viewModel.markEdited()
+                        viewModel.setDateMode(AddEventViewModel.DateMode.SINGLE)
+                    } },
+                    onSelectSecond = { if (!frozen && isSingle) {
+                        viewModel.markEdited()
+                        viewModel.setDateMode(AddEventViewModel.DateMode.WEEKLY)
+                    } }
                 )
             }
 
@@ -448,7 +474,7 @@ private fun PopupAddEventScreen(
                 label = stringResource(R.string.ade_section_date),
                 value = dateLabel,
                 isSelected = dateLabel != null,
-                onClick = onShowDatePicker,
+                onClick = { if (!frozen) onShowDatePicker() },
                 placeholder = if (dateMode == AddEventViewModel.DateMode.WEEKLY) {
                     stringResource(R.string.ade_pick_weekly_date)
                 } else {
@@ -464,8 +490,14 @@ private fun PopupAddEventScreen(
                 option1 = stringResource(R.string.ade_time_clock),
                 option2 = stringResource(R.string.ade_time_period),
                 selectedFirst = !isPeriod,
-                onSelectFirst = { viewModel.setTimeMode(AddEventViewModel.TimeMode.CLOCK) },
-                onSelectSecond = { viewModel.setTimeMode(AddEventViewModel.TimeMode.PERIOD) }
+                onSelectFirst = { if (!frozen && isPeriod) {
+                    viewModel.markEdited()
+                    viewModel.setTimeMode(AddEventViewModel.TimeMode.CLOCK)
+                } },
+                onSelectSecond = { if (!frozen && !isPeriod) {
+                    viewModel.markEdited()
+                    viewModel.setTimeMode(AddEventViewModel.TimeMode.PERIOD)
+                } }
             )
 
             val timeLabel = remember(timeMode, customTimePeriod, timeRange, timetableState) {
@@ -496,21 +528,30 @@ private fun PopupAddEventScreen(
                 label = stringResource(R.string.ade_section_time),
                 value = timeLabel,
                 isSelected = timeLabel != null,
-                onClick = onShowTimePicker,
+                onClick = { if (!frozen) onShowTimePicker() },
                 placeholder = if (timeMode == AddEventViewModel.TimeMode.PERIOD) {
                     stringResource(R.string.ade_pick_time)
                 } else {
                     stringResource(R.string.ade_pick_time_range)
                 }
             )
+            val selectedPeriod = if (isPeriod) timeRange?.data?.period else customTimePeriod?.data
+            if (selectedPeriod == null || selectedPeriod.to.toMills() <= selectedPeriod.from.toMills()) {
+                Text(
+                    stringResource(if (selectedPeriod == null) R.string.ade_time_required else R.string.ade_time_invalid),
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(horizontal = tokens.spacing.xl),
+                )
+            }
 
             // ── Location ──
             OutlinedTextField(
                 value = locationText,
                 onValueChange = {
-                    locationText = it
+                    viewModel.markEdited()
                     viewModel.locationLiveData.value = DataState(it)
                 },
+                enabled = !frozen,
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = tokens.spacing.xl, vertical = tokens.spacing.xs),
@@ -527,9 +568,10 @@ private fun PopupAddEventScreen(
             OutlinedTextField(
                 value = teacherText,
                 onValueChange = {
-                    teacherText = it
+                    viewModel.markEdited()
                     viewModel.teacherLiveData.value = DataState(it)
                 },
+                enabled = !frozen,
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = tokens.spacing.xl, vertical = tokens.spacing.xs),

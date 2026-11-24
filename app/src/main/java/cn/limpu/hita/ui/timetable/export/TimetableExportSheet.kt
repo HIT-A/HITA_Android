@@ -24,6 +24,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -41,13 +42,19 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import cn.limpu.hita.R
+import cn.limpu.hita.feature.timetableshare.protocol.ShareMode
 import cn.limpu.hita.utils.FileProviderUtils
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
 
 /** 导出面板条目：组合课表整体或单份课表/好友课表。 */
-data class TimetableExportItem(val key: String, val title: String, val subtitle: String)
+data class TimetableExportItem(
+    val key: String,
+    val title: String,
+    val subtitle: String,
+    val memberIds: Set<String> = setOf(key),
+)
 
 /**
  * 多选导出底部弹层：勾选课表后选择「课表口令」或「ICS 文件」。
@@ -60,12 +67,14 @@ fun TimetableExportSheet(
     initiallySelected: Set<String>,
     busy: Boolean,
     onDismiss: () -> Unit,
-    onExportToken: (List<String>) -> Unit,
-    onExportIcs: (List<String>) -> Unit,
+    onExportToken: (List<TimetableExportItem>, ShareMode?) -> Unit,
+    onExportIcs: (List<TimetableExportItem>) -> Unit,
+    forwarding: Boolean = false,
 ) {
     var selected by remember(items) {
         mutableStateOf(items.map { it.key }.filter { it in initiallySelected }.toSet())
     }
+    var confirmation by remember { mutableStateOf<ExportConfirmation?>(null) }
     ModalBottomSheet(onDismissRequest = { if (!busy) onDismiss() }) {
         Column(Modifier.fillMaxWidth().padding(bottom = 24.dp)) {
             Text(
@@ -130,17 +139,63 @@ fun TimetableExportSheet(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 OutlinedButton(
-                    onClick = { onExportToken(items.map { it.key }.filter { it in selected }) },
+                    onClick = { confirmation = ExportConfirmation(items.filter { it.key in selected }, token = true) },
                     enabled = !busy && selected.isNotEmpty()
                 ) { Text(stringResource(R.string.timetable_export_format_token)) }
                 Button(
-                    onClick = { onExportIcs(items.map { it.key }.filter { it in selected }) },
+                    onClick = { confirmation = ExportConfirmation(items.filter { it.key in selected }, token = false) },
                     enabled = !busy && selected.isNotEmpty()
                 ) { Text(stringResource(R.string.timetable_export_format_ics)) }
             }
         }
     }
+    confirmation?.let { requested ->
+        val unchanged = requested.items.all { it in items }
+        var mode by remember(requested) { mutableStateOf(ShareMode.BUSY) }
+        AlertDialog(
+            onDismissRequest = { confirmation = null },
+            title = { Text(stringResource(R.string.timetable_audit_export_confirm)) },
+            text = {
+                LazyColumn(Modifier.heightIn(max = 360.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    item {
+                        Text(stringResource(R.string.timetable_audit_export_scope, requested.items.sumOf { it.memberIds.size }))
+                    }
+                    items(requested.items, key = { it.key }) { item ->
+                        Text("${item.title} · ${item.subtitle}")
+                    }
+                    if (requested.token && !forwarding) {
+                        items(listOf(ShareMode.BUSY, ShareMode.FULL)) { option ->
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                RadioButton(selected = mode == option, onClick = { mode = option })
+                                Text(stringResource(if (option == ShareMode.BUSY) R.string.timetable_share_busy else R.string.timetable_share_full))
+                            }
+                        }
+                    }
+                    item {
+                        Text(stringResource(when {
+                            !requested.token -> R.string.timetable_audit_export_ics_fields
+                            forwarding -> R.string.timetable_audit_export_forward_fields
+                            mode == ShareMode.BUSY -> R.string.timetable_audit_export_busy_fields
+                            else -> R.string.timetable_audit_export_full_fields
+                        }))
+                    }
+                    if (!unchanged) item { Text(stringResource(R.string.timetable_audit_write_failed), color = MaterialTheme.colorScheme.error) }
+                }
+            },
+            confirmButton = {
+                Button(enabled = unchanged && !busy, onClick = {
+                    if (confirmation !== requested) return@Button
+                    confirmation = null
+                    if (requested.token) onExportToken(requested.items, if (forwarding) null else mode)
+                    else onExportIcs(requested.items)
+                }) { Text(stringResource(R.string.timetable_audit_export_confirm)) }
+            },
+            dismissButton = { TextButton(onClick = { confirmation = null }) { Text(stringResource(R.string.button_cancel)) } },
+        )
+    }
 }
+
+private data class ExportConfirmation(val items: List<TimetableExportItem>, val token: Boolean)
 
 /** 口令导出结果：逐条复制，或一键把全部口令拼成一段文本系统分享。 */
 @Composable

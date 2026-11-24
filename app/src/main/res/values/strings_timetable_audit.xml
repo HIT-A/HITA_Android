@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="timetable_audit_empty">还没有课表</string>
+    <string name="timetable_audit_import">导入课表</string>
+    <string name="timetable_audit_delete_tables">删除本机课表（%1$d 张）？</string>
+    <string name="timetable_audit_delete_tables_hint">%1$s\n\n表内的课程和日程将从此设备删除，无法撤销。此操作不会修改教务系统。</string>
+    <string name="timetable_audit_delete_succeeded">已删除本机课表</string>
+    <string name="timetable_audit_write_failed">未能保存更改，请检查后重试</string>
+    <string name="timetable_audit_delete_subjects">删除个人课时或隐藏教务课时（%1$d 门）？</string>
+    <string name="timetable_audit_delete_subjects_hint">%1$s\n\n个人课时从此设备删除；教务课时仅隐藏，可在「隐藏的教务课程」中重新显示。</string>
+    <string name="timetable_audit_subjects_changed">所选课程已更新</string>
+    <string name="timetable_audit_deleted_event">已删除个人日程</string>
+    <string name="timetable_audit_hidden_event">已隐藏教务课时</string>
+    <string name="timetable_audit_undo">撤销</string>
+    <string name="timetable_audit_return_week">回本周</string>
+    <string name="ade_save">保存</string>
+    <string name="ade_saving">正在保存…</string>
+    <string name="ade_save_failed">未保存，草稿已保留。请检查课表与时间设置后重试。</string>
+    <string name="ade_time_required">请选择开始和结束时间</string>
+    <string name="ade_time_invalid">结束时间必须晚于开始时间</string>
+    <string name="ade_discard_title">放弃未保存的更改？</string>
+    <string name="ade_keep_editing">继续编辑</string>
+    <string name="ade_discard">放弃更改</string>
+    <string name="ade_close">关闭编辑</string>
+    <string name="timetable_audit_export_scope">将导出 %1$d 份课表</string>
+    <string name="timetable_audit_export_forward_fields">转发原口令：原始忙闲口令仍只包含占用时间等信息；原始完整口令也包含课程名和地点。</string>
+    <string name="timetable_audit_export_busy_fields">包含忙碌时间、学期、作息和分享昵称，不包含原课表名、课程名、地点或教师。</string>
+    <string name="timetable_audit_export_full_fields">包含课表名、学期、作息、分享昵称、课程时间、名称和地点；口令不包含教师。</string>
+    <string name="timetable_audit_export_ics_fields">ICS 日历文件包含事件名称、日期和时间，以及可用的地点和描述等信息；它不是仅忙闲口令。</string>
+    <string name="timetable_audit_export_confirm">确认导出</string>
+</resources>

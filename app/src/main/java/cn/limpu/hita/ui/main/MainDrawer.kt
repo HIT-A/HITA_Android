@@ -42,7 +42,7 @@ import cn.limpu.hita.R
 import cn.limpu.hita.ui.design.DeveloperCredit
 import cn.limpu.hita.ui.design.DeveloperCredits
 import cn.limpu.hita.ui.design.HitaTheme
-import cn.limpu.hita.ui.design.hitaCyberFlowEdge
+import cn.limpu.hita.ui.design.hitaCyberNeonEdge
 import cn.limpu.hita.ui.design.hitaCyberGlow
 import cn.limpu.hita.ui.design.hitaPersonaCardModifier
 import cn.limpu.hita.ui.design.hitaDeepSpaceCardModifier
@@ -74,6 +74,8 @@ internal fun MainDrawer(
     onGitHubJixing: () -> Unit,
     onGitHubRadiant: () -> Unit,
     onRewardCode: () -> Unit,
+    noticeEntryVisible: Boolean,
+    onNotices: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val isAppleGlass = themeStyle == ThemeTools.STYLE.APPLE_GLASS
@@ -118,7 +120,7 @@ internal fun MainDrawer(
             )
             .then(
                 when {
-                    isCyber -> Modifier.hitaCyberFlowEdge(drawerShape)
+                    isCyber -> Modifier.hitaCyberNeonEdge(drawerShape)
                     isPersona -> Modifier.hitaPersonaCardModifier(drawerShape)
                     isDeepSpace -> Modifier.hitaDeepSpaceCardModifier(drawerShape)
                     isSumi -> Modifier.hitaSumiCardModifier(drawerShape)

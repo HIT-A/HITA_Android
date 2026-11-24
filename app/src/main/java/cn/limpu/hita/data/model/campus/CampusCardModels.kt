@@ -65,6 +65,7 @@ data class CampusCardPage(
     val historyRemoteTotal: Int = 0,
     val historyYears: List<Int> = emptyList(),
     val periodSpending: String? = null,
+    val requiresSignIn: Boolean = false,
 )
 
 /** 分 → 元的定点文本，固定两位小数（不做本地化分节，避免与金额解析混淆）。 */

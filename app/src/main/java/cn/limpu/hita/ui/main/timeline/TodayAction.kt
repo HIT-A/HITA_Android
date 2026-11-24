@@ -7,5 +7,6 @@ sealed interface TodayAction {
     data object OpenExams : TodayAction
     data class SelectScope(val scope: cn.limpu.hita.data.model.timetable.DisplayScope) : TodayAction
     data object SelectTimetable : TodayAction
+    data object AddTimetable : TodayAction
     data object ImportTimetable : TodayAction
 }

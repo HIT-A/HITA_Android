@@ -1,6 +1,7 @@
 package cn.limpu.hita.ui.timetable.friend
 
 import cn.limpu.hita.data.model.timetable.EventItem
+import cn.limpu.hita.data.repository.TimetableEventAccess
 import cn.limpu.hita.feature.timetableshare.protocol.*
 import java.sql.Timestamp
 import java.time.*
@@ -33,6 +34,7 @@ object FriendWeekProjection {
                     id = "${snapshot.shareId}:$index:${date(start)}"
                     subjectId = "${snapshot.shareId}:" + (if (snapshot.mode == ShareMode.FULL) occurrence.courseIndex else "busy")
                     timetableId = snapshot.shareId
+                    source = TimetableEventAccess.FRIEND_SNAPSHOT
                     name = if (snapshot.mode == ShareMode.BUSY) busyLabel else snapshot.courses[requireNotNull(occurrence.courseIndex)]
                     place = if (snapshot.mode == ShareMode.BUSY) "" else occurrence.place.orEmpty()
                     teacher = ""

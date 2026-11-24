@@ -1,9 +1,12 @@
 package cn.limpu.hita.ui.campus
 
+import android.app.Activity
 import android.app.Application
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -65,6 +68,9 @@ import cn.limpu.hita.ui.design.HitaStaleBanner
 import cn.limpu.hita.ui.design.HitaTheme
 import cn.limpu.hita.ui.design.StaleDataBanner
 import cn.limpu.hita.ui.design.formatCachedAt
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 
@@ -77,7 +83,9 @@ import java.time.LocalDate
 class LabCenterActivity : AppCompatActivity() {
 
     private val viewModel: LabCenterViewModel by viewModels()
-    private var awaitingLogin = false
+    private val login = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.resultCode == Activity.RESULT_OK) viewModel.refresh()
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -92,7 +100,7 @@ class LabCenterActivity : AppCompatActivity() {
                     refreshing = refreshing,
                     onBack = { finish() },
                     onRefresh = viewModel::refresh,
-                    onSignIn = { awaitingLogin = true; LabCenterLoginActivity.start(this) },
+                    onSignIn = { login.launch(Intent(this, LabCenterLoginActivity::class.java)) },
                 )
             }
         }
@@ -100,11 +108,7 @@ class LabCenterActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        // 登录页返回时 Cookie 已经写入；直接重取，避免用户再点一次刷新。
-        if (awaitingLogin) {
-            awaitingLogin = false
-            viewModel.refresh()
-        }
+        viewModel.refreshIfOwnerChanged()
     }
 }
 
@@ -134,26 +138,37 @@ class LabCenterViewModel(app: Application) : AndroidViewModel(app) {
     val notice: LiveData<LabCenterNotice?> = _notice
     private val _refreshing = MutableLiveData(false)
     val refreshing: LiveData<Boolean> = _refreshing
-    private var generation = 0L
+    private data class RefreshKey(val owner: String, val cookie: String)
+
+    private val requests = CampusRefreshGate<RefreshKey>()
+    private var job: Job? = null
+    private var requestedOwner: String? = null
+
+    private fun ownerKey() = LabCenterCacheStore.ownerKey(easPreferences.getEasToken())
+
+    fun refreshIfOwnerChanged() {
+        if (requestedOwner != ownerKey()) refresh()
+    }
 
     init {
         refresh()
     }
 
     fun refresh() {
-        val ownerKey = LabCenterCacheStore.ownerKey(easPreferences.getEasToken())
-        val cached = cacheStore.read(ownerKey)
-        // 有上次结果就先渲染，后台再去刷新：整学期课表实测要 10 秒以上，每次进页面空等不划算。
+        val key = RefreshKey(ownerKey(), CampusCookieJar.header(LabCenterSessionPolicy.SCHEDULE_URL))
+        val request = requests.begin(key) ?: return
+        job?.cancel()
+        if (key.owner != requestedOwner) _notice.value = null
+        requestedOwner = key.owner
+        val cached = cacheStore.read(key.owner)
         _state.value = if (cached != null) CampusServiceUiState.Ready(cached) else CampusServiceUiState.Loading
         _refreshing.value = true
-        val requestGeneration = ++generation
-        viewModelScope.launch {
+        job = viewModelScope.launch {
             var notice: LabCenterNotice? = null
             val next = try {
-                val cookie = CampusCookieJar.header(LabCenterSessionPolicy.SCHEDULE_URL)
-                val progress = client.fetch(cookie)
-                cacheStore.save(ownerKey, progress)
-                CampusServiceUiState.Ready(progress)
+                CampusServiceUiState.Ready(client.fetch(key.cookie))
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (_: LabCenterSessionExpiredException) {
                 notice = cached?.let { LabCenterNotice(LabCenterStaleReason.SignInExpired, it.fetchedAtMillis) }
                 if (cached != null) CampusServiceUiState.Ready(cached) else CampusServiceUiState.RequiresSignIn
@@ -168,7 +183,14 @@ class LabCenterViewModel(app: Application) : AndroidViewModel(app) {
                     CampusServiceUiState.Failed(error.message.orEmpty().ifBlank { "实验中心课表加载失败" })
                 }
             }
-            if (requestGeneration != generation) return@launch
+            ensureActive()
+            if (!requests.owns(request, key)) return@launch
+            requests.finish(request)
+            if (key.owner != ownerKey()) {
+                refresh()
+                return@launch
+            }
+            if (next is CampusServiceUiState.Ready && notice == null) cacheStore.save(key.owner, next.value)
             _state.value = next
             _notice.value = notice
             _refreshing.value = false
@@ -201,7 +223,7 @@ private fun LabCenterScreen(
                     }
                 },
                 actions = {
-                    IconButton(onClick = onRefresh) {
+                    IconButton(onClick = onRefresh, enabled = !refreshing) {
                         if (refreshing) {
                             CircularProgressIndicator(
                                 modifier = Modifier.size(22.dp),

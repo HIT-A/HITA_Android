@@ -44,6 +44,7 @@ class RoomChatSessionStore internal constructor(
                 gson.fromJson<List<AgentResourceCard>>(it.resourceCardsJson, cardsType).orEmpty()
             } catch (_: Exception) { emptyList() },
             timestampMs = it.timestampMs,
+            id = it.id,
         )
     }
 
@@ -54,6 +55,7 @@ class RoomChatSessionStore internal constructor(
                 sessionId, message, sessionDao::exists,
                 save = { id, value ->
                     messageDao.save(ChatMessageEntity(
+                        id = value.id,
                         sessionId = id,
                         role = value.role.name,
                         text = value.text,

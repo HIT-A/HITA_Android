@@ -1,6 +1,7 @@
 package cn.limpu.hita.ui.main.agent
 
 import cn.limpu.hita.data.model.resource.AgentResourceCard
+import java.util.UUID
 
 data class AgentChatMessage(
     val role: Role,
@@ -11,6 +12,7 @@ data class AgentChatMessage(
     val isPlaceholder: Boolean = false,
     val resourceCards: List<AgentResourceCard> = emptyList(),
     val timestampMs: Long = System.currentTimeMillis(),
+    val id: String = UUID.randomUUID().toString(),
 ) {
     enum class Role {
         USER,
@@ -24,6 +26,7 @@ internal fun AgentChatMessage.toRecord() = cn.limpu.hita.data.model.chat.ChatMes
     text = text,
     resourceCards = resourceCards.toList(),
     timestampMs = timestampMs,
+    id = id,
 )
 
 internal fun cn.limpu.hita.data.model.chat.ChatMessageRecord.toUiMessage() = AgentChatMessage(
@@ -31,4 +34,5 @@ internal fun cn.limpu.hita.data.model.chat.ChatMessageRecord.toUiMessage() = Age
     text = text,
     resourceCards = resourceCards,
     timestampMs = timestampMs,
+    id = id,
 )

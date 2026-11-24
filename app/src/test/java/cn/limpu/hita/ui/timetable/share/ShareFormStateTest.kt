@@ -6,10 +6,15 @@ import org.junit.Test
 
 class ShareFormStateTest {
     @Test fun staleGenerationDoesNotReplaceCurrentForm() {
-        val old = ShareFormState("a", "好友")
+        // 显式带上模式：本条只验证代际，不依赖默认披露等级。
+        val old = ShareFormState("a", "好友", mode = ShareMode.FULL)
         val edited = old.edit(id = "b")
         assertNull(edited.accept(old.revision, "HITA1:old").token)
         assertEquals(ShareMode.FULL, old.mode)
+    }
+    @Test fun newTokenDefaultsToBusyUntilFullIsChosenExplicitly() {
+        // 新口令默认只披露忙闲；完整版必须由用户主动选择。
+        assertEquals(ShareMode.BUSY, ShareFormState("a", "好友").mode)
     }
     @Test fun editingInvalidatesTokenAndStopsGenerating() {
         val old = ShareFormState("a", "好友", token = "old", generating = true)

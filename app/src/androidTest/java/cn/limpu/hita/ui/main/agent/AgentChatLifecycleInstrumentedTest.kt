@@ -2,6 +2,8 @@ package cn.limpu.hita.ui.main.agent
 
 import android.app.Application
 import android.net.Uri
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.lifecycle.ViewModelStore
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
@@ -17,6 +19,8 @@ import cn.limpu.hita.agent.llm.ChatRequestRunner
 import cn.limpu.hita.agent.llm.LlmChatResult
 import cn.limpu.hita.agent.timetable.TimetableAgentInput
 import cn.limpu.hita.agent.timetable.TimetableAgentOutput
+import cn.limpu.hita.agent.tools.ConfirmationGate
+import cn.limpu.hita.agent.tools.ConfirmationRequest
 import cn.limpu.hita.data.AppDatabase
 import cn.limpu.hita.data.model.chat.ChatMessageRecord
 import cn.limpu.hita.data.model.chat.ChatSession
@@ -31,6 +35,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import org.junit.After
@@ -70,8 +75,7 @@ class AgentChatLifecycleInstrumentedTest {
         }
     }
     private suspend fun send(text: String) = withContext(Dispatchers.Main) {
-        viewModel.addMessage(AgentChatMessage(AgentChatMessage.Role.USER, text))
-        viewModel.sendToLlm(text, provider)
+        assertTrue(viewModel.submit(checkNotNull(viewModel.currentSessionId), ChatDraft(TextFieldValue(text)), provider))
     }
     private suspend fun call(): HeldRunner.Call = withTimeout(10_000) { runner.calls.receive() }
     private suspend fun eventually(condition: () -> Boolean) = withTimeout(10_000) {
@@ -91,6 +95,191 @@ class AgentChatLifecycleInstrumentedTest {
         assertEquals(other, withContext(Dispatchers.Main) { viewModel.currentSessionId })
         withContext(Dispatchers.Main) { viewModel.switchToSession(original) }
         eventually { viewModel.messages.value?.map { it.text } == listOf("question A", "answer A") }
+    }
+
+    @Test fun delayedWriteApprovalRemainsWithAWhileBCompletesAndCanBeApprovedOnlyOnce() = runBlocking {
+        start()
+        val a = withContext(Dispatchers.Main) { checkNotNull(viewModel.currentSessionId) }
+        send("question A")
+        val requestA = call()
+        withContext(Dispatchers.Main) { viewModel.createNewSession() }
+        val b = withContext(Dispatchers.Main) { checkNotNull(viewModel.currentSessionId) }
+        send("question B")
+        val requestB = call()
+
+        requestA.ask.complete(ConfirmationRequest("Add activity A", listOf("Only A")))
+        eventually { viewModel.pendingConfirmation.value != null }
+        val pending = checkNotNull(viewModel.pendingConfirmation.value)
+        assertEquals(a, pending.owner.sessionId)
+        assertFalse(pending.isVisibleIn(b, foreground = true))
+        assertFalse(pending.isVisibleIn(a, foreground = false))
+        withContext(Dispatchers.Main) { assertFalse(viewModel.resolveConfirmation(pending, approved = true)) }
+        assertFalse(requestA.decision.isCompleted)
+        requestB.result.complete(LlmChatResult.Success("answer B"))
+        eventually { viewModel.messages.value?.map { it.text } == listOf("question B", "answer B") }
+
+        withContext(Dispatchers.Main) {
+            viewModel.switchToSession(a)
+            assertTrue(pending.isVisibleIn(viewModel.selectedSessionId.value, foreground = true))
+            assertSame(pending, viewModel.pendingConfirmation.value)
+            assertTrue(viewModel.resolveConfirmation(pending, approved = true))
+            assertFalse(viewModel.resolveConfirmation(pending, approved = true))
+        }
+        assertEquals(ConfirmationGate.Decision.APPROVED, withTimeout(10_000) { requestA.decision.await() })
+        requestA.result.complete(LlmChatResult.Success("answer A"))
+        eventually { viewModel.messages.value?.map { it.text } == listOf("question A", "answer A") }
+        assertEquals(listOf("question B", "answer B"), repository.restore(b).await().map { it.text })
+    }
+
+    @Test fun stoppingPendingWriteClearsItsPromptAndLeavesTheSameReplyRow() = runBlocking {
+        start()
+        send("stop before confirming")
+        val request = call()
+        request.ask.complete(ConfirmationRequest("Stop this prompt", emptyList()))
+        eventually { viewModel.pendingConfirmation.value != null }
+        val pending = checkNotNull(viewModel.pendingConfirmation.value)
+        val replyId = withContext(Dispatchers.Main) {
+            val row = viewModel.messages.value!!.last()
+            viewModel.stopRequest(pending.owner)
+            assertFalse(viewModel.resolveConfirmation(pending, approved = true))
+            assertNull(viewModel.pendingConfirmation.value)
+            assertFalse(viewModel.isLoading.value!!)
+            assertEquals(row.id, viewModel.messages.value!!.last().id)
+            assertEquals(AgentChatMessage.Role.TRACE, viewModel.messages.value!!.last().role)
+            row.id
+        }
+        withTimeout(10_000) { request.cancelled.await() }
+        assertFalse(request.decision.isCompleted)
+        assertEquals(replyId, repository.restore(pending.owner.sessionId).await().last().id)
+    }
+
+    @Test fun stoppingAfterApprovalDoesNotOfferBlindRetry() = runBlocking {
+        start()
+        send("write")
+        val request = call()
+        request.ask.complete(ConfirmationRequest("Confirm a write", emptyList()))
+        eventually { viewModel.pendingConfirmation.value != null }
+        val pending = checkNotNull(viewModel.pendingConfirmation.value)
+        withContext(Dispatchers.Main) { assertTrue(viewModel.resolveConfirmation(pending, approved = true)) }
+        assertEquals(ConfirmationGate.Decision.APPROVED, withTimeout(10_000) { request.decision.await() })
+        withContext(Dispatchers.Main) {
+            viewModel.stopRequest(pending.owner)
+            val row = viewModel.messages.value!!.last()
+            assertFalse(viewModel.hasRecoverableInput(pending.owner.sessionId, row.id))
+            assertTrue(row.text.contains("可能已提交"))
+        }
+        withTimeout(10_000) { request.cancelled.await() }
+    }
+
+    @Test fun failedDeletionClearsAuthorizationButKeepsTheSessionRecordsAndDraft() = runBlocking {
+        storeDecorator = { store -> object : ChatSessionStore by store {
+            override fun delete(session: ChatSession): ChatSession? = error("Synthetic deletion failure")
+        } }
+        start()
+        val id = withContext(Dispatchers.Main) { checkNotNull(viewModel.currentSessionId) }
+        send("keep these records")
+        val request = call()
+        request.ask.complete(ConfirmationRequest("Never replay this", emptyList()))
+        eventually { viewModel.pendingConfirmation.value != null }
+        val pending = checkNotNull(viewModel.pendingConfirmation.value)
+        val draft = TextFieldValue("keep this draft", TextRange(3, 7))
+        withContext(Dispatchers.Main) {
+            viewModel.editDraft(id, draft)
+            viewModel.deleteSession(ChatSession(id = id, title = "A"))
+            assertNull(viewModel.pendingConfirmation.value)
+            assertFalse(viewModel.resolveConfirmation(pending, approved = true))
+        }
+        eventually { viewModel.deletionNotice.value!!.isNotBlank() && viewModel.deleting.value!!.isEmpty() }
+        assertEquals(listOf("keep these records", "已停止生成回复。"), repository.restore(id).await().map { it.text })
+        withContext(Dispatchers.Main) {
+            assertEquals(id, viewModel.currentSessionId)
+            assertEquals(draft, viewModel.draft.value?.text)
+            assertFalse(viewModel.isLoading.value!!)
+        }
+    }
+
+    @Test fun pickerAndDraftKeepOriginalSessionAndBusyOrBlankSendDoesNotConsume() = runBlocking {
+        start()
+        val first = Uri.parse("content://fixture/a.txt")
+        val second = Uri.parse("content://fixture/b.txt")
+        val draftA = TextFieldValue(" draft A ", TextRange(3, 5))
+        val draftB = TextFieldValue(" ", TextRange(1))
+        val a = withContext(Dispatchers.Main) { checkNotNull(viewModel.currentSessionId) }
+        val b = withContext(Dispatchers.Main) {
+            viewModel.editDraft(a, draftA)
+            assertTrue(viewModel.beginAttachmentPicker(a))
+            viewModel.createNewSession()
+            val other = checkNotNull(viewModel.currentSessionId)
+            viewModel.editDraft(other, draftB)
+            viewModel.finishAttachmentPicker(first)
+            assertFalse(viewModel.sendDraft(other, provider))
+            assertEquals(ChatDraft(draftB), viewModel.draft.value)
+            viewModel.switchToSession(a)
+            other
+        }
+        eventually { !viewModel.isLoading.value!! }
+        withContext(Dispatchers.Main) {
+            assertEquals(ChatDraft(draftA, first), viewModel.draft.value)
+            assertTrue(viewModel.beginAttachmentPicker(a))
+            viewModel.finishAttachmentPicker(null)
+            assertEquals(ChatDraft(draftA, first), viewModel.draft.value)
+            assertTrue(viewModel.beginAttachmentPicker(a))
+            viewModel.finishAttachmentPicker(second)
+            assertEquals(ChatDraft(draftA, second), viewModel.draft.value)
+            assertTrue(viewModel.sendDraft(a, provider))
+            assertEquals(ChatDraft(), viewModel.draft.value)
+            viewModel.editDraft(a, draftA)
+            assertFalse(viewModel.sendDraft(a, provider))
+            assertEquals(ChatDraft(draftA), viewModel.draft.value)
+            viewModel.switchToSession(b)
+            assertEquals(ChatDraft(draftB), viewModel.draft.value)
+        }
+    }
+
+    @Test fun parseAndModelFailuresRestoreExactInputAndRetryUpdatesTheSameRows() = runBlocking {
+        start()
+        val a = withContext(Dispatchers.Main) { checkNotNull(viewModel.currentSessionId) }
+        val input = ChatDraft(TextFieldValue("  analyse ", TextRange(2, 4)), Uri.parse("content://fixture/notes.txt"))
+        withContext(Dispatchers.Main) {
+            viewModel.editDraft(a, input.text)
+            assertTrue(viewModel.beginAttachmentPicker(a))
+            viewModel.finishAttachmentPicker(input.attachment)
+            assertTrue(viewModel.sendDraft(a, provider))
+        }
+        withTimeout(10_000) { attachment.started.await() }
+        attachment.result.complete(ChatAttachmentResult.Failure(ChatAttachmentResult.Kind.PARSE, "notes.txt"))
+        eventually { !viewModel.isLoading.value!! }
+        val replyId = withContext(Dispatchers.Main) {
+            val failed = viewModel.messages.value!!.single()
+            assertTrue(viewModel.recoverInput(a, failed.id))
+            assertEquals(input.copy(retryRowId = failed.id), viewModel.draft.value)
+            attachment.reset()
+            assertTrue(viewModel.sendDraft(a, provider))
+            failed.id
+        }
+        attachment.result.complete(ChatAttachmentResult.Text("notes.txt", "local fixture"))
+        val firstModel = call()
+        firstModel.result.complete(LlmChatResult.Error("synthetic model failure"))
+        eventually { !viewModel.isLoading.value!! }
+        withContext(Dispatchers.Main) {
+            val current = TextFieldValue("newer draft")
+            viewModel.editDraft(a, current)
+            assertFalse(viewModel.recoverInput(a, replyId))
+            assertEquals(current, viewModel.draft.value!!.text)
+            assertTrue(viewModel.recoverInput(a, replyId, replace = true))
+            assertEquals(input.copy(retryRowId = replyId), viewModel.draft.value)
+            attachment.reset()
+            assertTrue(viewModel.sendDraft(a, provider))
+        }
+        attachment.result.complete(ChatAttachmentResult.Text("notes.txt", "local fixture"))
+        val secondModel = call()
+        assertEquals(firstModel.history, secondModel.history)
+        secondModel.result.complete(LlmChatResult.Success("success"))
+        eventually { !viewModel.isLoading.value!! }
+        val saved = repository.restore(a).await()
+        assertEquals(2, saved.size)
+        assertEquals(replyId, saved.last().id)
+        assertEquals("success", saved.last().text)
     }
 
     @Test fun deletingASessionCancelsItsNetworkJobAndRejectsLateCallbacks() = runBlocking {
@@ -183,7 +372,9 @@ class AgentChatLifecycleInstrumentedTest {
     @Test fun attachmentSelectionStaysWithOriginalSessionAndDeletionCancelsProcessing() = runBlocking {
         start()
         val original = withContext(Dispatchers.Main) { requireNotNull(viewModel.currentSessionId) }
-        withContext(Dispatchers.Main) { viewModel.sendWithAttachment("read", Uri.parse("content://fixture/document"), provider) }
+        withContext(Dispatchers.Main) {
+            assertTrue(viewModel.submit(original, ChatDraft(TextFieldValue("read"), Uri.parse("content://fixture/document")), provider))
+        }
         withTimeout(10_000) { attachment.started.await() }
         withContext(Dispatchers.Main) { viewModel.createNewSession() }
         attachment.result.complete(ChatAttachmentResult.Text("notes.txt", "【文本文件】\nhello"))
@@ -194,7 +385,9 @@ class AgentChatLifecycleInstrumentedTest {
 
         val deleted = withContext(Dispatchers.Main) { requireNotNull(viewModel.currentSessionId) }
         attachment.reset()
-        withContext(Dispatchers.Main) { viewModel.sendWithAttachment("cancel", Uri.parse("content://fixture/second"), provider) }
+        withContext(Dispatchers.Main) {
+            assertTrue(viewModel.submit(deleted, ChatDraft(TextFieldValue("cancel"), Uri.parse("content://fixture/second")), provider))
+        }
         withTimeout(10_000) { attachment.started.await() }
         withContext(Dispatchers.Main) { viewModel.deleteSession(ChatSession(id = deleted)) }
         withTimeout(10_000) { attachment.cancelled.await() }
@@ -205,6 +398,8 @@ class AgentChatLifecycleInstrumentedTest {
         data class Call(val history: List<ChatMessage>, val trace: (AgentTraceEvent) -> Unit) {
             val result = CompletableDeferred<LlmChatResult>()
             val cancelled = CompletableDeferred<Unit>()
+            val ask = CompletableDeferred<ConfirmationRequest>()
+            val decision = CompletableDeferred<ConfirmationGate.Decision>()
         }
         val calls = Channel<Call>(Channel.UNLIMITED)
         override suspend fun run(
@@ -212,12 +407,20 @@ class AgentChatLifecycleInstrumentedTest {
             media: ChatMediaContent?,
             provider: AgentProvider<TimetableAgentInput, TimetableAgentOutput>,
             onTrace: (AgentTraceEvent) -> Unit,
-            confirmationGate: cn.limpu.hita.agent.tools.ConfirmationGate,
+            confirmationGate: ConfirmationGate,
         ): LlmChatResult {
             val call = Call(history, onTrace)
             onTrace(AgentTraceEvent("react_step", "thinking", history.last().content))
             calls.send(call)
-            return try { call.result.await() }
+            return try {
+                select {
+                    call.result.onAwait { it }
+                    call.ask.onAwait { request ->
+                        call.decision.complete(confirmationGate.request(request))
+                        call.result.await()
+                    }
+                }
+            }
             catch (cancelled: CancellationException) { call.cancelled.complete(Unit); throw cancelled }
         }
     }

@@ -73,8 +73,9 @@ class FriendTimetableActivity : HiltBaseActivity<ComposeViewBinding>() {
                         initiallySelected = emptySet(),
                         busy = viewModel.exportBusy,
                         onDismiss = viewModel::dismissExport,
-                        onExportToken = viewModel::exportTokens,
-                        onExportIcs = viewModel::exportIcs,
+                        onExportToken = { items, _ -> viewModel.exportTokens(items.map { it.key }) },
+                        onExportIcs = { items -> viewModel.exportIcs(items.map { it.key }) },
+                        forwarding = true,
                     )
                 }
                 viewModel.exportedTokens?.let { tokens ->

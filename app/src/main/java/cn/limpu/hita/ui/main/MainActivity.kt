@@ -151,6 +151,8 @@ class MainActivity : HiltBaseActivity<MainViewBinding>(),
             timetableSetting = { FragmentTimetablePanel().show(supportFragmentManager, "panel") },
             timetableSocial = { (tabHost.find(MainTab.TIMETABLE) as? TimetableFragment)?.openTimetableSocialSheet() },
             timetableHistory = { (tabHost.find(MainTab.TIMETABLE) as? TimetableFragment)?.openDeletionHistory() },
+            timetableVersions = { (tabHost.find(MainTab.TIMETABLE) as? TimetableFragment)?.openTimetableVersions() },
+            notices = { showStartupNotice() },
             addEvent = { PopupAddEvent().show(supportFragmentManager, "add_event") },
             // 周号跳转：候选来自课表学期的起止时间，选中后直接翻到那一周。
             weekOptions = { (tabHost.find(MainTab.TIMETABLE) as? TimetableFragment)?.weekOptions().orEmpty() },
@@ -281,6 +283,8 @@ class MainActivity : HiltBaseActivity<MainViewBinding>(),
     override fun setTitleText(string: String) = viewModel.setTimetableTitle(string, true)
     override fun setTimetableName(String: String) = viewModel.setTimetableName(String)
     override fun setSingleTitle(string: String) = viewModel.setTimetableTitle(string, false)
+    override fun setTimetableActions(teachingVersions: Boolean, deletionHistory: Boolean) =
+        viewModel.setTimetableActions(teachingVersions, deletionHistory)
     override fun selectTodayScope(scope: cn.limpu.hita.data.model.timetable.DisplayScope): Boolean {
         val monday = viewModel.selectScope(scope) ?: return false
         (tabHost.find(MainTab.TIMETABLE) as? TimetableFragment)?.navigateToWeek(monday)

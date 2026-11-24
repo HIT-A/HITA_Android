@@ -26,6 +26,8 @@ interface TimetableVersionDao {
     fun pruneDeletedSources()
     @Query("SELECT * FROM timetable_source_baseline WHERE ownerKey=:owner AND timetableId=:table")
     fun source(owner: String, table: String): TimetableSourceBaselineEntity?
+    @Query("SELECT DISTINCT ownerKey FROM timetable_source_baseline WHERE timetableId=:table")
+    fun sourceOwners(table: String): List<String>
     @Insert(onConflict = OnConflictStrategy.REPLACE) fun saveSource(state: TimetableSourceBaselineEntity)
     @Query("DELETE FROM timetable_version") fun clearVersions()
     @Query("DELETE FROM timetable_source_baseline") fun clearSources()

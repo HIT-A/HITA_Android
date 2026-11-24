@@ -206,18 +206,18 @@ private fun UnifiedResourceSearchScreen(
     val context = LocalContext.current
     val keyboardController = LocalSoftwareKeyboardController.current
     val tokens = HitaTheme.tokens
-    val searchState by viewModel.searchResults.observeAsState()
-    val browseState by viewModel.browseResults.observeAsState()
-    val browseStack = remember { mutableStateListOf<BrowseState>() }
-    var isBrowseMode by remember { mutableStateOf(false) }
+    val screen by viewModel.state.collectAsState()
+    // 浏览模式与列表模式共用一份状态：目录栈非空就是浏览。
+    val isBrowseMode = screen.stack.isNotEmpty()
+    val browseStack = screen.stack
+    val search = screen.search
+    val directory = screen.directory
+    val searchItems = search?.items.orEmpty()
+    val entryItems = directory?.entries.orEmpty()
     var query by remember(initialQuery) {
         val normalized = CourseCodeUtils.normalize(initialQuery) ?: initialQuery
         mutableStateOf(normalized)
     }
-    var searchItems by remember { mutableStateOf(emptyList<UnifiedResourceItem>()) }
-    var entryItems by remember { mutableStateOf(emptyList<ExternalResourceEntry>()) }
-    var emptyText by remember { mutableStateOf("") }
-    var loading by remember { mutableStateOf(true) }
     // 搜索历史：只在查询为空时展示，点一条即可回填并重搜。
     val historyStore = remember {
         cn.limpu.hita.data.source.preference.ResourceSearchHistoryStore(
@@ -228,21 +228,8 @@ private fun UnifiedResourceSearchScreen(
     }
     var history by remember { mutableStateOf(historyStore.list()) }
 
-    fun exitBrowseMode() {
-        isBrowseMode = false
-        browseStack.clear()
-        entryItems = emptyList()
-        emptyText = ""
-    }
-
     fun enterBrowseMode(item: UnifiedResourceItem.ExternalCourse) {
-        isBrowseMode = true
-        entryItems = emptyList()
-        emptyText = ""
-        loading = true
-        browseStack.clear()
-        browseStack.add(BrowseState(item.path, item.source, item.courseName))
-        viewModel.browse(item.path, item.source)
+        viewModel.browse(item.path, item.source, item.courseName)
     }
 
     fun navigateInto(entry: ExternalResourceEntry) {
@@ -275,17 +262,7 @@ private fun UnifiedResourceSearchScreen(
             }
             return
         }
-
-        val currentState = browseStack.lastOrNull() ?: return
-        val newState = BrowseState(
-            path = entry.path,
-            source = currentState.source,
-            breadcrumb = "${currentState.breadcrumb} / ${entry.name}",
-        )
-        browseStack.add(newState)
-        loading = true
-        emptyText = ""
-        viewModel.browse(entry.path, entry.source)
+        viewModel.browse(entry.path, entry.source, entry.name)
     }
 
     fun startSearch() {
@@ -293,10 +270,8 @@ private fun UnifiedResourceSearchScreen(
         query = normalized
         keyboardController?.hide()
         if (isBrowseMode) {
-            exitBrowseMode()
+            viewModel.exitBrowse()
         }
-        loading = true
-        emptyText = ""
         if (normalized.isNotBlank()) {
             historyStore.record(normalized)
             history = historyStore.list()
@@ -305,16 +280,9 @@ private fun UnifiedResourceSearchScreen(
     }
 
     fun handleBack(): Boolean {
-        if (isBrowseMode && browseStack.size > 1) {
-            browseStack.removeAt(browseStack.lastIndex)
-            val previous = browseStack.last()
-            loading = true
-            emptyText = ""
-            viewModel.browse(previous.path, previous.source)
-            return true
-        }
+        if (viewModel.back()) return true
         if (isBrowseMode) {
-            exitBrowseMode()
+            viewModel.exitBrowse()
             return true
         }
         return false
@@ -322,60 +290,13 @@ private fun UnifiedResourceSearchScreen(
 
     LaunchedEffect(Unit) {
         registerBackHandler { handleBack() }
-        if (initialBrowsePath.isNotBlank() && initialBrowseSource != null) {
-            val title = initialBrowseTitle.takeIf { it.isNotBlank() }
-                ?: initialBrowsePath.substringAfterLast("/")
-            enterBrowseMode(
-                UnifiedResourceItem.ExternalCourse(
-                    courseName = title,
-                    category = "",
-                    source = initialBrowseSource,
-                    path = initialBrowsePath,
-                )
+        val folder = initialBrowseSource?.takeIf { initialBrowsePath.isNotBlank() }?.let { source ->
+            ResourceFolder(
+                ResourceFolderKey(source, initialBrowsePath),
+                initialBrowseTitle.takeIf(String::isNotBlank) ?: initialBrowsePath.substringAfterLast("/"),
             )
-        } else {
-            viewModel.search(query)
         }
-    }
-
-    LaunchedEffect(searchState) {
-        if (isBrowseMode) return@LaunchedEffect
-        val current = searchState ?: return@LaunchedEffect
-        loading = false
-        if (current.state == DataState.STATE.SUCCESS) {
-            searchItems = current.data.orEmpty()
-            emptyText = if (searchItems.isEmpty()) {
-                context.getString(R.string.course_resource_empty)
-            } else {
-                ""
-            }
-        } else {
-            searchItems = emptyList()
-            emptyText = context.getString(R.string.course_resource_failed)
-            current.message?.takeIf { it.isNotBlank() }?.let {
-                Toast.makeText(context, it, Toast.LENGTH_LONG).show()
-            }
-        }
-    }
-
-    LaunchedEffect(browseState) {
-        if (!isBrowseMode) return@LaunchedEffect
-        val current = browseState ?: return@LaunchedEffect
-        loading = false
-        if (current.state == DataState.STATE.SUCCESS) {
-            entryItems = current.data.orEmpty()
-            emptyText = if (entryItems.isEmpty()) {
-                context.getString(R.string.external_resource_empty)
-            } else {
-                ""
-            }
-        } else {
-            entryItems = emptyList()
-            emptyText = context.getString(R.string.external_resource_failed)
-            current.message?.takeIf { it.isNotBlank() }?.let {
-                Toast.makeText(context, it, Toast.LENGTH_LONG).show()
-            }
-        }
+        viewModel.restore(query, folder)
     }
 
     Column(
@@ -527,11 +448,18 @@ private fun UnifiedResourceSearchScreen(
             }
 
             when {
-                loading -> {
-                    CircularProgressIndicator(
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.align(Alignment.Center)
-                    )
+                isBrowseMode -> {
+                    val loading = directory?.loading == true
+                    // 空态只能来自成功的空结果；失败给可点的重试，不冒充「没有资料」。
+                    if (directory?.failed == true && entryItems.isEmpty()) {
+                        ResourcePlaceholder(
+                            message = stringResource(R.string.external_resource_failed),
+                            action = stringResource(R.string.resource_retry),
+                            onAction = { browseStack.lastOrNull()?.let { viewModel.browse(it.key.path, it.key.source, it.title) } },
+                        )
+                    } else if (!loading && entryItems.isEmpty()) {
+                        ResourcePlaceholder(message = stringResource(R.string.external_resource_empty))
+                    }
                 }
                 emptyText.isNotBlank() -> {
                     Text(
@@ -544,6 +472,32 @@ private fun UnifiedResourceSearchScreen(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun ResourcePlaceholder(
+    message: String,
+    action: String? = null,
+    onAction: (() -> Unit)? = null,
+) {
+    val tokens = HitaTheme.tokens
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(tokens.spacing.xl),
+    ) {
+        Spacer(Modifier.weight(1f))
+        Text(
+            text = message,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 14.sp,
+        )
+        if (action != null && onAction != null) {
+            TextButton(onClick = onAction) { Text(action) }
+        }
+        Spacer(Modifier.weight(1f))
     }
 }
 

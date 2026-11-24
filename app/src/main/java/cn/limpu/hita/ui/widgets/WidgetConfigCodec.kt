@@ -1,5 +1,7 @@
 package cn.limpu.hita.ui.widgets
 
+import cn.limpu.hita.data.model.timetable.DisplayScope
+
 /**
  * 小组件实例配置的键与值编解码。
  *
@@ -28,7 +30,20 @@ object WidgetConfigCodec {
         Background.entries.firstOrNull { it.storageValue == raw } ?: Background.PLAIN
 
     fun decode(scopeRaw: String?, backgroundRaw: String?): Config =
-        Config(scopeKey = scopeRaw?.takeIf { it.isNotBlank() }, background = decodeBackground(backgroundRaw))
+        Config(
+            // The old UI persisted "pinned" without recording a target. Do not pin it to
+            // whichever range happens to be active during upgrade.
+            scopeKey = scopeRaw?.takeUnless { it.isBlank() || it == "pinned" },
+            background = decodeBackground(backgroundRaw),
+        )
+
+    fun encodeScope(scope: DisplayScope): String = "${DisplayScope.typeOf(scope)}:${scope.id}"
+
+    fun decodeScope(scopeKey: String): DisplayScope? {
+        val separator = scopeKey.indexOf(':')
+        if (separator < 0) return null
+        return DisplayScope.of(scopeKey.substring(0, separator), scopeKey.substring(separator + 1))
+    }
 
     fun encode(config: Config): Map<String, String?> = mapOf(
         SCOPE_VALUE to config.scopeKey,

@@ -102,6 +102,7 @@ internal class EmptyClassroomQueryRequest(
                     emit(DataState(cached, DataState.STATE.SUCCESS).setFromCache(true).apply {
                         this.cachedAtMillis = cachedAtMillis
                         setStale(cachedAtMillis, remote.message)
+                        setRetryState(remote.state)
                     })
                 }
             })

@@ -13,6 +13,9 @@ import cn.limpu.hita.data.model.timetable.TimePeriodInDay
 import cn.limpu.hita.data.model.timetable.Timetable
 import cn.limpu.hita.data.repository.ScheduleEventCreator
 import cn.limpu.hita.data.repository.TimetableRepository
+import cn.limpu.hita.data.repository.TimetableEventAccess
+import cn.limpu.hita.data.repository.TimetableVersionStore
+import cn.limpu.hita.data.repository.EventEditHistoryStore
 import cn.limpu.hita.feature.timetable.write.TimetableWriteUseCaseFactory
 import cn.limpu.hita.utils.ColorTools
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -57,6 +60,17 @@ class AddEventViewModel @Inject constructor(
     val teacherLiveData = MediatorLiveData<DataState<String>>()
 
     val doneLiveData = MediatorLiveData<Boolean>()
+    enum class SaveState { EDITING, SAVING, SAVED, FAILED }
+    val saveState = MutableLiveData(SaveState.EDITING)
+    var dirty = false
+        private set
+    val eventToEdit: EventItem? get() = editingEvent
+    private var initialized = false
+
+    fun markEdited() {
+        dirty = true
+        if (saveState.value == SaveState.FAILED) saveState.value = SaveState.EDITING
+    }
 
     var addSubject: Boolean = false
     private var editingEvent: EventItem? = null
@@ -69,6 +83,8 @@ class AddEventViewModel @Inject constructor(
         doneLiveData.addSource(nameLiveData) { checkDone() }
         doneLiveData.addSource(timetableLiveData) { checkDone() }
         doneLiveData.addSource(timeRangeLiveDate) { checkDone() }
+        doneLiveData.addSource(customDateLiveData) { checkDone() }
+        doneLiveData.addSource(customTimePeriodLiveData) { checkDone() }
         doneLiveData.addSource(customFromToLiveData) { checkDone() }
 
         timeRangeLiveDate.addSource(timetableLiveData) {
@@ -192,15 +208,18 @@ class AddEventViewModel @Inject constructor(
             DateMode.WEEKLY -> timeRangeLiveDate.value?.state == DataState.STATE.SUCCESS &&
                 !timeRangeLiveDate.value?.data?.weeks.isNullOrEmpty()
         }
-        val timeReady = when (timeModeLiveData.value ?: TimeMode.PERIOD) {
-            TimeMode.CLOCK -> customTimePeriodLiveData.value?.state == DataState.STATE.SUCCESS
-            TimeMode.PERIOD -> timeRangeLiveDate.value?.state == DataState.STATE.SUCCESS &&
-                isValidPeriod(timeRangeLiveDate.value?.data?.period)
-        }
+        val timeReady = isValidPeriod(selectedPeriod())
         doneLiveData.value = timetableLiveData.value?.state == DataState.STATE.SUCCESS &&
             contentReady &&
             dateReady &&
-            timeReady
+            timeReady &&
+            timetableLiveData.value?.data?.let { !TimetableVersionStore.isProjection(it) } == true &&
+            (editingEvent?.let { TimetableEventAccess.forEvent(it) == TimetableEventAccess.PERSONAL } ?: true)
+    }
+
+    fun selectedPeriod(): TimePeriodInDay? = when (timeModeLiveData.value) {
+        TimeMode.CLOCK -> customTimePeriodLiveData.value?.data
+        else -> timeRangeLiveDate.value?.data?.period
     }
 
     var initSubject: TermSubject? = null
@@ -212,15 +231,18 @@ class AddEventViewModel @Inject constructor(
         courseTime: CourseTime?,
         eventToEdit: EventItem? = null,
     ) {
+        if (initialized) return
+        initialized = true
         editingEvent = eventToEdit
         initCourseT = courseTime
         initSubject = subject
         this.addSubject = addSubject
 
         if (timetable == null) {
+            val timetables = eventRepo.getTimetables()
             val observer = object : Observer<List<Timetable>> {
                 override fun onChanged(value: List<Timetable>) {
-                    val t = value
+                    val t = value.filterNot(TimetableVersionStore::isProjection)
                     // Prefer EAS timetable (with non-null code) covering the current date,
                     // matching the logic used by TimetableFragment.getCurrentTimetableAndWeek().
                     val now = System.currentTimeMillis()
@@ -235,10 +257,10 @@ class AddEventViewModel @Inject constructor(
                     } else {
                         timetableLiveData.postValue(DataState(DataState.STATE.NOTHING))
                     }
-                    eventRepo.getTimetables().removeObserver(this)
+                    timetables.removeObserver(this)
                 }
             }
-            eventRepo.getTimetables().observeForever(observer)
+            timetables.observeForever(observer)
         } else {
             timetableLiveData.value = DataState(timetable)
             courseTime?.let {
@@ -291,9 +313,16 @@ class AddEventViewModel @Inject constructor(
     }
 
     fun createEvent() {
+        if (saveState.value == SaveState.SAVING || saveState.value == SaveState.SAVED) return
+        checkDone()
+        if (doneLiveData.value != true) return
+        saveState.value = SaveState.SAVING
+        fun completed(result: Result<Unit>) {
+            saveState.value = if (result.isSuccess) SaveState.SAVED else SaveState.FAILED
+        }
         timetableLiveData.value?.data?.let { timetable ->
             if (editingEvent != null) {
-                updateEditingEvent(timetable)
+                updateEditingEvent(timetable, ::completed)
                 return
             }
             val subjectToSave: TermSubject?
@@ -323,7 +352,7 @@ class AddEventViewModel @Inject constructor(
                     type = EventItem.TYPE.CLASS,
                 )
             } else if (initSubject != null) {
-                val subject = initSubject ?: return
+                val subject = checkNotNull(initSubject)
                 subjectToSave = null
                 ScheduleEventCreator.Content(
                     name = subject.name,
@@ -350,8 +379,9 @@ class AddEventViewModel @Inject constructor(
                     type = EventItem.TYPE.OTHER,
                 )
             }
-            val result = buildResult(timetable, content) ?: return
-            timetableWrites.add(result, subjectToSave)
+            val result = buildResult(timetable, content)
+            if (result == null || result.events.isEmpty()) saveState.value = SaveState.FAILED
+            else timetableWrites.add(result, subjectToSave, ::completed)
         }
     }
 
@@ -362,13 +392,17 @@ class AddEventViewModel @Inject constructor(
             color = ColorTools.colorForName(this.name)
         }
 
-    private fun updateEditingEvent(timetable: Timetable) {
+    private fun updateEditingEvent(timetable: Timetable, completed: (Result<Unit>) -> Unit) {
         val original = editingEvent ?: return
         val dateMode = dateModeLiveData.value ?: DateMode.SINGLE
         val timeMode = timeModeLiveData.value ?: TimeMode.PERIOD
-        val ranges = buildFixedRanges(timetable, dateMode, timeMode) ?: return
-        val range = ranges.firstOrNull() ?: return
-        val edited = original.apply {
+        val range = buildFixedRanges(timetable, dateMode, timeMode)?.firstOrNull()
+        if (range == null || range.toMs <= range.fromMs) {
+            saveState.value = SaveState.FAILED
+            return
+        }
+        val codec = EventEditHistoryStore.eventCodec()
+        val edited = codec.fromJson(codec.toJson(original), EventItem::class.java).apply {
             name = nameLiveData.value?.trim().orEmpty()
             place = locationLiveData.value?.data ?: ""
             teacher = teacherLiveData.value?.data ?: ""
@@ -378,7 +412,7 @@ class AddEventViewModel @Inject constructor(
             fromNumber = range.fromNumber
             lastNumber = range.lastNumber
         }
-        timetableWrites.update(listOf(edited))
+        timetableWrites.update(listOf(edited), completed)
     }
 
     private fun buildResult(

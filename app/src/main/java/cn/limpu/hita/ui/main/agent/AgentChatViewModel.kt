@@ -2,6 +2,7 @@ package cn.limpu.hita.ui.main.agent
 
 import android.app.Application
 import android.net.Uri
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
@@ -38,6 +39,14 @@ internal fun nextSessionIdAfterDeletion(
     remainingLatestSessionId: String?,
 ): String? = if (deletedSessionId == currentSessionId) remainingLatestSessionId else currentSessionId
 
+internal data class ChatDraft(
+    val text: TextFieldValue = TextFieldValue(),
+    val attachment: Uri? = null,
+    val retryRowId: String? = null,
+) {
+    val hasContent: Boolean get() = text.text.isNotBlank() || attachment != null
+}
+
 /** Main-thread session selection and request delivery; stores and parsers own their work. */
 @HiltViewModel
 class AgentChatViewModel @Inject constructor(
@@ -51,62 +60,126 @@ class AgentChatViewModel @Inject constructor(
     private var initializingSession = false
     private var cleared = false
     private var nextRequestId = 0L
+    private var lastRowTime = 0L
     private var messageList: List<AgentChatMessage> = emptyList()
-    private val histories = mutableMapOf<String, MutableList<ChatMessage>>()
-    private data class Request(val sessionId: String, val id: Long)
-    private val jobs = mutableMapOf<Request, Job>()
-    private val placeholders = mutableMapOf<Request, AgentChatMessage>()
-
-    /** 写操作确认门；聊天页订阅 [ChatConfirmationGate.state] 弹对话框。 */
-    val confirmationGate = ChatConfirmationGate().also { gate ->
-        gate.sessionIdProvider = { currentSessionId }
+    private class SessionUi {
+        var draft = ChatDraft()
+        var notice = ""
+        val retries = mutableMapOf<String, Attempt>()
     }
+    private data class Attempt(val input: ChatDraft, val user: AgentChatMessage, val reply: AgentChatMessage)
+    private class Running(val owner: ChatConfirmationGate.Owner, val attempt: Attempt) {
+        lateinit var job: Job
+        var row = attempt.reply
+        // Written by the Main-thread confirmation action, before the tool receives approval.
+        var writeAuthorized = false
+    }
+    private val sessionUi = mutableMapOf<String, SessionUi>()
+    private val jobs = mutableMapOf<ChatConfirmationGate.Owner, Running>()
+    private var pickerSessionId: String? = null
+    private var restoreFailed = false
+
+    private val confirmationGate = ChatConfirmationGate()
+    internal val pendingConfirmation = confirmationGate.state
 
     private val _messages = MutableLiveData<List<AgentChatMessage>>(emptyList())
     val messages: LiveData<List<AgentChatMessage>> = _messages
     private val _status = MutableLiveData("")
     val status: LiveData<String> = _status
+    private val _selectedSessionId = MutableLiveData<String?>()
+    val selectedSessionId: LiveData<String?> = _selectedSessionId
     private val _isLoading = MutableLiveData(false)
     val isLoading: LiveData<Boolean> = _isLoading
-    private val _pendingAttachment = MutableLiveData<Uri?>(null)
-    val pendingAttachment: LiveData<Uri?> = _pendingAttachment
+    private val _isRestoring = MutableLiveData(false)
+    val isRestoring: LiveData<Boolean> = _isRestoring
+    private val _activeRequest = MutableLiveData<ChatConfirmationGate.Owner?>()
+    internal val activeRequest: LiveData<ChatConfirmationGate.Owner?> = _activeRequest
+    private val _draft = MutableLiveData(ChatDraft())
+    internal val draft: LiveData<ChatDraft> = _draft
+    private val _deleting = MutableLiveData<Set<String>>(emptySet())
+    val deleting: LiveData<Set<String>> = _deleting
+    private val _deletionNotice = MutableLiveData("")
+    val deletionNotice: LiveData<String> = _deletionNotice
     val sessions = repository.sessions
     val currentSessionId: String? get() = delivery.currentSessionId
 
+    private fun ui(sessionId: String) = sessionUi.getOrPut(sessionId, ::SessionUi)
+
     private fun publishMessages() { if (!cleared) _messages.value = messageList }
-    private fun publishStatus(text: String) { if (!cleared) _status.value = text }
+    private fun publishStatus(text: String, sessionId: String? = currentSessionId) {
+        if (cleared) return
+        if (sessionId != null && !delivery.isDeleted(sessionId)) ui(sessionId).notice = text
+        if (sessionId == currentSessionId) _status.value = text
+    }
     private fun publishLoading() {
-        if (!cleared) _isLoading.value = initializingSession || restoringSessionId == currentSessionId && currentSessionId != null ||
-            jobs.keys.any { it.sessionId == currentSessionId }
+        if (cleared) return
+        val id = currentSessionId
+        val active = jobs.keys.lastOrNull { it.sessionId == id }
+        val restoring = initializingSession || id != null && restoringSessionId == id
+        _isRestoring.value = restoring
+        _activeRequest.value = active
+        _isLoading.value = restoring || active != null || id != null && id in _deleting.value.orEmpty()
     }
 
-    fun setPendingAttachment(uri: Uri?) { if (!cleared) _pendingAttachment.value = uri }
-    fun clearPendingAttachment() { if (!cleared) _pendingAttachment.value = null }
+    private fun updateDraft(sessionId: String, draft: ChatDraft) {
+        if (cleared || delivery.isDeleted(sessionId)) return
+        ui(sessionId).draft = draft
+        if (sessionId == currentSessionId) _draft.value = draft
+    }
 
-    fun addMessage(message: AgentChatMessage, targetSessionId: String? = null) {
-        val id = targetSessionId ?: currentSessionId ?: return
+    internal fun editDraft(sessionId: String, text: TextFieldValue) {
+        if (sessionId != currentSessionId || sessionId in _deleting.value.orEmpty()) return
+        val draft = ui(sessionId).draft
+        updateDraft(sessionId, draft.copy(text = text))
+    }
+
+    internal fun beginAttachmentPicker(sessionId: String): Boolean {
+        if (sessionId != currentSessionId || sessionId in _deleting.value.orEmpty() || pickerSessionId != null) return false
+        pickerSessionId = sessionId
+        return true
+    }
+
+    internal fun finishAttachmentPicker(uri: Uri?) {
+        val id = pickerSessionId ?: return
+        pickerSessionId = null
+        if (uri != null && !delivery.isDeleted(id)) updateDraft(id, ui(id).draft.copy(attachment = uri))
+    }
+
+    internal fun removeAttachment(sessionId: String) {
+        if (sessionId != currentSessionId || sessionId in _deleting.value.orEmpty()) return
+        updateDraft(sessionId, ui(sessionId).draft.copy(attachment = null))
+    }
+
+    private fun placeVisible(message: AgentChatMessage) {
+        val index = messageList.indexOfFirst { it.id == message.id }
+        messageList = when {
+            index >= 0 -> messageList.toMutableList().apply { set(index, message) }
+            messageList.lastOrNull()?.let { it.timestampMs > message.timestampMs } == true ->
+                messageList.toMutableList().apply { add(indexOfFirst { it.timestampMs > message.timestampMs }, message) }
+            else -> messageList + message
+        }
+        publishMessages()
+    }
+
+    private fun persistMessage(sessionId: String, message: AgentChatMessage) {
         if (cleared) return
-        when (delivery.receive(id)) {
+        when (delivery.receive(sessionId)) {
             ChatSessionDelivery.Destination.DELETED -> return
-            ChatSessionDelivery.Destination.CURRENT -> { messageList = messageList + message; publishMessages() }
+            ChatSessionDelivery.Destination.CURRENT -> placeVisible(message)
             ChatSessionDelivery.Destination.BACKGROUND -> Unit
         }
-        watchWrite(repository.append(id, message.toRecord()), id)
+        watchWrite(repository.append(sessionId, message.toRecord()), sessionId)
     }
 
     private fun watchWrite(write: Deferred<*>, sessionId: String? = currentSessionId) {
         viewModelScope.launch {
             try {
-                if (write.await() == false && sessionId == currentSessionId && sessionId != null && !delivery.isDeleted(sessionId)) {
-                    publishStatus(application.getString(R.string.chat_save_failed))
-                }
+                if (write.await() == false) publishStatus(application.getString(R.string.chat_save_failed), sessionId)
             }
             catch (cancelled: CancellationException) { throw cancelled }
             catch (error: Exception) {
                 LogUtils.e("Chat persistence failed", error)
-                if (sessionId == currentSessionId && sessionId != null && !delivery.isDeleted(sessionId)) {
-                    publishStatus(application.getString(R.string.chat_save_failed))
-                }
+                publishStatus(application.getString(R.string.chat_save_failed), sessionId)
             }
         }
     }
@@ -114,27 +187,41 @@ class AgentChatViewModel @Inject constructor(
     fun createNewSession() {
         if (cleared) return
         val session = ChatSession()
-        delivery.select(session.id)
-        restoringSessionId = null
-        initializingSession = false
-        histories[session.id] = mutableListOf()
-        messageList = emptyList()
-        publishMessages()
-        publishStatus("")
-        publishLoading()
-        // Enqueue synchronously before a subsequent addMessage can enqueue its insert.
+        select(session.id, restore = false)
+        // Enqueue creation before the first accepted message can enqueue its insert.
         watchWrite(repository.create(session))
     }
 
     fun switchToSession(sessionId: String) {
-        if (cleared || sessionId == currentSessionId || delivery.isDeleted(sessionId)) return
+        if (cleared || sessionId == currentSessionId || delivery.isDeleted(sessionId) ||
+            sessionId in _deleting.value.orEmpty()) return
+        select(sessionId, restore = true)
+        restoreSession(sessionId)
+    }
+
+    private fun select(sessionId: String, restore: Boolean) {
         delivery.select(sessionId)
-        restoringSessionId = sessionId
+        restoringSessionId = sessionId.takeIf { restore }
+        initializingSession = false
+        restoreFailed = false
         messageList = emptyList()
         publishMessages()
-        publishStatus("")
+        _selectedSessionId.value = sessionId
+        _draft.value = ui(sessionId).draft
+        _status.value = ui(sessionId).notice
         publishLoading()
-        restoreSession(sessionId)
+    }
+
+    internal fun retryRestore() {
+        if (!restoreFailed) return
+        restoreFailed = false
+        publishStatus("")
+        val id = currentSessionId
+        if (id == null) ensureSession() else {
+            restoringSessionId = id
+            publishLoading()
+            restoreSession(id)
+        }
     }
 
     private fun restoreSession(sessionId: String) {
@@ -153,18 +240,20 @@ class AgentChatViewModel @Inject constructor(
                     ChatSessionDelivery.RestoreDecision.APPLY -> Unit
                 }
                 restoringSessionId = null
-                histories[sessionId] = restored.filter { it.role != AgentChatMessage.Role.TRACE }.map {
-                    ChatMessage(if (it.role == AgentChatMessage.Role.USER) "user" else "assistant", it.text)
-                }.toMutableList()
-                messageList = restored + placeholders.filterKeys { it.sessionId == sessionId }.values
+                lastRowTime = maxOf(lastRowTime, restored.lastOrNull()?.timestampMs ?: 0L)
+                val pending = jobs.values.filter { it.owner.sessionId == sessionId }.map { it.row }
+                messageList = if (pending.isEmpty()) restored else {
+                    val pendingIds = pending.mapTo(HashSet(pending.size)) { it.id }
+                    (restored.filterNot { it.id in pendingIds } + pending).sortedBy { it.timestampMs }
+                }
                 publishMessages()
                 publishLoading()
-                publishStatus("")
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
                 if (delivery.restoration(ticket) == ChatSessionDelivery.RestoreDecision.OBSOLETE) return@launch
                 restoringSessionId = null
+                restoreFailed = true
                 publishLoading()
                 publishStatus(application.getString(R.string.chat_restore_failed))
                 LogUtils.e("Chat restoration failed", error)
@@ -173,15 +262,17 @@ class AgentChatViewModel @Inject constructor(
     }
 
     fun deleteSession(session: ChatSession) {
-        if (cleared) return
-        delivery.delete(session.id)
-        jobs.filterKeys { it.sessionId == session.id }.values.toList().forEach { it.cancel() }
-        histories.remove(session.id)
-        placeholders.keys.removeAll { it.sessionId == session.id }
+        if (cleared || delivery.isDeleted(session.id) || _deleting.value.orEmpty().isNotEmpty()) return
+        _deleting.value = _deleting.value.orEmpty() + session.id
+        _deletionNotice.value = ""
+        jobs.values.filter { it.owner.sessionId == session.id }.forEach(::stop)
+        publishLoading()
         val deletion = repository.delete(session)
         viewModelScope.launch {
             try {
                 val latestId = deletion.await()?.id
+                delivery.delete(session.id)
+                sessionUi.remove(session.id)
                 val next = nextSessionIdAfterDeletion(session.id, currentSessionId, latestId)
                 when {
                     next == null || delivery.isDeleted(next) -> createNewSession()
@@ -189,8 +280,13 @@ class AgentChatViewModel @Inject constructor(
                 }
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (error: Exception) {
-                publishStatus(application.getString(R.string.chat_save_failed))
+                _deletionNotice.value = application.getString(R.string.agent_chat_delete_failed, session.title)
                 LogUtils.e("Chat deletion failed", error)
+            } finally {
+                if (!cleared) {
+                    _deleting.value = _deleting.value.orEmpty() - session.id
+                    publishLoading()
+                }
             }
         }
     }
@@ -209,6 +305,7 @@ class AgentChatViewModel @Inject constructor(
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (error: Exception) {
                 initializingSession = false
+                restoreFailed = true
                 publishLoading()
                 publishStatus(application.getString(R.string.chat_restore_failed))
                 LogUtils.e("Chat initialization failed", error)
@@ -216,66 +313,158 @@ class AgentChatViewModel @Inject constructor(
         }
     }
 
-    fun sendToLlm(
+    internal fun sendDraft(
+        sessionId: String,
+        provider: AgentProvider<TimetableAgentInput, TimetableAgentOutput>,
+    ): Boolean {
+        if (!canSendFromComposer(sessionId)) return false
+        return submit(sessionId, ui(sessionId).draft, provider, consumeDraft = true)
+    }
+
+    internal fun sendSuggestion(
+        sessionId: String,
         text: String,
-        agentProvider: AgentProvider<TimetableAgentInput, TimetableAgentOutput>,
-        targetSessionId: String? = null,
-    ) {
-        ensureSession()
-        val id = targetSessionId ?: currentSessionId ?: return
-        if (cleared || delivery.isDeleted(id)) return
-        val history = captureHistory(id, text)
-        launchRequest(id) { request -> runLlm(request, history, null, agentProvider) }
+        provider: AgentProvider<TimetableAgentInput, TimetableAgentOutput>,
+    ): Boolean {
+        if (!canSendFromComposer(sessionId)) return false
+        return submit(sessionId, ChatDraft(TextFieldValue(text)), provider)
     }
 
-    fun sendWithAttachment(text: String, uri: Uri, agentProvider: AgentProvider<TimetableAgentInput, TimetableAgentOutput>) {
-        val id = currentSessionId ?: return
-        if (cleared || delivery.isDeleted(id)) return
-        launchRequest(id) { request ->
-            val result = try { attachmentLoader.load(uri) }
-            catch (cancelled: CancellationException) { throw cancelled }
-            catch (error: Exception) { ChatAttachmentResult.Failure(ChatAttachmentResult.Kind.READ, detail = error.message) }
-            currentCoroutineContext().ensureActive()
-            when (result) {
-                is ChatAttachmentResult.Text -> {
-                    val fullText = "$text\n\n[附件: ${result.fileName}]\n${result.content}"
-                    addMessage(AgentChatMessage(AgentChatMessage.Role.USER, fullText), id)
-                    runLlm(request, captureHistory(id, fullText), null, agentProvider)
-                }
-                is ChatAttachmentResult.Media -> {
-                    addMessage(AgentChatMessage(AgentChatMessage.Role.USER, "$text\n\n[附件: ${result.fileName}]"), id)
-                    runLlm(request, captureHistory(id, "$text\n\n[文件: ${result.fileName}]"), ChatMediaContent(result.base64, result.mimeType), agentProvider)
-                }
-                is ChatAttachmentResult.Failure -> addMessage(
-                    AgentChatMessage(AgentChatMessage.Role.ASSISTANT, attachmentFailureText(application, result)), id,
-                )
-            }
-        }
+    private fun canSendFromComposer(sessionId: String): Boolean =
+        sessionId == currentSessionId && jobs.keys.none { it.sessionId == sessionId }
+
+    private fun nextRowTime(): Long {
+        lastRowTime = maxOf(lastRowTime + 1, System.currentTimeMillis())
+        return lastRowTime
     }
 
-    private fun captureHistory(sessionId: String, userText: String): List<ChatMessage> =
-        histories.getOrPut(sessionId) { mutableListOf() }.also { it.add(ChatMessage("user", userText)) }.toList()
+    /** Admits an explicit input snapshot. Composer actions additionally reject while a turn is active. */
+    internal fun submit(
+        sessionId: String,
+        input: ChatDraft,
+        provider: AgentProvider<TimetableAgentInput, TimetableAgentOutput>,
+        consumeDraft: Boolean = false,
+    ): Boolean {
+        if (cleared || sessionId != currentSessionId || delivery.isDeleted(sessionId) ||
+            sessionId in _deleting.value.orEmpty() || restoringSessionId == sessionId ||
+            restoreFailed || !input.hasContent) return false
 
-    private fun launchRequest(sessionId: String, block: suspend (Request) -> Unit) {
-        val request = Request(sessionId, ++nextRequestId)
-        val job = viewModelScope.launch(start = CoroutineStart.LAZY) {
-            try { block(request) }
-            finally {
-                jobs.remove(request)
-                val placeholder = placeholders.remove(request)
-                if (!cleared && sessionId == currentSessionId && !delivery.isDeleted(sessionId)) {
-                    if (placeholder != null) { messageList = messageList.filterNot { it === placeholder }; publishMessages() }
-                    publishLoading()
-                }
+        val retry = input.retryRowId?.let { ui(sessionId).retries[it] }?.takeIf {
+            it.input.text.text == input.text.text && it.input.attachment == input.attachment
+        }
+        val attempt = Attempt(
+            input.copy(text = input.text.copy(composition = null), retryRowId = null),
+            retry?.user ?: AgentChatMessage(AgentChatMessage.Role.USER, input.text.text.trim(), timestampMs = nextRowTime()),
+            retry?.reply ?: AgentChatMessage(
+                AgentChatMessage.Role.ASSISTANT,
+                application.getString(R.string.agent_chat_processing),
+                isPlaceholder = true,
+                timestampMs = nextRowTime(),
+            ),
+        )
+        val history = messageList.mapNotNull { row ->
+            if (row.timestampMs >= attempt.user.timestampMs || row.isPlaceholder) return@mapNotNull null
+            when (row.role) {
+                AgentChatMessage.Role.USER -> ChatMessage("user", row.text)
+                AgentChatMessage.Role.ASSISTANT -> ChatMessage("assistant", row.text)
+                AgentChatMessage.Role.TRACE -> null
             }
         }
-        jobs[request] = job
+        val running = Running(ChatConfirmationGate.Owner(sessionId, ++nextRequestId), attempt)
+        running.job = viewModelScope.launch(start = CoroutineStart.LAZY) {
+            try {
+                execute(running, history, provider)
+            } finally {
+                confirmationGate.cancel(running.owner)
+                if (jobs.remove(running.owner) != null && currentSessionId == sessionId) publishLoading()
+            }
+        }
+        jobs[running.owner] = running
+        ui(sessionId).retries.remove(attempt.reply.id)
+        if (consumeDraft) updateDraft(sessionId, ChatDraft())
         publishLoading()
-        job.start()
+        placeVisible(running.row)
+        running.job.start()
+        return true
+    }
+
+    internal fun hasRecoverableInput(sessionId: String, rowId: String): Boolean =
+        sessionUi[sessionId]?.retries?.containsKey(rowId) == true
+
+    internal fun recoverInput(sessionId: String, rowId: String, replace: Boolean = false): Boolean {
+        if (!canSendFromComposer(sessionId) || sessionId in _deleting.value.orEmpty()) return false
+        val ui = ui(sessionId)
+        val attempt = ui.retries[rowId] ?: return false
+        if (!replace && ui.draft.hasContent &&
+            (ui.draft.text.text != attempt.input.text.text || ui.draft.attachment != attempt.input.attachment)) return false
+        updateDraft(sessionId, attempt.input.copy(retryRowId = rowId))
+        return true
+    }
+
+    internal fun resolveConfirmation(pending: ChatConfirmationGate.Pending, approved: Boolean): Boolean {
+        val request = jobs[pending.owner] ?: return false
+        if (!request.job.isActive || pending.owner.sessionId in _deleting.value.orEmpty()) return false
+        return confirmationGate.resolve(pending, currentSessionId, approved)
+    }
+
+    internal fun stopRequest(owner: ChatConfirmationGate.Owner) {
+        if (owner.sessionId != currentSessionId) return
+        jobs[owner]?.let(::stop)
+    }
+
+    private fun stop(running: Running) {
+        jobs.remove(running.owner)
+        running.job.cancel()
+        confirmationGate.cancel(running.owner)
+        markFailure(
+            running,
+            application.getString(R.string.agent_chat_stopped),
+            recoverable = !running.writeAuthorized,
+        )
+        if (running.owner.sessionId == currentSessionId) publishLoading()
+    }
+
+    private suspend fun execute(
+        running: Running,
+        history: List<ChatMessage>,
+        provider: AgentProvider<TimetableAgentInput, TimetableAgentOutput>,
+    ) {
+        val sessionId = running.owner.sessionId
+        val attempt = running.attempt
+        try {
+            var userText = attempt.user.text
+            var media: ChatMediaContent? = null
+            attempt.input.attachment?.let { uri ->
+                currentCoroutineContext().ensureActive()
+                val result = try { attachmentLoader.load(uri) }
+                catch (cancelled: CancellationException) { throw cancelled }
+                catch (error: Exception) { ChatAttachmentResult.Failure(ChatAttachmentResult.Kind.READ, detail = error.message) }
+                currentCoroutineContext().ensureActive()
+                when (result) {
+                    is ChatAttachmentResult.Text -> userText += "\n\n[附件: ${result.fileName}]\n${result.content}"
+                    is ChatAttachmentResult.Media -> {
+                        userText += "\n\n[附件: ${result.fileName}]"
+                        media = ChatMediaContent(result.base64, result.mimeType)
+                    }
+                    is ChatAttachmentResult.Failure -> {
+                        markFailure(running, attachmentFailureText(application, result))
+                        return
+                    }
+                }
+            }
+            persistMessage(sessionId, attempt.user.copy(text = userText))
+            runLlm(running, history + ChatMessage("user", userText), media, provider)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            currentCoroutineContext().ensureActive()
+            LogUtils.e("Chat request failed", error)
+            markFailure(running, application.getString(R.string.agent_chat_request_failed, error.message.orEmpty()))
+        }
     }
 
     private suspend fun runLlm(
-        request: Request,
+        running: Running,
         history: List<ChatMessage>,
         media: ChatMediaContent?,
         provider: AgentProvider<TimetableAgentInput, TimetableAgentOutput>,
@@ -288,72 +477,57 @@ class AgentChatViewModel @Inject constructor(
                 media = media,
                 provider = provider,
                 onTrace = { trace ->
-                    if (!cleared && jobs.containsKey(request) && !delivery.isDeleted(request.sessionId)) {
-                        showTrace(request, trace, media != null)
+                    if (!cleared && jobs[running.owner] === running && running.job.isActive) {
+                        running.row = running.row.copy(
+                            text = chatTraceText(trace, media != null),
+                            thinking = if (trace.stage == "react_step") trace.payload.ifBlank { trace.message } else running.row.thinking,
+                        )
+                        if (running.owner.sessionId == currentSessionId) placeVisible(running.row)
                     }
                 },
-                confirmationGate = confirmationGate,
+                confirmationGate = confirmationGate.bind(running.owner) { running.writeAuthorized = true },
             )
             currentCoroutineContext().ensureActive()
-            if (cleared || delivery.isDeleted(request.sessionId)) return
-            val final = when (result) {
+            when (result) {
                 is LlmChatResult.Success -> {
                     outcome = "success"
-                    histories.getOrPut(request.sessionId) { mutableListOf() }.add(ChatMessage("assistant", result.text))
-                    AgentChatMessage(AgentChatMessage.Role.ASSISTANT, result.text, thinking = result.thinking, resourceCards = result.resourceCards)
+                    persistMessage(
+                        running.owner.sessionId,
+                        running.attempt.reply.copy(
+                            text = result.text, thinking = result.thinking, resourceCards = result.resourceCards,
+                            isPlaceholder = false,
+                        ),
+                    )
                 }
-                is LlmChatResult.Error -> AgentChatMessage(
-                    AgentChatMessage.Role.ASSISTANT,
-                    if (media == null) "操作失败: ${result.error}" else "抱歉，处理过程中出现错误：${result.error}",
-                )
+                is LlmChatResult.Error ->
+                    markFailure(running, application.getString(R.string.agent_chat_request_failed, result.error))
             }
-            deliverReply(request, final)
-            if (request.sessionId == currentSessionId && media == null && jobs.keys.none { it != request && it.sessionId == request.sessionId }) publishStatus(if (result is LlmChatResult.Success) "完成" else "失败")
         } catch (cancelled: CancellationException) {
             outcome = "cancelled"
             throw cancelled
-        } catch (error: Exception) {
-            currentCoroutineContext().ensureActive()
-            LogUtils.e("Chat request failed", error)
-            deliverReply(request, AgentChatMessage(AgentChatMessage.Role.ASSISTANT, "操作失败: ${error.message}"))
         } finally {
             UsageAnalyticsClient.finish(operation, UsageAnalyticsEvent.AI_CHAT_FINISHED, mapOf("outcome" to outcome))
         }
     }
 
-    private fun showTrace(request: Request, trace: AgentTraceEvent, attachment: Boolean) {
-        if (request.sessionId != currentSessionId) return
-        val existing = placeholders[request]
-        val updated = (existing ?: AgentChatMessage(AgentChatMessage.Role.ASSISTANT, "", isPlaceholder = true)).copy(
-            text = chatTraceText(trace, attachment),
-            thinking = if (trace.stage == "react_step") trace.payload.ifBlank { trace.message } else existing?.thinking,
-        )
-        val index = existing?.let { old -> messageList.indexOfFirst { it === old } } ?: -1
-        messageList = if (index >= 0) messageList.toMutableList().apply { set(index, updated) } else messageList + updated
-        placeholders[request] = updated
-        publishMessages()
-    }
-
-    private fun deliverReply(request: Request, message: AgentChatMessage) {
-        if (cleared) return
-        val destination = delivery.receive(request.sessionId)
-        if (destination == ChatSessionDelivery.Destination.DELETED) return
-        val placeholder = placeholders.remove(request)
-        if (destination == ChatSessionDelivery.Destination.CURRENT) {
-            val index = placeholder?.let { old -> messageList.indexOfFirst { it === old } } ?: -1
-            messageList = if (index >= 0) messageList.toMutableList().apply { set(index, message) } else messageList + message
-            publishMessages()
-        }
-        watchWrite(repository.append(request.sessionId, message.toRecord()), request.sessionId)
+    private fun markFailure(running: Running, description: String, recoverable: Boolean = !running.writeAuthorized) {
+        val sessionId = running.owner.sessionId
+        if (cleared || delivery.isDeleted(sessionId)) return
+        val reply = running.attempt.reply
+        if (recoverable) ui(sessionId).retries[reply.id] = running.attempt
+        val text = if (running.writeAuthorized) {
+            application.getString(R.string.agent_chat_check_write, description)
+        } else description
+        // App-generated status is not model conversation history, even after restoring from Room.
+        persistMessage(sessionId, reply.copy(role = AgentChatMessage.Role.TRACE, text = text, isPlaceholder = false))
     }
 
     override fun onCleared() {
         cleared = true
         // 页面销毁时让挂起的确认请求以拒绝收场，避免工具协程永久等待。
         confirmationGate.cancelAll()
-        jobs.values.toList().forEach { it.cancel() }
+        jobs.values.toList().forEach { it.job.cancel() }
         jobs.clear()
-        placeholders.clear()
         // repository is application-owned: already accepted writes continue after UI cancellation.
         super.onCleared()
     }
