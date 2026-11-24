@@ -41,14 +41,16 @@ data class GraderState(
 class GraderRepository internal constructor(
     private val store: GraderStore,
     private val publicationDispatcher: CoroutineDispatcher,
-    private val fetchRemote: (String, String?, () -> Unit) -> GraderRemoteSnapshot,
+    private val fetchRemote: (GraderSessionPolicy.Entry, String, String?, () -> Unit) -> GraderRemoteSnapshot,
 ) {
     @Inject constructor(application: Application) : this(
         GraderPreferenceSource(application).let { GraderStore(it::read, it::write) },
         Dispatchers.Main.immediate,
         kotlin.run {
             val source by lazy { GraderWebSource() }
-            return@run { cookie, expectedAccountId, checkActive -> source.fetch(cookie, expectedAccountId, checkActive) }
+            return@run { entry, cookie, expectedAccountId, checkActive ->
+                source.fetch(entry, cookie, expectedAccountId, checkActive)
+            }
         },
     )
     private val mutex = Mutex()
@@ -72,10 +74,13 @@ class GraderRepository internal constructor(
         }
     }
 
-    suspend fun connect(cookieHeader: String, expectedAccountId: String? = null): Boolean =
-        synchronize(cookieHeader, expectedAccountId)
+    internal suspend fun connect(
+        cookieHeader: String,
+        expectedAccountId: String? = null,
+        entry: GraderSessionPolicy.Entry = GraderSessionPolicy.Entry.DIRECT,
+    ): Boolean = synchronize(cookieHeader, expectedAccountId, entry)
 
-    suspend fun refresh(): Boolean = synchronize(null, null)
+    suspend fun refresh(): Boolean = synchronize(null, null, null)
 
     suspend fun setCompleted(accountId: String, id: String, completed: Boolean): Boolean = withContext(Dispatchers.IO) {
         mutex.withLock {
@@ -121,10 +126,19 @@ class GraderRepository internal constructor(
 
     private enum class SessionChange { DISCONNECT, REPLACE }
 
-    private data class Operation(val generation: Long, val cookie: String, val expectedAccountId: String?)
+    private data class Operation(
+        val generation: Long,
+        val entry: GraderSessionPolicy.Entry,
+        val cookie: String,
+        val expectedAccountId: String?,
+    )
     private class Superseded : Exception()
 
-    private suspend fun synchronize(candidateCookie: String?, candidateAccountId: String?): Boolean = withContext(Dispatchers.IO) {
+    private suspend fun synchronize(
+        candidateCookie: String?,
+        candidateAccountId: String?,
+        candidateEntry: GraderSessionPolicy.Entry?,
+    ): Boolean = withContext(Dispatchers.IO) {
         var startedGeneration: Long? = null
         try {
             val operation = mutex.withLock {
@@ -133,16 +147,21 @@ class GraderRepository internal constructor(
                 val token = ++generation
                 startedGeneration = token
                 try {
+                    val entry: GraderSessionPolicy.Entry
                     val cookie: String
                     val expectedAccountId: String?
                     if (candidateCookie != null) {
                         publish(GraderState(ready = true, syncing = true))
                         coroutineContext.ensureActive()
+                        // 新入口可能与旧会话不同，旧 cookie 不能跨入口复用。
+                        val candidate = candidateEntry ?: GraderSessionPolicy.Entry.DIRECT
                         // Retry a failed user disconnect before the replacement can retire any active session.
                         if (pendingChange == SessionChange.DISCONNECT) loadSnapshot()
                         pendingChange = SessionChange.REPLACE
                         loadSnapshot()
-                        cookie = GraderSessionPolicy.sessionCookie(candidateCookie) ?: throw GraderAuthenticationException()
+                        cookie = GraderSessionPolicy.cookieHeader(candidate, candidateCookie)
+                            ?: throw GraderAuthenticationException()
+                        entry = candidate
                         expectedAccountId = candidateAccountId
                     } else {
                         val snapshot = loadSnapshot()
@@ -150,11 +169,12 @@ class GraderRepository internal constructor(
                             publish(snapshot.toState())
                             return@withContext false
                         }
+                        entry = snapshot.entry
                         cookie = snapshot.cookie ?: throw GraderAuthenticationException()
                         expectedAccountId = snapshot.activeAccount?.id ?: throw GraderAuthenticationException()
                         publish(snapshot.toState(syncing = true))
                     }
-                    Operation(token, cookie, expectedAccountId)
+                    Operation(token, entry, cookie, expectedAccountId)
                 } catch (_: GraderStorageException) {
                     publish(current.copy(ready = true, syncing = false, error = GraderError.STORAGE))
                     null
@@ -166,7 +186,7 @@ class GraderRepository internal constructor(
 
             try {
                 val context = coroutineContext
-                val remote = fetchRemote(operation.cookie, operation.expectedAccountId) {
+                val remote = fetchRemote(operation.entry, operation.cookie, operation.expectedAccountId) {
                     context.ensureActive()
                     if (generation != operation.generation) throw Superseded()
                 }
@@ -179,6 +199,7 @@ class GraderRepository internal constructor(
                         operation.cookie,
                         remote.assignments,
                         remote.submittedAssignmentIds,
+                        operation.entry,
                     )
                     publish(snapshot.toState())
                     true

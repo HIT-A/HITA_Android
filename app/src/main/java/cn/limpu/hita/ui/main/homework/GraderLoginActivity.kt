@@ -63,11 +63,18 @@ import cn.limpu.hita.data.repository.grader.GraderRepository
 import cn.limpu.hita.data.source.preference.TodoLoginCredential
 import cn.limpu.hita.data.source.preference.TodoLoginProvider
 import cn.limpu.hita.data.source.preference.TodoPlatformCredentialStore
+import cn.limpu.hita.data.source.web.eas.HttpCampusReachabilityProbe
 import cn.limpu.hita.data.source.web.grader.GraderCasLoginPolicy
 import cn.limpu.hita.data.source.web.grader.GraderSessionPolicy
 import cn.limpu.hita.ui.design.HitaComposeTheme
 import cn.limpu.hita.ui.design.HitaPasswordField
+import cn.limpu.hita.ui.eas.login.ShenzhenTrustPortalAutoLogin
+import cn.limpu.hita.BuildConfig
 import dagger.hilt.android.AndroidEntryPoint
+import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import java.util.UUID
 import javax.inject.Inject
 import kotlinx.coroutines.Job
@@ -79,6 +86,9 @@ import kotlinx.coroutines.launch
 class GraderLoginActivity : AppCompatActivity() {
     @Inject lateinit var repository: GraderRepository
     @Inject lateinit var credentialStore: TodoPlatformCredentialStore
+
+    /** 只回答「直连通不通」，超时 2.5s；不通即按校外处理。 */
+    private val reachability = HttpCampusReachabilityProbe()
 
     private var username by mutableStateOf("")
     private var password by mutableStateOf("")
@@ -96,10 +106,14 @@ class GraderLoginActivity : AppCompatActivity() {
     private var navigationTimeout: Job? = null
     private var verification: Job? = null
 
+    /** 每次重开登录流程递增；用来作废还在探测入口的那一次尝试。 */
+    private var loginGeneration = 0
+
     private class BrowserAttempt(
         val view: WebView,
         val cookies: CookieManager,
         val isolated: Boolean,
+        val entry: GraderSessionPolicy.Entry,
         val username: String,
         val password: String,
         val expectedAccountId: String?,
@@ -112,6 +126,10 @@ class GraderLoginActivity : AppCompatActivity() {
         var accountTabOpened = false
         var exactSubmission = false
         var lastCookie: String? = null
+        var trustPortalNavigation: Int? = null
+        var trustPortalAttempts = 0
+        var forceWebModeApplied = false
+        var ssoNavigationStarted = false
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -274,16 +292,44 @@ class GraderLoginActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * 先选入口再开浏览器。
+     *
+     * `grader.hitsz.edu.cn` 只在内网可达（公网 DNS 给的是 `10.249.12.224`），校外必须走
+     * aTrust 网关域。判据与威海的入口选择一致：探测不通就回落网关，宁可多走一层，
+     * 也不把用户挡在门外。
+     */
     private fun beginLogin(expectedAccountId: String? = null) {
         if (!canSignIn()) return
         resetBrowser()
         currentFocus?.clearFocus()
+        loading = true
+        // 探测期间用户可能点了「编辑登录」或取消：那一侧的 resetBrowser 会推进代号，
+        // 让这次尚未落地的探测作废，而不是过一会儿又弹出一个浏览器。
+        val generation = ++loginGeneration
+        lifecycleScope.launch {
+            val entry = chooseEntry()
+            if (isFinishing || generation != loginGeneration) return@launch
+            openBrowser(entry, expectedAccountId)
+        }
+    }
+
+    private suspend fun chooseEntry(): GraderSessionPolicy.Entry {
+        val direct = GraderSessionPolicy.Entry.DIRECT
+        val reachable = reachability.isReachable("${direct.origin}/home")
+        trace("probe direct reachable=$reachable")
+        return if (reachable) direct else GraderSessionPolicy.Entry.GATEWAY
+    }
+
+    private fun openBrowser(entry: GraderSessionPolicy.Entry, expectedAccountId: String?) {
         val view = try {
             WebView(this)
         } catch (_: RuntimeException) {
+            loading = false
             error = R.string.grader_login_error
             return
         } catch (_: LinkageError) {
+            loading = false
             error = R.string.grader_login_error
             return
         }
@@ -297,11 +343,12 @@ class GraderLoginActivity : AppCompatActivity() {
             val proofToken = if (remember && WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) {
                 UUID.randomUUID().toString()
             } else null
-            BrowserAttempt(view, cookies, isolated, username.trim(), password, expectedAccountId, proofToken).also {
+            BrowserAttempt(view, cookies, isolated, entry, username.trim(), password, expectedAccountId, proofToken).also {
                 configureBrowser(it)
             }
         } catch (_: RuntimeException) {
             view.destroy()
+            loading = false
             error = R.string.grader_login_error
             return
         }
@@ -316,7 +363,7 @@ class GraderLoginActivity : AppCompatActivity() {
                 current.cookies.removeAllCookies { startNavigation(current) }
             } else {
                 current.cookies.setCookie(
-                    GraderSessionPolicy.ORIGIN, "sessionid=; Path=/; Max-Age=0; Secure; HttpOnly",
+                    entry.origin, "sessionid=; Path=/; Max-Age=0; Secure; HttpOnly",
                 ) { startNavigation(current) }
             }
         } catch (_: RuntimeException) {
@@ -327,7 +374,7 @@ class GraderLoginActivity : AppCompatActivity() {
     private fun startNavigation(current: BrowserAttempt) {
         if (!isCurrent(current)) return
         try {
-            current.view.loadUrl(GraderSessionPolicy.LOGIN_URL)
+            current.view.loadUrl(current.entry.startUrl)
         } catch (_: RuntimeException) {
             failBrowser(current)
         }
@@ -341,23 +388,30 @@ class GraderLoginActivity : AppCompatActivity() {
         settings.domStorageEnabled = true
         settings.allowFileAccess = false
         settings.allowContentAccess = false
-        settings.mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
+        // aTrust 门户页面会内嵌 http 子资源，校外入口必须放宽；直连保持最严格。
+        settings.mixedContentMode = if (current.entry == GraderSessionPolicy.Entry.GATEWAY) {
+            WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
+        } else {
+            WebSettings.MIXED_CONTENT_NEVER_ALLOW
+        }
         @Suppress("DEPRECATION")
         settings.saveFormData = false
         current.cookies.setAcceptCookie(true)
         current.cookies.setAcceptThirdPartyCookies(this, false)
         if (current.proofToken != null) {
+            val casOrigins = GraderCasLoginPolicy.casOrigins(current.entry)
             WebViewCompat.addWebMessageListener(
-                this, GraderCasLoginPolicy.BRIDGE_NAME, setOf(GraderCasLoginPolicy.CAS_ORIGIN),
+                this, GraderCasLoginPolicy.BRIDGE_NAME, casOrigins,
             ) { _, message, origin, mainFrame, _ ->
-                if (isCurrent(current) && mainFrame && origin.toString() == GraderCasLoginPolicy.CAS_ORIGIN) {
+                if (isCurrent(current) && mainFrame && origin.toString() in casOrigins) {
                     val formUrl = current.formUrl ?: return@addWebMessageListener
                     val proof = message.data ?: return@addWebMessageListener
                     val prefix = "${current.proofToken}:matched:"
                     when {
                         proof == "${current.proofToken}:changed" -> current.exactSubmission = false
-                        proof.startsWith(prefix) -> current.exactSubmission =
-                            GraderCasLoginPolicy.matchesFormAction(formUrl, proof.substring(prefix.length))
+                        proof.startsWith(prefix) -> current.exactSubmission = GraderCasLoginPolicy.matchesFormAction(
+                            formUrl, proof.substring(prefix.length), current.entry,
+                        )
                     }
                 }
             }
@@ -378,16 +432,19 @@ class GraderLoginActivity : AppCompatActivity() {
         override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
             if (!isCurrent(current)) return
             if (rejectNavigation(current, url)) return
+            // 校外链路多跳，出问题时首先要看完整链条（debug 包才输出）。
+            trace("nav[${current.navigation}] ${url.take(300)}")
             current.navigation += 1
             error = null
             waitForNavigation(current)
         }
 
         override fun onPageFinished(view: WebView, url: String) {
-            if (!isCurrent(current) || view.url != url || !GraderCasLoginPolicy.mayNavigate(url) ||
+            if (!isCurrent(current) || view.url != url || !GraderCasLoginPolicy.mayNavigate(url, current.entry) ||
                 current.failedNavigation == current.navigation
             ) return
-            if (GraderSessionPolicy.isCandidatePage(url)) {
+            trace("finish ${url.take(300)}")
+            if (GraderSessionPolicy.isCandidatePage(url, current.entry)) {
                 verifyCandidate(current)
             } else {
                 inspectOfficialPage(current, url)
@@ -400,6 +457,7 @@ class GraderLoginActivity : AppCompatActivity() {
 
         override fun onReceivedHttpError(view: WebView, request: WebResourceRequest, errorResponse: WebResourceResponse) {
             if (!isCurrent(current) || !request.isForMainFrame) return
+            trace("http ${errorResponse.statusCode}: ${request.url.toString().take(240)}")
             current.failedNavigation = current.navigation
             current.exactSubmission = false
             showOfficial(R.string.grader_login_error)
@@ -418,17 +476,25 @@ class GraderLoginActivity : AppCompatActivity() {
 
     private fun rejectNavigation(current: BrowserAttempt, url: String): Boolean {
         if (!isCurrent(current)) return true
-        if (GraderCasLoginPolicy.mayNavigate(url)) return false
+        if (GraderCasLoginPolicy.mayNavigate(url, current.entry)) return false
         // Defer destruction when the navigation callback is still on the stack.
+        trace("reject ${url.take(240)}")
         current.view.post { failBrowser(current) }
         return true
     }
 
     private fun inspectOfficialPage(current: BrowserAttempt, url: String) {
-        val service = GraderCasLoginPolicy.loginService(url)
+        // 网关先把请求送到 aTrust 的客户端探测页：不置 forceWeb 它不会前进。
+        if (applyTrustForceWebMode(current, url)) return
+        // 校外先过 aTrust 门户：门户登录页要勾协议再点「登录」才会跳统一认证。
+        if (current.entry == GraderSessionPolicy.Entry.GATEWAY && ShenzhenTrustPortalAutoLogin.shouldAutoLogin(url)) {
+            advanceTrustPortal(current)
+            return
+        }
+        val service = GraderCasLoginPolicy.loginService(url, current.entry)
         val previousForm = current.formNavigation
         if (previousForm != null) {
-            if (previousForm != current.navigation && GraderCasLoginPolicy.isLoginEndpoint(url)) {
+            if (previousForm != current.navigation && GraderCasLoginPolicy.isLoginEndpoint(url, current.entry)) {
                 // A subsequent account form may be a retry with different inputs. Never attribute
                 // that login to the credential we filled into the original document.
                 current.exactSubmission = false
@@ -438,6 +504,10 @@ class GraderLoginActivity : AppCompatActivity() {
             return
         }
         if (service == null) {
+            if (current.entry == GraderSessionPolicy.Entry.GATEWAY && url.contains("/authserver/")) {
+                // 看得见统一认证页却认不出它的 service：把实际地址打出来，下一次就能对齐规则。
+                trace("CAS unmatched: ${url.take(400)}")
+            }
             showOfficial()
             return
         }
@@ -445,11 +515,12 @@ class GraderLoginActivity : AppCompatActivity() {
         current.formNavigation = navigation // Reserve once, before JavaScript can click.
         current.formUrl = url
         current.view.evaluateJavascript(
-            GraderCasLoginPolicy.fillScript(service, current.username, current.password, current.proofToken),
+            GraderCasLoginPolicy.fillScript(service, current.username, current.password, current.proofToken, current.entry),
         ) { result ->
             if (!isCurrent(current) || current.navigation != navigation) return@evaluateJavascript
+            trace("CAS fill: $result")
             val accountTab = if (result == "\"accountTab\"" && !current.accountTabOpened) {
-                GraderCasLoginPolicy.accountTabUrl(url)
+                GraderCasLoginPolicy.accountTabUrl(url, current.entry)
             } else null
             if (accountTab != null) {
                 current.accountTabOpened = true
@@ -463,6 +534,82 @@ class GraderLoginActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * aTrust 的 shortcut 页默认探测本机客户端；WebView 里没有客户端，只能置 forceWeb
+     * 让它改走网页认证。只注入一次，并重载同一个签名 URL（令牌与回跳地址都在 query 里）。
+     */
+    private fun applyTrustForceWebMode(current: BrowserAttempt, url: String): Boolean {
+        if (current.entry != GraderSessionPolicy.Entry.GATEWAY || current.forceWebModeApplied) return false
+        if (!ShenzhenTrustPortalAutoLogin.shouldForceWebMode(url)) return false
+        current.forceWebModeApplied = true
+        trace("forceWeb applied")
+        current.view.evaluateJavascript(ShenzhenTrustPortalAutoLogin.buildForceWebScript()) {
+            if (isCurrent(current)) current.view.loadUrl(url)
+        }
+        return true
+    }
+
+    /**
+     * aTrust 门户登录页是 SPA，脚本自带可见性判断，这里只做有界重试：
+     * 页面渲染慢时再试几次，始终只操作当前这张官方页；重试用尽就交还用户手动操作。
+     */
+    private fun advanceTrustPortal(current: BrowserAttempt) {
+        if (!isCurrent(current)) return
+        if (current.trustPortalNavigation != current.navigation) {
+            current.trustPortalNavigation = current.navigation
+            current.trustPortalAttempts = 0
+        }
+        if (current.trustPortalAttempts >= TRUST_PORTAL_AUTO_LOGIN_ATTEMPTS) {
+            showOfficial()
+            return
+        }
+        val navigation = current.navigation
+        current.trustPortalAttempts += 1
+        trace("portal attempt ${current.trustPortalAttempts}")
+        current.view.postDelayed({
+            if (!isCurrent(current) || current.navigation != navigation) return@postDelayed
+            current.view.evaluateJavascript(ShenzhenTrustPortalAutoLogin.buildLoginScript()) { }
+            if (current.trustPortalAttempts < TRUST_PORTAL_AUTO_LOGIN_ATTEMPTS) {
+                current.view.postDelayed({
+                    if (isCurrent(current) && current.navigation == navigation) advanceTrustPortal(current)
+                }, TRUST_PORTAL_AUTO_LOGIN_RETRY_DELAY_MS)
+            } else {
+                showOfficial()
+            }
+        }, TRUST_PORTAL_AUTO_LOGIN_DELAY_MS)
+    }
+
+    /**
+     * 浏览器已经回到 Grader 的页面上，但 Grader 自己还没有会话：走一次它的 SSO 入口。
+     *
+     * 校外 aTrust 只解决网络可达性，Grader 的业务会话仍要靠它自己的 OAuth 回调建立。
+     * aTrust 刚用统一认证登录过，CAS 会话还在，这一跳通常无感通过。只走一次，
+     * 避免登录真的失败时在门户与 SSO 之间来回重定向。
+     */
+    private fun startSsoNavigation(current: BrowserAttempt): Boolean {
+        if (current.ssoNavigationStarted) return false
+        current.ssoNavigationStarted = true
+        trace("sso navigation")
+        current.view.loadUrl("${current.entry.origin}/api/login/sso")
+        return true
+    }
+
+    /**
+     * 诊断轨迹。
+     *
+     * vivo 设备默认关闭应用日志（`persist.sys.vivolog.state=off`，且改不了），Logcat 里
+     * 收不到 `Log.d`，所以 debug 包额外写一份到应用私有目录：
+     * `adb shell run-as cn.limpu.hita.diag cat files/grader-login-trace.log`
+     */
+    private fun trace(message: String) {
+        if (!BuildConfig.DEBUG) return
+        runCatching {
+            val file = File(filesDir, TRACE_FILE)
+            if (file.length() > TRACE_MAX_BYTES) file.delete()
+            file.appendText("${TRACE_TIME_FORMAT.format(Date())} $message\n")
+        }
+    }
+
     private fun retryCookie(current: BrowserAttempt) {
         current.lastCookie = null
         verifyCandidate(current)
@@ -470,14 +617,17 @@ class GraderLoginActivity : AppCompatActivity() {
 
     private fun verifyCandidate(current: BrowserAttempt) {
         val url = current.view.url ?: return
-        if (!isCurrent(current) || verifying || !GraderSessionPolicy.isCandidatePage(url)) return
-        val rawCookie = current.cookies.getCookie(GraderSessionPolicy.ORIGIN).orEmpty()
-        val cookie = GraderSessionPolicy.sessionCookie(rawCookie)
+        if (!isCurrent(current) || verifying || !GraderSessionPolicy.isCandidatePage(url, current.entry)) return
+        val rawCookie = current.cookies.getCookie(current.entry.origin).orEmpty()
+        val cookie = GraderSessionPolicy.cookieHeader(current.entry, rawCookie)
         if (cookie == null) {
+            trace("verify: no session cookie on ${current.entry.name}")
+            if (startSsoNavigation(current)) return
             showOfficial(R.string.grader_login_error)
             return
         }
         if (cookie == current.lastCookie) {
+            trace("verify: unchanged cookie")
             showOfficial(R.string.grader_login_error)
             return
         }
@@ -489,12 +639,14 @@ class GraderLoginActivity : AppCompatActivity() {
         error = null
         verification = lifecycleScope.launch {
             try {
-                val connected = repository.connect(cookie, current.expectedAccountId)
+                val connected = repository.connect(cookie, current.expectedAccountId, current.entry)
                 val accountId = repository.state.value?.takeUnless { it.needsLogin }?.accountId
+                trace("verify: connected=$connected account=$accountId")
                 if (!isCurrent(current)) return@launch
                 if (!connected || accountId.isNullOrBlank() ||
                     (current.expectedAccountId != null && current.expectedAccountId != accountId)
                 ) {
+                    if (startSsoNavigation(current)) return@launch
                     showOfficial(R.string.grader_login_error)
                     return@launch
                 }
@@ -545,6 +697,7 @@ class GraderLoginActivity : AppCompatActivity() {
 
     private fun resetBrowser(message: Int? = null) {
         stopNavigationTimeout()
+        loginGeneration++
         verification?.cancel()
         verification = null
         val current = attempt
@@ -570,5 +723,17 @@ class GraderLoginActivity : AppCompatActivity() {
     private companion object {
         const val GRADER_PROFILE = "hita_grader_login"
         const val NAVIGATION_TIMEOUT_MS = 25_000L
+
+        /** aTrust 门户登录页是 SPA，等它渲染出「登录」按钮再自动点击。 */
+        const val TRUST_PORTAL_AUTO_LOGIN_DELAY_MS = 900L
+
+        /** 勾选协议后按钮解禁有一个 tick 的延迟，重试次数与 EAS 的 aTrust 流程一致。 */
+        const val TRUST_PORTAL_AUTO_LOGIN_ATTEMPTS = 4
+        const val TRUST_PORTAL_AUTO_LOGIN_RETRY_DELAY_MS = 700L
+
+        /** 设备侧应用日志可能被关闭，debug 包的诊断轨迹落在应用私有目录。 */
+        const val TRACE_FILE = "grader-login-trace.log"
+        const val TRACE_MAX_BYTES = 256L * 1024
+        val TRACE_TIME_FORMAT = SimpleDateFormat("HH:mm:ss.SSS", Locale.US)
     }
 }

@@ -48,7 +48,7 @@ class GraderRepositoryCancellationTest {
     @Test fun cancellingDuringInitialPublicationReleasesTheLoginButton() = runBlocking {
         val dispatcher = PausedPublicationDispatcher()
         val store = GraderStore({ null }, { error("Cancelled initialization must not persist") })
-        val repository = GraderRepository(store, dispatcher) { _, _, _ -> error("Cancelled login must not fetch") }
+        val repository = GraderRepository(store, dispatcher) { _, _, _, _ -> error("Cancelled login must not fetch") }
         val operation = launch(Dispatchers.Default) { repository.connect("sessionid=synthetic-cancelled") }
         try {
             val initialPublication = dispatcher.next()
@@ -72,7 +72,7 @@ class GraderRepositoryCancellationTest {
 
     @Test fun disconnectHidesSummaryAndNeverRefreshesTheDormantCookieAfterRestart() = runBlocking {
         store().replace(account, oldCookie, listOf(previous))
-        val repository = GraderRepository(store(), Dispatchers.Unconfined) { _, _, _ -> error("Logout is local") }
+        val repository = GraderRepository(store(), Dispatchers.Unconfined) { _, _, _, _ -> error("Logout is local") }
         assertTrue(repository.reload())
         val loaded = requireNotNull(repository.state.value)
         assertEquals(account.id, loaded.accountId)
@@ -83,7 +83,7 @@ class GraderRepositoryCancellationTest {
         val dormant = disk
         val receivedCookies = mutableListOf<String>()
         var candidate = GraderAccount("2", "synthetic other")
-        val restarted = GraderRepository(store(), Dispatchers.Unconfined) { cookie, expectedAccountId, checkActive ->
+        val restarted = GraderRepository(store(), Dispatchers.Unconfined) { _, cookie, expectedAccountId, checkActive ->
             receivedCookies += cookie
             assertEquals(account.id, expectedAccountId)
             checkActive()
@@ -116,7 +116,7 @@ class GraderRepositoryCancellationTest {
 
     @Test fun failedDisconnectHidesAccountAndReloadRetriesWithoutDeletingCookie() = runBlocking {
         store().replace(account, oldCookie, listOf(previous))
-        val repository = GraderRepository(store(), Dispatchers.Unconfined) { _, _, _ -> error("Dormant session must not fetch") }
+        val repository = GraderRepository(store(), Dispatchers.Unconfined) { _, _, _, _ -> error("Dormant session must not fetch") }
         assertTrue(repository.reload())
         refuseCommit = true
         assertFalse(repository.disconnect())
@@ -135,7 +135,7 @@ class GraderRepositoryCancellationTest {
         store().replace(account, oldCookie, listOf(previous))
         val fetchStarted = CountDownLatch(1)
         val allowFetch = CountDownLatch(1)
-        val repository = GraderRepository(store(), Dispatchers.Unconfined) { _, _, checkActive ->
+        val repository = GraderRepository(store(), Dispatchers.Unconfined) { _, _, _, checkActive ->
             checkActive()
             fetchStarted.countDown()
             check(allowFetch.await(10, TimeUnit.SECONDS))
@@ -158,7 +158,7 @@ class GraderRepositoryCancellationTest {
     @Test fun disconnectIsAlreadyDurableWhenPublicationIsCancelled() = runBlocking {
         store().replace(account, oldCookie, listOf(previous))
         val dispatcher = PausedPublicationDispatcher()
-        val repository = GraderRepository(store(), dispatcher) { _, _, _ -> error("Logout is local") }
+        val repository = GraderRepository(store(), dispatcher) { _, _, _, _ -> error("Logout is local") }
         val operation = launch(Dispatchers.Default) { repository.disconnect() }
         try {
             val publication = dispatcher.next()

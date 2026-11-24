@@ -13,6 +13,52 @@ internal object ShenzhenTrustPortalAutoLogin {
     fun shouldAutoLogin(url: String): Boolean =
         WebLoginSuccessPolicy.isShenzhenTrustPortalAuthPage(url) && isLoginRoute(url)
 
+    /**
+     * 网关把未认证的请求送到了 aTrust 的客户端探测页 `shortcut.html`。
+     *
+     * 该页默认探测本机是否装了深信服客户端，WebView 里没有这个客户端，于是停住不前进。
+     * 判断只看 host 与路径，不看 query——签名令牌和回跳地址都在 query 里，重载要保持原样。
+     */
+    fun shouldForceWebMode(url: String): Boolean {
+        val uri = runCatching { java.net.URI(url) }.getOrNull() ?: return false
+        return uri.scheme.orEmpty().equals("https", ignoreCase = true) &&
+            uri.host.orEmpty().equals("trust.hitsz.edu.cn", ignoreCase = true) &&
+            uri.path.orEmpty().equals("/portal/shortcut.html", ignoreCase = true)
+    }
+
+    /**
+     * 置 `sessionStorage.forceWeb`，让 shortcut 页跳过客户端探测、改走网页认证。
+     *
+     * aTrust 的网页客户端在探测 localhost 之前会读这个标志；新版页面把会话数据按 SDP
+     * 地址加了 `[n]` 前缀，而 shortcut.html 仍读旧的、无前缀的键，所以两个键都要写。
+     * 与 `WebViewLoginActivity.applyShenzhenForceWebMode` 的行为一致。
+     */
+    fun buildForceWebScript(): String = """
+        (function() {
+          try {
+            sessionStorage.setItem('forceWeb', 'true');
+            var mapKey = '__Prefix_map__';
+            var prefixMap = JSON.parse(sessionStorage.getItem(mapKey) || '[]');
+            if (!Array.isArray(prefixMap)) prefixMap = [];
+            var origin = window.location.origin;
+            var entry = prefixMap.find(function(item) { return item && item.addr === origin; });
+            if (!entry) {
+              var maxPrefix = prefixMap.reduce(function(max, item) {
+                var match = item && String(item.pre || '').match(/^\[(\d+)\]$/);
+                return match ? Math.max(max, Number(match[1])) : max;
+              }, 0);
+              entry = {pre: '[' + (maxPrefix + 1) + ']', addr: origin};
+              prefixMap.unshift(entry);
+            }
+            sessionStorage.setItem(mapKey, JSON.stringify(prefixMap));
+            sessionStorage.setItem(entry.pre + 'forceWeb', 'true');
+            return true;
+          } catch (e) {
+            return false;
+          }
+        })();
+    """.trimIndent()
+
     private fun isLoginRoute(url: String): Boolean {
         val uri = runCatching { java.net.URI(url) }.getOrNull() ?: return false
         val route = uri.rawFragment.orEmpty().lowercase().removePrefix("!")
