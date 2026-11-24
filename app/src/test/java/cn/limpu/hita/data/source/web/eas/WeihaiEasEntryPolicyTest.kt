@@ -84,7 +84,7 @@ class WeihaiEasEntryPolicyTest {
         val cookies = mapOf("JSESSIONID" to "synthetic-session")
         // 直连没有 wengine_vpn_ticket，旧判定会永远不认为登录成功。
         assertTrue(
-            WeihaiEasEntryPolicy.isAuthenticated(
+            WeihaiEasEntryPolicy.canStartUndergraduateVerification(
                 entry = WeihaiEasEntryPolicy.Entry.DIRECT,
                 url = "http://jwts.hitwh.edu.cn/xtgl/index_initMenu.html",
                 cookies = cookies,
@@ -92,14 +92,14 @@ class WeihaiEasEntryPolicyTest {
         )
         // VPN 入口仍要求票据，否则可能把中间态当成成功。
         assertFalse(
-            WeihaiEasEntryPolicy.isAuthenticated(
+            WeihaiEasEntryPolicy.canStartUndergraduateVerification(
                 entry = WeihaiEasEntryPolicy.Entry.VPN,
                 url = "http://jwts.hitwh.edu.cn/xtgl/index_initMenu.html",
                 cookies = cookies,
             )
         )
-        assertTrue(
-            WeihaiEasEntryPolicy.isAuthenticated(
+        assertFalse(
+            WeihaiEasEntryPolicy.canStartUndergraduateVerification(
                 entry = WeihaiEasEntryPolicy.Entry.VPN,
                 url = "https://webvpn.hitwh.edu.cn/http/7772/xsxxx",
                 cookies = cookies + ("wengine_vpn_ticketwebvpn_hitwh_edu_cn" to "synthetic-ticket"),
@@ -110,7 +110,7 @@ class WeihaiEasEntryPolicyTest {
     @Test
     fun `direct entry still rejects pages without a session`() {
         assertFalse(
-            WeihaiEasEntryPolicy.isAuthenticated(
+            WeihaiEasEntryPolicy.canStartUndergraduateVerification(
                 entry = WeihaiEasEntryPolicy.Entry.DIRECT,
                 url = "http://jwts.hitwh.edu.cn/xtgl/index_initMenu.html",
                 cookies = emptyMap(),
@@ -118,7 +118,7 @@ class WeihaiEasEntryPolicyTest {
         )
         // 登录页本身不能算成功。
         assertFalse(
-            WeihaiEasEntryPolicy.isAuthenticated(
+            WeihaiEasEntryPolicy.canStartUndergraduateVerification(
                 entry = WeihaiEasEntryPolicy.Entry.DIRECT,
                 url = "http://jwts.hitwh.edu.cn/xtgl/login_slogin.html",
                 cookies = mapOf("JSESSIONID" to "synthetic-session"),

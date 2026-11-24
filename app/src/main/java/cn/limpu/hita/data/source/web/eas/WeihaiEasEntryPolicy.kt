@@ -81,61 +81,56 @@ object WeihaiEasEntryPolicy {
         return base
     }
 
-    /**
-     * 该入口下，登录是否已经完成。
-     *
-     * 两者的判据不同，不能共用一套：
-     * - VPN 入口必须同时有 `wengine_vpn_ticket*`（反代票据）与非空 `JSESSIONID`；
-     * - 直连入口**不会有** VPN 票据，只看业务会话与页面身份。
-     */
-    fun isAuthenticated(entry: Entry, url: String, cookies: Map<String, String>): Boolean =
-        when (entry) {
-            Entry.DIRECT -> isDirectAuthenticated(url, cookies)
-            Entry.VPN -> isVpnAuthenticated(url, cookies)
-        }
 
-    /**
-     * WebVPN 入口的判定：功能页 + 反代票据 + 业务会话，三者缺一不可。
-     *
-     * 与 `WebLoginSuccessPolicy.isWeihaiAuthenticatedPage` 保持同一口径，但放在本模块内，
-     * 避免 `data` 层反向依赖 `ui` 层。
-     */
-    private fun isVpnAuthenticated(url: String, cookies: Map<String, String>): Boolean {
-        val uri = runCatching { URI(url) }.getOrNull() ?: return false
-        if (!uri.host.orEmpty().equals("webvpn.hitwh.edu.cn", ignoreCase = true)) return false
-        val path = uri.path.orEmpty().lowercase()
-        val isFunctionPage = path.contains("/http/") ||
-            path.contains("kbcx") ||
-            path.contains("cjcx") ||
-            path.contains("kjscx") ||
-            path.contains("query") ||
-            path.contains("index")
-        val hasCasTicket = uri.query.orEmpty().contains("ticket=ST-", ignoreCase = true)
-        val isLoginPage = !hasCasTicket &&
-            (path.contains("logincas") || path.endsWith("/login") || path.contains("/login/"))
-        val hasVpnTicket = cookies.keys.any {
-            it.contains(WEIHAI_TICKET_COOKIE_PREFIX, ignoreCase = true)
-        }
-        return isFunctionPage && !isLoginPage && hasVpnTicket && hasJsessionId(cookies)
+    internal fun undergraduateTeachingLoginUrl(entry: Entry): String = when (entry) {
+        Entry.DIRECT -> DIRECT_UNDERGRADUATE_LOGIN
+        Entry.VPN -> "$VPN_EAS_PREFIX/loginCAS"
     }
 
-    private fun isDirectAuthenticated(url: String, cookies: Map<String, String>): Boolean {
+    /** A landing can start verification; only a successful timetable request proves the session. */
+    internal fun isUndergraduateTeachingPage(entry: Entry, url: String): Boolean {
         val uri = runCatching { URI(url) }.getOrNull() ?: return false
+        val base = when (entry) {
+            Entry.DIRECT -> undergraduateDirectBase
+            Entry.VPN -> undergraduateVpnBase
+        }
         val scheme = uri.scheme.orEmpty().lowercase()
-        if (scheme != "http" && scheme != "https") return false
-        val host = uri.host.orEmpty().lowercase()
-        if (!isDirectHost(host)) return false
-        val path = uri.path.orEmpty().lowercase()
-        // 登录表单页本身不算成功。
-        if (path.contains("login")) return false
-        // 直连没有 VPN 票据，只能靠业务会话判定。
-        return hasJsessionId(cookies)
+        if (!base.host.equals(uri.host, ignoreCase = true) || uri.port != -1 || uri.userInfo != null ||
+            (scheme != "https" && (entry == Entry.VPN || scheme != "http"))
+        ) return false
+        val path = uri.path.orEmpty().trimEnd('/').lowercase()
+        val basePath = base.path
+        if (entry == Entry.VPN && path == basePath) return true
+        if (entry == Entry.VPN && !path.startsWith("$basePath/")) return false
+        val teachingPath = path.removePrefix(basePath)
+        if (teachingPath.isEmpty() || teachingPath.contains("/authserver/") ||
+            teachingPath == "/cas" || teachingPath.startsWith("/cas/") ||
+            teachingPath.contains("/authentication/require")
+        ) return false
+        if (teachingPath == "/logincas" || teachingPath.startsWith("/logincas;")) {
+            return entry == Entry.VPN && uri.rawQuery.orEmpty().split('&').any {
+                it.startsWith("ticket=ST-", ignoreCase = true) && it.length > "ticket=ST-".length
+            }
+        }
+        return !teachingPath.contains("login")
     }
 
-    /** 与 [WeihaiGraduateSessionPolicy.hasJsessionId] 同一口径，避免两条链路判定分叉。 */
+    internal fun canStartUndergraduateVerification(
+        entry: Entry,
+        url: String,
+        cookies: Map<String, String>,
+    ): Boolean = isUndergraduateTeachingPage(entry, url) && when (entry) {
+        Entry.DIRECT -> hasJsessionId(cookies)
+        Entry.VPN -> cookies.any { (name, value) ->
+            name.startsWith(WEIHAI_TICKET_COOKIE_PREFIX, ignoreCase = true) && value.isNotBlank()
+        }
+    }
+
+    private val undergraduateDirectBase = URI(DIRECT_EAS_PREFIX)
+    private val undergraduateVpnBase = URI(VPN_EAS_PREFIX)
+
     private fun hasJsessionId(cookies: Map<String, String>): Boolean =
         WeihaiGraduateSessionPolicy.hasJsessionId(cookies)
-
     private const val WEIHAI_TICKET_COOKIE_PREFIX = "wengine_vpn_ticket"
 
     /**
@@ -148,7 +143,7 @@ object WeihaiEasEntryPolicy {
      * 直连不能沿用反代的精确路径白名单：反代固定暴露 `/authentication/main` 与
      * `/student_index`，而直连时教务自己也有一套入口路由（`/xtgl/login_slogin.html`
      * 登录、登录后落 `index_initMenu` 之类），钉死路径会让登录成功后永远判不出来。
-     * 因此这里与本科直连口径一致：**不是登录/认证页 + 已有业务会话**即算登录完成。
+     * 直连研究生以非登录/认证页和业务会话作为落点依据。
      */
     fun isDirectGraduateLanding(url: String, cookies: Map<String, String>): Boolean {
         val uri = runCatching { URI(url) }.getOrNull() ?: return false
@@ -181,7 +176,4 @@ object WeihaiEasEntryPolicy {
     } else {
         WeihaiGraduateSessionPolicy.hasJsessionId(cookies)
     }
-
-    private fun isDirectHost(host: String): Boolean =
-        host == "jwts.hitwh.edu.cn" || host == "yjsgl.hitwh.edu.cn"
 }

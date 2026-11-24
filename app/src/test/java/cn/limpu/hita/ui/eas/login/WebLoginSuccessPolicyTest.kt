@@ -1,5 +1,6 @@
 package cn.limpu.hita.ui.eas.login
 
+import cn.limpu.hita.data.source.web.eas.WeihaiEasEntryPolicy
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -32,104 +33,15 @@ class WebLoginSuccessPolicyTest {
     }
 
     @Test
-    fun `Weihai loginCAS without authenticated cookies is not success`() {
-        assertFalse(
-            WebLoginSuccessPolicy.isWeihaiAuthenticatedPage(
-                "https://webvpn.hitwh.edu.cn/http/eas/loginCAS",
-                emptyMap()
-            )
-        )
-    }
-
-    @Test
-    fun `Weihai loginCAS with cookies but no CAS ticket is still not success`() {
-        // 登录前的 loginCAS 页也可能带 JSESSIONID，必须靠路径排除防提前收工
-        assertFalse(
-            WebLoginSuccessPolicy.isWeihaiAuthenticatedPage(
-                "https://webvpn.hitwh.edu.cn/http/eas/loginCAS",
-                mapOf(
-                    "wengine_vpn_ticket" to "ticket",
-                    "JSESSIONID" to "session"
-                )
-            )
-        )
-    }
-
-    @Test
-    fun `Weihai loginCAS with CAS ticket and authenticated cookies is success`() {
-        // CAS 验票回跳落在 loginCAS 上（?ticket=ST-...）：放行，不再卡空白页
-        assertTrue(
-            WebLoginSuccessPolicy.isWeihaiAuthenticatedPage(
-                "https://webvpn.hitwh.edu.cn/http/eas/loginCAS?ticket=ST-12345-abcdefg",
-                mapOf(
-                    "wengine_vpn_ticket" to "ticket",
-                    "JSESSIONID" to "session"
-                )
-            )
-        )
-    }
-
-    @Test
-    fun `Weihai loginCAS with CAS ticket but no cookies is not success`() {
-        assertFalse(
-            WebLoginSuccessPolicy.isWeihaiAuthenticatedPage(
-                "https://webvpn.hitwh.edu.cn/http/eas/loginCAS?ticket=ST-12345-abcdefg",
-                emptyMap()
-            )
-        )
-    }
-
-    @Test
-    fun `Weihai function page with VPN ticket and JSESSIONID is success`() {
-        assertTrue(
-            WebLoginSuccessPolicy.isWeihaiAuthenticatedPage(
-                "https://webvpn.hitwh.edu.cn/http/eas/kbcx/queryGrkb",
-                mapOf(
-                    "wengine_vpn_ticket" to "ticket",
-                    "JSESSIONID" to "session"
-                )
-            )
-        )
-    }
-
-    @Test
-    fun `Weihai new EAS root page with authenticated cookies is success`() {
-        assertTrue(
-            WebLoginSuccessPolicy.isWeihaiAuthenticatedPage(
-                "https://webvpn.hitwh.edu.cn/http/eas/",
-                mapOf(
-                    "wengine_vpn_ticket" to "ticket",
-                    "JSESSIONID" to "session"
-                )
-            )
-        )
-    }
-
-    @Test
-    fun `Weihai function page with lowercase jsessionid key is success`() {
-        // 某些 WebVPN 节点下 cookie 名大小写不一致，不能因 key 大小写漏判
-        assertTrue(
-            WebLoginSuccessPolicy.isWeihaiAuthenticatedPage(
-                "https://webvpn.hitwh.edu.cn/http/eas/kbcx/queryGrkb",
-                mapOf(
-                    "wengine_vpn_ticket" to "ticket",
-                    "jsessionid" to "session"
-                )
-            )
-        )
-    }
-
-    @Test
-    fun `Weihai function page with blank jsessionid is not success`() {
-        assertFalse(
-            WebLoginSuccessPolicy.isWeihaiAuthenticatedPage(
-                "https://webvpn.hitwh.edu.cn/http/eas/kbcx/queryGrkb",
-                mapOf(
-                    "wengine_vpn_ticket" to "ticket",
-                    "JSESSIONID" to ""
-                )
-            )
-        )
+    fun `Weihai undergraduate portal advances to jwts without mistaking jwts for the portal`() {
+        val gateway = "https://webvpn.hitwh.edu.cn/"
+        val entry = WeihaiEasEntryPolicy.Entry.VPN
+        val portal = WeihaiEasEntryPolicy.loginUrl(entry, graduate = false)
+        assertEquals(gateway, portal)
+        assertTrue(WebLoginSuccessPolicy.shouldOpenWeihaiTeachingEntry(gateway, portal))
+        assertTrue(WebLoginSuccessPolicy.shouldOpenWeihaiTeachingEntry("${gateway}m/portal/", portal))
+        assertFalse(WebLoginSuccessPolicy.shouldOpenWeihaiTeachingEntry("$weihaiTeachingBase/", portal))
+        assertEquals("$weihaiTeachingBase/loginCAS", WeihaiEasEntryPolicy.undergraduateTeachingLoginUrl(entry))
     }
 
     @Test

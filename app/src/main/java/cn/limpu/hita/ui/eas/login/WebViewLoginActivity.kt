@@ -26,8 +26,12 @@ import android.net.http.SslError
 import cn.limpu.hita.data.model.eas.EASToken
 import cn.limpu.hita.data.source.web.eas.HttpCampusReachabilityProbe
 import cn.limpu.hita.data.source.web.eas.WeihaiEasEntryPolicy
+import cn.limpu.hita.data.source.web.eas.WeihaiUndergraduateLogin
 import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import cn.limpu.hita.data.source.preference.EasCredential
 import cn.limpu.hita.data.source.preference.EasCredentialStore
 import androidx.activity.OnBackPressedCallback
@@ -85,7 +89,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import org.json.JSONObject
 import org.json.JSONArray
-import java.net.URL
+import java.io.IOException
 
 /** Plan D: native MFA overlay state shared between activity and composable. */
 internal data class MfaOverlayState(
@@ -124,9 +128,7 @@ class WebViewLoginActivity : AppCompatActivity() {
             private const val BENBU_BASE = "http://i-hit-edu-cn.$BENBU_VPN_DOMAIN:1080"
             private const val JWTS_BASE = "http://jwts-hit-edu-cn.$BENBU_VPN_DOMAIN:1080"
 
-            // 威海校区URL
-            private const val WEIHAI_BASE = "https://webvpn.hitwh.edu.cn"
-            const val WEIHAI_EAS_PREFIX = "$WEIHAI_BASE/http/77726476706e69737468656265737421fae0558f693861446900c7a99c406d3667"
+            const val WEIHAI_EAS_PREFIX = WeihaiEasEntryPolicy.VPN_EAS_PREFIX
 
             val BENBU_LOGIN = "$BENBU_BASE/portal/home/"
             val BENBU_JWTS = "$JWTS_BASE/loginCAS"
@@ -136,13 +138,11 @@ class WebViewLoginActivity : AppCompatActivity() {
                 "$BENBU_BASE/portal/home/"
             )
 
-            val WEIHAI_LOGIN = "$WEIHAI_BASE/"
-            val WEIHAI_JWTS = "$WEIHAI_EAS_PREFIX/loginCAS"
             val WEIHAI_PROBE_URLS = listOf(
-                WEIHAI_JWTS,
-                "$WEIHAI_EAS_PREFIX/kjscx/queryJxlListBySjid",
-                "$WEIHAI_EAS_PREFIX/cjcx/queryQmcj",
-                "$WEIHAI_BASE/"
+                "$WEIHAI_EAS_PREFIX${WeihaiUndergraduateLogin.TIMETABLE_PATH}",
+                "$WEIHAI_EAS_PREFIX/reAuth",
+                "$WEIHAI_EAS_PREFIX/loginCAS",
+                WeihaiEasEntryPolicy.VPN_LOGIN,
             )
 
             const val SHENZHEN_PROXY_BASE = "https://jw-hitsz-edu-cn.hitsz.edu.cn"
@@ -233,6 +233,7 @@ class WebViewLoginActivity : AppCompatActivity() {
      * 成功判定必须读这个值，否则直连会被旧规则（要求 VPN 票据）判成未登录。
      */
     private var weihaiEntry: WeihaiEasEntryPolicy.Entry = WeihaiEasEntryPolicy.Entry.VPN
+    private var weihaiUndergraduateExchange: Job? = null
     private var navigatingToEelab = false
     private var collectedEasCookies: Map<String, String>? = null
     private var eelabTokenFetching = false
@@ -254,6 +255,8 @@ class WebViewLoginActivity : AppCompatActivity() {
     private val isWeihaiGraduate: Boolean
         get() = config.campus == EASToken.Campus.WEIHAI &&
             shenzhenPreferredStudentType == ShenzhenWebAutoLogin.POSTGRAD
+    private val isWeihaiUndergraduate: Boolean
+        get() = config.campus == EASToken.Campus.WEIHAI && !isWeihaiGraduate
     private var shenzhenAutoAdvanceGeneration = 0
     private var shenzhenAutoAdvanceScheduledGeneration = -1
     private var shenzhenUnifiedLoginClicked = false
@@ -399,7 +402,8 @@ class WebViewLoginActivity : AppCompatActivity() {
                 CampusWebConfig(
                     campus = campus,
                     loginUrl = loginUrl,
-                    jwtsUrl = loginUrl,
+                    jwtsUrl = if (graduate) loginUrl else
+                        WeihaiEasEntryPolicy.undergraduateTeachingLoginUrl(weihaiEntry),
                     cookieProbeUrls = if (weihaiEntry == WeihaiEasEntryPolicy.Entry.DIRECT) {
                         listOf(loginUrl)
                     } else if (graduate) {
@@ -586,6 +590,11 @@ class WebViewLoginActivity : AppCompatActivity() {
                     super.onPageStarted(view, url, favicon)
                     credentialPageState.navigated()
                     shenzhenAutoAdvanceGeneration++
+                    if (isWeihaiUndergraduate) {
+                        stopCookiePolling()
+                        weihaiUndergraduateExchange?.cancel()
+                        weihaiUndergraduateExchange = null
+                    }
                     if (config.campus == EASToken.Campus.SHENZHEN) {
                         LogUtils.d(
                             "SHENZHEN_AUTO navigation-start generation=$shenzhenAutoAdvanceGeneration " +
@@ -761,7 +770,12 @@ class WebViewLoginActivity : AppCompatActivity() {
                             LogUtils.d("jwts login page detected, polling for session cookies")
                             startCookiePolling()
                         }
-                        config.campus == EASToken.Campus.WEIHAI &&
+                        isWeihaiUndergraduate &&
+                            WeihaiEasEntryPolicy.isUndergraduateTeachingPage(weihaiEntry, url) -> {
+                            autoOpeningJwts = false
+                            startCookiePolling()
+                        }
+                        isWeihaiGraduate &&
                             weihaiEntry == WeihaiEasEntryPolicy.Entry.DIRECT &&
                             !isAuthenticationPage(url) &&
                             !isSuccessPage(url) -> {
@@ -773,14 +787,11 @@ class WebViewLoginActivity : AppCompatActivity() {
                             )
                             startCookiePolling()
                         }
-                        config.campus == EASToken.Campus.WEIHAI &&
+                        isWeihaiGraduate &&
                             weihaiSawAuthPage &&
                             uri.host == "webvpn.hitwh.edu.cn" &&
                             !isAuthenticationPage(url) -> {
-                            // 威海兜底：CAS 验完票回跳后落在不在成功判定白名单内的页面时，
-                            // isSuccessPage 永远不会触发，用户卡死。这里改用 cookie 轮询：
-                            // 只要 VPN ticket + JSESSIONID 就绪，checkCookiesAndFinish 会
-                            // 主动拉取 EAS cookies 并 finishWithCookies，不依赖落点 URL。
+                            // 研究生 CAS 回跳后若暂未到达落点，继续等待原有落点与票据。
                             LogUtils.d(
                                 "weihai post-auth page, starting cookie polling: path=${uri.path} " +
                                     "cookieNames=${LogRedaction.cookieNames(collectCookies().keys)}"
@@ -1831,7 +1842,7 @@ class WebViewLoginActivity : AppCompatActivity() {
             EASToken.Campus.WEIHAI -> WebLoginSuccessPolicy.shouldOpenWeihaiTeachingEntry(
                 url,
                 if (isWeihaiGraduate) cn.limpu.hita.data.source.web.eas.WeihaiGraduateSessionPolicy.BASE_URL
-                else CampusUrls.WEIHAI_EAS_PREFIX
+                else WeihaiEasEntryPolicy.VPN_LOGIN
             )
             EASToken.Campus.SHENZHEN -> ShenzhenWebAutoLogin.isProxyRoot(
                 url,
@@ -2302,7 +2313,7 @@ class WebViewLoginActivity : AppCompatActivity() {
                             .isAuthenticatedLanding(url, cookies)
                     }
                 } else {
-                    WeihaiEasEntryPolicy.isAuthenticated(weihaiEntry, url, cookies)
+                    WeihaiEasEntryPolicy.canStartUndergraduateVerification(weihaiEntry, url, cookies)
                 }
                 LogUtils.d(
                     "isSuccessPage(weihai): entry=$weihaiEntry path=$path authenticated=$authenticated " +
@@ -2474,9 +2485,6 @@ class WebViewLoginActivity : AppCompatActivity() {
 
         val cookies = collectCookies()
         val currentUrl = webView.url ?: ""
-        val hasVpnTicket = hasWeihaiVpnTicket(cookies)
-        // 大小写不敏感，避免与 isWeihaiAuthenticatedPage 的判定不一致。
-        val hasJsessionid = WebLoginSuccessPolicy.hasJsessionIdCookie(cookies)
 
         if (cookieRetryCount == 0 || cookieRetryCount % 10 == 0) {
             LogUtils.d("checkCookies: retry=$cookieRetryCount cookieNames=${LogRedaction.cookieNames(cookies.keys)} host=${Uri.parse(currentUrl).host}")
@@ -2494,21 +2502,11 @@ class WebViewLoginActivity : AppCompatActivity() {
                 return
             }
         }
-        if (config.campus == EASToken.Campus.WEIHAI && !isWeihaiGraduate) {
-            if (weihaiEntry == WeihaiEasEntryPolicy.Entry.DIRECT) {
-                // 直连没有反代票据：业务会话就绪即可收尾，不能等 wengine_vpn_ticket。
-                if (hasJsessionid) {
-                    finishWithCookies(cookies)
-                    return
-                }
-            } else if (hasVpnTicket && hasJsessionid) {
-                fetchVpnEasCookies { vpnCookies ->
-                    val mergedCookies = LinkedHashMap(cookies)
-                    vpnCookies.forEach { (key, value) -> mergedCookies.putIfAbsent(key, value) }
-                    finishWithCookies(mergedCookies)
-                }
-                return
-            }
+        if (isWeihaiUndergraduate &&
+            WeihaiEasEntryPolicy.canStartUndergraduateVerification(weihaiEntry, currentUrl, cookies)
+        ) {
+            completeWeihaiUndergraduateLogin(currentUrl, cookies)
+            return
         }
 
         if (config.campus == EASToken.Campus.BENBU
@@ -2580,6 +2578,14 @@ class WebViewLoginActivity : AppCompatActivity() {
             finishWithCookies(collectCookies())
             return
         }
+        if (isWeihaiUndergraduate) {
+            val url = webView.url.orEmpty()
+            val cookies = collectCookies()
+            if (WeihaiEasEntryPolicy.canStartUndergraduateVerification(weihaiEntry, url, cookies)) {
+                completeWeihaiUndergraduateLogin(url, cookies)
+            }
+            return
+        }
 
         credentialCaptureState.commitOnSuccess { credential ->
             runCatching {
@@ -2589,13 +2595,7 @@ class WebViewLoginActivity : AppCompatActivity() {
 
         val cookies = collectCookies()
 
-        if (config.campus == EASToken.Campus.WEIHAI && hasWeihaiVpnTicket(cookies)) {
-            fetchVpnEasCookies { vpnCookies ->
-                val mergedCookies = LinkedHashMap(cookies)
-                vpnCookies.forEach { (key, value) -> mergedCookies.putIfAbsent(key, value) }
-                finishWithCookies(mergedCookies)
-            }
-        } else if (config.campus == EASToken.Campus.BENBU) {
+        if (config.campus == EASToken.Campus.BENBU) {
             navigatingToEelab = true
             eelabTokenFetching = false
             collectedEasCookies = cookies
@@ -2719,14 +2719,7 @@ class WebViewLoginActivity : AppCompatActivity() {
                             .isAuthenticatedLanding(currentUrl, cookies)
                     }
                 }
-                if (weihaiEntry == WeihaiEasEntryPolicy.Entry.DIRECT) {
-                    // 直连没有反代票据：业务会话就绪即可收尾。
-                    return WebLoginSuccessPolicy.hasJsessionIdCookie(cookies)
-                }
-                // 威海本科走 WebVPN：需要 VPN ticket + JSESSIONID
-                val hasVpnTicket = hasWeihaiVpnTicket(cookies)
-                val hasJsession = WebLoginSuccessPolicy.hasJsessionIdCookie(cookies)
-                hasVpnTicket && hasJsession
+                WeihaiEasEntryPolicy.canStartUndergraduateVerification(weihaiEntry, currentUrl, cookies)
             }
         }
     }
@@ -2746,20 +2739,21 @@ class WebViewLoginActivity : AppCompatActivity() {
     private fun collectCookies(): LinkedHashMap<String, String> {
         val cookieManager = CookieManager.getInstance()
         val cookies = LinkedHashMap<String, String>()
-
-        config.cookieProbeUrls.forEach { url ->
-            val parsed = parseCookies(cookieManager.getCookie(url))
-            parsed.forEach { (key, value) ->
+        val currentUrl = webView.url?.takeIf {
+            it.startsWith("http") &&
+                (!isWeihaiUndergraduate || WeihaiEasEntryPolicy.isUndergraduateTeachingPage(weihaiEntry, it))
+        }
+        fun mergeFrom(url: String) {
+            parseCookies(cookieManager.getCookie(url)).forEach { (key, value) ->
                 cookies.putIfAbsent(key, value)
             }
         }
+        if (isWeihaiUndergraduate && currentUrl != null) mergeFrom(currentUrl)
 
-        val currentUrl = webView.url
-        if (!currentUrl.isNullOrBlank() && currentUrl.startsWith("http")) {
-            val parsed = parseCookies(cookieManager.getCookie(currentUrl))
-            parsed.forEach { (key, value) ->
-                cookies.putIfAbsent(key, value)
-            }
+        config.cookieProbeUrls.forEach(::mergeFrom)
+
+        if (currentUrl != null) {
+            if (!isWeihaiUndergraduate) mergeFrom(currentUrl)
 
             if (!cookies.containsKey("JSESSIONID")) {
                 val jsessionid = extractJsessionidFromUrl(currentUrl)
@@ -2772,85 +2766,33 @@ class WebViewLoginActivity : AppCompatActivity() {
         return cookies
     }
 
-    private fun fetchVpnEasCookies(callback: (Map<String, String>) -> Unit) {
-        // 在主线程上捕获 WebView 数据
-        val currentUrl = webView.url ?: ""
-        val cookieHeader = buildCookieHeader(currentUrl)
+    private fun completeWeihaiUndergraduateLogin(url: String, cookies: Map<String, String>) {
+        if (finished || webView.url != url || weihaiUndergraduateExchange != null) return
+        stopCookiePolling()
+        if (weihaiEntry == WeihaiEasEntryPolicy.Entry.DIRECT) {
+            finishWithCookies(cookies)
+            return
+        }
 
-        Thread {
-            val result = mutableMapOf<String, String>()
-            try {
-                // 威海校区的 EAS 系统域名和登录页面路径
-                val easHost = "jwts.hitwh.edu.cn"
-                val easPath = "/loginCAS"  // 使用登录页面路径
-
-                // 调用 VPN cookie API
-                val cookieApiUrl = "https://webvpn.hitwh.edu.cn/wengine-vpn/cookie?method=get&host=$easHost&scheme=http&path=$easPath&vpn_timestamp=${System.currentTimeMillis()}"
-
-                // 使用同步 HTTP 请求
-                val connection = URL(cookieApiUrl).openConnection() as javax.net.ssl.HttpsURLConnection
-                connection.connectTimeout = 10000
-                connection.readTimeout = 10000
-                connection.setRequestProperty("Cookie", cookieHeader)
-                connection.setRequestProperty("User-Agent", "Mozilla/5.0")
-                connection.setRequestProperty("Accept", "*/*")
-
-                val responseCode = connection.responseCode
-                if (responseCode == 200) {
-                    val response = connection.inputStream.bufferedReader().use { it.readText() }
-                    LogUtils.d("VPN cookie API response: ${LogRedaction.cookieHeader(response)}")
-
-                    // 解析返回的 cookies（格式：name=value; JSESSIONID=xxx; HIT=yyy）
-                    val parts = response.split(";")
-                    for (part in parts) {
-                        val trimmed = part.trim()
-                        if (trimmed.contains("=")) {
-                            val idx = trimmed.indexOf('=')
-                            val key = trimmed.substring(0, idx).trim()
-                            val value = trimmed.substring(idx + 1).trim()
-                            if (key.isNotEmpty() && value.isNotEmpty()) {
-                                // 只关心 EAS 相关的 cookies
-                                if (key == "JSESSIONID" || key == "HIT" || key == "TWFID") {
-                                    result[key] = value
-                                    LogUtils.d("parsed VPN cookie: $key=${LogRedaction.secret(value)}")
-                                }
-                            }
-                        }
-                    }
-                } else {
-                    LogUtils.w("VPN cookie API failed with code: $responseCode")
+        weihaiUndergraduateExchange = lifecycleScope.launch {
+            val exchanged = withContext(Dispatchers.IO) {
+                try {
+                    WeihaiUndergraduateLogin.exchangeVpnCookies(cookies)
+                } catch (e: IOException) {
+                    LogUtils.w("Weihai undergraduate cookie exchange failed: ${e.javaClass.simpleName}")
+                    emptyMap()
                 }
-            } catch (e: Exception) {
-                LogUtils.e("fetchVpnEasCookies: failed", e)
             }
-
-            webView.post {
-                callback(result)
-            }
-        }.start()
-    }
-
-    private fun buildCookieHeader(currentUrl: String): String {
-        val cookieManager = CookieManager.getInstance()
-
-        // 从当前 URL 和 VPN 主域获取 cookies
-        val cookies = mutableSetOf<String>()
-
-        // 添加当前页面的 cookies
-        if (currentUrl.isNotEmpty()) {
-            val currentCookies = cookieManager.getCookie(currentUrl)
-            if (!currentCookies.isNullOrBlank()) {
-                cookies.add(currentCookies)
+            weihaiUndergraduateExchange = null
+            if (finished || webView.url != url) return@launch
+            // The gateway may keep the inner session server-side. Its absence in both jars
+            // does not trump the timetable check performed by WeihaiEASWebSource.
+            val currentCookies = collectCookies()
+            WeihaiUndergraduateLogin.mergeExchangedCookies(currentCookies, exchanged)
+            if (WeihaiEasEntryPolicy.canStartUndergraduateVerification(weihaiEntry, url, currentCookies)) {
+                finishWithCookies(currentCookies)
             }
         }
-
-        // 添加 VPN 主域的 cookies
-        val vpnCookies = cookieManager.getCookie("https://webvpn.hitwh.edu.cn/")
-        if (!vpnCookies.isNullOrBlank()) {
-            cookies.add(vpnCookies)
-        }
-
-        return cookies.joinToString("; ")
     }
 
     private fun extractJsessionidFromUrl(url: String): String? {

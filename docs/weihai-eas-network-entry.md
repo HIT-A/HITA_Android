@@ -1,5 +1,7 @@
 # 威海校区教务入口：WebVPN 的必要性与校园网可达性
 
+2026-11-23 更新：当前实现见第七、八节。前文保留 2026-11-10 调研时的历史状态。
+
 调研日期：2026-11-10。结论基于公网 DNS 查询、直接抓取与仓库代码核对；**未在威海校园网环境实测**，
 这一点在文末「未验证部分」单列。
 
@@ -142,7 +144,7 @@ CAS 认证（且可能触发多因子），失败面明显更大。这与用户�
 | 选入口 | `WeihaiEasEntryPolicy.choose(directReachable, vpnReachable)`，直连优先、否则回落 VPN |
 | 探测 | `HttpCampusReachabilityProbe`：HEAD 优先、GET 复核，2.5s 超时，任何 HTTP 响应都算可达 |
 | 登录页 | `WeihaiEasEntryPolicy.loginUrl(entry, graduate)` |
-| 成功判定 | `WeihaiEasEntryPolicy.isAuthenticated(entry, url, cookies)`；直连不要求 `wengine_vpn_ticket` |
+| 成功判定（初版） | 直连不要求 `wengine_vpn_ticket`；后续本科与研究生规则见第七、八节 |
 | 数据层一致性 | 登录把入口 base 写入 `web_base_url`，`WeihaiEASWebSource` 解析后决定请求 host |
 | 凭据自动填充 | `EasWebCredentialPolicy` 为威海补上 `jwts`/`yjsgl` 与 `/xtgl/login` 路径 |
 
@@ -254,3 +256,14 @@ CAS 认证（且可能触发多因子），失败面明显更大。这与用户�
    两条路径当前都能走：前者由 `EasWebCredentialPolicy` 自动填充，后者走既有 CAS 流程。
 3. 直连是否需要额外 `route` cookie（当前只要求 `JSESSIONID`）。
 4. 服务端 UA 拒绝集的确切边界（见 7.1）。
+
+## 八、2026-11-23 修复：威海本科 WebVPN 登录
+
+Android `5aa5fe63` 将本科的 WebVPN 门户地址与本科教务入口合成了同一个 URL，导致从门户续跳时仍打开门户。
+新版保留校园网直连探测；走 WebVPN 时先打开网关，回到门户后再打开本科教务的 `/loginCAS`。
+
+对照 HITA NEXT 的威海本科流程，业务落点有有效的网关票据即可尝试同步 Cookie，不再要求浏览器预先可见 `JSESSIONID`。
+优先保留网关返回的教务 Cookie，同时从当前页、课表和 `/reAuth` 路径取 WebView 可见的 Cookie。
+数据层以个人课表页的有效学期选项确认会话：仅 HTTP 200、登录页或空学期下拉框都不会保存登录状态。
+
+研究生的 `yjsgl` 入口、桌面 User-Agent 与会话判定不变。本科的真实账号和校园网行为仍需真机验证。

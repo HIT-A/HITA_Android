@@ -36,7 +36,7 @@ class WeihaiEASWebSource internal constructor(
 ) : AbstractEASWebSource(onCookiesUpdated) {
     constructor(onCookiesUpdated: ((EASToken) -> Unit)? = null) : this(null, onCookiesUpdated)
 
-    override val hostName = "https://webvpn.hitwh.edu.cn/http/77726476706e69737468656265737421fae0558f693861446900c7a99c406d3667"
+    override val hostName = WeihaiEasEntryPolicy.VPN_EAS_PREFIX
 
     /**
      * 本次会话实际应使用的教务 host。
@@ -99,12 +99,7 @@ class WeihaiEASWebSource internal constructor(
 
         executor.execute {
             try {
-                LogUtils.d("login: Weihai login START")
-                LogUtils.d("login: username length=${username.length}")
-
                 val cookiesMap = parseCookiesFromJson(username)
-                LogUtils.d("login: parsed cookies=${cookiesMap.keys}, count=${cookiesMap.size}")
-                LogUtils.d("login: key cookies, HIT=${cookiesMap["HIT"]?.take(8)}, JSESSIONID=${cookiesMap["JSESSIONID"]?.take(8)}")
 
                 if (cookiesMap.isEmpty()) {
                     LogUtils.e("login: cookies EMPTY")
@@ -112,40 +107,26 @@ class WeihaiEASWebSource internal constructor(
                     return@execute
                 }
 
-                val url = "${resolveHostFromLoginMetadata(password)}/kjscx/queryJxlListBySjid?sf_request_type=ajax"
-                LogUtils.d("login: validating cookies, url=$url")
-
-                val response = Jsoup.connect(url)
-                    .cookies(cookiesMap)
-                    .header("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15")
-                    .header("Accept", "application/json, text/javascript, */*; q=0.01")
-                    .header("X-Requested-With", "XMLHttpRequest")
-                    .header("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
-                    .data("id", "1")
-                    .timeout(timeout)
-                    .ignoreContentType(true)
-                    .ignoreHttpErrors(true)
-                    .method(Connection.Method.POST)
-                    .execute()
-
-                LogUtils.d("login: validation response, status=${response.statusCode()}")
-
-                if (response.statusCode() == 200) {
-                    val resolvedHost = resolveHostFromLoginMetadata(password)
+                val resolvedHost = resolveHostFromLoginMetadata(password)
+                val response = WeihaiUndergraduateLogin.requestTimetable(resolvedHost, cookiesMap, timeout)
+                LogUtils.d("Weihai undergraduate timetable verification status=${response.statusCode()}")
+                if (WeihaiUndergraduateLogin.isVerifiedTimetable(response)) {
                     val token = EASToken().apply {
                         cookies.putAll(cookiesMap)
+                        cookies.putAll(response.cookies())
                         campus = EASToken.Campus.WEIHAI
-                        this.username = extractLoginIdentity(cookiesMap)
+                        this.username = extractLoginIdentity(cookies)
                         this.password = password.ifBlank { username }
-                        // 直连时把入口固化到 token：后续所有请求都会读它，
-                        // 保证「登录走哪条路，拉课表就走哪条路」。
                         if (resolvedHost != hostName) webBaseUrl = resolvedHost
                     }
-                    LogUtils.success("login: Weihai login ok, username=${token.username}")
                     result.postValue(DataState(token, DataState.STATE.SUCCESS))
                 } else {
-                    LogUtils.e("login: Weihai login failed, status=${response.statusCode()}")
-                    result.postValue(DataState(DataState.STATE.FETCH_FAILED, "登录验证失败 HTTP ${response.statusCode()}"))
+                    val message = if (response.statusCode() == 200) {
+                        "威海本科教务会话未就绪，请重新登录"
+                    } else {
+                        "登录验证失败 HTTP ${response.statusCode()}"
+                    }
+                    result.postValue(DataState(DataState.STATE.FETCH_FAILED, message))
                 }
             } catch (e: Exception) {
                 LogUtils.e("login: Weihai login exception", e)

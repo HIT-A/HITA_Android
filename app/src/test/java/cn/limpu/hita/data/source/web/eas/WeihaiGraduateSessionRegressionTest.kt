@@ -197,4 +197,20 @@ class WeihaiGraduateSessionRegressionTest {
             assertEquals(base, WeihaiEasEntryPolicy.graduateBaseUrlFor(base))
         }
     }
+
+    @Test
+    fun `graduate landings stay on yjsgl for both entries`() {
+        val ticket = mapOf(WeihaiGraduateSessionPolicy.TICKET_COOKIE to "synthetic-ticket")
+        val session = mapOf("JSESSIONID" to "synthetic-session")
+        val vpn = WeihaiGraduateSessionPolicy.BASE_URL + "/student_index"
+        val direct = "https://yjsgl.hitwh.edu.cn/student_index"
+        assertTrue(WeihaiGraduateSessionPolicy.isAuthenticatedLanding(vpn, ticket))
+        assertTrue(WeihaiEasEntryPolicy.isDirectGraduateLanding(direct, session))
+        assertFalse(WeihaiEasEntryPolicy.canStartUndergraduateVerification(WeihaiEasEntryPolicy.Entry.VPN, vpn, ticket))
+        assertFalse(WeihaiEasEntryPolicy.canStartUndergraduateVerification(WeihaiEasEntryPolicy.Entry.DIRECT, direct, session))
+        assertFalse(WeihaiGraduateSessionPolicy.isAuthenticatedLanding(
+            "${WeihaiEasEntryPolicy.VPN_EAS_PREFIX}/student_index",
+            ticket,
+        ))
+    }
 }

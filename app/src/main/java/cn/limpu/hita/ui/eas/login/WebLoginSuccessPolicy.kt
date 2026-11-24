@@ -34,8 +34,6 @@ internal object WebLoginSuccessPolicy {
             !cookies["JSESSIONID"].isNullOrBlank() && !cookies["HIT"].isNullOrBlank()
     }
 
-    private const val WEIHAI_TICKET_COOKIE_PREFIX = "wengine_vpn_ticket"
-
     fun shouldOpenWeihaiTeachingEntry(url: String, teachingBaseUrl: String): Boolean {
         val uri = runCatching { URI(url) }.getOrNull() ?: return false
         val teachingBase = runCatching { URI(teachingBaseUrl) }.getOrNull() ?: return false
@@ -47,31 +45,6 @@ internal object WebLoginSuccessPolicy {
         val path = uri.path.orEmpty().trim('/').lowercase()
         val teachingPath = teachingBase.path.orEmpty().trim('/').lowercase()
         return path.isEmpty() || path == "m/portal" || path == "portal/home" || path == teachingPath
-    }
-
-    fun isWeihaiAuthenticatedPage(url: String, cookies: Map<String, String>): Boolean {
-        val uri = runCatching { URI(url) }.getOrNull() ?: return false
-        val path = uri.path.orEmpty().lowercase()
-        val isFunctionPage = path.contains("/http/") ||
-            path.contains("kbcx") ||
-            path.contains("cjcx") ||
-            path.contains("kjscx") ||
-            path.contains("query") ||
-            path.contains("index")
-        // CAS 刚验完票回跳时会落在 loginCAS 上（?ticket=ST-...），此时 cookie 往往已有效；
-        // 若仍按"登录页"排除，用户会永久卡在空白页。登录前的 loginCAS 从不带 ticket 参数，
-        // 所以只对带票据的回跳放行。
-        val hasCasTicket = uri.query.orEmpty().contains("ticket=ST-", ignoreCase = true)
-        val isLoginPage = !hasCasTicket &&
-            (path.contains("logincas") || path.endsWith("/login") || path.contains("/login/"))
-        val hasVpnTicket = cookies.keys.any { key ->
-            key.startsWith(WEIHAI_TICKET_COOKIE_PREFIX, ignoreCase = true) ||
-                key.contains(WEIHAI_TICKET_COOKIE_PREFIX, ignoreCase = true)
-        }
-        // JSESSIONID 的 key 大小写在不同 WebVPN 节点/路径下并不一致，
-        // 严格 equals("JSESSIONID") 会漏判，导致登录成功后仍不 finish。
-        val hasJsession = hasJsessionIdCookie(cookies)
-        return isFunctionPage && !isLoginPage && hasVpnTicket && hasJsession
     }
 
     /** 大小写不敏感地判断 cookies 中是否存在非空的 JSESSIONID。 */
