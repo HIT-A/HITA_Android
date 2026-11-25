@@ -1,9 +1,6 @@
 package cn.limpu.hita.ui.main.timetable
 
 import cn.limpu.hita.data.model.timetable.TimetableStyleSheet
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -28,6 +25,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.LaunchedEffect
 import cn.limpu.hita.ui.main.timetable.compare.*
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -54,13 +52,13 @@ import cn.limpu.hita.R
 import cn.limpu.hita.data.model.timetable.EventItem
 import cn.limpu.hita.data.model.timetable.TimePeriodInDay
 import cn.limpu.hita.ui.design.HitaTheme
+import cn.limpu.hita.ui.design.LocalHitaReducedMotion
+import cn.limpu.hita.ui.design.rememberHorizontalMotion
 import cn.limpu.hita.ui.design.hitaIsAppleGlassSurface
+import cn.limpu.hita.ui.main.TabSwipe
 import java.time.ZoneId
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.NonCancellable
-import kotlinx.coroutines.withContext
 import androidx.compose.runtime.rememberUpdatedState
-import kotlin.math.abs
 
 @Composable
 internal fun TimetableWeekContent(
@@ -114,9 +112,10 @@ internal fun TimetableWeekContent(
     val currentStart by rememberUpdatedState(startDate)
     val previousWeek by rememberUpdatedState(onPrevWeek)
     val nextWeek by rememberUpdatedState(onNextWeek)
-    var dragAccum by remember { mutableStateOf(0f) }
-    val animOffset = remember { Animatable(0f) }
-    var isAnimating by remember { mutableStateOf(false) }
+    val motion = rememberHorizontalMotion()
+    val reduced = LocalHitaReducedMotion.current
+    val reducedState by rememberUpdatedState(reduced)
+    LaunchedEffect(reduced) { if (reduced) motion.reset() }
     val isAppleGlass = hitaIsAppleGlassSurface()
 
     // 晚间课程提示：当前周有 ≥18:30 开始的课程，且晚间课程尚未滚入视野时显示；
@@ -140,61 +139,44 @@ internal fun TimetableWeekContent(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .graphicsLayer {
-                    // Read animation state in the layer phase, without recomposing the grid each frame.
-                    val offset = if (isAnimating) animOffset.value else dragAccum
-                    translationX = offset
-                    alpha = if (contentWidthPx > 0f) {
-                        1f - (abs(offset) / contentWidthPx).coerceIn(0f, 1f)
-                    } else 1f
+                .onSizeChanged {
+                    val width = it.width.toFloat()
+                    if (width != contentWidthPx) motion.reset()
+                    contentWidthPx = width
                 }
-                .onSizeChanged { contentWidthPx = it.width.toFloat() }
-                .pointerInput(startDate) {
+                .pointerInput(Unit) {
+                    var start = currentStart
+                    var width = 0f
+                    var initialOffset = 0f
+                    var travelled = 0f
                     detectHorizontalDragGestures(
+                        onDragStart = {
+                            start = currentStart
+                            width = contentWidthPx
+                            initialOffset = motion.takeOver()
+                            travelled = 0f
+                        },
                         onDragEnd = {
-                            if (isAnimating) return@detectHorizontalDragGestures
-                            val cur = dragAccum
-                            val width = contentWidthPx
-                            if (cur == 0f || width <= 0f) {
-                                dragAccum = 0f
-                                return@detectHorizontalDragGestures
-                            }
-                            isAnimating = true
-                            coroutineScope.launch {
-                                try {
-                                    animOffset.snapTo(cur)
-                                    dragAccum = 0f
-                                    when (TimetableGridGeometry.swipe(cur, width)) {
-                                        -1 -> {
-                                            animOffset.animateTo(width, tween(150))
-                                            if (currentStart != startDate) return@launch
-                                            previousWeek()
-                                            animOffset.snapTo(-width)
-                                            animOffset.animateTo(0f, tween(150))
-                                        }
-                                        1 -> {
-                                            animOffset.animateTo(-width, tween(150))
-                                            if (currentStart != startDate) return@launch
-                                            nextWeek()
-                                            animOffset.snapTo(width)
-                                            animOffset.animateTo(0f, tween(150))
-                                        }
-                                        else -> animOffset.animateTo(0f, spring())
-                                    }
-                                } finally {
-                                    withContext(NonCancellable) { animOffset.snapTo(0f) }
-                                    dragAccum = 0f
-                                    isAnimating = false
+                            if (start == currentStart && width == contentWidthPx) {
+                                when (TimetableGridGeometry.swipe(travelled, width)) {
+                                    -1 -> previousWeek()
+                                    1 -> nextWeek()
                                 }
                             }
+                            motion.settle(reducedState)
                         },
-                        onDragCancel = { dragAccum = 0f },
+                        onDragCancel = { motion.settle(reducedState) },
                         onHorizontalDrag = { _, drag ->
-                            if (!isAnimating) {
-                                dragAccum = (dragAccum + drag).coerceIn(-contentWidthPx, contentWidthPx)
+                            if (start == currentStart && width == contentWidthPx) {
+                                travelled += drag
+                                motion.follow(TabSwipe.follow(initialOffset + travelled, width))
                             }
                         }
                     )
+                }
+                .graphicsLayer {
+                    translationX = motion.offset
+                    alpha = TabSwipe.alpha(motion.offset, contentWidthPx)
                 }
         ) {
             Box(

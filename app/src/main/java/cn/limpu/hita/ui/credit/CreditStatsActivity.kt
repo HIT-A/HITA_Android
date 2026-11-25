@@ -41,6 +41,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.livedata.observeAsState
 import androidx.compose.runtime.mutableStateMapOf
@@ -79,6 +80,9 @@ import cn.limpu.hita.ui.design.HitaComposeTheme
 import cn.limpu.hita.ui.design.HitaTheme
 import cn.limpu.hita.ui.design.StaleDataBanner
 import cn.limpu.hita.ui.eas.EASActivity
+import cn.limpu.hita.ui.eas.AcademicLoadFeedback
+import cn.limpu.hita.ui.eas.isAcademicLoading
+import cn.limpu.hita.ui.eas.requiresAcademicLogin
 import cn.limpu.hita.utils.TermNameFormatter
 import com.limpu.component.data.DataState
 import com.limpu.style.ThemeTools
@@ -107,30 +111,24 @@ class CreditStatsActivity : EASActivity<CreditStatsViewModel, ComposeViewBinding
     override fun initViews() {
         super.initViews()
         UsageAnalyticsClient.record(UsageAnalyticsEvent.CREDIT_SUMMARY_VIEWED)
-        viewModel.shenzhenProgress.observe(this) { state ->
-            if (state.state == DataState.STATE.NOT_LOGGED_IN) {
-                handleSessionExpired(viewModel::retryOfficial)
-            } else if (state.state == DataState.STATE.SUCCESS) {
-                resetSessionRetryState()
-            }
-        }
-        viewModel.termsLiveData.observe(this) { state ->
-            if (state.state == DataState.STATE.SUCCESS) {
-                viewModel.reconcileTerms(state.data.orEmpty())
-            }
-        }
+        val login = { handleSessionExpired(viewModel::retryOfficial); Unit }
         (binding.root as ComposeView).setContent {
+            val session by easRepository.querySessions.collectAsState()
             HitaComposeTheme() {
                 CreditStatsScreen(
                     viewModel = viewModel,
+                    officialSupported = session.campus == cn.limpu.hita.data.model.eas.EASToken.Campus.SHENZHEN,
                     onBack = { onBackPressedDispatcher.onBackPressed() },
                     onEditGoal = ::showGoalPicker,
                     onRetryOfficial = { viewModel.retryOfficial() },
+                    onLogin = login,
                     onPickTerm = ::showTermPicker
                 )
             }
         }
     }
+
+    override fun shouldRefreshOnStart(): Boolean = false
 
     override fun refresh() {
         viewModel.refresh()
@@ -171,17 +169,22 @@ class CreditStatsActivity : EASActivity<CreditStatsViewModel, ComposeViewBinding
 @Composable
 private fun CreditStatsScreen(
     viewModel: CreditStatsViewModel,
+    officialSupported: Boolean,
     onBack: () -> Unit,
     onEditGoal: (CreditCategorySummary) -> Unit,
     onRetryOfficial: () -> Unit,
+    onLogin: () -> Unit,
     onPickTerm: () -> Unit
 ) {
-    if (viewModel.officialSupported) {
+    if (officialSupported) {
         val officialState by viewModel.shenzhenProgress.observeAsState()
+        val termsState by viewModel.termsLiveData.observeAsState()
         ShenzhenCreditProgressScreen(
             state = officialState,
+            termsState = termsState,
             onBack = onBack,
             onRetry = onRetryOfficial,
+            onLogin = onLogin,
             selectedTerm = viewModel.selectedTermDisplay.observeAsState().value?.toTermItem(),
             onPickTerm = onPickTerm
         )
@@ -267,8 +270,10 @@ private fun CreditStatsScreen(
 @Composable
 private fun ShenzhenCreditProgressScreen(
     state: DataState<ShenzhenCreditProgress>?,
+    termsState: DataState<List<TermItem>>?,
     onBack: () -> Unit,
     onRetry: () -> Unit,
+    onLogin: () -> Unit,
     selectedTerm: TermItem?,
     onPickTerm: () -> Unit
 ) {
@@ -287,7 +292,7 @@ private fun ShenzhenCreditProgressScreen(
                 Column {
                     Text("培养方案完成度")
                     Row(
-                        modifier = Modifier.clickable(onClick = onPickTerm),
+                        modifier = Modifier.clickable(enabled = !termsState?.data.isNullOrEmpty(), onClick = onPickTerm),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
@@ -322,32 +327,34 @@ private fun ShenzhenCreditProgressScreen(
             )
         )
 
-        if (state?.refreshFailed == true && progress != null) {
-            // 刷新失败但还有上次的培养方案可看：提示数据是旧的，页面照常展示。
-            StaleDataBanner(cachedAtMillis = state?.cachedAtMillis, onRetry = onRetry)
+        val activeState = if (selectedTerm == null) termsState else state
+        val needsLogin = activeState.requiresAcademicLogin()
+        if (needsLogin) {
+            AcademicLoadFeedback(
+                stringResource(if (progress == null) R.string.academic_login_required else R.string.academic_cached_login_required),
+                R.string.academic_login,
+                onLogin,
+            )
+        } else if (state?.refreshFailed == true && progress != null) {
+            StaleDataBanner(cachedAtMillis = state.cachedAtMillis, onRetry = onRetry)
         }
 
         when {
-            state == null || state.state in listOf(
-                DataState.STATE.NOTHING,
-                DataState.STATE.LOADING
-            ) -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            activeState.isAcademicLoading() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator()
             }
-            state.state != DataState.STATE.SUCCESS || progress == null -> Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 24.dp, vertical = 48.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Text(
-                    state.message ?: "培养方案完成度读取失败",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Button(onClick = onRetry, modifier = Modifier.padding(top = 12.dp)) {
-                    Text("重试")
-                }
-            }
+            needsLogin && progress == null -> Unit
+            activeState?.state != DataState.STATE.SUCCESS -> AcademicLoadFeedback(
+                activeState?.message ?: stringResource(
+                    if (selectedTerm == null) R.string.academic_terms_failed else R.string.academic_credit_failed
+                ),
+                R.string.academic_retry,
+                onRetry,
+            )
+            progress == null && !needsLogin -> AcademicLoadFeedback(
+                stringResource(if (selectedTerm == null) R.string.academic_terms_empty else R.string.academic_credit_empty)
+            )
+            progress == null -> Unit
             else -> {
                 val groups = progress.groups.filter { it.depth > 0 || it.name != "无" }
                 val visibleCourses = if (showAllCourses) {

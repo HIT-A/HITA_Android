@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="academic_login_required">请登录教务后继续查询</string>
+    <string name="academic_cached_login_required">正在显示缓存；教务会话已失效</string>
+    <string name="academic_login">登录教务</string>
+    <string name="academic_retry">重试</string>
+    <string name="academic_terms_failed">学期列表加载失败</string>
+    <string name="academic_terms_empty">没有可查询的学期</string>
+    <string name="academic_credit_failed">培养方案完成度读取失败</string>
+    <string name="academic_credit_empty">所选学期没有学分完成度记录</string>
+    <string name="academic_classrooms_failed">空教室查询失败</string>
+    <string name="academic_classrooms_empty">当前条件下没有教室记录</string>
+    <string name="academic_buildings_failed">教学楼列表加载失败</string>
+    <string name="academic_buildings_empty">没有可查询的教学楼</string>
+    <string name="academic_classroom_structure_failed">课时信息加载失败，暂无法打开教室详情</string>
+    <string name="academic_scores_failed">成绩查询失败</string>
+    <string name="academic_scores_empty">当前条件下没有成绩记录</string>
+    <string name="academic_exams_failed">考试查询失败</string>
+    <string name="academic_plans_empty">没有可查询的培养方案</string>
+    <string name="academic_plan_detail_empty">所选培养方案没有课程记录</string>
+    <string name="academic_selection_schedule_confirmation">确认计划选课</string>
+    <string name="academic_selection_schedule_summary">%1$s · %2$s\n计划于 %3$s 执行</string>
+    <string name="academic_selection_schedule_expired">所选时间已不可用，请重新选择时间。任务尚未创建。</string>
+    <string name="academic_selection_schedule_changed">选课对象或教务会话已变更，任务尚未创建。</string>
+    <string name="academic_selection_schedule_permissions">授予所需权限后，将返回此计划供你确认，不会自动提交。</string>
+    <string name="academic_selection_cancel_confirmation">取消此选课任务？</string>
+    <string name="academic_selection_cancel_summary">%1$s · %2$s\n取消后不再执行此任务。</string>
+    <string name="academic_selection_keep_job">保留任务</string>
+    <string name="campus_card_cached_sign_in_required">正在显示缓存账单；校园卡会话已失效，续登后才会更新。</string>
+    <string name="campus_library_portal_refresh_hint">在馆人数来自大学城图书馆智慧墙。当前请求被门户拦成登录页，登录后返回会自动重取。</string>
+</resources>

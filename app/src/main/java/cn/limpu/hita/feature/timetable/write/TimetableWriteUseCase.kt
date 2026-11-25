@@ -30,6 +30,14 @@ class TimetableWriteUseCase internal constructor(
     fun delete(events: Collection<EventItem>, onResult: ((Result<Unit>) -> Unit)? = null) =
         submit(TimetableWriteOperation.Delete(events.map { it.id }), onResult)
 
+    /** Gives a single personal deletion's exact history identity, never a later deletion of the same row. */
+    fun deleteForUndo(event: EventItem, onResult: (Result<String>) -> Unit) {
+        val historyId = java.util.UUID.randomUUID().toString()
+        submit(TimetableWriteOperation.Delete(listOf(event.id), historyId)) { outcome ->
+            onResult(outcome.map { historyId })
+        }
+    }
+
     fun deleteSubjects(subjects: Collection<TermSubject>, onResult: ((Result<Unit>) -> Unit)? = null) =
         submit(TimetableWriteOperation.DeleteSubjects(subjects.toList()), onResult)
 
@@ -64,7 +72,12 @@ class TimetableWriteUseCase internal constructor(
         result: ScheduleEventCreator.Result,
         subjectToSave: TermSubject? = null,
         beforeWrite: () -> Unit = {},
-    ) = execute(TimetableWriteOperation.Add(result, subjectToSave), beforeWrite)
+    ) = run {
+        // Agent 调用需要真实失败：未提交必须抛给工具，而不是静默成功。
+        check(execute(TimetableWriteOperation.Add(result, subjectToSave), beforeWrite)) {
+            "No timetable changes were committed"
+        }
+    }
 
     private fun submit(operation: TimetableWriteOperation, onResult: ((Result<Unit>) -> Unit)?) {
         if (operation.isEmpty()) {
@@ -72,16 +85,33 @@ class TimetableWriteUseCase internal constructor(
             return
         }
         enqueueWrite {
-            val outcome = runCatching { execute(operation) }
-            outcome.exceptionOrNull()?.let(onWriteFailure)
-            if (onResult != null) deliverResult { onResult(outcome) }
+            var committed = false
+            val outcome = runCatching { committed = execute(operation) }
+            val failure = outcome.exceptionOrNull()
+                ?: if (committed) null else IllegalStateException("No timetable changes were committed")
+            failure?.let(onWriteFailure)
+            if (onResult != null) {
+                val result = failure?.let { Result.failure<Unit>(it) } ?: Result.success(Unit)
+                deliverResult { onResult(result) }
+            }
         }
     }
 
-    private fun execute(operation: TimetableWriteOperation, beforeWrite: () -> Unit = {}) {
-        if (operation.isEmpty() || !store.writeSync(operation, beforeWrite)) return
+    /**
+     * 返回是否应视为「已处理」。
+     *
+     * 表结构/开始日期这类没有变更时也会返回未提交的操作，语义等同 no-op，不当作失败；
+     * 事件增删改的未提交必须回传失败，调用方才能保留表单并提供重试。
+     */
+    private fun execute(operation: TimetableWriteOperation, beforeWrite: () -> Unit = {}): Boolean {
+        if (operation.isEmpty()) return true
+        val committed = store.writeSync(operation, beforeWrite)
+        if (!committed && operation is TimetableWriteOperation.ChangeStartDate) return true
+        if (!committed && operation is TimetableWriteOperation.ChangeStructure) return true
+        if (!committed) return false
         // Persistence has committed. A refresh error must not invite a duplicate write on retry.
         runCatching(refreshWidgets).onFailure(onRefreshFailure)
+        return true
     }
 
     private fun TimetableWriteOperation.isEmpty(): Boolean = when (this) {

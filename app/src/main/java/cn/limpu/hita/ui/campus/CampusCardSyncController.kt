@@ -43,51 +43,50 @@ internal class CampusCardSyncController private constructor(private val applicat
     private var syncFailed = false
     private var requiresSignIn = false
     private var lastAutomaticAttempt: Long? = null
-    private var pendingManual = false
-    private var pendingTicket: String? = null
 
     fun start(session: CampusCardCookies, portalTicket: String? = null, automatic: Boolean = false) {
         if (CampusServiceAccount.CARD.isSignedOut(application)) return
         if (!session.hasSession && portalTicket == null) return
         val key = key(session)
-        // One task for both launch refresh and explicit refresh, including initialization.
-        if (job?.isActive == true) {
-            if (!automatic && sessionKey == key) {
-                pendingManual = true
-                pendingTicket = portalTicket ?: pendingTicket
-            }
-            return
-        }
+        // Coalesce repeated refreshes. A different session (or a newly verified login)
+        // supersedes the old job rather than waiting behind its network requests.
+        if (job?.isActive == true && portalTicket == null && cookies == session) return
         val now = SystemClock.elapsedRealtime()
         if (automatic && lastAutomaticAttempt?.let { now - it < 60_000 } == true) return
-        if (sessionKey != key || portalTicket != null) token = null
+        job?.cancel()
+        if (cookies != session || portalTicket != null) token = null
         cookies = session
+        if (sessionKey != key) ledger = null
         sessionKey = key
         generation++
         val requestGeneration = generation
+        syncing = !automatic
+        syncFailed = false
+        requiresSignIn = false
+        if (!automatic) publish()
         job = scope.launch {
           try {
-            ledger = store.read(key)
-            if (ledger == null) store.migrateLegacy(identity(session), Instant.now())?.let {
-                store.write(key, it)
-                ledger = it
+            val cached = store.read(key)
+            ensureActive()
+            if (generation != requestGeneration) return@launch
+            ledger = cached
+            if (ledger == null) {
+                val migrated = store.migrateLegacy(identity(session), Instant.now())
+                if (migrated != null) save(key, requestGeneration, migrated)
             }
             // Launch refresh only starts after this service has already been used.
-            if (automatic && ledger == null && !pendingManual) return@launch
+            if (automatic && ledger == null) {
+                publish()
+                return@launch
+            }
             if (automatic) lastAutomaticAttempt = now
-            val ticket = portalTicket ?: pendingTicket
-            pendingManual = false
-            pendingTicket = null
-            synchronize(ticket)
+            synchronize(key, requestGeneration, session, portalTicket)
           } catch (cancelled: CancellationException) { throw cancelled }
           catch (_: Exception) {
-              syncing = false
-              syncFailed = true
-              publish()
-          } finally {
               if (generation == requestGeneration) {
-                  pendingManual = false
-                  pendingTicket = null
+                  syncing = false
+                  syncFailed = true
+                  publish()
               }
           }
         }
@@ -97,8 +96,6 @@ internal class CampusCardSyncController private constructor(private val applicat
         generation++
         job?.cancel()
         job = null
-        pendingManual = false
-        pendingTicket = null
         cookies = null
         token = null
         ledger = null
@@ -111,22 +108,28 @@ internal class CampusCardSyncController private constructor(private val applicat
         _state.value = CampusCardSyncState(sessionKey, ledger, syncing, syncFailed, requiresSignIn)
     }
 
-    private suspend fun save(value: CampusCardLedger) {
-        store.write(sessionKey, value)
+    private suspend fun save(key: String, requestGeneration: Int, value: CampusCardLedger) {
+        currentCoroutineContext().ensureActive()
+        if (generation != requestGeneration) throw CancellationException()
+        store.write(key, value)
+        currentCoroutineContext().ensureActive()
+        if (generation != requestGeneration) throw CancellationException()
         ledger = value
         publish()
     }
 
     /** First initialization is sequential and checkpointed; later updates only query the recent interval. */
-    private suspend fun synchronize(portalTicket: String?) {
-        val session = cookies ?: return
-        val activeGeneration = generation
+    private suspend fun synchronize(key: String, activeGeneration: Int, session: CampusCardCookies, portalTicket: String?) {
         syncing = true
         syncFailed = false
         requiresSignIn = false
         publish()
         try {
-            val activeToken = token ?: client.acquireToken(session::headerFor, portalTicket).also { token = it }
+            val activeToken = token ?: client.acquireToken(session::headerFor, portalTicket).also {
+                currentCoroutineContext().ensureActive()
+                if (generation != activeGeneration) throw CancellationException()
+                token = it
+            }
             val now = Instant.now()
             val initial = ledger?.initialComplete != true
             val until = if (initial) ledger?.initialCutoff?.let(Instant::ofEpochMilli) ?: now else now
@@ -141,7 +144,7 @@ internal class CampusCardSyncController private constructor(private val applicat
                     since = since, until = until) }
                 val balance = async { client.fetchBalance(activeToken) }
                 val freshBalance = balance.await()
-                save((ledger ?: CampusCardLedger(freshBalance, initialCutoff = until.toEpochMilli()))
+                save(key, activeGeneration, (ledger ?: CampusCardLedger(freshBalance, initialCutoff = until.toEpochMilli()))
                     .copy(summary = freshBalance, pendingSinceMillis = since?.toEpochMilli()))
                 var response = first.await()
                 while (true) {
@@ -155,7 +158,7 @@ internal class CampusCardSyncController private constructor(private val applicat
                         throw CampusCardNetworkException(application.getString(R.string.campus_card_sync_incomplete))
                     }
                     val current = ledger ?: return@coroutineScope
-                    save(current.copy(rows = merged, updatedAt = System.currentTimeMillis(),
+                    save(key, activeGeneration, current.copy(rows = merged, updatedAt = System.currentTimeMillis(),
                         initialComplete = !initial || complete,
                         nextInitialPage = if (initial) remotePage + 1 else current.nextInitialPage,
                         remoteTotal = if (initial) response.total else current.remoteTotal,
@@ -170,11 +173,13 @@ internal class CampusCardSyncController private constructor(private val applicat
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: CampusCardSignInRequiredException) {
+            if (generation != activeGeneration) return
             token = null
             // Retain the local ledger; the user may still read it after a server session expires.
             requiresSignIn = true
             syncFailed = true
         } catch (_: Exception) {
+            if (generation != activeGeneration) return
             syncFailed = true
 
         } finally {

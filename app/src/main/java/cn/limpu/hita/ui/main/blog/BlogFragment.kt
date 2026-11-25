@@ -51,6 +51,7 @@ import androidx.compose.runtime.livedata.observeAsState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -59,6 +60,9 @@ import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -77,6 +81,7 @@ import cn.limpu.hita.data.source.preference.EasCredentialStore
 import cn.limpu.hita.ui.main.MainTab
 import cn.limpu.hita.ui.blog.BlogReaderActivity
 import cn.limpu.hita.ui.design.HitaComposeTheme
+import cn.limpu.hita.ui.design.StringSetSaver
 import cn.limpu.hita.ui.design.hitaGlassCardBorder
 import cn.limpu.hita.ui.design.hitaGlassCardColors
 import cn.limpu.hita.ui.design.hitaGlassCardModifier
@@ -458,6 +463,15 @@ private fun BlogScreen(
     val nodes = remember(articles) { BlogSeriesGrouper.group(articles) }
     val lxgw = rememberLxgwFontFamily()
     val transparentBackdrop = hitaUsesMainBackdrop()
+    // 展开偏好按稳定 ID 记在列表层：重建、旋转和滚出屏幕再回来都保持最后一次操作。
+    var expandedIds by rememberSaveable(stateSaver = StringSetSaver) { mutableStateOf(emptySet<String>()) }
+    var collapsedIds by rememberSaveable(stateSaver = StringSetSaver) { mutableStateOf(emptySet<String>()) }
+    val toggleSeries: (String, Boolean) -> Unit = { id, expand ->
+        val (nextExpanded, nextCollapsed) =
+            BlogExpansionPolicy.toggle(id, expand, expandedIds, collapsedIds)
+        expandedIds = nextExpanded
+        collapsedIds = nextCollapsed
+    }
 
     Column(
         modifier = Modifier
@@ -518,6 +532,9 @@ private fun BlogScreen(
                                 node = node,
                                 unread = unread,
                                 fontFamily = lxgw,
+                                expandedIds = expandedIds,
+                                collapsedIds = collapsedIds,
+                                onToggleSeries = toggleSeries,
                                 onOpenArticle = onOpenArticle,
                             )
                         }
@@ -533,15 +550,22 @@ private fun BlogNodeCard(
     node: BlogNode,
     unread: Set<String>,
     fontFamily: FontFamily,
+    expandedIds: Set<String>,
+    collapsedIds: Set<String>,
+    onToggleSeries: (String, Boolean) -> Unit,
     onOpenArticle: (BlogArticle) -> Unit,
 ) {
     val shape = hitaStyleCardShape(roundedRadius = 16.dp, cyberCut = 12.dp)
     val hasUnread = node.article.guid in unread || node.children.any { subtreeUnread(it, unread) }
-    var userToggled by remember(node.article.guid) { mutableStateOf(false) }
-    var expanded by remember(node.article.guid) { mutableStateOf(false) }
-    LaunchedEffect(hasUnread, node.article.guid) {
-        if (!userToggled && hasUnread && node.isSeries) expanded = true
-    }
+    val id = node.article.guid
+    // 未手动操作过的系列：有未读就自动展开，之后按用户最后一次操作。
+    val expanded = BlogExpansionPolicy.isExpanded(
+        id = id,
+        isSeries = node.isSeries,
+        autoExpand = hasUnread,
+        expandedIds = expandedIds,
+        collapsedIds = collapsedIds,
+    )
 
     Card(
         modifier = Modifier
@@ -558,10 +582,7 @@ private fun BlogNodeCard(
                 fontFamily = fontFamily,
                 isSeries = node.isSeries,
                 expanded = expanded,
-                onToggleSeries = {
-                    userToggled = true
-                    expanded = !expanded
-                },
+                onToggleSeries = { onToggleSeries(id, !expanded) },
                 onOpen = { onOpenArticle(node.article) },
             )
             AnimatedVisibility(visible = node.isSeries && expanded) {
@@ -571,6 +592,9 @@ private fun BlogNodeCard(
                             node = child,
                             unread = unread,
                             fontFamily = fontFamily,
+                            expandedIds = expandedIds,
+                            collapsedIds = collapsedIds,
+                            onToggleSeries = onToggleSeries,
                             onOpenArticle = onOpenArticle,
                         )
                     }
@@ -585,9 +609,20 @@ private fun BlogChildTree(
     node: BlogNode,
     unread: Set<String>,
     fontFamily: FontFamily,
+    expandedIds: Set<String>,
+    collapsedIds: Set<String>,
+    onToggleSeries: (String, Boolean) -> Unit,
     onOpenArticle: (BlogArticle) -> Unit,
 ) {
-    var expanded by remember(node.article.guid) { mutableStateOf(node.isSeries) }
+    val id = node.article.guid
+    // 子系列的默认值是展开；手动操作后与父级共享同一份偏好。
+    val expanded = BlogExpansionPolicy.isExpanded(
+        id = id,
+        isSeries = node.isSeries,
+        autoExpand = true,
+        expandedIds = expandedIds,
+        collapsedIds = collapsedIds,
+    )
     Column(modifier = Modifier.fillMaxWidth().padding(top = 6.dp)) {
         BlogArticleRow(
             article = node.article,
@@ -596,7 +631,7 @@ private fun BlogChildTree(
             isSeries = node.isSeries,
             expanded = expanded,
             compact = true,
-            onToggleSeries = { expanded = !expanded },
+            onToggleSeries = { onToggleSeries(id, !expanded) },
             onOpen = { onOpenArticle(node.article) },
         )
         AnimatedVisibility(visible = node.isSeries && expanded) {
@@ -606,6 +641,9 @@ private fun BlogChildTree(
                         node = child,
                         unread = unread,
                         fontFamily = fontFamily,
+                        expandedIds = expandedIds,
+                        collapsedIds = collapsedIds,
+                        onToggleSeries = onToggleSeries,
                         onOpenArticle = onOpenArticle,
                     )
                 }
@@ -625,11 +663,18 @@ private fun BlogArticleRow(
     onToggleSeries: () -> Unit,
     onOpen: () -> Unit,
 ) {
+    val expandedState = stringResource(
+        if (expanded) R.string.state_expanded else R.string.state_collapsed
+    )
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clip(MaterialTheme.shapes.medium)
             .clickable(onClick = if (isSeries) onToggleSeries else onOpen)
+            .then(
+                if (isSeries) Modifier.semantics { stateDescription = expandedState }
+                else Modifier
+            )
             .padding(vertical = if (compact) 6.dp else 2.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -668,7 +713,8 @@ private fun BlogArticleRow(
                 fontSize = 16.sp,
                 modifier = Modifier
                     .padding(start = 8.dp)
-                    .rotate(if (expanded) 90f else 0f),
+                    .rotate(if (expanded) 90f else 0f)
+                    .clearAndSetSemantics { },
             )
         }
     }

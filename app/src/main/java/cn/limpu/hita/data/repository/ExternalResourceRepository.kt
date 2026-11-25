@@ -4,6 +4,7 @@ import androidx.lifecycle.LiveData
 import androidx.lifecycle.MediatorLiveData
 import com.limpu.component.data.DataState
 import cn.limpu.hita.data.model.resource.ExternalCourseItem
+import cn.limpu.hita.data.model.resource.ExternalSearchResult
 import cn.limpu.hita.data.model.resource.ExternalResourceEntry
 import cn.limpu.hita.data.model.resource.ResourceSource
 import cn.limpu.hita.data.source.web.FireworksWebSource
@@ -13,53 +14,38 @@ import javax.inject.Inject
 
 class ExternalResourceRepository @Inject constructor() {
 
-    fun searchCourses(query: String): LiveData<DataState<List<ExternalCourseItem>>> {
-        val mediator = MediatorLiveData<DataState<List<ExternalCourseItem>>>()
-        var hitcsResult: List<ExternalCourseItem>? = null
-        var fireworksResult: List<ExternalCourseItem>? = null
-        var hitcsFailed = false
-        var fireworksFailed = false
-
-        val hitcsLive = HITCSWebSource.searchCourses(query)
-        val fireworksLive = FireworksWebSource.searchCourses(query)
-
-        fun mergeAndPost() {
-            val hitcsDone = hitcsResult != null || hitcsFailed
-            val fireworksDone = fireworksResult != null || fireworksFailed
-            if (!hitcsDone || !fireworksDone) return
-
-            val merged = mutableListOf<ExternalCourseItem>()
-            hitcsResult?.let { merged.addAll(it) }
-            fireworksResult?.let { merged.addAll(it) }
-            merged.sortBy { it.courseName }
-
-            if (merged.isNotEmpty()) {
-                mediator.value = DataState(merged, DataState.STATE.SUCCESS)
-            } else if (hitcsFailed && fireworksFailed) {
-                mediator.value = DataState(DataState.STATE.FETCH_FAILED, "所有数据源均不可用")
-            } else {
-                mediator.value = DataState(merged, DataState.STATE.SUCCESS)
-            }
+    fun searchSource(query: String, source: ResourceSource): LiveData<DataState<List<ExternalCourseItem>>> =
+        when (source) {
+            ResourceSource.HITCS -> HITCSWebSource.searchCourses(query)
+            ResourceSource.FIREWORKS -> FireworksWebSource.searchCourses(query)
         }
 
-        mediator.addSource(hitcsLive) { state ->
-            if (state.state == DataState.STATE.SUCCESS) {
-                hitcsResult = state.data ?: emptyList()
-            } else {
-                hitcsFailed = true
+    fun searchCourses(query: String): LiveData<DataState<ExternalSearchResult>> {
+        val mediator = MediatorLiveData<DataState<ExternalSearchResult>>()
+        val outcomes = mutableMapOf<ResourceSource, ExternalSourceOutcome>()
+        for (source in ResourceSource.entries) {
+            val request = searchSource(query, source)
+            mediator.addSource(request) { state ->
+                when (state.state) {
+                    DataState.STATE.NOTHING, DataState.STATE.LOADING -> Unit
+                    else -> {
+                        mediator.removeSource(request)
+                        outcomes[source] = ExternalSourceOutcome(
+                            source,
+                            state.data.orEmpty(),
+                            if (state.state == DataState.STATE.SUCCESS) null
+                            else IllegalStateException(state.message.orEmpty()),
+                        )
+                        if (outcomes.size == ResourceSource.entries.size) {
+                            mediator.value = DataState(
+                                ExternalResourceSearch.merge(ResourceSource.entries.map(outcomes::getValue)),
+                                DataState.STATE.SUCCESS,
+                            )
+                        }
+                    }
+                }
             }
-            mergeAndPost()
         }
-
-        mediator.addSource(fireworksLive) { state ->
-            if (state.state == DataState.STATE.SUCCESS) {
-                fireworksResult = state.data ?: emptyList()
-            } else {
-                fireworksFailed = true
-            }
-            mergeAndPost()
-        }
-
         return mediator
     }
 

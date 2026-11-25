@@ -4,6 +4,7 @@ import android.os.Bundle
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -98,6 +99,7 @@ class SilentPodActivity : AppCompatActivity() {
                     val actionMessage by viewModel.actionMessage.collectAsState()
                     val contacts by viewModel.contacts.collectAsState()
                     val defaultMobile by viewModel.defaultMobile.collectAsState()
+                    val writeState by viewModel.writeState.collectAsState()
                     androidx.compose.runtime.LaunchedEffect(actionMessage) {
                         actionMessage?.let {
                             android.widget.Toast.makeText(
@@ -108,6 +110,7 @@ class SilentPodActivity : AppCompatActivity() {
                     }
                     SilentPodScreen(
                         state = state,
+                        writeState = writeState,
                         onSignIn = {
                             if (!resetting) {
                                 resetting = true
@@ -130,18 +133,22 @@ class SilentPodActivity : AppCompatActivity() {
                             )
                         },
                         onCreateReservation = { space, start, end, phone, contactIds ->
+                            val content = (state as? CampusServiceUiState.Ready)?.value
                             viewModel.createReservation(
-                                spaceId = space.id,
-                                date = (state as? CampusServiceUiState.Ready)?.value?.date.orEmpty(),
+                                space = space,
+                                date = content?.date.orEmpty(),
                                 startTime = start,
                                 endTime = end,
                                 notes = phone,
                                 contactIds = contactIds,
+                                previousReservationIds = content?.reservations.orEmpty()
+                                    .mapTo(mutableSetOf()) { it.id },
                             )
                         },
                         onCancelReservation = { reservation, reason ->
-                            viewModel.cancelReservation(reservation.id, reason)
+                            viewModel.cancelReservation(reservation, reason)
                         },
+                        onVerifyWrite = { found -> viewModel.verifyWrite(found) },
                         contacts = contacts,
                         defaultMobile = defaultMobile,
                         onAddContact = { name, cardNo, onAdded ->
@@ -182,12 +189,14 @@ private fun SilentPodLoginHost(
 @Composable
 private fun SilentPodScreen(
     state: CampusServiceUiState<SilentPodContent>,
+    writeState: SilentPodWriteGate.State,
     onSignIn: () -> Unit,
     onSignOut: () -> Unit,
     resetting: Boolean,
     onRefresh: () -> Unit,
     onCreateReservation: (SilentPodSpace, String, String, String, List<Int>) -> Unit,
     onCancelReservation: (SilentPodReservation, String) -> Unit,
+    onVerifyWrite: ((SilentPodContent) -> Boolean) -> Unit,
     contacts: List<SilentPodContact>,
     defaultMobile: String,
     onAddContact: (name: String, cardNo: String, onAdded: (SilentPodContact) -> Unit) -> Unit,
@@ -196,6 +205,36 @@ private fun SilentPodScreen(
     Scaffold { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxSize()) {
             SilentPodHeader(onRefresh = onRefresh, refreshEnabled = !resetting && state !is CampusServiceUiState.Loading, onSignOut = onSignOut, resetting = resetting)
+            (writeState as? SilentPodWriteGate.State.Unconfirmed)?.let { pending ->
+                // 结果未确认时保留明确出口：核对远端记录，而不是让用户猜是否要重发。
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(MaterialTheme.colorScheme.errorContainer)
+                        .padding(horizontal = HitaTheme.tokens.spacing.lg, vertical = HitaTheme.tokens.spacing.sm),
+                ) {
+                    Text(
+                        text = stringResource(R.string.silent_pod_write_unconfirmed),
+                        color = MaterialTheme.colorScheme.onErrorContainer,
+                        modifier = Modifier.weight(1f),
+                    )
+                    TextButton(
+                        enabled = !pending.checking,
+                        onClick = {
+                            onVerifyWrite { content ->
+                                when (val write = pending.write) {
+                                    is SilentPodWrite.Reserve -> write.foundIn(content.reservations)
+                                    is SilentPodWrite.Cancel -> write.foundIn(content.reservations)
+                                    else -> false
+                                }
+                            }
+                        },
+                    ) {
+                        Text(stringResource(if (pending.checking) R.string.silent_pod_loading else R.string.silent_pod_write_verify))
+                    }
+                }
+            }
             when (state) {
                 is CampusServiceUiState.Loading -> SilentPodLoading()
                 is CampusServiceUiState.RequiresSignIn -> SilentPodSignInRequired(onSignIn = onSignIn)

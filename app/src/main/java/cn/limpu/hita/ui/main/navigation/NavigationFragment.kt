@@ -2,7 +2,6 @@ package cn.limpu.hita.ui.main.navigation
 
 import android.annotation.SuppressLint
 import android.app.Activity
-import android.content.DialogInterface
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
@@ -56,6 +55,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.fragment.app.viewModels
+import androidx.fragment.app.activityViewModels
+import androidx.compose.runtime.collectAsState
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import cn.limpu.hita.R
 import cn.limpu.hita.data.analytics.UsageAnalyticsClient
@@ -86,6 +87,9 @@ import cn.limpu.hita.ui.eas.catalog.ShenzhenCourseCatalogActivity
 import cn.limpu.hita.ui.eas.exam.ExamActivity
 import cn.limpu.hita.ui.eas.grade.ShenzhenGradeAnalysisActivity
 import cn.limpu.hita.ui.main.MainTab
+import cn.limpu.hita.ui.main.MainViewModel
+import cn.limpu.hita.ui.profile.AccountLogoutDialog
+import cn.limpu.hita.ui.profile.AccountLogoutTarget
 import cn.limpu.hita.ui.notice.AppNoticesActivity
 import cn.limpu.hita.ui.links.UsefulLinksActivity
 import cn.limpu.hita.ui.eas.login.PopUpLoginEAS
@@ -105,6 +109,7 @@ class NavigationFragment : androidx.fragment.app.Fragment() {
     @Inject lateinit var easRepository: EASRepository
 
     private val viewModel: NavigationViewModel by viewModels()
+    private val mainViewModel: MainViewModel by activityViewModels()
     private var reminderEnabledState by mutableStateOf(false)
     /** 当前提醒规则的一句话摘要，随设置页返回后刷新。 */
     private var reminderRuleSummaryState by mutableStateOf("")
@@ -160,6 +165,8 @@ class NavigationFragment : androidx.fragment.app.Fragment() {
                 HitaComposeTheme() {
                     val easToken by easRepository.observeEasToken()
                         .observeAsState(easRepository.getEasToken())
+                    val mainState by mainViewModel.state.collectAsState()
+                    val unreadNotices = mainState.noticeUnreadCount
                     NavigationScreen(
                         viewModel = viewModel,
                         localUser = remember(userStateVersion) { localUserRepository.getLoggedInUser() },
@@ -183,6 +190,7 @@ class NavigationFragment : androidx.fragment.app.Fragment() {
                         onOpenMoreFeatures = {
                             ActivityUtils.startActivity(requireContext(), MoreFeaturesActivity::class.java)
                         },
+                        unreadNotices = unreadNotices,
                         onOpenNotices = { openNotices() },
                         onOpenCampusExtension = { extension ->
                             val target = when (extension) {
@@ -248,6 +256,11 @@ class NavigationFragment : androidx.fragment.app.Fragment() {
         viewModel.startRefresh()
     }
 
+    override fun onResume() {
+        super.onResume()
+        userStateVersion++
+    }
+
     private fun showAvatarPicker() {
         MaterialAlertDialogBuilder(requireContext())
             .setTitle("更换头像")
@@ -274,23 +287,27 @@ class NavigationFragment : androidx.fragment.app.Fragment() {
         if (localUser.isValid() || easToken.isLogin()) {
             val title = if (localUser.isValid()) localUser.nickname.orEmpty()
                 else easToken.name ?: easToken.username.orEmpty()
-            val items = if (localUser.isValid())
-                arrayOf("查看资料", "退出登录")
-            else
-                arrayOf("退出登录")
+            val targets = listOfNotNull(AccountLogoutTarget.hita(localUser), AccountLogoutTarget.academic(easToken))
+            val canOpenProfile = localUser.isValid() && localUser.id != null
+            val items = buildList {
+                if (canOpenProfile) add(getString(R.string.main_view_profile))
+                targets.forEach { add(getString(it.actionLabel)) }
+            }
             MaterialAlertDialogBuilder(requireContext())
                 .setTitle(title)
-                .setItems(items) { _: DialogInterface, which: Int ->
-                    when {
-                        localUser.isValid() && which == 0 -> {
-                            val userId = localUser.id ?: return@setItems
-                            ActivityUtils.startProfileActivity(requireContext(), userId, null)
-                        }
-                        else -> {
-                            if (localUser.isValid())
-                                localUserRepository.logout(requireContext())
-                            easRepository.logout()
-                            userStateVersion++
+                .setItems(items.toTypedArray()) { _, index ->
+                    if (canOpenProfile && index == 0) {
+                        ActivityUtils.startProfileActivity(requireContext(), localUser.id, null)
+                    } else {
+                        val target = targets[index - if (canOpenProfile) 1 else 0]
+                        // 退出在对话框内一次确认：只结束所选会话，本地数据保留。
+                        AccountLogoutDialog.show(requireContext(), target) {
+                            target.signOut(requireContext(), localUserRepository, easRepository).also { signedOut ->
+                                if (signedOut) {
+                                    mainViewModel.accountChanged(easRepository.getEasToken())
+                                    userStateVersion++
+                                }
+                            }
                         }
                     }
                 }
@@ -540,6 +557,7 @@ private fun NavigationScreen(
     onToggleLiveCourseStrongReminder: () -> Unit,
     onToggleUsageAnalytics: () -> Unit,
     onOpenMoreFeatures: () -> Unit,
+    unreadNotices: Int,
     onOpenNotices: () -> Unit,
     onOpenCampusExtension: (CampusExtension) -> Unit,
 ) {
@@ -701,7 +719,8 @@ private fun NavigationScreen(
             )
             NavigationRow(
                 icon = R.drawable.ic_menu_settings,
-                title = "公告",
+                title = if (unreadNotices > 0) stringResource(R.string.notice_entry_unread, unreadNotices)
+                    else stringResource(R.string.notices_title),
                 subtitle = "版本更新 · 服务与故障通知",
                 onClick = onOpenNotices,
                 trailing = {

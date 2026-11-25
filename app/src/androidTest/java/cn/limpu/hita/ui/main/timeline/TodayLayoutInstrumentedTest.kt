@@ -144,9 +144,15 @@ class TodayLayoutInstrumentedTest {
     }
     @Test fun landscapeHeightUsesOnePageList() = host(height = 240) { _, _ -> tag("today-page-scroll") }
     @Test fun loadingAndReadyKeepIdenticalSummaryHeight() = host { rendered, scenario ->
+        tag("today-agenda-scroll")
+        // 全量串行运行时首帧可能仍在布局，先等几何稳定再取基准，否则基准本身会偏。
+        settle()
         val before = bounds(tag("today-fixed-summaries"))
         scenario.onActivity { rendered.value = rendered.value.copy(status = TodayPageStatus.LOADING, agenda = null) }
-        await { it.text?.toString() == "正在读取…" || it.contentDescription?.toString()?.contains("正在读取") == true }
+        settle()
+        assertNull("加载占位应替换日程列表", find(instrumentation.uiAutomation.rootInActiveWindow) {
+            it.viewIdResourceName == "today-agenda-scroll"
+        })
         assertEquals(before, bounds(tag("today-fixed-summaries")))
     }
     @Test fun scopeRoundTripThroughLoadingRestoresTheVisibleEvent() = host { rendered, scenario ->

@@ -25,6 +25,9 @@ import cn.limpu.hita.data.model.timetable.TimetableGroupEntity
 import cn.limpu.hita.feature.timetable.display.DisplayScopeCoordinator
 import cn.limpu.hita.feature.timetableshare.protocol.*
 import cn.limpu.hita.ui.main.timeline.FragmentTimelineViewModel
+import cn.limpu.hita.ui.widgets.WidgetConfigCodec
+import cn.limpu.hita.ui.widgets.WidgetPrefs
+import cn.limpu.hita.ui.widgets.today.TodayUtils
 import com.limpu.component.data.DataState
 import org.junit.After
 import org.junit.Assert.*
@@ -106,6 +109,35 @@ class TimetableDisplayStorageTest {
         this.id = id
         name = id
         db.timetableGroupDao().saveGroupSync(this)
+    }
+
+    @Test fun pinnedWidgetKeepsItsOwnRangeWithoutFallingBackAfterDeletion() {
+        table("first")
+        table("second")
+        selectionResolver.persistSelection(DisplayScope.Single("first"))
+        val prefs = WidgetPrefs(app)
+        val pinned = Int.MIN_VALUE
+        val following = pinned + 1
+        try {
+            prefs.write(pinned, WidgetConfigCodec.Config(
+                WidgetConfigCodec.encodeScope(DisplayScope.Single("first")), WidgetConfigCodec.Background.CARD,
+            ))
+            prefs.write(following, WidgetConfigCodec.Config(null, WidgetConfigCodec.Background.PLAIN))
+            fun ids(widget: Int) = TodayUtils.scopeIds(selectionResolver, prefs.read(widget).scopeKey)
+            assertEquals(listOf("first"), ids(pinned))
+            assertEquals(listOf("first"), ids(following))
+
+            selectionResolver.persistSelection(DisplayScope.Single("second"))
+            assertEquals(listOf("first"), ids(pinned))
+            assertEquals(listOf("second"), ids(following))
+
+            db.timetableDao().deleteTimetablesInIdsSync(listOf("first"))
+            assertTrue(ids(pinned).isEmpty())
+            assertEquals(listOf("second"), ids(following))
+        } finally {
+            prefs.delete(pinned)
+            prefs.delete(following)
+        }
     }
 
     private fun <T> callback(action: ((T) -> Unit) -> Unit): T {

@@ -216,6 +216,16 @@ class DisplayScopeResolver internal constructor(
                 ?.let { resolveScope(it, timetables, groups) }
         }
     })
+
+    /** Resolves an explicitly chosen target without falling back to or modifying the main selection. */
+    @WorkerThread
+    internal fun exactTimetableIdsSync(scope: DisplayScope): List<String> = database.runInTransaction(Callable {
+        when (scope) {
+            is DisplayScope.Single -> if (timetableDao.getTimetableByIdSync(scope.id) == null) emptyList() else listOf(scope.id)
+            is DisplayScope.Group -> if (groupDao.getGroupByIdSync(scope.id) == null) emptyList()
+            else groupDao.getMembersSync(scope.id).map { it.id }
+        }
+    })
 }
 
 /** 默认显示目标：当前时间落在学期内的课表中 startTime 最小者;无命中取最新学期;无课表 null。 */

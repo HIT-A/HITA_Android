@@ -1,6 +1,7 @@
 package cn.limpu.hita.ui.main.agent
 
 import android.app.AlertDialog
+import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.graphics.Rect
 import android.net.Uri
@@ -22,6 +23,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -33,20 +35,18 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.ime
-import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -55,23 +55,29 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.livedata.observeAsState
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.key
+import androidx.compose.runtime.produceState
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -80,16 +86,22 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringArrayResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.fragment.app.viewModels
+import androidx.compose.ui.text.input.TextFieldValue
+import cn.limpu.hita.agent.attachment.normalizeChatAttachmentName
 import cn.limpu.hita.BuildConfig
 import cn.limpu.hita.R
 import cn.limpu.hita.agent.core.AgentProvider
-import cn.limpu.hita.agent.core.AgentSession
 import cn.limpu.hita.agent.timetable.TimetableAgentInput
 import cn.limpu.hita.agent.timetable.TimetableAgentOutput
 import cn.limpu.hita.agent.tools.SearchExternalResourceTool
@@ -106,6 +118,7 @@ import cn.limpu.hita.ui.design.hitaGlassCardModifier
 import cn.limpu.hita.ui.design.hitaUsesMainBackdrop
 import cn.limpu.hita.ui.design.hitaIsAppleGlassSurface
 import cn.limpu.hita.ui.design.hitaStyleCardShape
+import cn.limpu.hita.ui.main.rememberMainBottomBarClearance
 import cn.limpu.hita.ui.resource.UnifiedResourceSearchActivity
 import cn.limpu.hita.utils.ActivityUtils
 import cn.limpu.hita.utils.LogUtils
@@ -117,6 +130,8 @@ import io.noties.markwon.ext.tables.TablePlugin
 import io.noties.markwon.ext.tasklist.TaskListPlugin
 import io.noties.markwon.linkify.LinkifyPlugin
 import javax.inject.Inject
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 @AndroidEntryPoint
 class AgentChatFragment : androidx.fragment.app.Fragment() {
@@ -124,12 +139,12 @@ class AgentChatFragment : androidx.fragment.app.Fragment() {
     @Inject lateinit var agentProvider: AgentProvider<TimetableAgentInput, TimetableAgentOutput>
 
     private val viewModel: AgentChatViewModel by viewModels()
-    private var agentSession: AgentSession<TimetableAgentInput, TimetableAgentOutput>? = null
+    private var foreground by mutableStateOf(false)
 
     private val filePickerLauncher = registerForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
-        uri?.let { viewModel.setPendingAttachment(it) }
+        viewModel.finishAttachmentPicker(uri)
     }
 
     override fun onCreateView(
@@ -139,11 +154,18 @@ class AgentChatFragment : androidx.fragment.app.Fragment() {
     ): View {
         viewModel.ensureSession()
         return ComposeView(requireContext()).apply {
+            id = R.id.agent_chat_compose_view
+            setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
             setContent {
                 HitaComposeTheme() {
                     AgentChatScreen(
                         viewModel = viewModel,
-                        onSend = ::sendMessage,
+                        foreground = this@AgentChatFragment.foreground,
+                        onResolveConfirmation = { pending, approved ->
+                            if (isResumed) viewModel.resolveConfirmation(pending, approved)
+                        },
+                        onSend = { viewModel.sendDraft(it, agentProvider) },
+                        onSuggestion = { sessionId, text -> viewModel.sendSuggestion(sessionId, text, agentProvider) },
                         onAttach = ::openFilePicker,
                         onNewSession = { viewModel.createNewSession() },
                         onDeleteSession = ::showDeleteSessionDialog,
@@ -156,34 +178,14 @@ class AgentChatFragment : androidx.fragment.app.Fragment() {
         }
     }
 
-    private fun sendMessage(text: String) {
-        val trimmed = text.trim()
-        if (trimmed.isEmpty()) return
-        if (viewModel.isLoading.value == true) return
-
-        val attachmentUri = viewModel.pendingAttachment.value
-        viewModel.clearPendingAttachment()
-
-        if (attachmentUri != null) {
-            agentSession?.dispose()
-            agentSession = null
-            viewModel.sendWithAttachment(trimmed, attachmentUri, agentProvider)
-        } else {
-            viewModel.addMessage(AgentChatMessage(role = AgentChatMessage.Role.USER, text = trimmed))
-            agentSession?.dispose()
-            agentSession = null
-            viewModel.sendToLlm(text = trimmed, agentProvider = agentProvider)
-        }
-    }
 
     private fun showDeleteSessionDialog(session: ChatSession) {
         val ctx = context ?: return
         AlertDialog.Builder(ctx)
-            .setTitle("删除会话")
+            .setTitle(R.string.agent_chat_delete_session)
             .setMessage("删除「${session.title}」的聊天记录？")
             .setPositiveButton("删除") { _, _ ->
                 viewModel.deleteSession(session)
-                Toast.makeText(ctx, "已删除", Toast.LENGTH_SHORT).show()
             }
             .setNegativeButton("取消", null)
             .show()
@@ -285,17 +287,15 @@ class AgentChatFragment : androidx.fragment.app.Fragment() {
         }
     }
 
-    private fun openFilePicker() {
+    private fun openFilePicker(sessionId: String) {
         val ctx = context ?: return
-        if (viewModel.pendingAttachment.value != null) {
-            AlertDialog.Builder(ctx)
-                .setTitle("附件提示")
-                .setMessage("您已经添加了一个附件，请先发送当前消息后再添加新附件。\n\n每条消息最多支持 3 个附件。")
-                .setPositiveButton("知道了", null)
-                .show()
-            return
+        if (!viewModel.beginAttachmentPicker(sessionId)) return
+        try {
+            filePickerLauncher.launch(arrayOf("*/*"))
+        } catch (_: ActivityNotFoundException) {
+            viewModel.finishAttachmentPicker(null)
+            Toast.makeText(ctx, R.string.agent_chat_attachment_picker_failed, Toast.LENGTH_SHORT).show()
         }
-        filePickerLauncher.launch(arrayOf("*/*"))
     }
 
     private fun openResourceCard(card: AgentResourceCard) {
@@ -318,10 +318,14 @@ class AgentChatFragment : androidx.fragment.app.Fragment() {
         })
     }
 
-    override fun onDestroyView() {
-        agentSession?.dispose()
-        agentSession = null
-        super.onDestroyView()
+    override fun onResume() {
+        super.onResume()
+        foreground = true
+    }
+
+    override fun onPause() {
+        foreground = false
+        super.onPause()
     }
 }
 
@@ -329,8 +333,11 @@ class AgentChatFragment : androidx.fragment.app.Fragment() {
 @Composable
 private fun AgentChatScreen(
     viewModel: AgentChatViewModel,
-    onSend: (String) -> Unit,
-    onAttach: () -> Unit,
+    foreground: Boolean,
+    onResolveConfirmation: (ChatConfirmationGate.Pending, Boolean) -> Unit,
+    onSend: (String) -> Boolean,
+    onSuggestion: (String, String) -> Boolean,
+    onAttach: (String) -> Unit,
     onNewSession: () -> Unit,
     onDeleteSession: (ChatSession) -> Unit,
     onSwitchSession: (ChatSession) -> Unit,
@@ -340,88 +347,43 @@ private fun AgentChatScreen(
     val tokens = HitaTheme.tokens
     val messages by viewModel.messages.observeAsState(emptyList())
     val sessions by viewModel.sessions.observeAsState(emptyList())
+    val sessionId by viewModel.selectedSessionId.observeAsState()
     val isLoading by viewModel.isLoading.observeAsState(false)
-    val pendingAttachment by viewModel.pendingAttachment.observeAsState()
-    // 写操作确认：gate 只在有请求时给非空值，对话框随状态出现与消失。
-    val pendingConfirmation by viewModel.confirmationGate.state.collectAsState()
-    pendingConfirmation?.let { pending ->
-        androidx.compose.material3.AlertDialog(
-            onDismissRequest = { viewModel.confirmationGate.reject() },
-            title = { androidx.compose.material3.Text(pending.request.title) },
-            text = {
-                androidx.compose.foundation.layout.Column(
-                    verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(tokens.spacing.xs),
-                ) {
-                    pending.request.detailLines.forEach { line ->
-                        androidx.compose.material3.Text(
-                            text = line,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+    val restoring by viewModel.isRestoring.observeAsState(false)
+    val activeRequest by viewModel.activeRequest.observeAsState()
+    val draft by viewModel.draft.observeAsState(ChatDraft())
+    val deleting by viewModel.deleting.observeAsState(emptySet())
+    val notice by viewModel.status.observeAsState("")
+    val deletionNotice by viewModel.deletionNotice.observeAsState("")
+    val pendingConfirmation by viewModel.pendingConfirmation.collectAsState()
+    pendingConfirmation?.takeIf {
+        it.isVisibleIn(sessionId, foreground) && it.owner.sessionId !in deleting
+    }?.let { pending ->
+        key(pending) {
+            androidx.compose.material3.AlertDialog(
+                onDismissRequest = { onResolveConfirmation(pending, false) },
+                title = { Text(pending.request.title) },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(tokens.spacing.xs)) {
+                        pending.request.detailLines.forEach { line ->
+                            Text(line, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
                     }
-                }
-            },
-            confirmButton = {
-                androidx.compose.material3.TextButton(
-                    onClick = { viewModel.confirmationGate.approve() },
-                ) { androidx.compose.material3.Text(pending.request.confirmLabel) }
-            },
-            dismissButton = {
-                androidx.compose.material3.TextButton(
-                    onClick = { viewModel.confirmationGate.reject() },
-                ) { androidx.compose.material3.Text(pending.request.cancelLabel) }
-            },
-        )
+                },
+                confirmButton = {
+                    TextButton(onClick = { onResolveConfirmation(pending, true) }) { Text(pending.request.confirmLabel) }
+                },
+                dismissButton = {
+                    TextButton(onClick = { onResolveConfirmation(pending, false) }) { Text(pending.request.cancelLabel) }
+                },
+            )
+        }
     }
-    val listState = rememberLazyListState()
     val context = LocalContext.current
-    val density = LocalDensity.current
-    val view = LocalView.current
+    val ime = rememberChatImeOverlap()
+    val bottomClearance = (ime ?: rememberMainBottomBarClearance()) + 8.dp
     val keyboardController = LocalSoftwareKeyboardController.current
-    val composeImeBottomPx = WindowInsets.ime.getBottom(density)
-    val composeNavBottomPx = WindowInsets.navigationBars.getBottom(density)
-    val keyboardVisibilityThresholdPx = with(density) { 100.dp.roundToPx() }
-    var visibleKeyboardBottomPx by remember { mutableIntStateOf(0) }
-    var rootNavigationBottomPx by remember { mutableIntStateOf(0) }
-    DisposableEffect(view, keyboardVisibilityThresholdPx) {
-        val rootView = view.rootView
-        val rect = Rect()
-        val listener = android.view.ViewTreeObserver.OnGlobalLayoutListener {
-            rootView.getWindowVisibleDisplayFrame(rect)
-            val bottomInset = (rootView.height - rect.bottom).coerceAtLeast(0)
-            visibleKeyboardBottomPx = if (bottomInset > keyboardVisibilityThresholdPx) bottomInset else 0
-            rootNavigationBottomPx = androidx.core.view.ViewCompat.getRootWindowInsets(rootView)
-                ?.getInsets(androidx.core.view.WindowInsetsCompat.Type.navigationBars())
-                ?.bottom
-                ?: 0
-        }
-        rootView.viewTreeObserver.addOnGlobalLayoutListener(listener)
-        rootNavigationBottomPx = androidx.core.view.ViewCompat.getRootWindowInsets(rootView)
-            ?.getInsets(androidx.core.view.WindowInsetsCompat.Type.navigationBars())
-            ?.bottom
-            ?: 0
-        onDispose {
-            val observer = rootView.viewTreeObserver
-            if (observer.isAlive) {
-                observer.removeOnGlobalLayoutListener(listener)
-            }
-        }
-    }
-    val keyboardBottomPx = maxOf(composeImeBottomPx, visibleKeyboardBottomPx)
-    val navBottomPx = maxOf(composeNavBottomPx, rootNavigationBottomPx)
-    val keyboardBottomPadding = with(density) { keyboardBottomPx.toDp() }
-    val threeButtonThresholdPx = with(density) { 32.dp.toPx() }
-    val appNavBottomPadding = if (navBottomPx >= threeButtonThresholdPx) {
-        with(density) { navBottomPx.toDp() } + 8.dp
-    } else {
-        12.dp
-    }
-    val appNavAvoidance = 52.dp + appNavBottomPadding + 8.dp
-    val inputBottomPadding = if (keyboardBottomPx > 0) {
-        keyboardBottomPadding + 8.dp
-    } else {
-        appNavAvoidance
-    }
-    val listBottomPadding = inputBottomPadding + 64.dp
+    val positions = rememberSaveableStateHolder()
     val markwon = remember(context) {
         val builder = Markwon.builder(context)
             .usePlugin(LinkifyPlugin.create())
@@ -432,18 +394,30 @@ private fun AgentChatScreen(
             .onFailure { LogUtils.e("Failed to enable JLatexMathPlugin", it) }
         builder.build()
     }
-    var inputText by remember { mutableStateOf("") }
+    var recoverRowId by remember(sessionId) { mutableStateOf<String?>(null) }
     var sessionMenuExpanded by remember { mutableStateOf(false) }
 
-    LaunchedEffect(messages.size) {
-        if (messages.isNotEmpty()) {
-            listState.animateScrollToItem(messages.lastIndex)
-        }
+    val currentId = sessionId
+    val deletingCurrent = currentId != null && currentId in deleting
+    val restoreFailed = notice == stringResource(R.string.chat_restore_failed)
+    recoverRowId?.let { rowId ->
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { recoverRowId = null },
+            title = { Text(stringResource(R.string.agent_chat_replace_draft_title)) },
+            text = { Text(stringResource(R.string.agent_chat_replace_draft_detail)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    if (currentId != null) viewModel.recoverInput(currentId, rowId, replace = true)
+                    recoverRowId = null
+                }) { Text(stringResource(R.string.agent_chat_restore_input)) }
+            },
+        )
     }
 
     Box(
         modifier = Modifier
             .fillMaxSize()
+            .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))
             .background(
                 if (hitaUsesMainBackdrop()) {
                     Color.Transparent
@@ -452,7 +426,7 @@ private fun AgentChatScreen(
                 }
             )
     ) {
-        Column(modifier = Modifier.fillMaxSize()) {
+        Column(modifier = Modifier.fillMaxSize().padding(bottom = bottomClearance)) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -471,7 +445,7 @@ private fun AgentChatScreen(
                         shape = sessionShape,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(36.dp)
+                            .heightIn(min = 48.dp)
                             .hitaGlassCardModifier(sessionShape, elevation = 8.dp)
                             .clickable { sessionMenuExpanded = true }
                     ) {
@@ -480,9 +454,8 @@ private fun AgentChatScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = sessions.firstOrNull { it.id == viewModel.currentSessionId }?.title
-                                    ?: sessions.firstOrNull()?.title
-                                    ?: "新对话",
+                                text = sessions.firstOrNull { it.id == currentId }?.title
+                                    ?: stringResource(R.string.agent_chat_new_session),
                                 color = MaterialTheme.colorScheme.onSurface,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
@@ -508,6 +481,7 @@ private fun AgentChatScreen(
                                         overflow = TextOverflow.Ellipsis
                                     )
                                 },
+                                enabled = session.id !in deleting,
                                 onClick = {
                                     sessionMenuExpanded = false
                                     onSwitchSession(session)
@@ -519,20 +493,20 @@ private fun AgentChatScreen(
                 IconButton(onClick = onNewSession) {
                     Icon(
                         painter = painterResource(R.drawable.ic_baseline_add_24),
-                        contentDescription = null,
+                        contentDescription = stringResource(R.string.agent_chat_new_session),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-                val currentSession = sessions.firstOrNull { it.id == viewModel.currentSessionId }
-                    ?: sessions.firstOrNull()
+                val currentSession = sessions.firstOrNull { it.id == currentId }
                 IconButton(
+                    enabled = currentSession != null && deleting.isEmpty(),
                     onClick = {
                         currentSession?.let(onDeleteSession)
                     }
                 ) {
                     Icon(
                         painter = painterResource(R.drawable.ic_baseline_delete_24),
-                        contentDescription = null,
+                        contentDescription = stringResource(R.string.agent_chat_delete_session),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
@@ -545,90 +519,211 @@ private fun AgentChatScreen(
                 }
             }
 
-            val visibleMessages = remember(messages) {
-                messages.filter { it.role != AgentChatMessage.Role.TRACE }
-            }
-            LazyColumn(
-                state = listState,
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth(),
-                contentPadding = PaddingValues(
-                    start = tokens.spacing.sm,
-                    top = tokens.spacing.sm,
-                    end = tokens.spacing.sm,
-                    bottom = listBottomPadding
-                )
-            ) {
-                if (visibleMessages.isEmpty()) {
-                    item(key = "agent-welcome-card") {
-                        AgentWelcomeCard(onSend = onSend)
+            if (currentId == null || restoring) {
+                Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                    if (restoring) Text(stringResource(R.string.agent_chat_processing))
+                    if (restoreFailed) TextButton(onClick = viewModel::retryRestore) {
+                        Text(stringResource(R.string.agent_chat_retry_load))
                     }
-                } else {
-                    itemsIndexed(
-                        visibleMessages,
-                        key = { _, item -> "${item.timestampMs}-${item.role}-${item.text.hashCode()}" }
-                    ) { _, message ->
-                        AgentMessageBubble(
-                            message = message,
-                            markwon = markwon,
-                            onOpenResourceCard = onOpenResourceCard,
-                        )
+                }
+            } else {
+                positions.SaveableStateProvider(currentId) {
+                    BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
+                        val fieldHeight = (maxHeight * 0.36f).coerceIn(56.dp, 156.dp)
+                        Column(Modifier.fillMaxSize()) {
+                            val listState = rememberLazyListState()
+                            AgentChatHistory(
+                                messages = messages,
+                                listState = listState,
+                                markwon = markwon,
+                                modifier = Modifier.weight(1f).fillMaxWidth(),
+                                suggestionsEnabled = !isLoading && !restoreFailed,
+                                onSuggestion = { if (onSuggestion(currentId, it)) keyboardController?.hide() },
+                                onOpenResourceCard = onOpenResourceCard,
+                                canRecoverInput = { !isLoading && viewModel.hasRecoverableInput(currentId, it) },
+                                onRecoverInput = { rowId ->
+                                    if (!viewModel.recoverInput(currentId, rowId) && viewModel.hasRecoverableInput(currentId, rowId)) {
+                                        recoverRowId = rowId
+                                    }
+                                },
+                            )
+                            if (deletingCurrent) ChatNotice(stringResource(R.string.agent_chat_delete_pending))
+                            if (deletionNotice.isNotEmpty()) ChatNotice(deletionNotice)
+                            if (notice.isNotEmpty()) ChatNotice(notice)
+                            if (restoreFailed) TextButton(onClick = viewModel::retryRestore) {
+                                Text(stringResource(R.string.agent_chat_retry_load))
+                            }
+                            AgentChatComposer(
+                                draft = draft,
+                                fieldHeight = fieldHeight,
+                                editable = !deletingCurrent,
+                                canSend = !isLoading && !restoreFailed && draft.hasContent,
+                                onEdit = { viewModel.editDraft(currentId, it) },
+                                onAttach = { onAttach(currentId) },
+                                onRemoveAttachment = { viewModel.removeAttachment(currentId) },
+                                onSend = { if (onSend(currentId)) keyboardController?.hide() },
+                                onStop = activeRequest?.takeIf { it.sessionId == currentId }?.let { owner ->
+                                    { viewModel.stopRequest(owner) }
+                                },
+                            )
+                        }
                     }
                 }
             }
+        }
+    }
+}
 
-            pendingAttachment?.let { uri ->
-                Text(
-                    text = "附件: ${getFileName(context, uri)}",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 12.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(horizontal = tokens.spacing.lg, vertical = tokens.spacing.xs)
-                )
+/** Measure clearance in the Fragment view's coordinates so adjustResize is not counted twice. */
+@Composable
+private fun rememberChatImeOverlap(): Dp? {
+    val view = LocalView.current
+    val density = LocalDensity.current
+    var overlap by remember(view) { mutableStateOf<Int?>(null) }
+    DisposableEffect(view) {
+        val root = view.rootView
+        val frame = Rect()
+        val location = IntArray(2)
+        fun update() {
+            val insets = ViewCompat.getRootWindowInsets(view)
+            if (insets?.isVisible(WindowInsetsCompat.Type.ime()) == true) {
+                root.getWindowVisibleDisplayFrame(frame)
+                view.getLocationOnScreen(location)
+                overlap = (location[1] + view.height - frame.bottom).coerceAtLeast(0)
+            } else {
+                overlap = null
             }
         }
+        val listener = android.view.ViewTreeObserver.OnGlobalLayoutListener { update() }
+        val observer = root.viewTreeObserver
+        observer.addOnGlobalLayoutListener(listener)
+        update()
+        onDispose { if (observer.isAlive) observer.removeOnGlobalLayoutListener(listener) }
+    }
+    return overlap?.let { with(density) { it.toDp() } }
+}
 
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .align(Alignment.BottomCenter)
-                .padding(
-                    start = tokens.spacing.md,
-                    end = tokens.spacing.md,
-                    bottom = inputBottomPadding
-                ),
-            verticalAlignment = Alignment.Bottom
+@Composable
+private fun ChatNotice(text: String) {
+    Text(
+        text,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        style = MaterialTheme.typography.bodySmall,
+        modifier = Modifier.padding(horizontal = HitaTheme.tokens.spacing.md)
+            .semantics { liveRegion = LiveRegionMode.Polite },
+    )
+}
+
+@Composable
+internal fun AgentChatHistory(
+    messages: List<AgentChatMessage>,
+    listState: LazyListState,
+    markwon: Markwon,
+    modifier: Modifier = Modifier,
+    suggestionsEnabled: Boolean = true,
+    onSuggestion: (String) -> Unit,
+    onOpenResourceCard: (AgentResourceCard) -> Unit,
+    canRecoverInput: (String) -> Boolean = { false },
+    onRecoverInput: (String) -> Unit = {},
+) {
+    val tokens = HitaTheme.tokens
+    var previousLatest by remember { mutableStateOf<String?>(null) }
+    val latestId = messages.lastOrNull()?.id
+    SideEffect {
+        if (previousLatest != null && latestId != null && previousLatest != latestId &&
+            listState.firstVisibleItemScrollOffset == 0 && !listState.isScrollInProgress) {
+            val first = listState.firstVisibleItemIndex
+            val anchoredOnPreviousLatest = listState.layoutInfo.visibleItemsInfo.any {
+                it.index == first && it.key == previousLatest
+            }
+            if (first == 0 || anchoredOnPreviousLatest) listState.requestScrollToItem(0)
+        }
+        previousLatest = latestId
+    }
+    val showLatest by remember(listState) { derivedStateOf { listState.canScrollBackward } }
+    Column(modifier) {
+        LazyColumn(
+            state = listState,
+            reverseLayout = true,
+            verticalArrangement = if (messages.isEmpty()) Arrangement.Top else Arrangement.Bottom,
+            modifier = Modifier.weight(1f).fillMaxWidth(),
+            contentPadding = PaddingValues(tokens.spacing.sm),
         ) {
-            IconButton(onClick = onAttach) {
+            if (messages.isEmpty()) {
+                item(key = "agent-welcome-card") {
+                    AgentWelcomeCard(enabled = suggestionsEnabled, onSend = onSuggestion)
+                }
+            } else {
+                items(messages.size, key = { messages[messages.lastIndex - it].id }) { index ->
+                    val message = messages[messages.lastIndex - index]
+                    AgentMessageBubble(
+                        message = message,
+                        markwon = markwon,
+                        onOpenResourceCard = onOpenResourceCard,
+                        onRecoverInput = if (canRecoverInput(message.id)) ({ onRecoverInput(message.id) }) else null,
+                    )
+                }
+            }
+        }
+        if (showLatest && messages.isNotEmpty()) {
+            TextButton(onClick = { listState.requestScrollToItem(0) }, modifier = Modifier.align(Alignment.CenterHorizontally)) {
+                Text(stringResource(R.string.agent_chat_latest))
+            }
+        }
+    }
+}
+
+@Composable
+internal fun AgentChatComposer(
+    draft: ChatDraft,
+    fieldHeight: Dp,
+    editable: Boolean,
+    canSend: Boolean,
+    onEdit: (TextFieldValue) -> Unit,
+    onAttach: () -> Unit,
+    onRemoveAttachment: () -> Unit,
+    onSend: () -> Unit,
+    onStop: (() -> Unit)?,
+) {
+    val tokens = HitaTheme.tokens
+    Column(Modifier.padding(horizontal = tokens.spacing.sm)) {
+        draft.attachment?.let { uri ->
+            val context = LocalContext.current
+            val fallback = uri.lastPathSegment ?: stringResource(R.string.agent_chat_attachment_fallback)
+            val fileName by produceState(fallback, uri) {
+                value = fallback
+                value = withContext(Dispatchers.IO) { getFileName(context, uri) ?: fallback }
+            }
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    stringResource(R.string.agent_chat_attachment_name, fileName),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f).padding(start = tokens.spacing.sm),
+                )
+                IconButton(onClick = onRemoveAttachment, enabled = editable) {
+                    Icon(painterResource(R.drawable.ic_baseline_close_24), stringResource(R.string.agent_chat_remove_attachment))
+                }
+            }
+        }
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
+            IconButton(onClick = onAttach, enabled = editable) {
                 Icon(
-                    painter = painterResource(R.drawable.ic_baseline_add_24),
-                    contentDescription = stringResource(R.string.agent_chat_attach),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    painterResource(R.drawable.ic_baseline_add_24),
+                    contentDescription = stringResource(
+                        if (draft.attachment == null) R.string.agent_chat_attach_one else R.string.agent_chat_replace_attachment
+                    ),
                 )
             }
             TextField(
-                value = inputText,
-                onValueChange = { inputText = it },
-                enabled = !isLoading,
-                placeholder = {
-                    Text(
-                        text = stringResource(R.string.agent_chat_hint),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 14.sp
-                    )
-                },
+                value = draft.text,
+                onValueChange = onEdit,
+                enabled = editable,
+                placeholder = { Text(stringResource(R.string.agent_chat_hint), maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 shape = hitaStyleCardShape(22.dp, 14.dp),
                 minLines = 1,
                 maxLines = 8,
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                keyboardActions = KeyboardActions(onSend = {
-                    val text = inputText
-                    inputText = ""
-                    keyboardController?.hide()
-                    onSend(text)
-                }),
                 colors = TextFieldDefaults.colors(
                     focusedContainerColor = MaterialTheme.colorScheme.surface,
                     unfocusedContainerColor = MaterialTheme.colorScheme.surface,
@@ -637,34 +732,13 @@ private fun AgentChatScreen(
                     unfocusedIndicatorColor = Color.Transparent,
                     disabledIndicatorColor = Color.Transparent,
                 ),
-                modifier = Modifier
-                    .weight(1f)
-                    .heightIn(min = 52.dp, max = 156.dp)
+                modifier = Modifier.weight(1f).heightIn(min = 52.dp, max = fieldHeight),
             )
-            IconButton(
-                onClick = {
-                    val text = inputText
-                    inputText = ""
-                    keyboardController?.hide()
-                    onSend(text)
-                },
-                enabled = !isLoading,
-                modifier = Modifier
-                    .padding(start = tokens.spacing.sm)
-                    .background(MaterialTheme.colorScheme.primary, hitaStyleCardShape(999.dp, 14.dp))
-            ) {
-                if (isLoading) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(20.dp),
-                        strokeWidth = 2.dp,
-                        color = MaterialTheme.colorScheme.onPrimary
-                    )
-                } else {
-                    Icon(
-                        painter = painterResource(R.drawable.ic_baseline_keyboard_arrow_right_24),
-                        contentDescription = stringResource(R.string.send),
-                        tint = MaterialTheme.colorScheme.onPrimary
-                    )
+            if (onStop != null) {
+                TextButton(onClick = onStop) { Text(stringResource(R.string.agent_chat_stop)) }
+            } else {
+                IconButton(onClick = onSend, enabled = canSend) {
+                    Icon(painterResource(R.drawable.ic_baseline_keyboard_arrow_right_24), stringResource(R.string.send))
                 }
             }
         }
@@ -674,6 +748,7 @@ private fun AgentChatScreen(
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun AgentWelcomeCard(
+    enabled: Boolean,
     onSend: (String) -> Unit,
 ) {
     val tokens = HitaTheme.tokens
@@ -727,7 +802,8 @@ private fun AgentWelcomeCard(
                     shape = chipShape,
                     modifier = Modifier
                         .hitaGlassCardModifier(chipShape, elevation = 4.dp)
-                        .clickable { onSend(suggestion) }
+                        .heightIn(min = 48.dp)
+                        .clickable(enabled = enabled) { onSend(suggestion) },
                 ) {
                     Text(
                         text = suggestion,
@@ -748,25 +824,12 @@ private fun AgentMessageBubble(
     message: AgentChatMessage,
     markwon: Markwon,
     onOpenResourceCard: (AgentResourceCard) -> Unit,
+    onRecoverInput: (() -> Unit)?,
 ) {
     val tokens = HitaTheme.tokens
-    var thinkingExpanded by remember(message.timestampMs, message.thinking) {
-        mutableStateOf(message.isThinkingExpanded)
-    }
-    var resourcesExpanded by remember(message.timestampMs, message.resourceCards.size) {
-        mutableStateOf(message.areResourceCardsExpanded)
-    }
-    var thinkingFrame by remember { mutableIntStateOf(0) }
-    val thinkingTexts = listOf("正在思考", "正在思考.", "正在思考..", "正在思考...")
+    var thinkingExpanded by rememberSaveable { mutableStateOf(message.isThinkingExpanded) }
+    var resourcesExpanded by rememberSaveable { mutableStateOf(message.areResourceCardsExpanded) }
     val isUser = message.role == AgentChatMessage.Role.USER
-
-    LaunchedEffect(message.isPlaceholder) {
-        if (!message.isPlaceholder) return@LaunchedEffect
-        while (true) {
-            kotlinx.coroutines.delay(500)
-            thinkingFrame = (thinkingFrame + 1) % thinkingTexts.size
-        }
-    }
 
     Row(
         modifier = Modifier
@@ -799,22 +862,6 @@ private fun AgentMessageBubble(
                 .hitaGlassCardModifier(bubbleShape, elevation = 8.dp)
         ) {
             Column(modifier = Modifier.padding(tokens.spacing.md)) {
-                if (message.isPlaceholder) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(16.dp),
-                            strokeWidth = 2.dp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Text(
-                            text = thinkingTexts[thinkingFrame],
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontSize = 13.sp,
-                            modifier = Modifier.padding(start = tokens.spacing.sm)
-                        )
-                    }
-                }
-
                 if (!message.thinking.isNullOrBlank()) {
                     Text(
                         text = if (thinkingExpanded) "▼ 思考过程" else "▶ 思考过程",
@@ -842,16 +889,10 @@ private fun AgentMessageBubble(
                         color = MaterialTheme.colorScheme.onPrimary,
                         fontSize = 14.sp
                     )
+                } else if (message.isPlaceholder || message.role == AgentChatMessage.Role.TRACE) {
+                    ChatNotice(message.text)
                 } else {
-                    MarkdownMessageText(
-                        markdown = message.text,
-                        markwon = markwon,
-                        color = if (message.isPlaceholder) {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        } else {
-                            MaterialTheme.colorScheme.onSurface
-                        }
-                    )
+                    MarkdownMessageText(markdown = message.text, markwon = markwon, color = MaterialTheme.colorScheme.onSurface)
                 }
 
                 if (!isUser && message.resourceCards.isNotEmpty()) {
@@ -875,6 +916,9 @@ private fun AgentMessageBubble(
                         }
                     }
                 }
+                if (onRecoverInput != null) {
+                    TextButton(onClick = onRecoverInput) { Text(stringResource(R.string.agent_chat_restore_input)) }
+                }
             }
         }
     }
@@ -887,6 +931,7 @@ private fun MarkdownMessageText(
     color: Color,
 ) {
     val textColor = color.toArgb()
+    val parsed = remember(markwon, markdown) { markwon.toMarkdown(markdown) }
     AndroidView(
         factory = { context ->
             TextView(context).apply {
@@ -898,8 +943,10 @@ private fun MarkdownMessageText(
         },
         update = { textView ->
             textView.setTextColor(textColor)
-            markwon.setMarkdown(textView, markdown)
-            textView.movementMethod = LinkMovementMethod.getInstance()
+            if (textView.tag !== parsed) {
+                markwon.setParsedMarkdown(textView, parsed)
+                textView.tag = parsed
+            }
         }
     )
 }
@@ -968,27 +1015,9 @@ private fun AgentResourceCardView(
     }
 }
 
-private fun getFileName(context: android.content.Context, uri: Uri): String {
-    val path = uri.path
-    if (path != null && path.contains("/")) {
-        val nameFromPath = path.substringAfterLast("/")
-        if (nameFromPath.contains(".") && !nameFromPath.endsWith(".mht")) {
-            return nameFromPath
+private fun getFileName(context: android.content.Context, uri: Uri): String? =
+    runCatching {
+        context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use {
+            if (it.moveToFirst()) it.getString(0)?.let(::normalizeChatAttachmentName) else null
         }
-    }
-    val cursor = context.contentResolver.query(uri, null, null, null, null)
-    cursor?.use {
-        if (it.moveToFirst()) {
-            val nameIndex = it.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-            if (nameIndex >= 0) {
-                val displayName = it.getString(nameIndex)
-                if (displayName.endsWith(".mht", ignoreCase = true) && displayName.contains(".pdf", ignoreCase = true)) {
-                    val pdfIndex = displayName.indexOf(".pdf", ignoreCase = true)
-                    if (pdfIndex > 0) return displayName.substring(0, pdfIndex + 4)
-                }
-                return displayName
-            }
-        }
-    }
-    return uri.lastPathSegment ?: "文件"
-}
+    }.getOrNull()

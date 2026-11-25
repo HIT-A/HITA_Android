@@ -42,6 +42,36 @@ class TimetableCalendarTitleTest {
         assertFalse(TimetableCalendarTitle.resolve(group, millis("2027-01-11"), periods()).vacation)
         assertTrue(TimetableCalendarTitle.resolve(group, millis("2027-01-11"), periods() + periods("WEIHAI")).vacation)
     }
+    @Test fun personalTimetablePastItsEndStaysOutsideTerm() {
+        // 表尾之外仍按「不在学期内」处理：这是空表长度为 20 周后依旧存在的边界。
+        val t = Timetable().apply {
+            code = null
+            startTime = Timestamp(millis("2026-11-23"))
+            endTime = Timestamp(millis("2026-12-06"))
+        }
+        assertEquals(2, TimetableCalendarTitle.resolve(listOf(t), millis("2026-11-30"), emptyList()).week)
+        assertNull(TimetableCalendarTitle.resolve(listOf(t), millis("2026-12-07"), emptyList()).week)
+    }
+
+    @Test fun mondayBoundaryDropsSecondsAndMillis() {
+        // 周起点必须沉到 00:00:00.000：残留秒会让「表起点」晚于页面周一 0 点，
+        // 同一张表因此在时间表被判「非所选学期」而今日显示第 1 周。
+        // 断言按设备默认时区构造，避免测试依赖运行环境的时区设置。
+        val zone = ZoneId.systemDefault()
+        val noon = LocalDate.parse("2026-11-23").atTime(12, 0).atZone(zone).toInstant().toEpochMilli() + 44_556L
+        val expected = LocalDate.parse("2026-11-23").atStartOfDay(zone).toInstant().toEpochMilli()
+        assertEquals(expected, cn.limpu.hita.utils.TimeTools.getMonday(noon).timeInMillis)
+    }
+
+    @Test fun secondPrecisionOnTableStartStillCountsFirstWeek() {
+        val t = Timetable().apply {
+            code = null
+            startTime = Timestamp(millis("2026-11-23") + 44_556L)
+            endTime = Timestamp(millis("2027-04-12"))
+        }
+        assertEquals(1, TimetableCalendarTitle.resolve(listOf(t), millis("2026-11-23"), emptyList()).week)
+    }
+
     @Test fun weekendInsideSemesterIsNotVacation() {
         assertEquals(19, TimetableCalendarTitle.resolve(listOf(table()), millis("2027-01-10"), periods()).week)
     }

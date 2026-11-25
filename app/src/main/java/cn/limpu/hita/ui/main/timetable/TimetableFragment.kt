@@ -34,6 +34,9 @@ import cn.limpu.hita.ui.timetable.friend.FriendTimetableActivity
 import cn.limpu.hita.ui.timetable.share.TimetableShareActivity
 import cn.limpu.hita.ui.timetable.history.TimetableVersionsDialog
 import cn.limpu.hita.ui.timetable.history.TimetableHistoryViewModel
+import cn.limpu.hita.ui.timetable.history.DeletionHistoryDialog
+import cn.limpu.hita.ui.timetable.manager.TimetableManagerActivity
+import cn.limpu.hita.data.repository.TimetableVersionStore
 import cn.limpu.hita.utils.ActivityUtils
 import cn.limpu.hita.utils.EventsUtils
 import dagger.hilt.android.AndroidEntryPoint
@@ -44,6 +47,7 @@ class TimetableFragment : HiltBaseFragment<ComposeViewBinding>() {
     protected val viewModel: TimetableViewModel by viewModels()
     private val historyViewModel: TimetableHistoryViewModel by viewModels()
     private var historyOpen by mutableStateOf(false)
+    private var personalHistoryOpen by mutableStateOf(false)
     private var sourceDialogRequested by mutableStateOf(false)
     private var socialSheetOpen by mutableStateOf(false)
     private var mainPageController: MainPageController? = null
@@ -54,17 +58,23 @@ class TimetableFragment : HiltBaseFragment<ComposeViewBinding>() {
     private var scopeDialog: AlertDialog? = null
 
     fun openTimetableSocialSheet() { socialSheetOpen = true }
-    fun openDeletionHistory() {
+    fun openTimetableVersions() = openHistory(teachingVersions = true)
+    fun openDeletionHistory() = openHistory(teachingVersions = false)
+
+    private fun openHistory(teachingVersions: Boolean) {
         if (viewOwner == null) return
-        val tables = viewModel.resolvedScope.value?.timetables.orEmpty()
-            .filter { !it.code.isNullOrBlank() && !cn.limpu.hita.data.repository.TimetableVersionStore.isProjection(it) }
-        if (tables.isEmpty()) {
-            Toast.makeText(context, R.string.timetable_versions_read_only, Toast.LENGTH_SHORT).show()
-            return
-        }
+        val tables = viewModel.currentResolvedScope()?.timetables.orEmpty()
+            .filter { !TimetableVersionStore.isProjection(it) && (!teachingVersions || !it.code.isNullOrBlank()) }
+        if (tables.isEmpty()) return
         fun open(id: String) {
-            historyViewModel.loadVersions(id)
-            historyOpen = true
+            if (viewModel.currentResolvedScope()?.timetableIds?.contains(id) != true) return
+            if (teachingVersions) {
+                historyViewModel.loadVersions(id)
+                historyOpen = true
+            } else {
+                historyViewModel.loadDeleted(id)
+                personalHistoryOpen = true
+            }
         }
         if (tables.size == 1) {
             open(tables.single().id)
@@ -114,6 +124,15 @@ class TimetableFragment : HiltBaseFragment<ComposeViewBinding>() {
                         },
                     )
                 }
+                if (personalHistoryOpen) {
+                    val state by historyViewModel.deleted.collectAsState()
+                    DeletionHistoryDialog(
+                        state = state,
+                        onDismiss = { personalHistoryOpen = false },
+                        onRetry = { state.timetableId?.let(historyViewModel::loadDeleted) },
+                        onRestore = historyViewModel::restoreDeleted,
+                    )
+                }
                 if (socialSheetOpen) TimetableSocialSheet(
                     onDismiss = { socialSheetOpen = false },
                     onShare = { navigate(owner, Intent(requireContext(), TimetableShareActivity::class.java)) },
@@ -133,6 +152,12 @@ class TimetableFragment : HiltBaseFragment<ComposeViewBinding>() {
                     onAdoptBatch = { viewModel.adoptHeldBatch() },
                     onDismissBatch = { viewModel.dismissHeldBatch() },
                     onConfirmPending = viewModel::confirmPendingChanges,
+                    onManageTimetables = { navigate(owner, TimetableManagerActivity.openAddIntent(requireContext())) },
+                    onCreateBlank = {
+                        if (owns(owner)) viewModel.createBlankTimetable {
+                            if (it.isFailure && owns(owner)) Toast.makeText(context, R.string.timetable_audit_write_failed, Toast.LENGTH_SHORT).show()
+                        }
+                    },
                     sourceDialogRequested = sourceDialogRequested,
                     onSourceDialogClosed = { sourceDialogRequested = false },
                 )
@@ -167,6 +192,7 @@ class TimetableFragment : HiltBaseFragment<ComposeViewBinding>() {
         viewOwner = null
         socialSheetOpen = false
         historyOpen = false
+        personalHistoryOpen = false
         sourceDialogRequested = false
         closeMenu()
         scopeDialog?.setOnCancelListener(null)
@@ -181,11 +207,19 @@ class TimetableFragment : HiltBaseFragment<ComposeViewBinding>() {
         startActivity(intent)
     }
 
-    private fun applyTitleState(state: TimetableTitleState) = when (state) {
-        is TimetableTitleState.Single -> mainPageController?.setSingleTitle(state.title)
-        is TimetableTitleState.Week -> {
-            mainPageController?.setTitleText(state.title)
-            mainPageController?.setTimetableName(state.name)
+    private fun applyTitleState(state: TimetableTitleState) {
+        val tables = viewModel.currentResolvedScope()?.timetables.orEmpty()
+            .filterNot(cn.limpu.hita.data.repository.TimetableVersionStore::isProjection)
+        mainPageController?.setTimetableActions(
+            teachingVersions = tables.any { !it.code.isNullOrBlank() },
+            deletionHistory = tables.isNotEmpty(),
+        )
+        when (state) {
+            is TimetableTitleState.Single -> mainPageController?.setSingleTitle(state.title)
+            is TimetableTitleState.Week -> {
+                mainPageController?.setTitleText(state.title)
+                mainPageController?.setTimetableName(state.name)
+            }
         }
     }
 
@@ -284,5 +318,6 @@ class TimetableFragment : HiltBaseFragment<ComposeViewBinding>() {
         fun setTitleText(string: String)
         fun setTimetableName(String: String)
         fun setSingleTitle(string: String)
+        fun setTimetableActions(teachingVersions: Boolean, deletionHistory: Boolean)
     }
 }

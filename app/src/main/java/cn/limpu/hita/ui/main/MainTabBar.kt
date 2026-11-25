@@ -3,11 +3,11 @@ package cn.limpu.hita.ui.main
 import android.view.HapticFeedbackConstants
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -36,13 +36,19 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import cn.limpu.hita.R
+import cn.limpu.hita.ui.design.HitaMotion
+import cn.limpu.hita.ui.design.LocalHitaReducedMotion
 import cn.limpu.hita.ui.design.HitaTheme
 import cn.limpu.hita.ui.design.cyberChamferShape
-import cn.limpu.hita.ui.design.hitaCyberFlowEdge
+import cn.limpu.hita.ui.design.hitaCyberNeonEdge
 import cn.limpu.hita.ui.design.hitaCyberGlow
 import cn.limpu.hita.ui.design.hitaPersonaCardModifier
 import cn.limpu.hita.ui.design.deepSpaceCardShape
@@ -83,10 +89,11 @@ internal fun MainPillTabBar(
     val availableWidth = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp.dp - 32.dp
     val tabWidth = minOf(if (tabs.size >= 5) 56.dp else CapsuleTabWidth, availableWidth / tabs.size.coerceAtLeast(1))
     val tabWidthPx = with(density) { tabWidth.toPx() }
+    val reduced = LocalHitaReducedMotion.current
 
     val indicatorOffsetPx by animateFloatAsState(
         targetValue = selectedTab * tabWidthPx,
-        animationSpec = spring(dampingRatio = 0.85f, stiffness = 350f),
+        animationSpec = HitaMotion.feedback(reduced),
         label = "pill_offset"
     )
     val isAppleGlass = themeStyle == ThemeTools.STYLE.APPLE_GLASS
@@ -169,7 +176,7 @@ internal fun MainPillTabBar(
             )
             .then(
                 when {
-                    isCyber -> Modifier.hitaCyberFlowEdge(barShape)
+                    isCyber -> Modifier.hitaCyberNeonEdge(barShape)
                     isPersona -> Modifier.hitaPersonaCardModifier(barShape)
                     isDeepSpace -> Modifier.hitaDeepSpaceCardModifier(barShape)
                     isSumi -> Modifier.hitaSumiCardModifier(barShape)
@@ -212,13 +219,15 @@ internal fun MainPillTabBar(
                 color = indicatorColor
             ) {}
 
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.selectableGroup(), verticalAlignment = Alignment.CenterVertically) {
                 tabs.forEachIndexed { index, tab ->
                     val active = index == selectedTab
+                    val hasUnread = showBlogDot && tab == MainTab.BLOG
+                    val unreadLabel = if (hasUnread) stringResource(R.string.main_info_unread) else null
 
                     val tint by animateColorAsState(
                         targetValue = if (active) activeColor else MaterialTheme.colorScheme.onSurface,
-                        animationSpec = spring(dampingRatio = 0.85f, stiffness = 350f),
+                        animationSpec = HitaMotion.feedback(reduced),
                         label = "tab_tint_$index"
                     )
 
@@ -226,13 +235,12 @@ internal fun MainPillTabBar(
                         modifier = Modifier
                             .width(tabWidth)
                             .clip(indicatorShape)
-                            .clickable(
-                                indication = null,
-                                interactionSource = remember { MutableInteractionSource() }
-                            ) {
+                            .heightIn(min = 48.dp)
+                            .selectable(selected = active, role = Role.Tab) {
                                 view.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
                                 onSelectTab(index)
                             }
+                            .then(if (unreadLabel != null) Modifier.semantics { stateDescription = unreadLabel } else Modifier)
                             .padding(horizontal = 8.dp, vertical = 4.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
@@ -243,8 +251,7 @@ internal fun MainPillTabBar(
                                 tint = tint,
                                 modifier = Modifier.size(CapsuleTabIconSize)
                             )
-                            // 资讯未读红点只留在资讯 tab。公告改为一进应用弹一次，不再点「更多」。
-                            if (showBlogDot && tab == MainTab.BLOG) {
+                            if (hasUnread) {
                                 Box(
                                     modifier = Modifier
                                         .align(Alignment.TopEnd)

@@ -57,7 +57,6 @@ import androidx.compose.ui.viewinterop.AndroidView
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.limpu.component.data.DataState
 import cn.limpu.hita.R
-import cn.limpu.hita.data.repository.TimetableRepository
 import cn.limpu.hita.ui.design.HitaComposeTheme
 import cn.limpu.hita.ui.design.HitaTheme
 import com.limpu.hitauser.data.model.UserLocal
@@ -65,7 +64,6 @@ import com.limpu.hitauser.data.model.UserProfile
 import com.limpu.hitauser.data.repository.LocalUserRepository
 import com.limpu.hitauser.util.ImageUtils
 import com.limpu.style.ThemeTools
-import com.limpu.style.widgets.PopUpText
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
 
@@ -104,15 +102,16 @@ class ProfileActivity : AppCompatActivity() {
                     onLoadingSetterReady = { loadingSetter = it },
                     onPickAvatar = { showAvatarPicker() },
                     onLogout = {
-                        PopUpText().setTitle(R.string.logout_hint).setOnConfirmListener(
-                            object : PopUpText.OnConfirmListener {
-                                override fun OnConfirm() {
-                                    viewModel.logout(this@ProfileActivity)
-                                    TimetableRepository(application).actionClearData()
-                                    finish()
+                        val user = localUserRepository.getLoggedInUser()
+                        if (user.id == intent.getStringExtra("id")) {
+                            AccountLogoutTarget.hita(user)?.let { target ->
+                                AccountLogoutDialog.show(this@ProfileActivity, target) {
+                                    target.signOut(this@ProfileActivity, localUserRepository, null).also { signedOut ->
+                                        if (signedOut) finish()
+                                    }
                                 }
                             }
-                        ).show(supportFragmentManager, "logout")
+                        }
                     }
                 )
             }

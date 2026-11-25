@@ -18,6 +18,7 @@ pluginManagement {
             switch (requested.id.id) {
                 case 'com.android.application':
                 case 'com.android.library':
+                case 'com.android.test':
                     useModule("com.android.tools.build:gradle:${requested.version}")
                     break
                 case 'org.jetbrains.kotlin.android':
@@ -36,7 +37,7 @@ pluginManagement {
     }
 }
 
-include ':app', ':hitauser', ':component', ':style', ':timetable-core'
+include ':app', ':hitauser', ':component', ':style', ':timetable-core', ':macrobenchmark'
 rootProject.name = "HITA"
 dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.PREFER_SETTINGS)

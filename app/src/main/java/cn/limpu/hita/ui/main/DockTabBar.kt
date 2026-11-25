@@ -4,10 +4,10 @@ import android.view.HapticFeedbackConstants
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.AnimationVector1D
 import androidx.compose.animation.core.VectorConverter
-import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Box
@@ -40,33 +40,36 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.Outline
-import androidx.compose.ui.graphics.Paint
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.asAndroidPath
 import androidx.compose.ui.graphics.asComposePath
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
@@ -78,6 +81,10 @@ import androidx.compose.ui.unit.sp
 import androidx.graphics.shapes.CornerRounding
 import androidx.graphics.shapes.RoundedPolygon
 import androidx.graphics.shapes.toPath
+import cn.limpu.hita.R
+import cn.limpu.hita.ui.design.HitaMotion
+import cn.limpu.hita.ui.design.HorizontalMotion
+import cn.limpu.hita.ui.design.LocalHitaReducedMotion
 import cn.limpu.hita.ui.design.hitaDeepSpaceCardModifier
 import com.limpu.style.ThemeTools
 import dev.chrisbanes.haze.HazeState
@@ -89,20 +96,6 @@ import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
-
-/**
- * 三条弹簧的换算依据：`stiffness = (2π/T)²`、`dampingRatio = 1 - bounce`，
- * 其中 T 为期望周期、bounce 为回弹比例。
- */
-
-/** 拖拽跟手：120 ms、bounce 0。 */
-private val DockTrackSpring = spring<Float>(dampingRatio = 1f, stiffness = 2740f)
-
-/** 按下抬升与栏体膨胀：280 ms、bounce 0.2。 */
-private val DockLiftSpring = spring<Float>(dampingRatio = 0.8f, stiffness = 504f)
-
-/** 松手落定：500 ms、bounce 0.32。 */
-private val DockSettleSpring = spring<Float>(dampingRatio = 0.68f, stiffness = 158f)
 
 private const val DOCK_LENS_ALPHA = 0.12f
 private const val DOCK_LENS_ALPHA_GLASS = 0.16f
@@ -208,14 +201,17 @@ internal fun DockTabBar(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    val lens = remember { Animatable(selectedTab.toFloat(), Float.VectorConverter) }
+    val lens = remember(scope) { HorizontalMotion(scope, selectedTab.toFloat()) }
     val lift = remember { Animatable(0f, Float.VectorConverter) }
     val swell = remember { Animatable(0f, Float.VectorConverter) }
-    val stretch = remember { Animatable(0f, Float.VectorConverter) }
+    val stretch = remember(scope) { HorizontalMotion(scope) }
 
     val latestSelected = rememberUpdatedState(selectedTab)
     val latestTabs = rememberUpdatedState(tabs)
     val latestOnSelect = rememberUpdatedState(onSelectTab)
+    val reduced = LocalHitaReducedMotion.current
+    val latestReduced = rememberUpdatedState(reduced)
+    val unreadLabel = stringResource(R.string.main_info_unread)
 
     val interaction = remember {
         DockInteraction(
@@ -224,15 +220,18 @@ internal fun DockTabBar(
             lift = lift,
             swell = swell,
             stretch = stretch,
+            reduced = { latestReduced.value },
             onTick = { view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK) },
             onSelect = { latestOnSelect.value(it) },
         )
     }
 
-    LaunchedEffect(selectedTab) {
-        // 松手那一帧已经朝同一个目标起飞了，重复下发只会打断正在收敛的速度。
-        if (interaction.isIdle && (lens.targetValue != selectedTab.toFloat())) {
-            lens.animateTo(selectedTab.toFloat(), DockSettleSpring)
+    LaunchedEffect(selectedTab, tabs, reduced) {
+        if (interaction.isIdle) lens.settleTo(selectedTab.toFloat(), reduced)
+        if (reduced) {
+            lift.snapTo(0f)
+            swell.snapTo(0f)
+            stretch.reset()
         }
     }
 
@@ -314,12 +313,6 @@ internal fun DockTabBar(
             }
         )
 
-    val tintPaint = remember(activeColor) {
-        Paint().apply { colorFilter = ColorFilter.tint(activeColor, BlendMode.SrcIn) }
-    }
-    val clipPath = remember { Path() }
-    // 指示器超椭圆路径：remember + rewind 复用，避免每帧构造（issue #19 坑 5）。
-    val lensPath = remember { Path() }
     val lensGrowthPx = with(density) { DockMetrics.LENS_GROWTH_DP.dp.toPx() }
 
     Box(
@@ -349,6 +342,7 @@ internal fun DockTabBar(
                         while (true) {
                             val change = awaitPointerEvent().changes
                                 .firstOrNull { it.id == down.id } ?: break
+                            if (change.isConsumed || count != latestTabs.value.size || barWidth != size.width.toFloat()) break
                             tracker.addPosition(change.uptimeMillis, change.position)
                             if (!change.pressed) {
                                 interaction.release(
@@ -392,9 +386,9 @@ internal fun DockTabBar(
                     maxDimensionPx = size.maxDimension,
                     maxGrowthPx = DockMetrics.MAX_PRESS_GROWTH_DP.dp.toPx(),
                 )
-                scaleX = scale * (1f + abs(stretch.value) / size.width * DockMetrics.PULL_STRETCH)
+                scaleX = scale * (1f + abs(stretch.offset) / size.width.coerceAtLeast(1f) * DockMetrics.PULL_STRETCH)
                 scaleY = scale
-                translationX = stretch.value
+                translationX = stretch.offset
             }
     ) {
         Box(
@@ -412,7 +406,6 @@ internal fun DockTabBar(
                 .fillMaxSize()
                 .padding(DockMetrics.BAR_PADDING.dp)
         ) {
-                val contentHeight = with(density) { maxHeight.toPx() }
                 val extent = with(density) { maxWidth.toPx() } / tabs.size
                 val room = extent - with(density) { (DockMetrics.LABEL_INSET * 2f).dp.toPx() }
                 val labelScale = if (widestLabel <= 0f || widestLabel <= room) {
@@ -423,22 +416,17 @@ internal fun DockTabBar(
 
                 Canvas(modifier = Modifier.fillMaxSize()) {
                     val box = dockLensRect(
-                        position = lens.value,
-                        velocity = lens.velocity,
+                        position = lens.offset,
+                        velocity = 0f,
                         extent = size.width / tabs.size,
                         height = size.height,
                         lift = lift.value,
                         growthPx = lensGrowthPx,
                     )
-                    // 指示器与栏体同形：超椭圆，只在端头曲率处与胶囊不同。
-                    // drawPath 没有 topLeft 参数，路径先平移到 box 左上角。issue #19
-                    lensPath.rewind()
-                    lensPath.asAndroidPath().apply {
-                        set(dockPillNativePath(box.width, box.height))
-                        offset(box.left, box.top)
-                    }
-                    drawPath(
-                        path = lensPath,
+                    drawRoundRect(
+                        topLeft = Offset(box.left, box.top),
+                        size = Size(box.width, box.height),
+                        cornerRadius = CornerRadius(min(box.width, box.height) / 2),
                         color = lensColor.copy(
                             alpha = (
                                 lensColor.alpha +
@@ -450,26 +438,24 @@ internal fun DockTabBar(
 
                 Row(modifier = Modifier.fillMaxSize()) {
                     tabs.forEachIndexed { index, tab ->
+                        val active = index == selectedTab
+                        val hasUnread = showBlogDot && tab == MainTab.BLOG
                         Box(
                             modifier = Modifier
                                 .weight(1f)
                                 .fillMaxHeight()
-                                .dockLensTint(
-                                    lens = lens,
-                                    lift = lift,
-                                    index = index,
-                                    extent = extent,
-                                    height = contentHeight,
-                                    growthPx = lensGrowthPx,
-                                    tintPaint = tintPaint,
-                                    clipPath = clipPath,
-                                )
-                                // 整条栏共享一个指针手势，单项只补无障碍语义，
-                                // 否则 TalkBack 点不到任何 tab。
+                                .focusable()
+                                .onKeyEvent {
+                                    if (it.type == KeyEventType.KeyUp && it.key in setOf(Key.Enter, Key.Spacebar, Key.DirectionCenter)) {
+                                        onSelectTab(index)
+                                        true
+                                    } else false
+                                }
                                 .semantics(mergeDescendants = true) {
                                     role = Role.Tab
                                     selected = index == selectedTab
                                     contentDescription = titles[index]
+                                    if (hasUnread) stateDescription = unreadLabel
                                     onClick {
                                         onSelectTab(index)
                                         true
@@ -482,11 +468,10 @@ internal fun DockTabBar(
                                     Icon(
                                         painter = painterResource(tab.iconRes),
                                         contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.onSurface,
+                                        tint = if (active) activeColor else MaterialTheme.colorScheme.onSurface,
                                         modifier = Modifier.size(DockMetrics.ICON_SIZE.dp),
                                     )
-                                    // 资讯未读红点仍只留在资讯 tab。
-                                    if (showBlogDot && tab == MainTab.BLOG) {
+                                    if (hasUnread) {
                                         Box(
                                             modifier = Modifier
                                                 .align(Alignment.TopEnd)
@@ -500,7 +485,7 @@ internal fun DockTabBar(
                                 Spacer(Modifier.height(DockMetrics.LABEL_GAP.dp))
                                 Text(
                                     text = titles[index],
-                                    color = MaterialTheme.colorScheme.onSurface,
+                                    color = if (active) activeColor else MaterialTheme.colorScheme.onSurface,
                                     style = labelStyle.copy(
                                         fontSize = (DockMetrics.LABEL_SIZE * labelScale).sp,
                                         fontWeight = labelFontWeight(index == selectedTab),
@@ -520,59 +505,6 @@ internal fun DockTabBar(
 private fun labelFontWeight(active: Boolean): FontWeight =
     if (active) FontWeight.Bold else FontWeight.Normal
 
-/**
- * 把落在 lens 内的内容重绘一遍并染成高亮色，内容本身再按 lens 的接近程度放大，
- * 形变只作用于绘制，不影响布局与命中。
- *
- * 数值一律在绘制阶段读取，因此每帧只失效绘制，不会重组整条栏。
- */
-private fun Modifier.dockLensTint(
-    lens: Animatable<Float, AnimationVector1D>,
-    lift: Animatable<Float, AnimationVector1D>,
-    index: Int,
-    extent: Float,
-    height: Float,
-    growthPx: Float,
-    tintPaint: Paint,
-    clipPath: Path,
-): Modifier = drawWithContent {
-    val position = lens.value - index
-    val box = dockLensRect(position, lens.velocity, extent, height, lift.value, growthPx)
-    val emphasis = (1f - abs(position)).coerceIn(0f, 1f)
-    val scale = 1f + DockMetrics.LENS_MAGNIFY * emphasis * lift.value
-    val pivot = center
-    val target = drawContext.canvas
-
-    // `Canvas.scale` 不接受缩放中心，只好自己把它换算成一次平移。
-    val paintContent: () -> Unit = {
-        target.save()
-        if (scale != 1f) {
-            target.translate(pivot.x, pivot.y)
-            target.scale(scale, scale)
-            target.translate(-pivot.x, -pivot.y)
-        }
-        drawContent()
-        target.restore()
-    }
-
-    paintContent()
-
-    if (!box.overlaps(size.width, size.height)) return@drawWithContent
-
-    clipPath.rewind()
-    // 染色裁剪与指示器本体用同一函数产出的路径，平移到 box 左上角，
-    // 否则指示器滑到首尾项时会与栏体端头轮廓错开、露出边缘。issue #19
-    clipPath.asAndroidPath().apply {
-        set(dockPillNativePath(box.width, box.height))
-        offset(box.left, box.top)
-    }
-    target.save()
-    target.clipPath(clipPath)
-    target.saveLayer(Rect(Offset.Zero, size), tintPaint)
-    paintContent()
-    target.restore()
-    target.restore()
-}
 
 /**
  * 底栏的手势状态机。
@@ -582,10 +514,11 @@ private fun Modifier.dockLensTint(
  */
 private class DockInteraction(
     private val scope: CoroutineScope,
-    private val lens: Animatable<Float, AnimationVector1D>,
+    private val lens: HorizontalMotion,
     private val lift: Animatable<Float, AnimationVector1D>,
     private val swell: Animatable<Float, AnimationVector1D>,
-    private val stretch: Animatable<Float, AnimationVector1D>,
+    private val stretch: HorizontalMotion,
+    private val reduced: () -> Boolean,
     private val onTick: () -> Unit,
     private val onSelect: (Int) -> Unit,
 ) {
@@ -600,9 +533,12 @@ private class DockInteraction(
         pressedIndex = index
         pressX = x
         dragging = false
-        scope.launch { lift.animateTo(1f, DockLiftSpring) }
-        scope.launch { swell.animateTo(1f, DockLiftSpring) }
-        scope.launch { lens.animateTo(index.toFloat(), DockSettleSpring) }
+        if (!reduced()) {
+            scope.launch { lift.animateTo(1f, HitaMotion.feedback(false)) }
+            scope.launch { swell.animateTo(1f, HitaMotion.feedback(false)) }
+        }
+        lens.settleTo(index.toFloat(), reduced())
+        stretch.takeOver()
     }
 
     fun drag(
@@ -619,20 +555,10 @@ private class DockInteraction(
             dragging = true
         }
         val lastIndex = (count - 1).toFloat()
-        scope.launch {
-            stretch.animateTo(
-                dockRubberBand(
-                    x - x.coerceIn(0f, barWidth),
-                    shortSide * DockMetrics.PULL_LIMIT,
-                ),
-                DockTrackSpring,
-            )
-        }
-        scope.launch {
-            lens.animateTo(
-                dockPositionAt(x, barWidth, count, paddingPx, lastIndex, DockMetrics.OVERDRAG),
-                DockTrackSpring,
-            )
+        lens.takeOver()
+        lens.follow(dockPositionAt(x, barWidth, count, paddingPx, lastIndex, DockMetrics.OVERDRAG))
+        if (!reduced()) {
+            stretch.follow(dockRubberBand(x - x.coerceIn(0f, barWidth), shortSide * DockMetrics.PULL_LIMIT))
         }
         val index = dockIndexAt(x, barWidth, count, paddingPx)
         if (index != pressedIndex) {
@@ -653,16 +579,17 @@ private class DockInteraction(
         val wasDragging = dragging
         pressedIndex = -1
         dragging = false
-        scope.launch { lift.animateTo(0f, DockSettleSpring) }
-        scope.launch { swell.animateTo(0f, DockSettleSpring) }
-        scope.launch { stretch.animateTo(0f, DockSettleSpring) }
+        val reducedMotion = reduced()
+        scope.launch { lift.animateTo(0f, HitaMotion.feedback(reducedMotion)) }
+        scope.launch { swell.animateTo(0f, HitaMotion.feedback(reducedMotion)) }
+        stretch.settle(reducedMotion)
         if (!commit || index < 0) {
-            scope.launch { lens.animateTo(selected.toFloat(), DockSettleSpring) }
+            lens.settleTo(selected.toFloat(), reducedMotion)
             return
         }
         val target = if (wasDragging) {
             dockFlingIndex(
-                lensTarget = lens.value,
+                lensTarget = lens.offset,
                 velocityX = velocityX,
                 extent = (barWidth - paddingPx * 2f) / count,
                 pressedIndex = index,
@@ -672,7 +599,7 @@ private class DockInteraction(
         } else {
             index
         }
-        scope.launch { lens.animateTo(target.toFloat(), DockSettleSpring) }
+        lens.settleTo(target.toFloat(), reducedMotion)
         if (target != selected) {
             onTick()
             onSelect(target)

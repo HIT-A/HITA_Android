@@ -211,7 +211,9 @@ private fun ComparisonScreen(
                         TextButton(onClick = { sheetPreselect = null; sheetOpen = true }) {
                             Text(stringResource(R.string.comparison_adjust))
                         }
-                        Button(onClick = viewModel::retry) { Text(stringResource(R.string.blog_retry)) }
+                        if (current.messageResource == R.string.comparison_read_error && config != null) {
+                            Button(onClick = viewModel::retry) { Text(stringResource(R.string.blog_retry)) }
+                        }
                     }
                 }
                 else -> {

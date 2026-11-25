@@ -45,20 +45,17 @@ object ApkInstallLauncher {
             context.packageManager.canRequestPackageInstalls()
     }
 
-    /** 打开"安装未知应用"授权页；必须在 Activity 或用户点击场景下调用。 */
-    fun openUnknownSourceSettings(context: Context): Boolean {
-        val intent = Intent(
+    /**
+     * "安装未知应用"授权页的 Intent。
+     *
+     * 不带 `FLAG_ACTIVITY_NEW_TASK`：本 Intent 由 `ActivityResultLauncher` 启动，
+     * 新建任务会让结果回不到发起页。
+     */
+    fun unknownSourceSettingsIntent(context: Context): Intent =
+        Intent(
             Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
             Uri.parse("package:${context.packageName}")
-        ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        return try {
-            context.startActivity(intent)
-            true
-        } catch (e: Exception) {
-            LogUtils.e("ApkInstallLauncher: 打开安装未知应用设置页失败", e)
-            false
-        }
-    }
+        )
 
     /**
      * 构造"安装已下载 APK"的 Intent。

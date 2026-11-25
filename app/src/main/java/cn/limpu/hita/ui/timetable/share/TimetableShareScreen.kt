@@ -70,7 +70,12 @@ fun TimetableShareScreen(
                         modifier = Modifier.padding(top = 12.dp))
                 }
             }
-            Text(stringResource(R.string.timetable_share_busy_hint), style = MaterialTheme.typography.bodySmall)
+            Text(
+                stringResource(if (form.mode == ShareMode.BUSY) R.string.timetable_audit_export_busy_fields
+                    else R.string.timetable_audit_export_full_fields),
+                style = MaterialTheme.typography.bodySmall,
+            )
+            if (form.timetableId.isNotBlank()) Text(stringResource(R.string.timetable_audit_export_scope, 1))
             errorResource?.let { Text(stringResource(it), color = MaterialTheme.colorScheme.error) }
             if (showSummaryRetry) {
                 OutlinedButton(onClick = onRetrySummary, enabled = !loading) {

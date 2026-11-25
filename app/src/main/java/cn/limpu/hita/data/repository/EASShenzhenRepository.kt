@@ -336,6 +336,7 @@ internal class EASShenzhenRepository(
                                 .setFromCache(true)
                                 .apply { cachedAtMillis = cached.cachedAtMillis }
                                 .setStale(cached.cachedAtMillis, "登录已失效")
+                                .setRetryState(DataState.STATE.NOT_LOGGED_IN)
                         )
                     }
                 }
@@ -366,6 +367,7 @@ internal class EASShenzhenRepository(
                                     .setFromCache(true)
                                     .apply { cachedAtMillis = cached.cachedAtMillis }
                                     .setStale(cached.cachedAtMillis, state.message)
+                                    .setRetryState(state.state)
                             } else {
                                 state
                             }

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <permission android:name="${applicationId}.permission.BENCHMARK_SEED" android:protectionLevel="signature" />
+    <application>
+        <profileable android:shell="true" />
+        <activity
+            android:name="cn.limpu.hita.benchmark.BenchmarkSeedActivity"
+            android:exported="true"
+            android:permission="${applicationId}.permission.BENCHMARK_SEED" />
+    </application>
+</manifest>

@@ -7,6 +7,7 @@ import android.os.ParcelFileDescriptor
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.ViewModelProvider
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.UiDevice
@@ -22,8 +23,7 @@ import org.junit.runner.RunWith
  *
  * 断言两类约束：
  * - 结构：时间表页滑不动、首尾页不回绕、关掉的 Tab 不出现在可切列表。
- * - 步进：一次滑动只推进/回退一页。收尾动画期间手势会被忽略（`settling` 闸门），
- *   因此 `input swipe` 注入的连续事件不会叠加出两页。
+ * - 步进：一次滑动只推进或回退一页，检查手势经过页面容器后的最终落点。
  *
  * 精确的判定阈值由 `TabSwipeTest` 用纯函数覆盖（`commitDirection` 只返回 -1/0/1），
  * 这里只验证端到端的落点。
@@ -142,31 +142,32 @@ class MainSwipeInstrumentedTest {
         return selected
     }
 
-    /** 切页含两段 150ms 收尾动画、状态经 ViewModel 回流，且 Fragment 随后要切到 RESUMED。 */
+    /** 选择状态先更新；必须等对应 Fragment 实际可接收触摸再注入手势。 */
     private fun awaitSelectedTab(
         scenario: ActivityScenario<MainActivity>,
         expected: MainTab? = null,
     ): MainTab {
         val deadline = SystemClock.uptimeMillis() + 8_000
-        var selected = MainTab.TIMELINE
+        var lastSelection: MainTab? = null
         while (SystemClock.uptimeMillis() < deadline) {
             instrumentation.waitForIdleSync()
-            selected = currentTab(scenario)
-            val settled = expected == null || selected == expected
-            val mounted = selected.let { tab ->
-                var attached = false
-                scenario.onActivity { activity ->
-                    attached = activity.supportFragmentManager
-                        .findFragmentByTag(MainTabHost.tag(tab))?.view?.let { view ->
-                            view.isAttachedToWindow && view.hasWindowFocus()
-                        } == true
+            var ready: MainTab? = null
+            scenario.onActivity { activity ->
+                val tab = ViewModelProvider(activity)[MainViewModel::class.java].state.value.navigation.selectedTab
+                lastSelection = tab
+                if (expected == null || tab == expected) {
+                    val fragment = activity.supportFragmentManager.findFragmentByTag(MainTabHost.tag(tab))
+                    if (fragment?.lifecycle?.currentState == Lifecycle.State.RESUMED &&
+                        fragment.view?.let { it.isShown && it.isLaidOut && it.hasWindowFocus() } == true
+                    ) {
+                        ready = tab
+                    }
                 }
-                attached
             }
-            if (settled && mounted) return selected
+            ready?.let { return it }
             Thread.sleep(50)
         }
-        return selected
+        throw AssertionError("Page did not become ready: expected=$expected, selected=$lastSelection")
     }
 
     /**
@@ -191,7 +192,7 @@ class MainSwipeInstrumentedTest {
             val buffer = ByteArray(1024)
             while (stream.read(buffer) != -1) Unit
         }
-        // 两段 150ms 收尾 + 状态回流与 Fragment 事务，等它走完再断言，避免读到中间态。
+        // 保留动画收尾窗口，尤其是“不切页”的断言不能在输入刚注入时就返回。
         SystemClock.sleep(900)
     }
 

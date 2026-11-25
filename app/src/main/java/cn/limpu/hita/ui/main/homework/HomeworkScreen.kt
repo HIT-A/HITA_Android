@@ -110,6 +110,9 @@ internal fun HomeworkScreen(
     val openGraderLogin = { graderLauncher.launch(Intent(context, GraderLoginActivity::class.java)) }
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+    // 每条待办各自的提交回执：撤销只对同一条、同一次写入生效。
+    val actions = remember(viewModel) { HomeworkCompletionActions(viewModel::setCompleted) }
+    val receipts by actions.receipts.collectAsState()
     val listState = rememberLazyListState()
 
     fun selectDate(value: String) {
@@ -136,16 +139,16 @@ internal fun HomeworkScreen(
         pickerForEditor = editor
         pickerDate = value
     }
-    fun complete(key: TodoKey, value: Boolean) {
-        viewModel.complete(key, value) {
-            scope.launch {
-                snackbar.currentSnackbarData?.dismiss()
-                val result = snackbar.showSnackbar(
-                    context.getString(if (value) R.string.homework_marked_done else R.string.homework_restored),
-                    actionLabel = context.getString(R.string.homework_undo),
-                    withDismissAction = true,
-                )
-                if (result == SnackbarResult.ActionPerformed) viewModel.complete(key, !value)
+    fun undo(key: TodoKey, receipt: TodoCompletionReceipt) {
+        scope.launch { actions.undo(key, receipt) }
+    }
+    fun complete(row: TodoRow, value: Boolean) {
+        scope.launch {
+            // 按 key + 回执推进，两次快速完成各留各的撤销，不会互相覆盖。
+            actions.change(row, value)
+            val receipt = actions.receipts.value[row.key]
+            if (receipt?.phase == TodoCompletionPhase.SaveFailed) {
+                snackbar.showSnackbar(context.getString(R.string.homework_toggle_failed), withDismissAction = true)
             }
         }
     }
@@ -262,7 +265,7 @@ internal fun HomeworkScreen(
                         TodoPlatform.GENIUSTA -> geniusTa.syncing
                     }
                 }
-                todoRows(board.pending, today, ::rowBusy, ::complete, ::openEditor)
+                todoRows(board.pending, today, ::rowBusy, ::complete, ::openEditor, receipts, ::undo)
                 if (board.completed.isNotEmpty()) {
                     item(key = "completed-toggle") {
                         CompletedSectionHeader(
@@ -272,7 +275,7 @@ internal fun HomeworkScreen(
                         )
                     }
                     if (showCompleted) {
-                        todoRows(board.completed, today, ::rowBusy, ::complete, ::openEditor)
+                        todoRows(board.completed, today, ::rowBusy, ::complete, ::openEditor, receipts, ::undo)
                     }
                 }
             }
@@ -493,8 +496,10 @@ private fun LazyListScope.todoRows(
     rows: List<TodoRow>,
     today: String,
     isBusy: (TodoKey) -> Boolean,
-    onComplete: (TodoKey, Boolean) -> Unit,
+    onComplete: (TodoRow, Boolean) -> Unit,
     onEdit: (HomeworkItem) -> Unit,
+    receipts: Map<TodoKey, TodoCompletionReceipt>,
+    onUndo: (TodoKey, TodoCompletionReceipt) -> Unit,
 ) {
     itemsIndexed(rows, key = { _, row -> row.key.listKey }, contentType = { _, _ -> "todo" }) { index, row ->
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -520,8 +525,10 @@ private fun LazyListScope.todoRows(
             HomeworkRow(
                 row = row,
                 busy = isBusy(row.key),
-                onComplete = { onComplete(row.key, it) },
+                onComplete = { onComplete(row, it) },
+                receipt = receipts[row.key],
                 onEdit = row.personal?.let { personal -> { onEdit(personal) } },
+                onUndo = { receipt -> onUndo(row.key, receipt) },
             )
         }
     }
@@ -626,7 +633,14 @@ private fun daySubtitle(date: String): String =
     LocalDate.parse(date).format(HOMEWORK_YEAR_WEEKDAY)
 
 @Composable
-private fun HomeworkRow(row: TodoRow, busy: Boolean, onComplete: (Boolean) -> Unit, onEdit: (() -> Unit)?) {
+private fun HomeworkRow(
+    row: TodoRow,
+    busy: Boolean,
+    onComplete: (Boolean) -> Unit,
+    onEdit: (() -> Unit)?,
+    receipt: TodoCompletionReceipt? = null,
+    onUndo: (TodoCompletionReceipt) -> Unit = {},
+) {
     val item = row.personal
     val imported = row.key as? TodoKey.Imported
     Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) {
@@ -660,6 +674,15 @@ private fun HomeworkRow(row: TodoRow, busy: Boolean, onComplete: (Boolean) -> Un
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                }
+                // 撤销只出现在刚刚保存成功、且仍是这次写入的那一行。
+                receipt?.takeIf { it.canUndo && it.completed == row.completed }?.let { current ->
+                    TextButton(
+                        onClick = { onUndo(current) },
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 0.dp, vertical = 0.dp),
+                    ) {
+                        Text(stringResource(R.string.homework_undo), style = MaterialTheme.typography.labelMedium)
+                    }
                 }
                 // 只在真的填过提交信息时补一行，避免每行都堆一排「未填写」。
                 if (item != null && item.hasSubmissionInfo) {

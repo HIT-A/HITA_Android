@@ -1,13 +1,15 @@
 package cn.limpu.hita.ui.widgets
 
 import android.content.Intent
+import cn.limpu.hita.feature.timetable.TimetableEventTarget
+import java.time.LocalDate
+import java.time.format.DateTimeParseException
 
 /**
  * 小组件点击后的深链目标。
  *
- * 小组件列表项通过 `setPendingIntentTemplate` 逐条填充 extra，
- * 这里只做解析与校验：缺少或非法的参数一律返回 null，交给主界面忽略，
- * 而不是猜一个默认课程去打开错误详情。
+ * 列表项和课程通知都携带事件 id 与本地日期；无效的显式目标由主界面说明，
+ * 不猜测或打开另一项。
  */
 data class WidgetDeepLink(
     val eventId: String,
@@ -15,10 +17,19 @@ data class WidgetDeepLink(
 ) {
     companion object {
 
-        const val EXTRA_EVENT_ID = "hita.widget.EXTRA_EVENT_ID"
-        const val EXTRA_DATE = "hita.widget.EXTRA_DATE"
+        const val EXTRA_EVENT_ID = TimetableEventTarget.EXTRA_EVENT_ID
+        const val EXTRA_DATE = TimetableEventTarget.EXTRA_DATE
 
         private val DATE_PATTERN = Regex("""^\d{4}-\d{2}-\d{2}$""")
+
+        fun dateFor(startMillis: Long): String = TimetableEventTarget.dateFor(startMillis)
+
+        fun isTargetIntent(intent: Intent?): Boolean = when (intent?.action) {
+            TimetableEventTarget.ACTION_WIDGET_ROW,
+            TimetableEventTarget.ACTION_WIDGET_SLIM_ROW,
+            TimetableEventTarget.ACTION_COURSE_REMINDER -> true
+            else -> intent?.let { it.hasExtra(EXTRA_EVENT_ID) || it.hasExtra(EXTRA_DATE) } == true
+        }
 
         /**
          * 解析逻辑与 Android [Intent] 解耦：入参是已经取出的两个字符串。
@@ -29,6 +40,11 @@ data class WidgetDeepLink(
             val day = date?.trim().orEmpty()
             if (id.isEmpty()) return null
             if (!DATE_PATTERN.matches(day)) return null
+            try {
+                LocalDate.parse(day)
+            } catch (_: DateTimeParseException) {
+                return null
+            }
             return WidgetDeepLink(eventId = id, date = day)
         }
 
@@ -38,8 +54,7 @@ data class WidgetDeepLink(
 
         /** 往列表项 intent 里写深链参数；模板 intent 由 `setPendingIntentTemplate` 补齐。 */
         fun fillIn(intent: Intent, eventId: String, date: String) {
-            intent.putExtra(EXTRA_EVENT_ID, eventId)
-            intent.putExtra(EXTRA_DATE, date)
+            TimetableEventTarget.write(intent, eventId, date)
         }
     }
 }

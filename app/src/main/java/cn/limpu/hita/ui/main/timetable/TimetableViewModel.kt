@@ -6,6 +6,7 @@ import androidx.lifecycle.MediatorLiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.switchMap
+import androidx.lifecycle.map
 import androidx.lifecycle.viewModelScope
 import com.limpu.component.data.MTransformations
 import com.limpu.component.data.Trigger
@@ -29,6 +30,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.CancellationException
+import cn.limpu.hita.data.repository.today.TodayReadState
 import java.util.Calendar
 import javax.inject.Inject
 
@@ -94,7 +96,7 @@ class TimetableViewModel @Inject constructor(
      */
     fun weekOptions(): List<WeekOption> {
         val start = pageStart.value ?: return emptyList()
-        val table = TimetableTargetPolicy.hitTimetable(resolvedScope.value?.timetables.orEmpty(), start)
+        val table = TimetableTargetPolicy.hitTimetable(currentResolvedScope()?.timetables.orEmpty(), start)
             ?: return emptyList()
         return weekOptions(mondayOf(table.startTime.time), table.endTime.time)
     }
@@ -107,7 +109,8 @@ class TimetableViewModel @Inject constructor(
 
     internal fun currentTimetableAndWeek(): Pair<Timetable?, Int?> {
         val start = pageStart.value ?: return null to null
-        val table = TimetableTargetPolicy.hitTimetable(resolvedScope.value?.timetables.orEmpty(), start)
+        val table = TimetableTargetPolicy.hitTimetable(
+            currentResolvedScope()?.timetables.orEmpty().filterNot(cn.limpu.hita.data.repository.TimetableVersionStore::isProjection), start)
         return table to table?.getWeekNumber(start)
     }
 
@@ -116,6 +119,21 @@ class TimetableViewModel @Inject constructor(
 
     /** 当前显示目标（独立课表或组合课表）；主课表/标题/添加事件的归属都经它。 */
     val resolvedScope: LiveData<ResolvedDisplayScope?> = scopeResolver.resolved
+    val scopeReadState = scopeResolver.readState
+    internal fun currentResolvedScope(): ResolvedDisplayScope? =
+        (scopeReadState.value as? TodayReadState.Ready)?.value
+    private val creatingBlank = MutableLiveData(false)
+    val creatingBlankTimetable: LiveData<Boolean> = creatingBlank
+
+    fun createBlankTimetable(completed: (Result<Unit>) -> Unit) {
+        if (creatingBlank.value == true) return
+        creatingBlank.value = true
+        timetableRepository.actionNewTimetable {
+            creatingBlank.value = false
+            if (it.isSuccess) navigateToWeek(mondayOf(System.currentTimeMillis()))
+            completed(it)
+        }
+    }
     val academicCalendarPeriods = academicCalendarRepository.periods
     val scopeOptions: LiveData<List<DisplayScopeResolver.ScopeOption>> = scopeResolver.options
 
@@ -132,27 +150,33 @@ class TimetableViewModel @Inject constructor(
     fun selectScope(scope: DisplayScope) = scopeSelector.select(scope)
 
     /** One observable window: Compose has no ring indices or writable intermediate dates. */
-    private val scopeAndStart = MediatorLiveData<Pair<Long, List<String>>>().apply {
+    private val scopeAndStart = MediatorLiveData<TimetableWindowKey?>().apply {
         fun refresh() {
-            val next = (pageStart.value ?: return) to scopeResolver.resolved.value?.timetableIds.orEmpty()
+            val next = activeWindowKey()
             if (value != next) {
                 batches.cancel()
                 value = next
             }
         }
         addSource(pageStart) { refresh() }
-        addSource(scopeResolver.resolved) { refresh() }
+        addSource(scopeReadState) { refresh() }
     }
-    val currentWindow: LiveData<EventStylePair> = MTransformations.switchMap(
-        scopeAndStart.switchMap { (start, ids) ->
-            timetableRepository.getEventsDuringWithColor(start, start + WEEK_MILLS, ids)
+    internal fun activeWindowKey(): TimetableWindowKey? {
+        val scope = currentResolvedScope() ?: return null
+        return TimetableWindowKey(pageStart.value ?: return null, scope.scope, scope.timetableIds)
+    }
+
+    internal val currentWindow: LiveData<EventStylePair> = MTransformations.switchMap(
+        scopeAndStart.switchMap { query ->
+            if (query == null) MutableLiveData()
+            else timetableRepository.getEventsDuringWithColor(query.start, query.start + WEEK_MILLS, query.ids)
+                .map { query to it }
         },
         timetableStyleLiveData,
-    ) { MutableLiveData(EventStylePair(it.first, it.second)) }
+    ) { MutableLiveData(EventStylePair(it.first.first, it.first.second, it.second)) }
 
     fun startRefresh() {
         viewModelScope.launch(Dispatchers.IO) { academicCalendarRepository.refresh() }
-        timetableRepository.actionPrepareTimetableList()
         timetableController.value = Trigger.actioning
     }
 
@@ -211,10 +235,13 @@ class TimetableViewModel @Inject constructor(
 
 }
 
-/** Wrapper that uses reference equality so Compose always recomposes on new emissions. */
-class EventStylePair(
+internal data class TimetableWindowKey(val start: Long, val scope: DisplayScope, val ids: List<String>)
+
+/** Identity is assigned where the Room query starts, not when its events reach Compose. */
+internal class EventStylePair(
+    val key: TimetableWindowKey,
     val events: List<EventItem>,
-    val style: TimetableStyleSheet
+    val style: TimetableStyleSheet,
 )
 
 internal fun mondayOf(ts: Long): Long = Calendar.getInstance().apply {

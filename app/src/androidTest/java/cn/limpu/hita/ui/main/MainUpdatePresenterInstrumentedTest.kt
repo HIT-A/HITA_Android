@@ -33,7 +33,7 @@ class MainUpdatePresenterInstrumentedTest {
         try {
             ActivityScenario.launch<MainActivity>(Intent(app, MainActivity::class.java)).use { scenario ->
                 scenario.onActivity { activity ->
-                    presenter = MainUpdatePresenter(activity) { oldCompletions++ }.also { it.show(result) }
+                    presenter = MainUpdatePresenter(activity, { oldCompletions++ }, activity.installGate).also { it.show(result) }
                     val popup = requireNotNull(activity.supportFragmentManager.findFragmentByTag("update") as? PopUpUpdate)
                     assertTrue(DialogBottomUpdateBinding.bind(requireNotNull(popup.view)).text.text.contains(result.updateLog))
                     assertNotNull(popup.onActionListener)
@@ -43,7 +43,7 @@ class MainUpdatePresenterInstrumentedTest {
                 }
                 scenario.recreate()
                 scenario.onActivity { activity ->
-                    presenter = MainUpdatePresenter(activity) { newCompletions++ }.also { it.show(result) }
+                    presenter = MainUpdatePresenter(activity, { newCompletions++ }, activity.installGate).also { it.show(result) }
                     val popup = requireNotNull(activity.supportFragmentManager.findFragmentByTag("update") as? PopUpUpdate)
                     assertTrue(DialogBottomUpdateBinding.bind(requireNotNull(popup.view)).text.text.contains(result.updateLog))
                     assertNotNull(popup.onActionListener)
@@ -72,7 +72,7 @@ class MainUpdatePresenterInstrumentedTest {
             ActivityScenario.launch<MainActivity>(Intent(app, MainActivity::class.java)).use { scenario ->
                 scenario.onActivity { activity ->
                     var finished = 0
-                    MainUpdatePresenter(activity) { finished++ }.use { presenter ->
+                    MainUpdatePresenter(activity, { finished++ }, activity.installGate).use { presenter ->
                         presenter.show(result)
                         assertEquals(1, finished)
                         assertNull(activity.supportFragmentManager.findFragmentByTag("update"))

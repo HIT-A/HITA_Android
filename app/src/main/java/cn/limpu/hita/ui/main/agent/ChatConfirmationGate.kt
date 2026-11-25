@@ -3,74 +3,72 @@ package cn.limpu.hita.ui.main.agent
 import cn.limpu.hita.agent.tools.ConfirmationGate
 import cn.limpu.hita.agent.tools.ConfirmationRequest
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.withTimeoutOrNull
 
-/**
- * 聊天页的写操作确认门。
- *
- * 语义：
- * - 一次只允许一个待确认请求（[pending] 有值时新请求直接判 `UNAVAILABLE`），
- *   避免多个写工具同时弹窗把用户淹没。
- * - [request] 挂起等待用户选择；[approve] / [reject] 只对当前请求生效。
- * - [cancelAll] 在会话切换、页面销毁、请求被取消时调用，让挂起的工具立刻拿到
- *   `REJECTED` 而不是永久挂住。
- *
- * 线程：`request` 由 ReAct 循环在 IO 线程调用；`approve`/`reject` 从主线程来。
- * [MutableStateFlow] 与 [CompletableDeferred] 都是线程安全的，这里不额外加锁。
- */
-class ChatConfirmationGate : ConfirmationGate {
+/** One outstanding dialog, shared across requests. Tools may ask from a dispatcher other than Main. */
+internal class ChatConfirmationGate(private val timeoutMs: Long = 120_000) {
+    data class Owner(val sessionId: String, val requestId: Long)
 
-    data class Pending(
-        val request: ConfirmationRequest,
-        val sessionId: String?,
-    )
+    // Reference identity matters: even two identical prompts in one request need separate consent.
+    class Pending(val owner: Owner, val request: ConfirmationRequest)
 
+    private class Waiter(val pending: Pending, val job: Job, val onApproved: () -> Unit) {
+        val decision = CompletableDeferred<ConfirmationGate.Decision>()
+    }
+
+    private val lock = Any()
     private val _state = MutableStateFlow<Pending?>(null)
     val state: StateFlow<Pending?> = _state.asStateFlow()
+    private var outstanding: Waiter? = null
 
-    private var outstanding: CompletableDeferred<ConfirmationGate.Decision>? = null
-
-    /** 由调用方在每次 ReAct 往返前绑定当前会话，保证确认只作用于发起它的会话。 */
-    var sessionIdProvider: () -> String? = { null }
-
-    override suspend fun request(request: ConfirmationRequest): ConfirmationGate.Decision {
-        val sessionId = sessionIdProvider()
-        // 已有待确认请求：不排队、不覆盖，直接告诉工具现在不能执行。
-        if (_state.value != null) return ConfirmationGate.Decision.UNAVAILABLE
-        val deferred = CompletableDeferred<ConfirmationGate.Decision>()
-        outstanding = deferred
-        _state.value = Pending(request = request, sessionId = sessionId)
-        return try {
-            deferred.await()
-        } finally {
-            // 无论是用户选择还是协程被取消，都要清掉待确认状态，否则 UI 会卡在对话框上。
-            if (_state.value?.sessionId == sessionId) _state.value = null
-            if (outstanding === deferred) outstanding = null
-        }
+    fun bind(owner: Owner, onApproved: () -> Unit = {}): ConfirmationGate = ConfirmationGate { request ->
+        withTimeoutOrNull(timeoutMs) {
+            val job = checkNotNull(currentCoroutineContext()[Job])
+            val waiter = Waiter(Pending(owner, request), job, onApproved)
+            synchronized(lock) {
+                job.ensureActive()
+                if (outstanding != null) return@withTimeoutOrNull ConfirmationGate.Decision.UNAVAILABLE
+                outstanding = waiter
+                _state.value = waiter.pending
+            }
+            try {
+                waiter.decision.await()
+            } finally {
+                take { it === waiter }
+            }
+        } ?: ConfirmationGate.Decision.UNAVAILABLE
     }
 
-    /** 用户点了「执行」。 */
-    fun approve() {
-        outstanding?.complete(ConfirmationGate.Decision.APPROVED)
+    fun resolve(pending: Pending, visibleSessionId: String?, approved: Boolean): Boolean {
+        val waiter = take { it.pending === pending && pending.owner.sessionId == visibleSessionId && it.job.isActive }
+            ?: return false
+        if (approved) waiter.onApproved()
+        waiter.decision.complete(if (approved) ConfirmationGate.Decision.APPROVED else ConfirmationGate.Decision.REJECTED)
+        return true
     }
 
-    /** 用户点了「取消」。 */
-    fun reject() {
-        outstanding?.complete(ConfirmationGate.Decision.REJECTED)
+    fun cancel(owner: Owner) {
+        take { it.pending.owner == owner }?.decision?.complete(ConfirmationGate.Decision.REJECTED)
     }
 
-    /**
-     * 让所有挂起的请求以拒绝收场。
-     *
-     * @param sessionId 非空时只清理该会话的请求；为空时清理全部（页面销毁/切会话）。
-     */
     fun cancelAll(sessionId: String? = null) {
-        val pending = _state.value ?: return
-        if (sessionId != null && pending.sessionId != sessionId) return
-        outstanding?.complete(ConfirmationGate.Decision.REJECTED)
-        _state.value = null
+        take { sessionId == null || it.pending.owner.sessionId == sessionId }
+            ?.decision?.complete(ConfirmationGate.Decision.REJECTED)
+    }
+
+    private inline fun take(matches: (Waiter) -> Boolean): Waiter? = synchronized(lock) {
+        val waiter = outstanding?.takeIf(matches) ?: return@synchronized null
         outstanding = null
+        _state.value = null
+        waiter
     }
 }
+
+internal fun ChatConfirmationGate.Pending.isVisibleIn(sessionId: String?, foreground: Boolean): Boolean =
+    foreground && owner.sessionId == sessionId

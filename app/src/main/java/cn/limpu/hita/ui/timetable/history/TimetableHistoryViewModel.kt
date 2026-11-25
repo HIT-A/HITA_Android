@@ -47,6 +47,40 @@ class TimetableHistoryViewModel @Inject constructor(
     private val _versions = MutableStateFlow(CourseVersionsUiState())
     internal val versions = _versions.asStateFlow()
     private var job: Job? = null
+    private val _deleted = MutableStateFlow(DeletionHistoryUiState())
+    internal val deleted = _deleted.asStateFlow()
+    private var deletionJob: Job? = null
+
+    fun loadDeleted(id: String) {
+        if (_deleted.value.restoringId != null) return
+        deletionJob?.cancel()
+        val sameTable = _deleted.value.timetableId == id
+        _deleted.value = DeletionHistoryUiState(timetableId = id, loading = true,
+            restoreSucceeded = _deleted.value.restoreSucceeded.takeIf { sameTable })
+        deletionJob = viewModelScope.launch {
+            try {
+                val entries = withContext(Dispatchers.IO) { timetableRepository.personalDeletionHistorySync(id) }
+                _deleted.value = _deleted.value.copy(entries = entries, loading = false)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                _deleted.value = _deleted.value.copy(loading = false, loadFailed = true)
+            }
+        }
+    }
+
+    fun restoreDeleted(historyId: String) {
+        val state = _deleted.value
+        val id = state.timetableId ?: return
+        if (state.loading || state.restoringId != null || state.entries.none {
+            it.id == historyId && it.status == cn.limpu.hita.data.repository.DeletedEventStatus.AVAILABLE
+        }) return
+        _deleted.value = state.copy(restoringId = historyId, restoreSucceeded = null)
+        writes.restoreDeleted(id, historyId) { result ->
+            _deleted.value = _deleted.value.copy(restoringId = null, restoreSucceeded = result.isSuccess)
+            loadDeleted(id)
+        }
+    }
     private fun store() = cn.limpu.hita.data.repository.TimetableVersionStore.forApplication(
         application, cn.limpu.hita.data.AppDatabase.getDatabase(application))
 

@@ -258,3 +258,5 @@
 -dontwarn org.tukaani.xz.X86Options
 -dontwarn org.tukaani.xz.XZ
 -dontwarn org.tukaani.xz.XZOutputStream
+# 基准种子入口由外部仪器按类名启动，必须保留类名；只在 benchmark 变体存在。
+-keep class cn.limpu.hita.benchmark.BenchmarkSeedActivity { *; }

@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="account_logout_hita">退出 HITA 账号</string>
+    <string name="account_logout_academic">退出教务账号</string>
+    <string name="account_logout_keep_local">只退出此账号。本机课表、待办等数据会保留，其他账号不会退出。</string>
+    <string name="account_logout_named">账号：%1$s\n\n%2$s</string>
+    <string name="account_logout_changed">账号已变化，请重新选择。</string>
+    <string name="notice_entry_unread">应用公告（%1$d 条未读）</string>
+    <string name="notice_mark_read">标记已读</string>
+    <string name="notice_unread">未读</string>
+    <string name="startup_expanded">已展开</string>
+    <string name="startup_collapsed">已收起</string>
+    <string name="startup_expand">展开</string>
+    <string name="startup_collapse">收起</string>
+    <string name="startup_release_retry">重试加载历史版本</string>
+    <string name="startup_update_available">可更新至 %1$s</string>
+    <string name="startup_update_details">查看更新说明</string>
+    <string name="startup_update_checking">正在检查更新…</string>
+    <string name="startup_update_browser">在浏览器中打开</string>
+    <string name="startup_portal_renewing">正在尝试续期，可继续查看缓存公告。</string>
+    <string name="startup_portal_timeout">资讯登录超时，请重试。</string>
+    <string name="startup_portal_network_error">资讯登录页加载失败，请检查网络后重试。</string>
+</resources>

@@ -83,6 +83,7 @@ import cn.limpu.hita.data.source.web.campus.CampusCardSessionPolicy
 import cn.limpu.hita.ui.design.HitaComposeTheme
 import cn.limpu.hita.ui.design.HitaTheme
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -175,6 +176,7 @@ class CampusCardViewModel(application: Application) : AndroidViewModel(applicati
     private var pageNumber = 1
     private var syncing = false
     private var syncFailed = false
+    private var requiresSignIn = false
     private var cookies: CampusCardCookies? = null
     private var job: Job? = null
     private val _historyPeriod = MutableStateFlow(YearMonth.now(ZoneId.of("Asia/Shanghai")))
@@ -191,10 +193,12 @@ class CampusCardViewModel(application: Application) : AndroidViewModel(applicati
                     ledger = sync.ledger ?: ledger
                     syncing = sync.running
                     syncFailed = sync.failed
+                    requiresSignIn = sync.requiresSignIn
                     if (ledger != null) showLocal()
                     else if (sync.requiresSignIn) _state.value = CampusServiceUiState.RequiresSignIn
                     else if (sync.failed) _state.value = CampusServiceUiState.Failed(
                         getApplication<Application>().getString(R.string.campus_card_initial_sync_failed))
+                    else if (sync.running) _state.value = CampusServiceUiState.Loading
                 }
             }
         }
@@ -235,6 +239,7 @@ class CampusCardViewModel(application: Application) : AndroidViewModel(applicati
             initialHistoryComplete = data.initialComplete, historySavedCount = data.rows.size,
             historyRemoteTotal = data.remoteTotal, historyYears = data.availableYears(Instant.now()),
             periodSpending = data.periodSpending(historyRange.value, historyPeriod.value),
+            requiresSignIn = requiresSignIn,
         ))
     }
 
@@ -243,6 +248,7 @@ class CampusCardViewModel(application: Application) : AndroidViewModel(applicati
         job?.cancel()
         syncing = false
         syncFailed = false
+        requiresSignIn = false
         pageNumber = 1
         cookies = session
         ledger = null
@@ -253,15 +259,24 @@ class CampusCardViewModel(application: Application) : AndroidViewModel(applicati
         sessionKey = CampusCardSyncController.key(session)
         _state.value = CampusServiceUiState.Loading
         job = viewModelScope.launch {
-            ledger = store.read(sessionKey)
+            val key = CampusCardSyncController.key(session)
+            val cached = store.read(key)
+            ensureActive()
+            ledger = cached
             val sync = controller.state.value
             if (sync.key == sessionKey) {
                 ledger = sync.ledger ?: ledger
                 syncing = sync.running
                 syncFailed = sync.failed
+                requiresSignIn = sync.requiresSignIn
             }
             if (ledger != null) showLocal()
-            if (ledger == null) controller.start(session, portalTicket)
+            else if (requiresSignIn && portalTicket == null) _state.value = CampusServiceUiState.RequiresSignIn
+            else if (sync.key == key && sync.failed && portalTicket == null) _state.value = CampusServiceUiState.Failed(
+                getApplication<Application>().getString(R.string.campus_card_initial_sync_failed))
+            if (portalTicket != null || (ledger == null && !requiresSignIn && !syncing && !syncFailed)) {
+                controller.start(session, portalTicket)
+            }
         }
     }
 
@@ -340,13 +355,19 @@ private fun CampusCardScreen(
                 },
                 actions = {
                     CampusSignOutButton(enabled = !resetting, onSignOut = onSignOut)
-                    TextButton(onClick = onReload,
-                        enabled = state !is CampusServiceUiState.Loading &&
-                            (state as? CampusServiceUiState.Ready)?.value?.historySyncing != true) {
-                        if (state is CampusServiceUiState.Loading) {
-                            CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.dp)
-                        } else {
-                            Text(stringResource(R.string.campus_card_update))
+                    val ready = (state as? CampusServiceUiState.Ready)?.value
+                    if (ready?.requiresSignIn == true) {
+                        TextButton(onClick = onSignIn, enabled = !resetting) {
+                            Text(stringResource(R.string.campus_card_login_action))
+                        }
+                    } else if (state !is CampusServiceUiState.RequiresSignIn) {
+                        TextButton(onClick = onReload,
+                            enabled = !resetting && state !is CampusServiceUiState.Loading && ready?.historySyncing != true) {
+                            if (state is CampusServiceUiState.Loading) {
+                                CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.dp)
+                            } else {
+                                Text(stringResource(R.string.campus_card_update))
+                            }
                         }
                     }
                 },
@@ -463,6 +484,11 @@ private fun CampusCardContent(
         ),
         verticalArrangement = Arrangement.spacedBy(tokens.spacing.md),
     ) {
+        if (page.requiresSignIn) {
+            item(key = "reauth") {
+                Text(stringResource(R.string.campus_card_cached_sign_in_required))
+            }
+        }
         item(key = "balance") { BalanceCard(page) }
         if (!page.initialHistoryComplete) {
             item { Text(stringResource(R.string.campus_card_initial_guide), style = MaterialTheme.typography.bodyMedium) }
@@ -510,7 +536,7 @@ private fun CampusCardContent(
         if (range != CampusCardHistoryRange.ALL) {
             item(key = "period") { CampusCardPeriodSelector(range, period, page.historyYears, onPeriodChanged) }
         }
-        if (page.transactionsFailed) {
+        if (page.transactionsFailed && !page.requiresSignIn) {
             item {
                 Text(
                     text = stringResource(R.string.campus_card_transactions_failed),
@@ -541,7 +567,7 @@ private fun CampusCardContent(
         }
         if (page.transactionsLoading && page.transactions.items.isEmpty()) {
             // An uncached page has no rows until its first response.
-        } else if (page.transactions.items.isEmpty() && !page.transactionsFailed) {
+        } else if (page.transactions.items.isEmpty() && !page.transactionsFailed && page.initialHistoryComplete) {
             item {
                 Text(
                     text = stringResource(R.string.campus_card_transactions_empty),

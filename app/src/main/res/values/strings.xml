@@ -280,6 +280,8 @@
     <string name="course_contribution_preview_files">将修改：%s</string>
     <string name="course_contribution_confirm_submit">确认提交</string>
     <string name="course_contribution_preview_empty">后端未返回可确认的预览内容</string>
+    <string name="course_contribution_preview_expired">表单已变更或页面已重建，请重新预览后提交</string>
+    <string name="course_contribution_preview_repository">目标仓库：%s</string>
     <string name="course_contribution_back">返回</string>
     <string name="score_summary_gpa">平均学分绩</string>
     <string name="score_summary_official_gpa">GPA</string>
@@ -552,6 +554,8 @@
     <string name="course_selection_confirm_submit">确认真实提交</string>
     <string name="course_selection_notification_permission_required">定时选课需要通知权限，以便在后台执行时显示任务状态。</string>
     <string name="course_selection_exact_alarm_title">需要精确闹钟权限</string>
+    <string name="course_selection_exact_alarm_not_granted">未允许“闹钟和提醒”，定时任务尚未创建。</string>
+    <string name="course_selection_schedule_changed">选课对象、学期或教务会话已变更，定时任务尚未创建。</string>
     <string name="course_selection_open_exact_alarm_settings">打开“闹钟和提醒”设置</string>
     <string name="course_selection_choose_date">选择执行日期</string>
     <string name="course_selection_next_to_time">下一步：选择时间</string>
@@ -1306,6 +1310,8 @@
     <string name="class_after_number_what">第%d节课结束</string>
     <string name="current">当前</string>
     <string name="expand">展开</string>
+    <string name="state_expanded">已展开</string>
+    <string name="state_collapsed">已收起</string>
     <string name="pick_query_week">选择查询周次</string>
     <string name="pick_jxl">选择教学楼</string>
     <string name="jz_xnxq">截止学期</string>
@@ -1558,9 +1564,9 @@
     <string name="install_failed_manual">自动安装失败，请在通知栏点击安装包手动安装</string>
     <!-- 应用内更新：下载前授权引导 -->
     <string name="update_permission_title">需要安装权限</string>
-    <string name="update_permission_message">系统要求先允许「安装未知应用」才能完成更新。点击「去授权」打开设置，为 HITA 开启后返回应用重新点击下载即可自动安装。</string>
+    <string name="update_permission_message">系统要求先允许「安装未知应用」才能完成更新。点击「去授权」打开设置，为 HITA 开启后返回应用会自动继续下载。</string>
     <string name="update_permission_go_settings">去授权</string>
-    <string name="update_permission_still_denied">尚未允许安装未知应用，完成授权后会自动继续下载</string>
+    <string name="update_permission_still_denied">尚未允许安装未知应用，本次下载未继续；可再次点击下载重新授权</string>
     <string name="update_permission_open_failed">无法打开设置页，请手动到系统设置中允许 HITA 安装未知应用</string>
     <!-- 应用内更新：下载失败与重试 -->
     <string name="update_failed_title">下载失败</string>
@@ -1811,6 +1817,7 @@
     <string name="homework_marked_done">已标记完成</string>
     <string name="homework_restored">已恢复为待完成</string>
     <string name="homework_undo">撤销</string>
+    <string name="homework_toggle_failed">未能更新完成状态，请重试</string>
     <string name="homework_empty_hint">按自己的节奏安排，点上方即可添加。</string>
     <string name="homework_character_count">%1$d / %2$d</string>
     <string name="homework_tomorrow">明天</string>
@@ -1959,6 +1966,10 @@
     <string name="silent_pod_error_auth">登录已失效，请重新登录</string>
     <string name="silent_pod_cancel_action">取消预约</string>
     <string name="silent_pod_error_unknown">读取静音仓数据时发生未知错误。</string>
+    <string name="silent_pod_write_unconfirmed">提交结果未确认。已保留这次操作，请先在「我的预约」核对，不要重复提交。</string>
+    <string name="silent_pod_write_confirmed">远端已有这条记录，已按已提交处理。</string>
+    <string name="silent_pod_write_absent">远端没有这条记录，可以重新提交。</string>
+    <string name="silent_pod_write_verify">核对结果</string>
     <string name="silent_pod_spaces_of_date">%1$s 的空间</string>
     <string name="silent_pod_empty_spaces">当天没有可预约的静音仓。</string>
     <string name="silent_pod_my_reservations">我的预约</string>

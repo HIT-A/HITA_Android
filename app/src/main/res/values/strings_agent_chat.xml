@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <item name="agent_chat_compose_view" type="id" />
+    <string name="agent_chat_new_session">新对话</string>
+    <string name="agent_chat_delete_session">删除会话</string>
+    <string name="agent_chat_delete_pending">正在删除会话…</string>
+    <string name="agent_chat_delete_failed">未能删除「%1$s」，聊天记录仍在，可再次删除。</string>
+    <string name="agent_chat_request_failed">未能生成回复：%1$s</string>
+    <string name="agent_chat_stopped">已停止生成回复。</string>
+    <string name="agent_chat_check_write">%1$s 此请求中的写操作已获授权，可能已提交；停止或失败不会撤回写入，请先核对结果。</string>
+    <string name="agent_chat_stop">停止</string>
+    <string name="agent_chat_restore_input">恢复输入</string>
+    <string name="agent_chat_retry_load">重新加载对话</string>
+    <string name="agent_chat_replace_draft_title">替换当前草稿？</string>
+    <string name="agent_chat_replace_draft_detail">恢复原消息的文字和附件会替换当前草稿。</string>
+    <string name="agent_chat_attach_one">添加附件（每条消息限 1 个）</string>
+    <string name="agent_chat_replace_attachment">更换附件（每条消息限 1 个）</string>
+    <string name="agent_chat_remove_attachment">移除附件</string>
+    <string name="agent_chat_attachment_name">附件：%1$s</string>
+    <string name="agent_chat_attachment_fallback">文件</string>
+    <string name="agent_chat_attachment_picker_failed">无法打开文件选择器。</string>
+    <string name="agent_chat_latest">回到最新回复</string>
+</resources>

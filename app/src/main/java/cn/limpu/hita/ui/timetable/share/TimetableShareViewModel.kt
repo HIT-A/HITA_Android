@@ -43,7 +43,7 @@ class TimetableShareViewModel @Inject constructor(private val repository: Timeta
         else loadSummary()
     }
 
-    fun edit(id: String = form?.timetableId.orEmpty(), name: String = form?.nickname.orEmpty(), mode: ShareMode = form?.mode ?: ShareMode.FULL) {
+    fun edit(id: String = form?.timetableId.orEmpty(), name: String = form?.nickname.orEmpty(), mode: ShareMode = form?.mode ?: ShareMode.BUSY) {
         val current = form ?: return
         generationJob?.cancel()
         form = current.edit(id, name, mode)
@@ -62,7 +62,7 @@ class TimetableShareViewModel @Inject constructor(private val repository: Timeta
 
     private fun loadSummary() {
         val id = form?.timetableId.orEmpty()
-        val mode = form?.mode ?: ShareMode.FULL
+        val mode = form?.mode ?: ShareMode.BUSY
         summaryJob?.cancel()
         summaryState = summaryState.reload(id, mode)
         val revision = summaryState.revision

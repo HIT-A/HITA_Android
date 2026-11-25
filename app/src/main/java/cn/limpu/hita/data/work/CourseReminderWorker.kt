@@ -6,6 +6,7 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.work.Worker
@@ -15,6 +16,7 @@ import cn.limpu.hita.data.model.timetable.EventItem
 import cn.limpu.hita.data.repository.DisplayScopeResolver
 import cn.limpu.hita.data.repository.TimetableRepository
 import cn.limpu.hita.data.source.preference.CourseReminderStore
+import cn.limpu.hita.feature.timetable.TimetableEventTarget
 import cn.limpu.hita.ui.main.MainActivity
 import cn.limpu.hita.utils.TimeTools
 import kotlinx.coroutines.runBlocking
@@ -36,7 +38,9 @@ class CourseReminderWorker(appContext: Context, params: WorkerParameters) : Work
         val now = System.currentTimeMillis()
         val scopeIds = DisplayScopeResolver(app).currentSync()?.timetableIds.orEmpty()
         val events = runBlocking {
-            TimetableRepository(app).getUpcomingEventsSync(now, now + LOOKAHEAD_WINDOW_MS, scopeIds)
+            TimetableRepository(app).getUpcomingEventsSync(
+                now - CourseReminderSchedule.DUE_WINDOW_MS - 1, now + LOOKAHEAD_WINDOW_MS, scopeIds,
+            )
         }.filter { it.type == EventItem.TYPE.CLASS }
             .map { it.toReminderEvent() }
 
@@ -67,6 +71,9 @@ class CourseReminderWorker(appContext: Context, params: WorkerParameters) : Work
         ensureChannel(manager)
         val intent = Intent(applicationContext, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            action = TimetableEventTarget.ACTION_COURSE_REMINDER
+            data = Uri.Builder().scheme("hita-reminder").authority("course").appendPath(event.id).build()
+            TimetableEventTarget.write(this, event.id, TimetableEventTarget.dateFor(event.startMillis))
         }
         val pendingIntent = PendingIntent.getActivity(
             applicationContext,

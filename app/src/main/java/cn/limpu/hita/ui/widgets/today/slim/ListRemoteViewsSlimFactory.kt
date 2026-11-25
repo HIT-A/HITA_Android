@@ -4,7 +4,6 @@ import android.app.Application
 import android.appwidget.AppWidgetManager
 import android.content.Context
 import android.content.Intent
-import android.os.Bundle
 import android.text.TextUtils
 import android.widget.RemoteViews
 import android.widget.RemoteViewsService
@@ -13,7 +12,9 @@ import cn.limpu.hita.data.model.timetable.EventItem
 import cn.limpu.hita.data.repository.DisplayScopeResolver
 import cn.limpu.hita.data.repository.TimetableRepository
 import cn.limpu.hita.ui.widgets.WidgetThemeUtils
-import cn.limpu.hita.ui.widgets.today.slim.TodayWidgetSlim.Companion.EVENT_EXTRA2
+import cn.limpu.hita.ui.widgets.WidgetDeepLink
+import cn.limpu.hita.ui.widgets.WidgetPrefs
+import cn.limpu.hita.ui.widgets.today.TodayUtils
 import cn.limpu.hita.utils.TimeTools
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
@@ -54,19 +55,9 @@ internal class ListRemoteViewsSlimFactory(val mContext: Context, intent: Intent)
             rv.setTextColor(R.id.location, palette.secondaryTextColor)
         }
 
-        val lockIntent = Intent()
-        lockIntent.putExtra(EVENT_EXTRA2, event.id)
-        // 深链需要 (eventId, date) 才能定位到具体那一天。
-        cn.limpu.hita.ui.widgets.WidgetDeepLink.fillIn(
-            lockIntent,
-            event.id,
-            java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.CHINA).format(event.from),
-        )
-        val bd = Bundle()
-        bd.putString("eventId", event.id)
-        bd.putInt(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)
-        lockIntent.putExtras(bd)
-        rv.setOnClickFillInIntent(R.id.item, lockIntent)
+        val target = Intent()
+        WidgetDeepLink.fillIn(target, event.id, WidgetDeepLink.dateFor(event.from.time))
+        rv.setOnClickFillInIntent(R.id.item, target)
         return rv
     }
 
@@ -85,13 +76,13 @@ internal class ListRemoteViewsSlimFactory(val mContext: Context, intent: Intent)
     override fun onDataSetChanged() {
         val app = mContext.applicationContext as Application
         val timetableRepo = TimetableRepository(app)
-        // 确保数据库操作在后台线程执行；跟随主课表显示目标过滤。
         val events = runBlocking(Dispatchers.IO) {
-            val scopeIds = DisplayScopeResolver(app).currentSync()?.timetableIds.orEmpty()
+            val scopeKey = WidgetPrefs(app).read(appWidgetId).scopeKey
+            val scopeIds = TodayUtils.scopeIds(DisplayScopeResolver(app), scopeKey)
             timetableRepo.getTodayEventsSync(scopeIds)
         }
         mBeans.clear()
-        mBeans.addAll(events.sortedBy { it.from.time })
+        mBeans.addAll(events)
         highlightIndex = findHighlightIndex(mBeans)
     }
 

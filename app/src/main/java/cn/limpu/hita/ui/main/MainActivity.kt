@@ -24,6 +24,7 @@ import androidx.lifecycle.Observer
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import cn.limpu.hita.R
+import cn.limpu.hita.data.AppDatabase
 import cn.limpu.hita.data.model.eas.EASToken
 import cn.limpu.hita.data.repository.BlogRepository
 import cn.limpu.hita.data.repository.DisplayScopeResolver
@@ -42,14 +43,23 @@ import cn.limpu.hita.ui.main.navigation.NavigationFragment
 import cn.limpu.hita.ui.main.timeline.FragmentTimeLine
 import cn.limpu.hita.ui.main.timetable.TimetableFragment
 import cn.limpu.hita.ui.main.timetable.panel.FragmentTimetablePanel
+import cn.limpu.hita.ui.notice.AppNoticesActivity
+import cn.limpu.hita.ui.profile.AccountLogoutDialog
+import cn.limpu.hita.ui.profile.AccountLogoutTarget
+import cn.limpu.hita.update.InstallPermissionGate
+import cn.limpu.hita.ui.widgets.WidgetDeepLink
 import cn.limpu.hita.ui.widgets.WidgetUtils
 import cn.limpu.hita.utils.ActivityUtils
+import cn.limpu.hita.utils.EventsUtils
 import cn.limpu.hita.utils.LogUtils
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.limpu.hitauser.data.repository.LocalUserRepository
 import com.limpu.style.ThemeTools
 import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
 @AndroidEntryPoint
@@ -68,6 +78,11 @@ class MainActivity : HiltBaseActivity<MainViewBinding>(),
     private lateinit var wallpaperLoader: WallpaperLoader
     private lateinit var noticePresenter: MainNoticePresenter
     private lateinit var updatePresenter: MainUpdatePresenter
+
+    /** 安装授权续接：只服务本 Activity 发起的更新请求，重建后自然作废。 */
+    internal val installGate = InstallPermissionGate(this)
+    private var pendingEventTarget: Intent? = null
+    private var eventTargetJob: Job? = null
     private var wallpaper by mutableStateOf(MainWallpaperState())
     private val tokenObserver = Observer<EASToken> { viewModel.accountChanged(it) }
 
@@ -96,6 +111,9 @@ class MainActivity : HiltBaseActivity<MainViewBinding>(),
         super.onCreate(savedInstanceState)
         savedState = null
         @Suppress("DEPRECATION")
+        pendingEventTarget = if (savedInstanceState == null) intent.takeIf { WidgetDeepLink.isTargetIntent(it) }
+        else savedInstanceState.getParcelable(STATE_EVENT_TARGET)
+        @Suppress("DEPRECATION")
         window.apply {
             clearFlags(WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS)
             addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS)
@@ -107,18 +125,42 @@ class MainActivity : HiltBaseActivity<MainViewBinding>(),
     override fun onNewIntent(intent: android.content.Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        handleWidgetDeepLink(intent)
+        if (WidgetDeepLink.isTargetIntent(intent)) {
+            eventTargetJob?.cancel()
+            eventTargetJob = null
+            pendingEventTarget = intent
+            openPendingEventTarget()
+        }
     }
 
-    /**
-     * 小组件列表项点击会带 (eventId, date)；能解析就切到今日页对齐到那一天。
-     *
-     * 解析失败不做任何跳转：宁可停在当前页，也不要打开一节不确定的课。
-     */
-    private fun handleWidgetDeepLink(intent: android.content.Intent?) {
-        // 只认合法的 (eventId, date)；解析失败就停在当前页。
-        if (cn.limpu.hita.ui.widgets.WidgetDeepLink.fromIntent(intent) == null) return
+    private fun openPendingEventTarget() {
+        val request = pendingEventTarget ?: return
+        if (eventTargetJob?.isActive == true || !lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) ||
+            supportFragmentManager.isStateSaved
+        ) return
+
         viewModel.selectTab(MainTab.TIMELINE)
+        eventTargetJob = lifecycleScope.launch {
+            val target = WidgetDeepLink.fromIntent(request)
+            val event = target?.let {
+                withContext(Dispatchers.IO) {
+                    runCatching {
+                        AppDatabase.getDatabase(application).eventItemDao().getEventInIdsSync(listOf(it.eventId))
+                            .singleOrNull()?.takeIf { event -> WidgetDeepLink.dateFor(event.from.time) == it.date }
+                    }.onFailure { error -> LogUtils.e("Failed to read event target", error) }.getOrNull()
+                }
+            }
+            if (pendingEventTarget !== request || isFinishing ||
+                !lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) || supportFragmentManager.isStateSaved
+            ) return@launch
+            pendingEventTarget = null
+            if (event == null) {
+                Toast.makeText(this@MainActivity, R.string.widget_event_unavailable, Toast.LENGTH_SHORT).show()
+            } else {
+                (supportFragmentManager.findFragmentByTag("event") as? androidx.fragment.app.DialogFragment)?.dismissNow()
+                EventsUtils.showEventItem(this@MainActivity, event)
+            }
+        }
     }
 
     override fun initViews() {
@@ -136,7 +178,7 @@ class MainActivity : HiltBaseActivity<MainViewBinding>(),
         })
         binding.parkTabContainers(tabHost.createView(this))
         noticePresenter = MainNoticePresenter(this, viewModel::noticeFinished)
-        updatePresenter = MainUpdatePresenter(this, viewModel::updateFinished)
+        updatePresenter = MainUpdatePresenter(this, viewModel::updateFinished, installGate)
         wallpaperLoader = WallpaperLoader(this) { bitmap, visible, title, label ->
             wallpaper = wallpaper.copy(bitmap = bitmap, visible = visible, titleColor = title, labelColor = label)
             timetableStyleRepository.wallpaperDateColorLiveData.value = title
@@ -151,6 +193,8 @@ class MainActivity : HiltBaseActivity<MainViewBinding>(),
             timetableSetting = { FragmentTimetablePanel().show(supportFragmentManager, "panel") },
             timetableSocial = { (tabHost.find(MainTab.TIMETABLE) as? TimetableFragment)?.openTimetableSocialSheet() },
             timetableHistory = { (tabHost.find(MainTab.TIMETABLE) as? TimetableFragment)?.openDeletionHistory() },
+            timetableVersions = { (tabHost.find(MainTab.TIMETABLE) as? TimetableFragment)?.openTimetableVersions() },
+            notices = { showStartupNotice() },
             addEvent = { PopupAddEvent().show(supportFragmentManager, "add_event") },
             // 周号跳转：候选来自课表学期的起止时间，选中后直接翻到那一周。
             weekOptions = { (tabHost.find(MainTab.TIMETABLE) as? TimetableFragment)?.weekOptions().orEmpty() },
@@ -204,6 +248,7 @@ class MainActivity : HiltBaseActivity<MainViewBinding>(),
         timetableStyleRepository.wallpaperLabelColorLiveData.observe(this) { wallpaper = wallpaper.copy(labelColor = it) }
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.RESUMED) {
+                openPendingEventTarget()
                 viewModel.effects.collect { effect ->
                     if (viewModel.accepts(effect, hostId) && !isFinishing && !isDestroyed) {
                         when (val value = effect.value) {
@@ -275,12 +320,15 @@ class MainActivity : HiltBaseActivity<MainViewBinding>(),
         outState.putInt(STATE_SELECTED_TAB, navigation.selectedIndex)
         outState.putString(STATE_SELECTED_TAB_NAME, navigation.selectedTab.name)
         tabHost.save(outState)
+        pendingEventTarget?.let { outState.putParcelable(STATE_EVENT_TARGET, it) }
         super.onSaveInstanceState(outState)
     }
 
     override fun setTitleText(string: String) = viewModel.setTimetableTitle(string, true)
     override fun setTimetableName(String: String) = viewModel.setTimetableName(String)
     override fun setSingleTitle(string: String) = viewModel.setTimetableTitle(string, false)
+    override fun setTimetableActions(teachingVersions: Boolean, deletionHistory: Boolean) =
+        viewModel.setTimetableActions(teachingVersions, deletionHistory)
     override fun selectTodayScope(scope: cn.limpu.hita.data.model.timetable.DisplayScope): Boolean {
         val monday = viewModel.selectScope(scope) ?: return false
         (tabHost.find(MainTab.TIMETABLE) as? TimetableFragment)?.navigateToWeek(monday)
@@ -296,6 +344,14 @@ class MainActivity : HiltBaseActivity<MainViewBinding>(),
 
     private fun openUrl(url: String) = startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
 
+    /**
+     * 从抽屉/设置里的公告入口打开公告列表。
+     * 这里只负责导航；弹窗式的前台打扰由 MainViewModel 的排队逻辑决定。
+     */
+    private fun showStartupNotice() {
+        ActivityUtils.startActivity(this, AppNoticesActivity::class.java)
+    }
+
     private fun showAvatarPicker() {
         MaterialAlertDialogBuilder(this).setTitle(R.string.main_avatar_change)
             .setItems(arrayOf(getString(R.string.main_avatar_pick), getString(R.string.main_action_cancel))) { _, index ->
@@ -309,13 +365,28 @@ class MainActivity : HiltBaseActivity<MainViewBinding>(),
         if (!user.isValid() && !token.isLogin()) { showEasLoginSheet(); return }
         val profile = user.isValid()
         val title = if (profile) user.nickname.orEmpty() else token.name ?: token.username.orEmpty()
-        val items = if (profile) arrayOf(getString(R.string.main_view_profile), getString(R.string.eas_relogin_entry), getString(R.string.main_logout))
-            else arrayOf(getString(R.string.eas_relogin_entry), getString(R.string.main_logout))
-        MaterialAlertDialogBuilder(this).setTitle(title).setItems(items) { _, index ->
+        val targets = listOfNotNull(
+            AccountLogoutTarget.hita(user),
+            AccountLogoutTarget.academic(token),
+        )
+        val items = buildList {
+            if (profile) add(getString(R.string.main_view_profile))
+            add(getString(R.string.eas_relogin_entry))
+            targets.forEach { add(getString(it.actionLabel)) }
+        }
+        MaterialAlertDialogBuilder(this).setTitle(title).setItems(items.toTypedArray()) { _, index ->
             when {
                 profile && index == 0 -> user.id?.let { ActivityUtils.startProfileActivity(this, it, null) }
                 index == (if (profile) 1 else 0) -> showEasLoginSheet()
-                else -> viewModel.logout()
+                else -> {
+                    // 只退出被点名的会话；本地课表、待办等数据保留。
+                    val target = targets[index - (if (profile) 2 else 1)]
+                    AccountLogoutDialog.show(this, target) {
+                        target.signOut(this, localUserRepository, easRepository).also { signedOut ->
+                            if (signedOut) viewModel.accountChanged(easRepository.getEasToken())
+                        }
+                    }
+                }
             }
         }.show()
     }
@@ -416,6 +487,7 @@ class MainActivity : HiltBaseActivity<MainViewBinding>(),
     companion object {
         private const val STATE_SELECTED_TAB = "selected_tab"
         private const val STATE_SELECTED_TAB_NAME = "selected_tab_name"
+        private const val STATE_EVENT_TARGET = "pending_event_target"
     }
 }
 

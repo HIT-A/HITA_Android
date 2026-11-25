@@ -2,8 +2,6 @@ package cn.limpu.hita.ui.campus
 
 import android.annotation.SuppressLint
 import android.app.Activity
-import android.content.Context
-import android.content.Intent
 import android.graphics.Color
 import android.os.Bundle
 import android.view.ViewGroup
@@ -182,9 +180,4 @@ class LabCenterLoginActivity : AppCompatActivity() {
         super.onDestroy()
     }
 
-    companion object {
-        fun start(from: Context) {
-            from.startActivity(Intent(from, LabCenterLoginActivity::class.java))
-        }
-    }
 }

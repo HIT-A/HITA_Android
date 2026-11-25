@@ -6,6 +6,8 @@ import androidx.lifecycle.viewModelScope
 import cn.limpu.hita.R
 import cn.limpu.hita.data.model.campus.SilentPodContact
 import cn.limpu.hita.data.model.campus.SilentPodContent
+import cn.limpu.hita.data.model.campus.SilentPodReservation
+import cn.limpu.hita.data.model.campus.SilentPodSpace
 import cn.limpu.hita.data.source.web.campus.SilentPodClient
 import cn.limpu.hita.data.source.web.campus.SilentPodException
 import cn.limpu.hita.data.source.web.campus.SilentPodFailureKind
@@ -40,6 +42,11 @@ internal class SilentPodViewModel(application: Application) : AndroidViewModel(a
     /** 写操作（创建/取消）的结果，只用于一次性提示，不参与页面主状态。 */
     private val _actionMessage = MutableStateFlow<String?>(null)
     val actionMessage: StateFlow<String?> = _actionMessage.asStateFlow()
+
+    /** 已提交但结果未知的写操作；必须先核对远端记录，不能当失败直接重发。 */
+    private val writes = SilentPodWriteGate()
+    private val _writeState = MutableStateFlow<SilentPodWriteGate.State>(SilentPodWriteGate.State.Idle)
+    val writeState: StateFlow<SilentPodWriteGate.State> = _writeState.asStateFlow()
 
     /** 同行成员：多人仓预约必填，单人仓用不到。 */
     private val _contacts = MutableStateFlow<List<SilentPodContact>>(emptyList())
@@ -80,23 +87,28 @@ internal class SilentPodViewModel(application: Application) : AndroidViewModel(a
      * 空间列表本身仍然可用。
      */
     fun createReservation(
-        spaceId: Int,
+        space: SilentPodSpace,
         date: String,
         startTime: String,
         endTime: String,
         notes: String,
         contactIds: List<Int> = emptyList(),
+        previousReservationIds: Set<Int> = emptySet(),
     ) {
         val current = session ?: run {
             _state.value = CampusServiceUiState.RequiresSignIn
             return
         }
+        // 提交中或待核对时拒绝第二次提交：重复点击不得产生第二条记录。
+        val write = SilentPodWrite.Reserve(space, date, startTime, endTime, notes, contactIds, previousReservationIds)
+        if (!writes.begin(write)) return
+        _writeState.value = writes.state
         actionJob?.cancel()
         actionJob = viewModelScope.launch {
             try {
                 client.createReservation(
                     cookieHeader = current.cookieHeader,
-                    spaceId = spaceId,
+                    spaceId = space.id,
                     date = date,
                     startTime = startTime,
                     endTime = endTime,
@@ -104,21 +116,69 @@ internal class SilentPodViewModel(application: Application) : AndroidViewModel(a
                     contactIds = contactIds,
                     baseUrl = current.baseUrl,
                 )
+                writes.confirm(write)
+                _writeState.value = writes.state
                 _actionMessage.value = getApplication<Application>().getString(R.string.silent_pod_reserved)
                 fetch()
             } catch (cancelled: CancellationException) {
+                // 取消是本地决定，但请求可能已经到达服务端：留待核对，不宣称失败。
+                writes.unknown(write)
+                _writeState.value = writes.state
                 throw cancelled
             } catch (failure: SilentPodException) {
-                if (failure.kind == SilentPodFailureKind.AUTHENTICATION) session = null
-                _actionMessage.value = describe(failure)
-                // 时间类失败基本都是列表过期（窗口起点已滑走 / 时段被抢）：
-                // 顺手刷新一次，用户重开对话框拿到的就是新数据。
-                if (failure.kind == SilentPodFailureKind.API && failure.code in STALE_SLOT_CODES) fetch()
+                handleWriteFailure(write, failure)
             } catch (error: Exception) {
+                // 传输层异常无法区分「服务端未收到」与「已写入但响应丢失」。
+                writes.unknown(write)
+                _writeState.value = writes.state
                 _actionMessage.value =
-                    getApplication<Application>().getString(R.string.silent_pod_error_unknown)
+                    getApplication<Application>().getString(R.string.silent_pod_write_unconfirmed)
             }
         }
+    }
+
+    /** 对未确认的写操作读取远端记录：写入存在则采纳，否则才回到可重试状态。 */
+    fun verifyWrite(found: (SilentPodContent) -> Boolean) {
+        val current = session ?: return
+        val write = writes.beginCheck() ?: return
+        _writeState.value = writes.state
+        actionJob?.cancel()
+        actionJob = viewModelScope.launch {
+            val content = runCatching {
+                client.fetchContent(cookieHeader = current.cookieHeader, baseUrl = current.baseUrl)
+            }.getOrNull()
+            when {
+                content == null -> _actionMessage.value =
+                    getApplication<Application>().getString(R.string.silent_pod_error_network)
+                found(content) -> {
+                    writes.confirm(write)
+                    _actionMessage.value = getApplication<Application>().getString(R.string.silent_pod_write_confirmed)
+                    fetch()
+                }
+                else -> {
+                    writes.reject()
+                    _actionMessage.value = getApplication<Application>().getString(R.string.silent_pod_write_absent)
+                }
+            }
+            _writeState.value = writes.state
+        }
+    }
+
+    private fun handleWriteFailure(write: SilentPodWrite, failure: SilentPodException) {
+        if (failure.kind == SilentPodFailureKind.AUTHENTICATION) session = null
+        when (failure.kind) {
+            // 只有服务端明确拒绝（业务错误/鉴权）才算未写入；其余一律待核对。
+            SilentPodFailureKind.API, SilentPodFailureKind.AUTHENTICATION -> {
+                writes.reject()
+                _actionMessage.value = describe(failure)
+                if (failure.code in STALE_SLOT_CODES) fetch()
+            }
+            else -> {
+                writes.unknown(write)
+                _actionMessage.value = getApplication<Application>().getString(R.string.silent_pod_write_unconfirmed)
+            }
+        }
+        _writeState.value = writes.state
     }
 
     /**
@@ -199,30 +259,38 @@ internal class SilentPodViewModel(application: Application) : AndroidViewModel(a
     }
 
     /** 取消预约；理由留空时服务端写默认理由。 */
-    fun cancelReservation(reservationId: Int, reason: String = "") {
+    fun cancelReservation(reservation: SilentPodReservation, reason: String = "") {
         val current = session ?: run {
             _state.value = CampusServiceUiState.RequiresSignIn
             return
         }
+        val write = SilentPodWrite.Cancel(reservation, reason)
+        if (!writes.begin(write)) return
+        _writeState.value = writes.state
         actionJob?.cancel()
         actionJob = viewModelScope.launch {
             try {
                 client.cancelReservation(
                     cookieHeader = current.cookieHeader,
-                    reservationId = reservationId,
+                    reservationId = reservation.id,
                     reason = reason,
                     baseUrl = current.baseUrl,
                 )
+                writes.confirm(write)
+                _writeState.value = writes.state
                 _actionMessage.value = getApplication<Application>().getString(R.string.silent_pod_cancelled)
                 fetch()
             } catch (cancelled: CancellationException) {
+                writes.unknown(write)
+                _writeState.value = writes.state
                 throw cancelled
             } catch (failure: SilentPodException) {
-                if (failure.kind == SilentPodFailureKind.AUTHENTICATION) session = null
-                _actionMessage.value = describe(failure)
+                handleWriteFailure(write, failure)
             } catch (error: Exception) {
+                writes.unknown(write)
+                _writeState.value = writes.state
                 _actionMessage.value =
-                    getApplication<Application>().getString(R.string.silent_pod_error_unknown)
+                    getApplication<Application>().getString(R.string.silent_pod_write_unconfirmed)
             }
         }
     }

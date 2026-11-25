@@ -6,8 +6,7 @@ import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -19,10 +18,12 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.livedata.observeAsState
@@ -117,6 +118,14 @@ private fun TeacherSearchScreen(
                 textAlign = TextAlign.Center
             )
         }
+        when (searchResult?.state) {
+            DataState.STATE.LOADING -> CircularProgressIndicator(Modifier.align(Alignment.CenterHorizontally))
+            DataState.STATE.FETCH_FAILED -> TextButton(
+                onClick = viewModel::retrySearch,
+                modifier = Modifier.align(Alignment.CenterHorizontally),
+            ) { Text(stringResource(R.string.stale_data_retry)) }
+            else -> Unit
+        }
 
         val teachers = searchResult?.data ?: emptyList()
         LazyColumn {
@@ -139,7 +148,7 @@ private fun TeacherSearchScreen(
                             repoType = teacher.repoType.ifBlank { "normal" },
                         )
                     },
-                    onLongClick = {
+                    onHomepage = {
                         ActivityUtils.startTeacherHomepageSearch(context, teacher.name)
                     }
                 )
@@ -148,12 +157,11 @@ private fun TeacherSearchScreen(
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun TeacherItem(
     teacher: TeacherSearched,
     onClick: () -> Unit,
-    onLongClick: () -> Unit
+    onHomepage: () -> Unit,
 ) {
     val tokens = HitaTheme.tokens
 
@@ -164,10 +172,7 @@ private fun TeacherItem(
                 horizontal = tokens.spacing.sm,
                 vertical = tokens.spacing.xs
             )
-            .combinedClickable(
-                onClick = onClick,
-                onLongClick = onLongClick
-            ),
+            .clickable(onClick = onClick),
         shape = RoundedCornerShape(tokens.radius.lg),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
@@ -223,6 +228,9 @@ private fun TeacherItem(
                             vertical = 2.dp
                         )
                     )
+                }
+                TextButton(onClick = onHomepage) {
+                    Text(stringResource(R.string.useful_link_teacher_homepage))
                 }
             }
         }
