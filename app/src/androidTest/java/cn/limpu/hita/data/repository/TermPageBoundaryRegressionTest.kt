@@ -16,6 +16,7 @@ import cn.limpu.hita.ui.eas.score.ScoreInquiryViewModel
 import com.limpu.component.data.DataState
 import java.util.Calendar
 import java.util.concurrent.CopyOnWriteArrayList
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -23,6 +24,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -206,13 +208,28 @@ class TermPageBoundaryRegressionTest : TermRepositoryContractHarness() {
         val fixture = fixture()
         EasQueryCoordinator.forSession(fixture.preferences.querySessionState).applicationScope.cancel()
         val results = CopyOnWriteArrayList<AutoImportResult>()
-        val first = fixture.repository.startAutoImportCurrentTimetable(true, results::add)
+        val firstDelivered = CompletableDeferred<Unit>()
+        val first = fixture.repository.startAutoImportCurrentTimetable(true) { result ->
+            results.add(result)
+            firstDelivered.complete(Unit)
+        }
         assertNotNull(first)
-        runBlocking { first!!.join() }
+        runBlocking {
+            first!!.join()
+            // Joining the Job need not wait for its completion handlers to finish.
+            withTimeout(10_000) { firstDelivered.await() }
+        }
         assertEquals("Pre-start cancellation must invoke completion exactly once", listOf(AutoImportResult.FAILED), results.toList())
-        val next = fixture.repository.startAutoImportCurrentTimetable(true, results::add)
+        val nextDelivered = CompletableDeferred<Unit>()
+        val next = fixture.repository.startAutoImportCurrentTimetable(true) { result ->
+            results.add(result)
+            nextDelivered.complete(Unit)
+        }
         assertNotNull("Pre-start cancellation must release the in-progress flag", next)
-        runBlocking { next!!.join() }
+        runBlocking {
+            next!!.join()
+            withTimeout(10_000) { nextDelivered.await() }
+        }
         assertEquals(listOf(AutoImportResult.FAILED, AutoImportResult.FAILED), results.toList())
         assertTrue("Cancelled imports must not begin term IO", fixture.scripted.calls.isEmpty())
     }
