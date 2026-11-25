@@ -2,6 +2,7 @@ package cn.limpu.hita.ui.main
 
 import androidx.appcompat.app.AppCompatActivity
 import cn.limpu.hita.utils.ActivityUtils
+import cn.limpu.hita.update.InstallPermissionGate
 import com.limpu.hitauser.data.model.CheckUpdateResult
 import com.limpu.style.widgets.PopUpUpdate
 
@@ -9,6 +10,7 @@ import com.limpu.style.widgets.PopUpUpdate
 internal class MainUpdatePresenter(
     private val activity: AppCompatActivity,
     private val finished: (CheckUpdateResult) -> Unit,
+    private val installGate: InstallPermissionGate,
 ) : AutoCloseable {
     private var popup: PopUpUpdate? = null
     private var displayed: CheckUpdateResult? = null
@@ -23,7 +25,7 @@ internal class MainUpdatePresenter(
             it.onActionListener = null
             it.dismissNow()
         }
-        ActivityUtils.showUpdateNotification(result, activity)
+        ActivityUtils.showUpdateNotification(result, activity, installGate)
         manager.executePendingTransactions()
         val current = manager.findFragmentByTag("update") as? PopUpUpdate
         if (current == null) {

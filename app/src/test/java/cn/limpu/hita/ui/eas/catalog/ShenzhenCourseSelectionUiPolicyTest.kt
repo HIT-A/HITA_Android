@@ -1,8 +1,12 @@
 package cn.limpu.hita.ui.eas.catalog
 
+import cn.limpu.hita.data.model.eas.EASToken
+import cn.limpu.hita.data.model.eas.EasQueryScope
+import cn.limpu.hita.data.model.eas.EasTermKey
 import cn.limpu.hita.data.model.eas.ShenzhenCourseCatalogItem
 import cn.limpu.hita.data.model.eas.ShenzhenCourseCatalogSource
 import cn.limpu.hita.data.model.eas.CourseSelectionJobStatus
+import cn.limpu.hita.data.model.eas.TermItem
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -102,6 +106,62 @@ class ShenzhenCourseSelectionUiPolicyTest {
         assertEquals("job-a", routedJobId)
 
         assertFalse(draft.routeCancellation("") { error("blank job id must not route") })
+    }
+
+    @Test
+    fun `schedule confirmation continues only on the identical target`() {
+        val scope = EasQueryScope(
+            campus = EASToken.Campus.SHENZHEN,
+            sessionGeneration = 7L,
+            ownerKey = "SHENZHEN:2021001",
+            grade = "2021",
+            studentType = EASToken.TYPE.UNDERGRAD,
+            loggedIn = true,
+            hasWebSession = true,
+            hasBearer = true,
+        )
+        val target = CourseSelectionScheduleTarget(
+            scope = scope,
+            term = EasTermKey.of(TermItem("2025-2026", "2025-2026", "1", "秋季")),
+            poolCode = "under",
+            requestIds = setOf("request-a", "request-b"),
+        )
+
+        assertTrue(CourseSelectionScheduleContinuity.isSameTarget(target, target.copy()))
+        assertTrue(
+            CourseSelectionScheduleContinuity.isSameTarget(
+                target,
+                target.copy(requestIds = linkedSetOf("request-b", "request-a")),
+            )
+        )
+        // 回到设置页期间换了学期或课程集合：不能沿用旧确认。
+        assertFalse(
+            CourseSelectionScheduleContinuity.isSameTarget(
+                target,
+                target.copy(requestIds = setOf("request-a")),
+            )
+        )
+        assertFalse(
+            CourseSelectionScheduleContinuity.isSameTarget(
+                target,
+                target.copy(term = EasTermKey("2025-2026", "2")),
+            )
+        )
+        // 期间重新登录或换账号：即使身份键相同，也要重新确认。
+        assertFalse(
+            CourseSelectionScheduleContinuity.isSameTarget(
+                target,
+                target.copy(scope = scope.copy(sessionGeneration = scope.sessionGeneration + 1)),
+            )
+        )
+        assertFalse(
+            CourseSelectionScheduleContinuity.isSameTarget(
+                target,
+                target.copy(scope = scope.copy(ownerKey = "SHENZHEN:2021002")),
+            )
+        )
+        assertFalse(CourseSelectionScheduleContinuity.isSameTarget(null, target))
+        assertFalse(CourseSelectionScheduleContinuity.isSameTarget(target, null))
     }
 
     @Test

@@ -1,5 +1,6 @@
 package cn.limpu.hita.ui.widgets.today
 
+import android.app.Application
 import android.app.PendingIntent
 import android.appwidget.AppWidgetManager
 import android.content.BroadcastReceiver
@@ -10,7 +11,12 @@ import android.view.View
 import android.widget.RemoteViews
 import cn.limpu.hita.R
 import cn.limpu.hita.data.model.timetable.EventItem
+import cn.limpu.hita.data.repository.DisplayScopeResolver
+import cn.limpu.hita.data.repository.TimetableRepository
+import cn.limpu.hita.feature.timetable.TimetableEventTarget
 import cn.limpu.hita.ui.main.MainActivity
+import cn.limpu.hita.ui.widgets.WidgetConfigCodec
+import cn.limpu.hita.ui.widgets.WidgetPrefs
 import cn.limpu.hita.ui.widgets.WidgetUtils
 import cn.limpu.hita.ui.widgets.WidgetThemeUtils
 import cn.limpu.hita.ui.widgets.today.normal.TodayWidget
@@ -21,6 +27,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.util.*
 
 object TodayUtils {
@@ -42,21 +49,53 @@ object TodayUtils {
         }
     }
 
+    /** A deleted pinned target must stay empty, never silently display a different timetable. */
+    internal fun scopeIds(resolver: DisplayScopeResolver, scopeKey: String?): List<String> =
+        if (scopeKey == null) resolver.currentSync()?.timetableIds.orEmpty()
+        else WidgetConfigCodec.decodeScope(scopeKey)?.let(resolver::exactTimetableIdsSync).orEmpty()
+
+    internal suspend fun updateWidgets(
+        context: Context, manager: AppWidgetManager, ids: IntArray, slim: Boolean,
+    ) = withContext(Dispatchers.IO) {
+        if (ids.isEmpty()) return@withContext
+        val app = context.applicationContext as Application
+        val prefs = WidgetPrefs(app)
+        val resolver = DisplayScopeResolver(app)
+        val repository = TimetableRepository(app)
+        val now = System.currentTimeMillis()
+        val byScope = HashMap<String?, Pair<List<EventItem>, List<EventItem>>>()
+        for (id in ids) {
+            val config = prefs.read(id)
+            val (events, exams) = byScope.getOrPut(config.scopeKey) {
+                val timetableIds = scopeIds(resolver, config.scopeKey)
+                repository.getTodayEventsSync(timetableIds) to
+                    repository.getUpcomingExamsWithinReminderWindowSync(now, timetableIds)
+            }
+            setUpOneWidget(app, events, exams, manager, id, slim, config.background)
+        }
+    }
+
     @Suppress("DEPRECATION")
-    fun setUpOneWidget(
+    private fun setUpOneWidget(
         context: Context,
         events: List<EventItem>,
         upcomingExams: List<EventItem>,
         appWidgetManager: AppWidgetManager,
         appWidgetId: Int,
-        slim: Boolean
+        slim: Boolean,
+        background: WidgetConfigCodec.Background,
     ) {
         val palette = WidgetThemeUtils.palette(context)
         val views = RemoteViews(
             context.packageName ?: "",
             if (slim) R.layout.widget_today_slim else R.layout.widget_today
         )
-        views.setInt(R.id.widget_root, "setBackgroundResource", palette.backgroundDrawableRes)
+        views.setInt(R.id.widget_root, "setBackgroundResource", when (background) {
+            WidgetConfigCodec.Background.PLAIN -> palette.backgroundDrawableRes
+            WidgetConfigCodec.Background.CARD -> if (WidgetThemeUtils.useDarkPalette(context)) {
+                R.drawable.widget_today_card_dark
+            } else R.drawable.widget_today_card_light
+        })
         views.setTextColor(R.id.tv_title, palette.primaryTextColor)
         views.setTextColor(R.id.exam_reminder_time, palette.accentColor)
         views.setTextColor(R.id.exam_reminder_name, palette.primaryTextColor)
@@ -72,7 +111,7 @@ object TodayUtils {
         val btPendingIntent: PendingIntent =
             PendingIntent.getBroadcast(
                 context,
-                0,
+                appWidgetId,
                 btIntent,
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
@@ -86,23 +125,16 @@ object TodayUtils {
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
         views.setOnClickPendingIntent(R.id.wid, bi)
-//        val gridIntent = Intent(context, TodayWidget::class.java)
-        val gridIntent = Intent(context, MainActivity::class.java)
-        gridIntent.action = TodayWidget.EVENT_CLICK
-        gridIntent.putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)
-        gridIntent.data = Uri.parse(gridIntent.toUri(Intent.URI_INTENT_SCHEME))
+        val gridIntent = Intent(context, MainActivity::class.java).apply {
+            action = if (slim) TimetableEventTarget.ACTION_WIDGET_SLIM_ROW else TimetableEventTarget.ACTION_WIDGET_ROW
+            putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)
+            data = Uri.parse("hita-widget://row/$appWidgetId")
+            addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
+        }
+        // Collection rows supply event/date extras; the target component and action are fixed.
         val pendingIntent = PendingIntent.getActivity(
-            context,
-            0, gridIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            context, appWidgetId, gridIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE,
         )
-
-        //        val pendingIntent = PendingIntent.getBroadcast(
-//            context,
-//            0, gridIntent,
-//            PendingIntent.FLAG_UPDATE_CURRENT or FLAG_IMMUTABLE
-//        )
-        // 设置intent模板
         views.setPendingIntentTemplate(R.id.list, pendingIntent)
         views.setTextViewText(
             R.id.tv_title,
@@ -151,18 +183,6 @@ object TodayUtils {
         } else {
             views.setViewVisibility(R.id.place_holder, View.GONE)
             views.setViewVisibility(R.id.list, View.VISIBLE)
-        }
-        if (events.isEmpty()) {
-            views.setViewVisibility(R.id.list, View.GONE)
-            views.setViewVisibility(R.id.place_holder, View.VISIBLE)
-            views.setTextViewText(
-                R.id.loading,
-                context.getString(R.string.timeline_head_free_title)
-            )
-            views.setViewVisibility(R.id.loading_icon, View.VISIBLE)
-        } else {
-            views.setViewVisibility(R.id.list, View.VISIBLE)
-            views.setViewVisibility(R.id.place_holder, View.GONE)
         }
         appWidgetManager.updateAppWidget(appWidgetId, views)
         appWidgetManager.notifyAppWidgetViewDataChanged(appWidgetId, R.id.list)

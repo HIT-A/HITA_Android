@@ -149,6 +149,8 @@ class CourseReminderRules(private val preferences: PreferenceStore) {
 }
 
 object CourseReminderSchedule {
+    internal const val DUE_WINDOW_MS = 2L * 60L * 1000L
+
     /**
      * 产出某门课的全部候选到期项：课前若干个 + 下课前若干个。
      *
@@ -171,16 +173,14 @@ object CourseReminderSchedule {
         rules: ReminderRuleSet,
         sentKeys: Set<String>,
     ): ReminderDue? {
-        // 只丢弃「锚点时间已过」的课次：刚到期（fireAtMillis <= now < 锚点）的项应当立刻发。
-        // 课程与考试不同：课程的某档刚过期（例如迟了 1 分钟）仍有意义，考试则不能补发已错过的档位。
-        // 把事件与候选成对传下去，避免在 filter 里误捕外层 lambda 的变量。
+        // Do not schedule a wake just to replay an already expired reminder.
         return events.asSequence()
             .flatMap { event ->
                 candidatesFor(event, rules).asSequence().map { candidate -> event to candidate }
             }
             .filter { (event, candidate) ->
                 val anchor = if (candidate.phase == ReminderPhase.END) event.endMillis else event.startMillis
-                anchor != null && anchor > now
+                anchor != null && candidate.fireAtMillis >= now - DUE_WINDOW_MS
             }
             .map { (_, candidate) -> candidate }
             .filter { it.key !in sentKeys }
@@ -189,7 +189,7 @@ object CourseReminderSchedule {
 
     fun dueNow(candidates: List<ReminderDue>, now: Long, sentKeys: Set<String>): List<ReminderDue> {
         return candidates
-            .filter { it.key !in sentKeys && it.fireAtMillis <= now }
+            .filter { it.key !in sentKeys && it.fireAtMillis in (now - DUE_WINDOW_MS)..now }
             .distinctBy { it.key }
     }
 }

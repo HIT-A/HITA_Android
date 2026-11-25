@@ -1,6 +1,6 @@
 # HITA Android 体验与动效审查报告
 
-**审查基线：**`d1def433`，诊断版 3.3.1。**状态：**发现已登记；本轮没有修复。优先级：P0（数据丢失、误写或未明确授权的披露）、P1（任务中断、状态错误或常用路径障碍）、P2（反馈、语义、动效或适配缺口）。「实测」指在模拟器观察到所述结果，不代表整条业务或所有配置通过；「源码」只确认分支及其前提；「待验证」不计作通过。
+**审查基线：**`d1def433`，诊断版 3.3.1。第 1–6 节保留审查发现，实施后的行为和验收结果见第 7 节。优先级：P0（数据丢失、误写或未明确授权的披露）、P1（任务中断、状态错误或常用路径障碍）、P2（反馈、语义、动效或适配缺口）。「实测」只指模拟器观察到所述结果，不代表整条业务或所有配置通过；「源码」只确认分支及其前提；「待验证」不计作通过。
 
 优先处理退出登录清空课表、批量删除、跨会话写入确认和批量口令披露。动效不应掩盖这些错误，也不应盖住用户正在操作的内容。模拟器已复现窄屏助手遮挡、窄屏课表标题截断、无壁纸时仍可移除、课表引导无写入操作却改变状态，以及断网资源搜索显示为无结果。Debug 模拟器帧数据提示玻璃风格值得单独测量，不足以判断真机帧率或定位根因。
 
@@ -81,7 +81,7 @@
 **P2 · 搜索、展开、阅读再返回 → 丢上下文或隐藏常用动作。源码。** 教师搜索 `onStart` 把初始参数写回输入框，返回可能丢编辑状态；点老师条目开 README，教师主页在长按。资讯已有展开/折叠动画，但以行局部 `remember` 保存手动展开；课程资料和历史版本直接插入/移除，长内容中锚点、焦点、图标语义需统一。WebView 用当前 URL 判断是否要重载入口 URL，重组可能撤销重定向或用户跳转；返回未优先处理网页历史。Markdown 请求失败没有原位重试，旧讲座首载缺可读的等待反馈。[搜索](../../app/src/main/java/cn/limpu/hita/ui/search/SearchActivity.kt#L79-L148)、[教师结果](../../app/src/main/java/cn/limpu/hita/ui/search/teacher/FragmentSearchTeacher.kt#L70-L149)、[资讯展开](../../app/src/main/java/cn/limpu/hita/ui/main/blog/BlogFragment.kt#L534-L607)、[课程展开](../../app/src/main/java/cn/limpu/hita/ui/subject/SubjectScreen.kt#L664-L690)、[关于](../../app/src/main/java/cn/limpu/hita/ui/about/ActivityAbout.kt#L522-L577)、[Web](../../app/src/main/java/cn/limpu/hita/ui/resource/InternalWebActivity.kt#L101-L119)、[新闻](../../app/src/main/java/cn/limpu/hita/ui/news/NewsDetailActivity.kt#L148-L170)、[Markdown](../../app/src/main/java/cn/limpu/hita/ui/resource/MarkdownViewerActivity.kt#L148-L171)。
 
 ### UX-19
-**P1 · 更新提示重建/权限返回 → 同一版本漏提示或重复提示。源码。** 启动结果发出前已占版本键，宿主重绑时再次 claim，待处理结果可能不再交付；关于页以保留结果驱动一次性对话框，重建又可能执行。安装权限续接使用短时内存请求与通用 Resume，而不是明确的返回任务；只有浏览器分发的更新也先检查安装权限。必须分离版本去重、待交付、用户已处理和权限返回。[主状态](../../app/src/main/java/cn/limpu/hita/ui/main/MainViewModel.kt#L96-L104)、[更新检查](../../app/src/main/java/cn/limpu/hita/ui/main/MainViewModel.kt#L212-L252)、[关于提示](../../app/src/main/java/cn/limpu/hita/ui/about/ActivityAbout.kt#L164-L212)、[安装续接](../../app/src/main/java/cn/limpu/hita/update/UpdateFlowCoordinator.kt#L51-L92)、[下载分支](../../app/src/main/java/cn/limpu/hita/utils/ActivityUtils.kt#L488-L505)。
+**P1 · 更新提示重建/权限返回 → 同一版本漏提示或重复提示。源码。** 启动结果发出前已占版本键，宿主重绑时再次 claim，待处理结果可能不再交付；关于页以保留结果驱动一次性对话框，重建又可能执行。安装权限续接使用短时内存请求与通用 Resume，而不是明确的返回任务；只有浏览器分发的更新也先检查安装权限。必须分离版本去重、待交付、用户已处理和权限返回。[主状态](../../app/src/main/java/cn/limpu/hita/ui/main/MainViewModel.kt#L96-L104)、[更新检查](../../app/src/main/java/cn/limpu/hita/ui/main/MainViewModel.kt#L212-L252)、[关于提示](../../app/src/main/java/cn/limpu/hita/ui/about/ActivityAbout.kt#L164-L212)、[安装续接](../../app/src/main/java/cn/limpu/hita/update/InstallPermissionGate.kt#L28-L76)、[下载分支](../../app/src/main/java/cn/limpu/hita/utils/ActivityUtils.kt#L488-L505)。
 
 ### UX-20
 **P1 · 系统提醒、小组件的选项已选中 → 实际结果并未对应。配置入口部分实测 CV-04，执行仅源码。**「下课时」候选要求 `end <= now`，[Worker](../../app/src/main/java/cn/limpu/hita/data/work/CourseReminderWorker.kt#L36-L57) 选择同一 `now` 拿仍重叠的事件，[DAO](../../app/src/main/java/cn/limpu/hita/data/source/dao/EventItemDao.kt#L67-L68) 要求 `end > now`，候选被排除；点通知不带课程日期。[规则](../../app/src/main/java/cn/limpu/hita/data/work/ReminderRuleSet.kt#L157-L193)。小组件保存「固定」哨兵与背景选项，却读取当前范围、按主题渲染；列表行使用 fill-in 参数但模板不可变，主 Activity 只在暖 `onNewIntent` 处理且只选今日。证据：[组件配置](../../app/src/main/java/cn/limpu/hita/ui/widgets/WidgetConfigureActivity.kt#L104-L141)、[行数据](../../app/src/main/java/cn/limpu/hita/ui/widgets/today/normal/ListRemoteViewsFactory.kt#L60-L101)、[主题与模板](../../app/src/main/java/cn/limpu/hita/ui/widgets/today/TodayUtils.kt#L54-L106)、[主入口](../../app/src/main/java/cn/limpu/hita/ui/main/MainActivity.kt#L93-L125)。
@@ -122,9 +122,20 @@ gradlew.bat :macrobenchmark:connectedBenchmarkAndroidTest \
   -Pandroid.testInstrumentationRunnerArguments.class=cn.limpu.hita.benchmark.UxJourneysBenchmark
 ```
 
-`glassTabs` 的 P90 起明显高于 `classicTabs`（`frameOverrunMs` P95 290.4 ms 对 88.9 ms，约 3.3 倍），与上面 `gfxinfo` 里玻璃风格 Janky 比例更高方向一致；两次采样口径不同，只能说明“玻璃风格在模拟器上更重”这一方向，不能给出真机结论。
+本次采样中 `glassTabs` 的 `frameOverrunMs` P95 为 290.4 ms，`classicTabs` 为 88.9 ms。两者的差异与上面 `gfxinfo` 的方向一致，但不是同口径的对照实验，数据不能用于归因或推断真机结果。Gradle 当次为四个成功旅程生成了指标摘要和 Perfetto 轨迹；后续连接测试覆盖了输出目录，当前保留的是上表转录与本地运行日志，不声称原始轨迹仍在。
 
-**限制**：Macrobenchmark 在本机构建中被显式抑制了 `EMULATOR` 检查，AVD 用软件渲染且峰值刷新率 60 Hz，`frameOverrunMs` 各旅程 P50 均为帧预算 16.7 ms 的 3 倍以上，属模拟器开销。`switchWeeks`、`scrollLongAgenda`、`scrollLongConversation` 三个旅程在准备阶段失败：点击底栏「时间表」（坐标 392,2266）后，`By.desc("时间表").selected(true)` 在 25 s 内始终不出现，重试一次与改用坐标点击均未改变结果（同一验证项已尝试三次，按上限停止重试）。失败发生在进入时间表/待办/助手页之前，应用未崩溃，日志中无 `SecurityException` 或 `FATAL`；失败原因未定位，可能是模拟器上底栏 `selected` 语义在该路径不刷新。这一项记为**未验证**，不作“无掉帧”推断。
+**准备失败，无帧数据：**`scrollLongConversation` 等待助手页选中超时，`scrollLongAgenda` 等待待办页选中超时，`switchWeeks` 等待时间表页选中超时。对 `switchWeeks`，放宽到 25 s 后重试、再改为物理坐标点击，仍未通过（本地日志 `hita-mb7.log`、`hita-mb8.log`、`hita-mb9.log`）。无法仅凭超时区分点击未生效和选中语义未刷新。采样启用了 `EMULATOR` 抑制，不套用真机阈值。
+
+补充诊断：API 35 上用实际触摸切入时间表，正文由今日变为时间表，但底栏节点的 `selected` 属性仍为 `false`。准备检查改为等待对应页的种子内容；切周预检还要求手势使「回本周」出现，并在采样前回到本周。页面到达与底栏辅助功能状态是两项不同的验收。
+
+额外复验尝试全部 7 个旅程，`scrollLongConversation` 在等待今日页入口时失败；Gradle 报告进度到 5/7 后达到命令时限，未生成全量结果 XML。`switchWeeks`、`scrollLongAgenda` 在该次运行没有完成证据，不再追加复验。四个已完成的页签／抽屉旅程各保留 10 条 Perfetto 轨迹和指标摘要，位于本机 `%TEMP%/hita-ux-acceptance-evidence/benchmark/`，不入库。结果仍只代表 API 35 模拟器采样。
+
+| 补充复验旅程 | `frameOverrunMs` P50 / P95 / P99 |
+|---|---:|
+| `classicTabs` | 70.7 / 448.2 / 848.3 |
+| `glassTabs` | 260.1 / 1050.8 / 1287.0 |
+| `classicDrawer` | 49.4 / 974.9 / 1697.4 |
+| `glassDrawer` | 164.3 / 355.3 / 928.1 |
 
 其余未覆盖：玻璃/深空/赛博的全量风格矩阵（已测玻璃与经典的页签/抽屉，未测赛博/深空）、窄/宽窗口、字号 1.3/2.0、倍率 0/2、真机门。
 
@@ -133,9 +144,7 @@ gradlew.bat :macrobenchmark:connectedBenchmarkAndroidTest \
 - 保留今日按日期和范围保存展开态、重验旧事件和显示缓存失败；保留本地待办的默认截止时间、完成后可撤、脏表单/删除确认。不要用弹层替代常用路径。
 - 保留课表导入校准及数据版本保护、教学隐藏可恢复、好友口令预览与版本确认、对比不渲染上周结果、重要系统许可。免登录仍可维护个人日程和待办；认证只加在确实依赖账号的操作上。
 - 后续必须实测：三校区及威海本研、深圳 API/Web 变体及门户过期/MFA；有数据的长课表、重叠卡和长 Markdown；真实服务返回/超时/拒绝/迟到；旋转、进程重建、无网和权限撤回；小组件冷暖启动、日期解析；TalkBack、字大 2.0、键鼠/焦点、分屏、手势和三键导航、所有风格的深浅色和系统减少动态效果。真机帧门槛见 [规格](spec.md)，不可由上表代替。
-- 可复现环境：`hita_test`，API 35，包 `cn.limpu.hita.diag`，1080×2400 / 420 dpi。Windows JDK 21 `gradlew.bat assembleDebug testDebugUnitTest --console=plain` 返回 `BUILD SUCCESSFUL`；本轮修复后重跑 `:app:testDebugUnitTest :component:testDebugUnitTest :hitauser:testDebugUnitTest :style:testDebugUnitTest :timetable-core:test :timetable-core:jar` 通过，`python scripts/check_repository.py --base-ref origin/main` 通过。通过 `adb install -r app/build/outputs/apk/debug/app-debug.apk` 安装；冷启动用 `am start -n cn.limpu.hita.diag/cn.limpu.hita.ui.main.MainActivity`，走查用 `input tap/swipe`、`uiautomator dump` 和 `screencap`。
-
-本轮 device 侧 `:app:connectedDebugAndroidTest` 指定 `TimetableBatchUIInstrumentedTest` 时在 runner 初始化阶段失败（`ClassNotFoundException`，测试类实际存在于 `app-debug-androidTest.apk` 的 dex 中，重装 APK 后结果相同），因此设备测试**本轮未取得任何通过证据**；这条失败与图形/动效改动无直接关联，但也不能当作已通过。
+- 可复现环境：`hita_test`，API 35，包 `cn.limpu.hita.diag`，1080×2400 / 420 dpi。用 `adb install -r app/build/outputs/apk/debug/app-debug.apk` 安装；冷启动用 `am start -n cn.limpu.hita.diag/cn.limpu.hita.ui.main.MainActivity`，走查用 `input tap/swipe`、`uiautomator dump` 和 `screencap`。构建、JVM 与仓库检查结果见 [计划](plan.md#本轮实施与验收结果)。
 
 ## 7. 本轮修复后的复测
 
@@ -148,11 +157,26 @@ gradlew.bat :macrobenchmark:connectedBenchmarkAndroidTest \
 | UX-07 | 表单：未选时间时行内显示「请选择开始和结束时间」，保存置灰；选「第1-1节 (08:30 - 10:15)」与「11月24日」后保存可用，提交后 `subject`/`events` 各 1 条。 | 已修复（必填校验与保存回执）；失败回执仅源码复核 |
 | UX-09 | 管理页导出改由 `runExport(items, requireNotNull(mode))` 驱动，口令分支不再存在默认 FULL 的调用。 | 已修复（源码）；未做真实编码往返 |
 | UX-10 | 待办：新增「ux-audit-check」后计数 0→1、进入待完成；勾选后 1→0 且折叠区出现「已完成（1 项）」；展开后行内「撤销」可见并点击可回到待完成。 | 已修复（本地路径）；远程平台与 Snackbar 竞争未实测 |
-| UX-20 | [下课时规则](../../app/src/main/java/cn/limpu/hita/data/work/ReminderRuleSet.kt#L157-L193) 已要求结束锚点仍在未来，`endMillis` 缺失时跳过而非用开始时间推测。 | 已修复（源码）；通知实际触发未实测 |
-
+| UX-20 | 课前、下课提醒补发窗口为两分钟；到点、迟到一分钟、恰好两分钟、超出一毫秒及重复键的 JVM 断言通过。小组件配置接入按实例读取，事件链接按 ID 和日期重新查询。 | 时窗 JVM 已验证；桌面双实例、通知点击与真实权限未完成验收 |
 | UX-07（写失败） | `TimetableWriteUseCase` 在持久化未提交时返回失败回执而非抛异常，表单保留编辑并可重试；Agent 的 `addSync` 仍对未提交抛错，不静默成功。 | 已修复（源码 + 仪器测试重跑） |
 
-**未通过项（已尝试 3 次，未声称通过）**：`HomeworkUiInstrumentedTest.dailyScreenSupportsEditingCompletionAndLegacyTasks` 在 `ACTION_SET_TEXT` 后保存的标题未在列表生效，等待超时。手动在同一 AVD 上按相同路径（点行→改文本→取消→继续编辑→保存）能落库并显示新标题，故判为测试注入方式与 Compose 文本字段语义不一致，而不是产线路径缺失。`TimetableBatchUiInstrumentedTest.failedRealWriteKeepsFormAndRetryCommitsBeforeClosingAndRoomRefresh` 已通过——其根因是新增的时长校验拒绝了夹具中的零时长事件，已移除该过度校验。
+**待办回归：**早前用例在撤销后再次完成时把条目不在视口误当成分组已收起（`hita-hw5.log`）。[展开状态](../../app/src/main/java/cn/limpu/hita/ui/main/homework/HomeworkScreen.kt#L79) 独立于条目数；[修订后的用例](../../app/src/androidTest/java/cn/limpu/hita/ui/main/homework/HomeworkUiInstrumentedTest.kt#L180-L216) 按可见的展开/收起标签验证状态，保留编辑、保存、完成、撤销、收起和重新展开的断言，未更改生产行为。
+
+**课表写入回归：**用正确类名 `cn.limpu.hita.ui.main.timetable.TimetableBatchUiInstrumentedTest` 定向运行通过（`hita-at2.log`）；先前 `ClassNotFoundException` 来自 `Ui` 拼成 `UI`。其中 `failedRealWriteKeepsFormAndRetryCommitsBeforeClosingAndRoomRefresh` 验证失败保留表单、重试成功后刷新；修复移除了拒绝零时长既有事件的额外校验。
+
+**较早快照的 App 全量仪器测试通过。**隔离 API 35 AVD 关闭三个系统动画倍率后，结果 XML 为 995 个用例、0 失败、0 错误、0 跳过（`hita-ux-retest-app.log`）。待办、摘要和横滑的相关用例实际执行并通过：摘要比较变更前后的完整矩形，先等几何稳定并确认加载替换列表；横滑仍注入物理手势，先确认所选 Fragment 已布局、可见、获焦并进入 `RESUMED`。该批结果不覆盖随后新增的 Widget、提醒和阅读路径。
+
+**最新工作区通过四模块 API 35 仪器测试。**在隔离的 `hita_test`（`emulator-5580`，三个系统动画倍率均为 0）串行完成 App 999、component 7、hitauser 11、style 8，共 1025 个用例。四份结果 XML 均无失败、错误或跳过，已连同 Gradle 日志保存在本机 `%TEMP%/hita-ux-acceptance-evidence/final-device/`。
+
+**后续实现与待验范围：**贡献预览以不可变请求绑定返回内容，只确认同一仓库及操作；重建或改稿后要求重新预览。WebView 保存历史并优先消费返回，Markdown 可原位重试，教师搜索分别保留输入草稿和已提交查询。这些改动已编译，不等于发布验收；课程贡献未向真实服务写入。
+
+**UX-14 续接（源码 + JVM）：**`CourseSelectionScheduleTarget` 记录确认时的完整查询作用域、学期、课程池与课程集合，`CourseSelectionScheduleContinuity.isSameTarget` 要求重登、换账号、换学期或改选都不得复用旧确认。[选课目标](../../app/src/main/java/cn/limpu/hita/ui/eas/catalog/ShenzhenCourseCatalogViewModel.kt#L103-L120) `ShenzhenCourseSelectionUiPolicyTest.schedule confirmation continues only on the identical target` 断言了相同目标、集合顺序无关、学期/课程/代次/身份变化与空快照六种情形；真机返回设置页的续接仍未实测。
+
+**UX-19 续接（源码）：**更新弹窗改为先按下载目标分流，网页发布直接交浏览器，APK 才检查安装授权。[分流与授权](../../app/src/main/java/cn/limpu/hita/utils/ActivityUtils.kt#L496-L520) 授权往返由宿主 Activity 的 [InstallPermissionGate](../../app/src/main/java/cn/limpu/hita/update/InstallPermissionGate.kt) 通过 `registerForActivityResult` 续接，只对发起这次授权的更新返回一次；未授权时提示不继续，取消会丢弃待续接请求。原来的全局 `UpdateFlowCoordinator`（全局 `onResume` + 五分钟 TTL）已删除，重建后的新 Activity 不会自动重放。真机授权往返、后台/进程重建未实测。
+
+**UX-18 续接（模拟器实测 + 源码）：**资讯系列与容器子系列的展开偏好从行内 `remember` 提升为列表级 `rememberSaveable` 稳定 ID 集合（`StringSetSaver`），手动展开/收起优先于「有未读自动展开」和「子系列默认展开」，规则集中在 [BlogExpansionPolicy](../../app/src/main/java/cn/limpu/hita/ui/main/blog/BlogExpansionPolicy.kt) 并由 `BlogExpansionPolicyTest` 覆盖；行状态通过 `stateDescription` 暴露「已展开/已收起」，装饰箭头不再被读屏朗读。[资讯列表](../../app/src/main/java/cn/limpu/hita/ui/main/blog/BlogFragment.kt#L459-L472) 历史版本同样按版本号记录展开偏好并新增旋转箭头与状态描述。[历史版本](../../app/src/main/java/cn/limpu/hita/ui/about/ActivityAbout.kt#L521-L541) 模拟器实测（`cn.limpu.hita.diag`，API 35，1080×2400/420 dpi，动画倍率 0）：关于页「历史版本」展开 v3.3.0 后旋转到横屏并滚回列表，该行仍展开且箭头朝下；收起 v3.3.0、展开 v3.1.2 后两行状态互不影响。资讯 Tab 需登录才显示，免登录未实测展开与读屏；TalkBack 读序、长列表展开 10 次的锚点复测未执行。
+
+小组件／提醒／阅读器的初次定向批次执行 33 个用例，32 通过、1 失败、无跳过（`hita-ux-new-instrumented.log`）。固定实例在主范围切换后不变，删除固定目标后不回落；过时课前提醒不补发。WebView 初次遇到 HTTP 503 时仍显示错误页正文。按失败 URL 保留错误状态后，`failedPageCanBeRetriedInPlace` 与 `redirectAndLinkHistorySurviveRecreationAndConsumeBack` 均定向复验通过：503 暴露原位重试，点击后重新请求同一地址；链接历史重建后可返回（`hita-ux-reader-ordered.log`）。最新 App 全量结果包含上述用例。
 
 新增回归测试：`TimetableCalendarTitleTest.mondayBoundaryDropsSecondsAndMillis`（周起点必须归零秒/毫秒）与 `secondPrecisionOnTableStartStillCountsFirstWeek`（残留秒不得让表被判表外），`TimetableCalendarTitleTest.personalTimetablePastItsEndStaysOutsideTerm`（表尾之外仍非学期）。
 - 参照：[Apple HIG Motion](https://developer.apple.com/design/human-interface-guidelines/motion) 的少动、可中断与反馈；[Compose 无障碍默认行为](https://developer.android.com/develop/ui/compose/accessibility/api-defaults)、[窗口宽度分级](https://developer.android.com/develop/ui/compose/layouts/adaptive/use-window-size-classes)、[系统动画时长倍率](https://developer.android.com/reference/kotlin/androidx/compose/ui/MotionDurationScale)、[预测式返回](https://developer.android.com/develop/ui/compose/system/predictive-back-setup) 和 [FrameTimingMetric](https://developer.android.com/topic/performance/benchmarking/macrobenchmark-metrics#frametimingmetric)。

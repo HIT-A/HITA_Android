@@ -1,31 +1,21 @@
 package cn.limpu.hita.ui.widgets.today.normal
 
-import android.app.Application
 import android.appwidget.AppWidgetManager
 import android.appwidget.AppWidgetProvider
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
-import cn.limpu.hita.data.repository.DisplayScopeResolver
-import cn.limpu.hita.data.repository.TimetableRepository
 import cn.limpu.hita.data.work.WidgetRefreshScheduler
 import cn.limpu.hita.ui.widgets.WidgetUtils
 import cn.limpu.hita.ui.widgets.WidgetUtils.EVENT_REFRESH
 import cn.limpu.hita.utils.LogUtils
 import cn.limpu.hita.ui.widgets.today.TodayUtils.goAsync
-import cn.limpu.hita.ui.widgets.today.TodayUtils.setUpOneWidget
-import kotlinx.coroutines.DelicateCoroutinesApi
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
+import cn.limpu.hita.ui.widgets.today.TodayUtils.updateWidgets
 
 /**
  * Implementation of App Widget functionality.
  */
 class TodayWidget : AppWidgetProvider() {
-    companion object {
-        const val EVENT_CLICK = "cn.limpu.hita.WIDGET_EVENT_CLICK"
-        const val EVENT_EXTRA = "cn.limpu.hita.EXTRA_ITEM"
-    }
 
     override fun onDeleted(context: Context, appWidgetIds: IntArray) {
         // 系统会复用 appWidgetId；不清理会让新实例继承旧实例的范围与背景。
@@ -39,23 +29,7 @@ class TodayWidget : AppWidgetProvider() {
         appWidgetManager: AppWidgetManager,
         appWidgetIds: IntArray
     ) {
-        // There may be multiple widgets active, so update all of them
-        val timetableRepo =
-            TimetableRepository(context.applicationContext as Application)
-        goAsync{
-            // 确保数据库操作在后台线程执行
-            val (events, upcomingExams) = withContext(Dispatchers.IO) {
-                run {
-                    val scopeIds = DisplayScopeResolver(context.applicationContext as Application).currentSync()?.timetableIds.orEmpty()
-                    timetableRepo.getTodayEventsSync(scopeIds) to
-                            timetableRepo.getUpcomingExamsWithinReminderWindowSync(System.currentTimeMillis(), scopeIds)
-                }
-            }
-            for (appWidgetId in appWidgetIds) {
-                LogUtils.d("UPDATE:$appWidgetId")
-                setUpOneWidget(context, events, upcomingExams, appWidgetManager, appWidgetId,false)
-            }
-        }
+        goAsync { updateWidgets(context, appWidgetManager, appWidgetIds, slim = false) }
         super.onUpdate(context, appWidgetManager, appWidgetIds)
     }
 
@@ -70,32 +44,12 @@ class TodayWidget : AppWidgetProvider() {
                     onUpdate(context, mgr, ids)
                 }
             }
-            EVENT_CLICK -> {
-//                Log.e("WI", "click")
-//                val bd = intent.extras
-//                val position = intent.getStringExtra(EVENT_EXTRA)
-//                Toast.makeText(context, "打开...$position", Toast.LENGTH_SHORT).show()
-            }
             EVENT_REFRESH -> {
-                val cn = ComponentName(context, TodayWidget::class.java)
-                val mgr = AppWidgetManager.getInstance(context)
-                val timetableRepo =
-                    TimetableRepository(context.applicationContext as Application)
-                goAsync {
-                    // 确保数据库操作在后台线程执行
-                    val (events, upcomingExams) = withContext(Dispatchers.IO) {
-                        run {
-                    val scopeIds = DisplayScopeResolver(context.applicationContext as Application).currentSync()?.timetableIds.orEmpty()
-                    timetableRepo.getTodayEventsSync(scopeIds) to
-                            timetableRepo.getUpcomingExamsWithinReminderWindowSync(System.currentTimeMillis(), scopeIds)
-                }
-                    }
-                    for (appWidgetId in mgr.getAppWidgetIds(cn)) {
-                        LogUtils.d("refressh$appWidgetId")
-                        setUpOneWidget(context, events, upcomingExams, mgr, appWidgetId,false)
-                    }
-                }
-
+                val manager = AppWidgetManager.getInstance(context)
+                val ids = manager.getAppWidgetIds(ComponentName(context, TodayWidget::class.java))
+                val requested = intent.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, AppWidgetManager.INVALID_APPWIDGET_ID)
+                onUpdate(context, manager, if (requested == AppWidgetManager.INVALID_APPWIDGET_ID) ids
+                    else ids.filter { it == requested }.toIntArray())
             }
         }
 

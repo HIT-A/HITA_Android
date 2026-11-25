@@ -9,6 +9,7 @@ import androidx.benchmark.macro.junit4.MacrobenchmarkRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.By
+import androidx.test.uiautomator.BySelector
 import androidx.test.uiautomator.UiDevice
 import androidx.test.uiautomator.UiObject2
 import androidx.test.uiautomator.Until
@@ -27,25 +28,27 @@ class UxJourneysBenchmark {
     @Test fun classicDrawer() = drawer("classic")
     @Test fun glassDrawer() = drawer("glass")
 
-    @Test fun switchWeeks() = measure("classic", "时间表") {
-        val centerY = displayHeight / 2
+    @Test fun switchWeeks() = measure("classic", "时间表", prepare = {
+        requireContent(By.text("UX benchmark timetable"), "Seeded timetable did not load")
+        // 不把 UI 树轮询计进采样，但先确认手势确实翻周，再恢复到同一初始位置。
+        ui.swipeWeek(forward = true)
+        requireContent(By.desc("回本周"), "Swipe did not advance to the next week").click()
+        check(ui.wait(Until.gone(By.desc("回本周")), TIMEOUT_MS) == true) { "Did not return to the current week" }
+    }) {
         repeat(5) {
-            check(swipe(displayWidth * 4 / 5, centerY, displayWidth / 5, centerY, 12))
-            check(swipe(displayWidth / 5, centerY, displayWidth * 4 / 5, centerY, 12))
+            swipeWeek(forward = true)
+            swipeWeek(forward = false)
         }
     }
 
     @Test fun scrollLongAgenda() = measure("classic", "待办", prepare = {
-        checkNotNull(ui.wait(Until.findObject(By.desc("UX benchmark task 219")), TIMEOUT_MS)
-            ?: ui.findObject(By.descStartsWith("UX benchmark task"))) { "Seeded tasks did not load" }
+        requireContent(By.descStartsWith("UX benchmark task"), "Seeded tasks did not load")
     }) {
         scrollLongList()
     }
 
     @Test fun scrollLongConversation() = measure("glass", "助手", prepare = {
-        checkNotNull(ui.wait(Until.findObject(By.textContains("UX benchmark reply")), TIMEOUT_MS)) {
-            "Seeded conversation did not load"
-        }
+        requireContent(By.textContains("UX benchmark reply"), "Seeded conversation did not load")
     }) {
         scrollLongList()
     }
@@ -67,6 +70,13 @@ class UxJourneysBenchmark {
                 check(pressBack()); SystemClock.sleep(220)
             }
         }
+    }
+
+    private fun UiDevice.swipeWeek(forward: Boolean) {
+        val left = displayWidth / 5
+        val right = displayWidth - left
+        val centerY = displayHeight / 2
+        check(swipe(if (forward) right else left, centerY, if (forward) left else right, centerY, 12))
     }
 
     private fun UiDevice.scrollLongList() {
@@ -96,18 +106,9 @@ class UxJourneysBenchmark {
             dismissStartupNotices()
             check(ui.wait(Until.hasObject(By.desc("今日")), TIMEOUT_MS) == true) { "Today did not start" }
             dismissStartupNotices()
-            if (page != "今日") {
-                // 模拟器上首次点击可能落在进入动画里；重点一次并放宽等待，避免把准备抖动算成旅程失败。
-                var selected = false
-                repeat(2) {
-                    if (selected) return@repeat
-                    // 用坐标点击而不是节点点击：节点在进入动画里会失效，坐标与 tabs() 成功的路径一致。
-                    val targetPoint = named(page).visibleCenter
-                    check(ui.click(targetPoint.x, targetPoint.y))
-                    selected = ui.wait(Until.hasObject(By.desc(page).selected(true)), TIMEOUT_MS) == true
-                }
-                check(selected) { "Page did not become selected: $page" }
-            }
+            // Android 的无障碍节点不一定把 Compose Tab 选中态映射为 isSelected。
+            // 各旅程的 prepare 验证实际页面内容，而不是只验证底栏的表示方式。
+            if (page != "今日") named(page).click()
             prepare()
             ui.waitForIdle()
         },
@@ -126,6 +127,9 @@ class UxJourneysBenchmark {
             first = ui.wait(Until.findObject(By.text("知道了")), 2_000) ?: return
         }
     }
+
+    private fun requireContent(selector: BySelector, message: String): UiObject2 =
+        checkNotNull(ui.wait(Until.findObject(selector), TIMEOUT_MS)) { message }
 
     private fun named(label: String): UiObject2 = checkNotNull(
         ui.wait(Until.findObject(By.desc(label)), TIMEOUT_MS),

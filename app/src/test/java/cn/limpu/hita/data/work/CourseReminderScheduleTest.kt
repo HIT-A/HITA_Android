@@ -45,9 +45,9 @@ class CourseReminderScheduleTest {
     }
 
     @Test
-    fun `a trigger that is already due fires immediately and past events are dropped`() {
-        val due = course("due", startOffsetMinutes = 10, section = 1)
-        val past = course("past", startOffsetMinutes = -1, section = 1)
+    fun `recently due reminders fire immediately and expired reminders are dropped`() {
+        val due = course("due", startOffsetMinutes = 14, section = 1)
+        val past = course("past", startOffsetMinutes = 12, section = 1)
 
         val next = CourseReminderSchedule.nextDue(
             events = listOf(due, past),
@@ -62,10 +62,24 @@ class CourseReminderScheduleTest {
             CourseReminderSchedule.nextDue(
                 events = listOf(past),
                 now = now,
-                rules = rules,
+                rules = rules.copy(leads = listOf(15)),
                 sentKeys = emptySet(),
             )
         )
+    }
+
+    @Test
+    fun `end-of-class reminder tolerates at most two minutes of delay and stays deduplicated`() {
+        val event = courseWithEnd("lab", startOffsetMinutes = -90, endOffsetMinutes = 0)
+        val end = CourseReminderSchedule.candidatesFor(
+            event, ReminderRuleSet(leads = emptyList(), endLeads = listOf(0)),
+        ).single()
+        val duplicated = listOf(end, end)
+        assertEquals(listOf(end), CourseReminderSchedule.dueNow(duplicated, now, emptySet()))
+        assertEquals(listOf(end), CourseReminderSchedule.dueNow(duplicated, now + 60_000L, emptySet()))
+        assertEquals(listOf(end), CourseReminderSchedule.dueNow(duplicated, now + 120_000L, emptySet()))
+        assertEquals(emptyList<ReminderDue>(), CourseReminderSchedule.dueNow(duplicated, now + 120_001L, emptySet()))
+        assertEquals(emptyList<ReminderDue>(), CourseReminderSchedule.dueNow(duplicated, now + 60_000L, setOf(end.key)))
     }
 
     private fun course(id: String, startOffsetMinutes: Long, section: Int) = ReminderEvent(

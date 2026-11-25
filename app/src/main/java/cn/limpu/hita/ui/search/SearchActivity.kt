@@ -6,9 +6,8 @@ import android.view.KeyEvent
 import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
-import android.widget.TextView
+import android.widget.EditText
 import androidx.activity.compose.setContent
-import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.compose.foundation.background
@@ -29,13 +28,13 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -55,10 +54,10 @@ import dagger.hilt.android.AndroidEntryPoint
 
 @AndroidEntryPoint
 class SearchActivity : AppCompatActivity(), SearchRoot {
-    protected val viewModel: SearchViewModel by viewModels()
-    private var searchEditText: TextView? = null
-    private var pager: ViewPager? = null
+    private var searchEditText: EditText? = null
+    private var committedQuery = ""
     private var pagerAdapter: SearchPagerAdapter? = null
+    private var openKeyboardOnEnter = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         val nightMode = when (ThemeTools.getThemeMode(this)) {
@@ -68,16 +67,22 @@ class SearchActivity : AppCompatActivity(), SearchRoot {
         }
         AppCompatDelegate.setDefaultNightMode(nightMode)
         super.onCreate(savedInstanceState)
+        val keyword = intent.getStringExtra("keyword").orEmpty()
+        val draft = savedInstanceState?.getString("searchDraft") ?: keyword
+        committedQuery = savedInstanceState?.getString("searchQuery") ?: keyword
+        openKeyboardOnEnter = savedInstanceState == null && !isSearchForPurpose()
 
         setContent {
             HitaComposeTheme() {
                 SearchScreen(
                     activity = this,
-                    initialText = intent.getStringExtra("keyword").orEmpty(),
-                    purpose = intent.getStringExtra("type").orEmpty(),
+                    initialText = draft,
                     onBack = { onBackPressedDispatcher.onBackPressed() },
                     onSearchViewReady = { editText ->
                         searchEditText = editText
+                        val start = savedInstanceState?.getInt("searchSelectionStart", draft.length) ?: draft.length
+                        val end = savedInstanceState?.getInt("searchSelectionEnd", draft.length) ?: draft.length
+                        editText.setSelection(start.coerceIn(0, draft.length), end.coerceIn(0, draft.length))
                         editText.setOnEditorActionListener { textView, actionId, _: KeyEvent? ->
                             if (textView.text.toString().isBlank()) return@setOnEditorActionListener false
                             if (
@@ -85,7 +90,7 @@ class SearchActivity : AppCompatActivity(), SearchRoot {
                                 actionId == EditorInfo.IME_ACTION_SEARCH
                             ) {
                                 hideKeyboard()
-                                setSearchText(getSearchText())
+                                setSearchText(textView.text.toString())
                                 true
                             } else {
                                 false
@@ -96,24 +101,28 @@ class SearchActivity : AppCompatActivity(), SearchRoot {
                         if (pagerAdapter == null) {
                             pagerAdapter = SearchPagerAdapter(supportFragmentManager, this)
                         }
-                        pager = viewPager
                         viewPager.adapter = pagerAdapter
                         tabs.setupWithViewPager(viewPager)
-                        searchForPurpose()
                     }
                 )
             }
         }
     }
 
-    override fun onStart() {
-        super.onStart()
-        searchForPurpose()
+    override fun onSaveInstanceState(outState: Bundle) {
+        outState.putString("searchQuery", committedQuery)
+        searchEditText?.let {
+            outState.putString("searchDraft", it.text.toString())
+            outState.putInt("searchSelectionStart", it.selectionStart)
+            outState.putInt("searchSelectionEnd", it.selectionEnd)
+        }
+        super.onSaveInstanceState(outState)
     }
 
     override fun onEnterAnimationComplete() {
         super.onEnterAnimationComplete()
-        if (!isSearchForPurpose()) {
+        if (openKeyboardOnEnter) {
+            openKeyboardOnEnter = false
             popUpKeyboard()
         }
     }
@@ -122,18 +131,6 @@ class SearchActivity : AppCompatActivity(), SearchRoot {
         val text = intent.getStringExtra("keyword")
         val purpose = intent.getStringExtra("type")
         return text?.isNotEmpty() == true && purpose?.isNotEmpty() == true
-    }
-
-    private fun searchForPurpose() {
-        val text = intent.getStringExtra("keyword")
-        searchEditText?.text = text
-        val purpose = intent.getStringExtra("type")
-        if (text.isNullOrEmpty() || purpose.isNullOrEmpty()) return
-        val index = when (purpose) {
-            "TEACHER" -> 0
-            else -> 0
-        }
-        pager?.currentItem = index
     }
 
     @Suppress("DEPRECATION")
@@ -149,10 +146,11 @@ class SearchActivity : AppCompatActivity(), SearchRoot {
     }
 
     override fun getSearchText(): String {
-        return searchEditText?.text?.toString().orEmpty()
+        return committedQuery
     }
 
     fun setSearchText(text: String) {
+        committedQuery = text
         for (fragment in supportFragmentManager.fragments) {
             if (fragment is FragmentSearchResult) {
                 fragment.setSearchText(text)
@@ -181,14 +179,13 @@ class SearchActivity : AppCompatActivity(), SearchRoot {
 private fun SearchScreen(
     activity: FragmentActivity,
     initialText: String,
-    purpose: String,
     onBack: () -> Unit,
-    onSearchViewReady: (TextView) -> Unit,
+    onSearchViewReady: (EditText) -> Unit,
     onPagerReady: (ViewPager, TabLayout) -> Unit,
 ) {
     val tokens = HitaTheme.tokens
     val density = LocalDensity.current
-    val containerId = remember { android.view.View.generateViewId() }
+    val containerId = rememberSaveable { android.view.View.generateViewId() }
     val textColor = MaterialTheme.colorScheme.onSurface.toArgb()
     val tabHeightPx = with(density) { 32.dp.toPx().toInt() }
 
@@ -207,7 +204,7 @@ private fun SearchScreen(
             IconButton(onClick = onBack) {
                 Icon(
                     painter = painterResource(R.drawable.ic_baseline_keyboard_arrow_right_24),
-                    contentDescription = null,
+                    contentDescription = stringResource(R.string.today_back),
                     tint = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.rotate(180f)
                 )
@@ -244,11 +241,7 @@ private fun SearchScreen(
                                 onSearchViewReady(this)
                             }
                         },
-                        update = { editText ->
-                            if (purpose.isNotBlank() && editText.text.toString() != initialText) {
-                                editText.setText(initialText)
-                            }
-                        }
+                        update = { it.setTextColor(textColor) }
                     )
                 }
             }

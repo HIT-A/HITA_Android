@@ -25,7 +25,7 @@ import com.limpu.style.R as StyleR
 import cn.limpu.hita.R
 import cn.limpu.hita.update.ApkInstallLauncher
 import cn.limpu.hita.update.ApkInstallReceiver
-import cn.limpu.hita.update.UpdateFlowCoordinator
+import cn.limpu.hita.update.InstallPermissionGate
 import cn.limpu.hita.data.model.eas.EASToken
 import cn.limpu.hita.data.repository.EASRepository
 import cn.limpu.hita.data.source.preference.EasPreferenceSource
@@ -417,13 +417,17 @@ object ActivityUtils {
         }
     }
 
-    fun showUpdateNotificationForce(cr: CheckUpdateResult, activity: AppCompatActivity) {
+    fun showUpdateNotificationForce(
+        cr: CheckUpdateResult,
+        activity: AppCompatActivity,
+        gate: InstallPermissionGate,
+    ) {
         PopUpUpdate().setText(buildUpdateMarkdown(activity, cr))
             .setTitle(R.string.new_version_available)
             .setShowSkipButton(false)
             .setOnActionListener(object : PopUpUpdate.OnActionListener {
                 override fun onConfirm() {
-                    downloadAndInstall(activity, cr)
+                    downloadAndInstall(activity, cr, gate)
                 }
 
                 override fun onCancel() = Unit
@@ -431,7 +435,11 @@ object ActivityUtils {
             }).show(activity.supportFragmentManager, "update")
     }
 
-    fun showUpdateNotification(cr:CheckUpdateResult,activity: AppCompatActivity){
+    fun showUpdateNotification(
+        cr: CheckUpdateResult,
+        activity: AppCompatActivity,
+        gate: InstallPermissionGate,
+    ) {
        val preference: SharedPreferences =
             activity.application.getSharedPreferences(UPDATE_SKIP_PREF, Context.MODE_PRIVATE)
         val versionKey = cr.latestVersionCode.toString()
@@ -442,7 +450,7 @@ object ActivityUtils {
             .setTitle(R.string.new_version_available)
             .setOnActionListener(object : PopUpUpdate.OnActionListener {
                 override fun onConfirm() {
-                    downloadAndInstall(activity, cr)
+                    downloadAndInstall(activity, cr, gate)
                 }
 
                 override fun onCancel() {
@@ -485,23 +493,29 @@ object ActivityUtils {
     private var downloadProgressDialog: AlertDialog? = null
     private var downloadProgressHandler: Handler? = null
 
-    private fun downloadAndInstall(activity: AppCompatActivity, cr: CheckUpdateResult) {
+    private fun downloadAndInstall(
+        activity: AppCompatActivity,
+        cr: CheckUpdateResult,
+        gate: InstallPermissionGate,
+    ) {
         if (isDownloading) {
             Toast.makeText(activity, R.string.download_already_in_progress, Toast.LENGTH_SHORT).show()
+            return
+        }
+        // 先按下载目标分流：没有 APK 资产的发布只把网页交给浏览器，
+        // 这条路不该因为"安装未知应用"未授权而被拦下。
+        val downloadUrl = cr.downloadUrl.ifEmpty { cr.latestUrl }
+        if (!downloadUrl.contains(".apk", ignoreCase = true)) {
+            // release 没挂 APK 资产时会回退成 release 网页，直接交给浏览器，
+            // 避免把网页当安装包下载（下载完必然装不上）
+            openUpdateUrlInBrowser(activity, downloadUrl)
             return
         }
         // 下载前先确认"安装未知应用"授权。授权页必须从 Activity 打开，
         // 放到下载完成后的广播里做会被 Android 10+ 的后台启动限制静默丢弃，
         // 用户只会看到一句 Toast、等不到安装界面。
         if (!ApkInstallLauncher.canInstallPackages(activity)) {
-            showInstallPermissionDialog(activity, cr)
-            return
-        }
-        val downloadUrl = cr.downloadUrl.ifEmpty { cr.latestUrl }
-        if (!downloadUrl.contains(".apk", ignoreCase = true)) {
-            // release 没挂 APK 资产时会回退成 release 网页，直接交给浏览器，
-            // 避免把网页当安装包下载（下载完必然装不上）
-            openUpdateUrlInBrowser(activity, downloadUrl)
+            showInstallPermissionDialog(activity, cr, gate)
             return
         }
         isDownloading = true
@@ -525,7 +539,7 @@ object ActivityUtils {
                 fileName,
                 cr.latestVersionName
             )
-            showDownloadProgressDialog(activity, dm, downloadId, cr)
+            showDownloadProgressDialog(activity, dm, downloadId, cr, gate)
             Toast.makeText(activity, R.string.download_started, Toast.LENGTH_SHORT).show()
         } catch (e: Exception) {
             isDownloading = false
@@ -535,32 +549,25 @@ object ActivityUtils {
         }
     }
 
-    /** 未授权"安装未知应用"时的引导；授权返回后由 [UpdateFlowCoordinator] 自动继续下载。 */
-    private fun showInstallPermissionDialog(activity: AppCompatActivity, cr: CheckUpdateResult) {
+    /** 未授权"安装未知应用"时的引导；授权返回后由宿主 Activity 的 [InstallPermissionGate] 续接下载。 */
+    private fun showInstallPermissionDialog(
+        activity: AppCompatActivity,
+        cr: CheckUpdateResult,
+        gate: InstallPermissionGate,
+    ) {
         AlertDialog.Builder(activity)
             .setTitle(R.string.update_permission_title)
             .setMessage(R.string.update_permission_message)
             .setPositiveButton(R.string.update_permission_go_settings) { _, _ ->
-                UpdateFlowCoordinator.awaitInstallPermission(cr)
-                if (!ApkInstallLauncher.openUnknownSourceSettings(activity)) {
-                    UpdateFlowCoordinator.cancel()
-                    Toast.makeText(
-                        activity,
-                        R.string.update_permission_open_failed,
-                        Toast.LENGTH_SHORT
-                    ).show()
+                gate.request(cr) { granted ->
+                    LogUtils.d("resumeUpdateDownload: version=${granted.latestVersionName}")
+                    downloadAndInstall(activity, granted, gate)
                 }
             }
             .setNegativeButton(R.string.button_cancel) { _, _ ->
-                UpdateFlowCoordinator.cancel()
+                gate.cancel()
             }
             .show()
-    }
-
-    /** 用户从"安装未知应用"设置页授权返回后，继续之前被中断的下载。 */
-    fun resumeUpdateDownload(activity: AppCompatActivity, cr: CheckUpdateResult) {
-        LogUtils.d("resumeUpdateDownload: version=${cr.latestVersionName}")
-        downloadAndInstall(activity, cr)
     }
 
     private fun openUpdateUrlInBrowser(activity: AppCompatActivity, url: String) {
@@ -576,7 +583,8 @@ object ActivityUtils {
         activity: AppCompatActivity,
         dm: DownloadManager,
         downloadId: Long,
-        cr: CheckUpdateResult
+        cr: CheckUpdateResult,
+        gate: InstallPermissionGate,
     ) {
         val versionName = cr.latestVersionName
         dismissDownloadProgressDialog()
@@ -645,7 +653,7 @@ object ActivityUtils {
                     isDownloading = false
                     ApkInstallReceiver.clearPendingDownload(activity)
                     dismissDownloadProgressDialog()
-                    showDownloadFailedDialog(activity, dm, downloadId, cr)
+                    showDownloadFailedDialog(activity, dm, downloadId, cr, gate)
                     return
                 }
                 handler.postDelayed(this, 500)
@@ -702,7 +710,8 @@ object ActivityUtils {
         activity: AppCompatActivity,
         dm: DownloadManager,
         downloadId: Long,
-        cr: CheckUpdateResult
+        cr: CheckUpdateResult,
+        gate: InstallPermissionGate,
     ) {
         val reason = downloadFailureReason(dm, downloadId)
         try {
@@ -719,7 +728,7 @@ object ActivityUtils {
                 )
             )
             .setPositiveButton(R.string.update_failed_retry) { _, _ ->
-                downloadAndInstall(activity, cr)
+                downloadAndInstall(activity, cr, gate)
             }
             .setNeutralButton(R.string.update_failed_open_browser) { _, _ ->
                 openUpdateUrlInBrowser(activity, cr.downloadUrl.ifEmpty { cr.latestUrl })

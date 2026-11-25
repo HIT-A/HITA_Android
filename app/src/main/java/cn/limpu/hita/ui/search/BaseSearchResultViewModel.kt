@@ -1,6 +1,7 @@
 package cn.limpu.hita.ui.search
 
 import androidx.lifecycle.LiveData
+import androidx.lifecycle.MediatorLiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.switchMap
@@ -11,8 +12,11 @@ abstract class BaseSearchResultViewModel<T> : ViewModel() {
 
     private val searchTriggerLiveData: MutableLiveData<SearchTrigger> = MutableLiveData()
     val searchResultLiveData: LiveData<DataState<List<T>>> = searchTriggerLiveData.switchMap {
-            return@switchMap doSearch(it)
+        // Never leave the old result rows actionable while a different query is in flight.
+        MediatorLiveData<DataState<List<T>>>(DataState(DataState.STATE.LOADING)).apply {
+            addSource(doSearch(it)) { result -> value = result }
         }
+    }
 
 
     protected abstract fun doSearch(trigger: SearchTrigger): LiveData<DataState<List<T>>>
@@ -30,5 +34,10 @@ abstract class BaseSearchResultViewModel<T> : ViewModel() {
         }
         return false
 
+    }
+
+    internal fun retrySearch() {
+        val current = searchTriggerLiveData.value ?: return
+        searchTriggerLiveData.value = current
     }
 }

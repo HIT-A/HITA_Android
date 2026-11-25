@@ -72,7 +72,7 @@ class CourseReminderWorkerInstrumentedTest {
 
     @Test
     fun enabledSettingRecordsSentReminderAfterPublishing() {
-        insertClass(timetableId, minutesFromNow = 10)
+        insertClass(timetableId, minutesFromNow = 14)
         CourseReminderStore(app).apply {
             setEnabled(true)
             setReminderMinutes(15)
@@ -86,7 +86,7 @@ class CourseReminderWorkerInstrumentedTest {
 
     @Test
     fun eventIsNotNotifiedTwiceWithinOneDay() {
-        insertClass(timetableId, minutesFromNow = 10)
+        insertClass(timetableId, minutesFromNow = 14)
         CourseReminderStore(app).apply {
             setEnabled(true)
             setReminderMinutes(15)
@@ -111,11 +111,22 @@ class CourseReminderWorkerInstrumentedTest {
     }
 
     @Test
+    fun expiredLeadDoesNotSendEvenIfClassHasNotStarted() {
+        insertClass(timetableId, minutesFromNow = 10)
+        CourseReminderStore(app).apply {
+            setEnabled(true)
+            setReminderMinutes(15)
+        }
+        assertEquals(ListenableWorker.Result.success(), buildWorker().doWork())
+        assertEquals("课前提醒超过两分钟不补发", 0, sentReminderCount())
+    }
+
+    @Test
     fun eventInOtherTimetableIsIgnoredByDisplayScopeFilter() {
         val otherId = "worker-other-${UUID.randomUUID()}"
         try {
             database.timetableDao().saveTimetableSync(testTimetable(otherId))
-            insertClass(otherId, minutesFromNow = 10)
+            insertClass(otherId, minutesFromNow = 14)
             CourseReminderStore(app).apply {
                 setEnabled(true)
                 setReminderMinutes(15)

@@ -3,10 +3,10 @@ package cn.limpu.hita.ui.resource
 import android.os.Bundle
 import android.text.method.LinkMovementMethod
 import android.widget.TextView
-import android.widget.Toast
 import androidx.activity.compose.setContent
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.app.AppCompatDelegate
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -26,6 +26,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -40,6 +41,7 @@ import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import cn.limpu.hita.R
@@ -103,17 +105,14 @@ private fun MarkdownViewerScreen(
     url: String,
     onBack: () -> Unit
 ) {
-    val context = LocalContext.current
     val tokens = HitaTheme.tokens
+    val scrollState = rememberScrollState()
     var state by remember(url) { mutableStateOf<MarkdownUiState>(MarkdownUiState.Loading) }
 
-    LaunchedEffect(url) {
+    var attempt by remember(url) { mutableStateOf(0) }
+    LaunchedEffect(url, attempt) {
         state = MarkdownUiState.Loading
         state = loadMarkdown(url)
-        val error = state as? MarkdownUiState.Error
-        if (error != null) {
-            Toast.makeText(context, error.message, Toast.LENGTH_LONG).show()
-        }
     }
 
     Column(
@@ -133,7 +132,7 @@ private fun MarkdownViewerScreen(
                 IconButton(onClick = onBack) {
                     Icon(
                         painter = painterResource(R.drawable.ic_baseline_keyboard_arrow_right_24),
-                        contentDescription = null,
+                        contentDescription = stringResource(R.string.today_back),
                         tint = MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier.rotate(180f)
                     )
@@ -157,15 +156,15 @@ private fun MarkdownViewerScreen(
                 }
             }
             is MarkdownUiState.Error -> {
-                Text(
-                    text = current.message,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.padding(tokens.spacing.lg)
-                )
+                Column(Modifier.padding(tokens.spacing.lg)) {
+                    Text(text = current.message, color = MaterialTheme.colorScheme.onSurface)
+                    TextButton(onClick = { attempt++ }) { Text(stringResource(R.string.stale_data_retry)) }
+                }
             }
             is MarkdownUiState.Success -> {
                 MarkdownContent(
                     markdown = current.markdown,
+                    scrollState = scrollState,
                     contentPadding = PaddingValues(tokens.spacing.lg)
                 )
             }
@@ -176,6 +175,7 @@ private fun MarkdownViewerScreen(
 @Composable
 private fun MarkdownContent(
     markdown: String,
+    scrollState: ScrollState,
     contentPadding: PaddingValues
 ) {
     val context = LocalContext.current
@@ -195,7 +195,7 @@ private fun MarkdownContent(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .verticalScroll(rememberScrollState())
+            .verticalScroll(scrollState)
     ) {
         AndroidView(
             modifier = Modifier

@@ -1,4 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="today_add_blank">新建空课表</string>
+    <string name="widget_today_title">今日课程小组件</string>
+    <string name="widget_background_title">背景样式</string>
+    <string name="widget_background_plain">跟随主题</string>
+    <string name="widget_background_card">卡片背景</string>
+    <string name="widget_scope_title">显示范围</string>
+    <string name="widget_scope_follow">跟随主界面当前范围</string>
+    <string name="widget_config_done">完成</string>
+    <string name="widget_event_unavailable">该课时已变更或不可用</string>
 </resources>

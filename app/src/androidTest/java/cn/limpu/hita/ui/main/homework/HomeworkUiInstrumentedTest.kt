@@ -156,9 +156,18 @@ class HomeworkUiInstrumentedTest {
                 clickText("fixture-today", matchDescription = false)
                 awaitText(base.getString(R.string.homework_cancel))
                 val input = awaitNode { it.className?.toString() == "android.widget.EditText" }
-                assertTrue(input.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, Bundle().apply {
+                // 聚焦编辑器并确认新标题可见，再验证取消和保存。
+                assertTrue(input.performAction(AccessibilityNodeInfo.ACTION_CLICK))
+                instrumentation.waitForIdleSync()
+                val focused = awaitNode("focused title input") {
+                    it.className?.toString() == "android.widget.EditText" && it.isFocused
+                }
+                assertTrue(focused.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, Bundle().apply {
                     putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, "fixture-edited")
                 }))
+                awaitNode("edited title reached the field") {
+                    it.className?.toString() == "android.widget.EditText" && it.text?.toString() == "fixture-edited"
+                }
                 clickText(base.getString(R.string.homework_cancel))
                 awaitText(base.getString(R.string.homework_discard_title))
                 clickDialogText(base.getString(R.string.homework_keep_editing))
@@ -171,10 +180,14 @@ class HomeworkUiInstrumentedTest {
                 // 完成：条目进入折叠区，撤销入口在展开后的行内，而不是一次性 Snackbar。
                 val checkbox = awaitNode { it.isCheckable && it.contentDescription?.toString() == "fixture-edited" }
                 assertTrue(checkbox.performAction(AccessibilityNodeInfo.ACTION_CLICK))
-                val completedHeaderAfterToggle = base.getString(R.string.homework_completed_section, 1)
-                awaitText(completedHeaderAfterToggle)
-                // 折叠区默认收起：先展开，撤销入口在行内而非一次性 Snackbar。
-                clickText(completedHeaderAfterToggle)
+                val completedHeader = base.getString(R.string.homework_completed_section, 1)
+                val expandCompleted = base.getString(R.string.homework_show_all, 1)
+                val collapseCompleted = base.getString(R.string.homework_collapse)
+                awaitText(completedHeader)
+                awaitText(expandCompleted)
+                assertFalse("已完成项在默认收起时不应出现", hasText("fixture-edited"))
+                clickText(expandCompleted)
+                awaitText(collapseCompleted)
                 awaitText(base.getString(R.string.homework_undo))
                 clickText(base.getString(R.string.homework_undo))
                 awaitNode { it.isCheckable && it.contentDescription?.toString() == "fixture-edited" && !it.isChecked }
@@ -182,21 +195,25 @@ class HomeworkUiInstrumentedTest {
                     it.isCheckable && it.contentDescription?.toString() == "fixture-edited"
                 }.performAction(AccessibilityNodeInfo.ACTION_CLICK))
 
-                // 已完成整块默认收起：折叠头可见，条目不可见；展开后条目出现。
-                val completedHeader = base.getString(R.string.homework_completed_section, 1)
+                // 撤销最后一项会移除区块，但不会重置用户之前的展开选择。
                 awaitText(completedHeader)
-                assertFalse("已完成项在折叠态不应出现", hasText("fixture-edited"))
-                clickText(completedHeader)
+                awaitText(collapseCompleted)
                 awaitText("fixture-edited")
                 assertTrue(awaitNode { it.isCheckable && it.contentDescription?.toString() == "fixture-edited" }.isChecked)
-                // 再收起，条目重新隐藏（收起有动画，轮询等待它消失）。
-                clickText(base.getString(R.string.homework_collapse))
+                clickText(collapseCompleted)
+                awaitText(expandCompleted)
                 val collapseDeadline = System.nanoTime() + 5_000_000_000L
                 while (hasText("fixture-edited") && System.nanoTime() < collapseDeadline) {
                     instrumentation.waitForIdleSync()
                     Thread.sleep(50)
                 }
                 assertFalse("收起后已完成项应隐藏", hasText("fixture-edited"))
+                clickText(expandCompleted)
+                awaitText(collapseCompleted)
+                awaitText("fixture-edited")
+                assertTrue(awaitNode {
+                    it.isCheckable && it.contentDescription?.toString() == "fixture-edited"
+                }.isChecked)
             }
         } finally {
             base.deleteSharedPreferences("$preferenceName-timeline_homework_v1")

@@ -55,10 +55,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.livedata.observeAsState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
@@ -84,9 +87,11 @@ import cn.limpu.hita.ui.design.DeveloperCredits
 import cn.limpu.hita.data.model.ReleaseHistoryItem
 import cn.limpu.hita.ui.design.HitaComposeTheme
 import cn.limpu.hita.ui.design.HitaTheme
+import cn.limpu.hita.ui.design.StringSetSaver
 import cn.limpu.hita.ui.design.scrimForWhiteText
 import cn.limpu.hita.utils.ActivityUtils
 import cn.limpu.hita.utils.LogUtils
+import cn.limpu.hita.update.InstallPermissionGate
 import com.limpu.style.ThemeTools
 import dagger.hilt.android.AndroidEntryPoint
 import io.noties.markwon.Markwon
@@ -100,6 +105,9 @@ import io.noties.markwon.linkify.LinkifyPlugin
 @AndroidEntryPoint
 class ActivityAbout : AppCompatActivity() {
     private val viewModel: AboutViewModel by viewModels()
+
+    /** 安装授权续接：只服务本页面发起的更新请求。 */
+    private val installGate = InstallPermissionGate(this)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         val nightMode = when (ThemeTools.getThemeMode(this)) {
@@ -120,7 +128,7 @@ class ActivityAbout : AppCompatActivity() {
                         UserAgreementDialog().show(supportFragmentManager, "a")
                     },
                     onShowUpdate = { result ->
-                        ActivityUtils.showUpdateNotificationForce(result, this)
+                        ActivityUtils.showUpdateNotificationForce(result, this, installGate)
                     }
                 )
             }
@@ -514,8 +522,24 @@ private fun ReleaseHistory(
                 )
             }
             else -> {
+                // 展开偏好按版本号记在列表层：滚动、旋转和重建后保持最后一次操作。
+                var expandedVersions by rememberSaveable(stateSaver = StringSetSaver) {
+                    mutableStateOf(emptySet<String>())
+                }
                 state.data.orEmpty().forEach { item ->
-                    ReleaseHistoryCard(item = item, markwon = markwon)
+                    val id = item.versionName.ifBlank { item.releaseName }
+                    ReleaseHistoryCard(
+                        item = item,
+                        markwon = markwon,
+                        expanded = id in expandedVersions,
+                        onToggle = {
+                            expandedVersions = if (id in expandedVersions) {
+                                expandedVersions - id
+                            } else {
+                                expandedVersions + id
+                            }
+                        },
+                    )
                 }
             }
         }
@@ -526,11 +550,15 @@ private fun ReleaseHistory(
 private fun ReleaseHistoryCard(
     item: ReleaseHistoryItem,
     markwon: Markwon,
+    expanded: Boolean,
+    onToggle: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val tokens = HitaTheme.tokens
     val contentColor = MaterialTheme.colorScheme.onSurface
-    var expanded by remember(item.releaseName) { mutableStateOf(false) }
+    val expandedState = stringResource(
+        if (expanded) R.string.state_expanded else R.string.state_collapsed
+    )
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.background),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
@@ -538,7 +566,8 @@ private fun ReleaseHistoryCard(
         modifier = modifier
             .fillMaxWidth()
             .padding(bottom = tokens.spacing.sm)
-            .clickable { expanded = !expanded }
+            .semantics { stateDescription = expandedState }
+            .clickable(onClick = onToggle)
     ) {
         Column(
             modifier = Modifier.padding(
@@ -546,17 +575,29 @@ private fun ReleaseHistoryCard(
                 vertical = 12.dp
             )
         ) {
-            Text(
-                text = buildString {
-                    append(item.releaseName)
-                    if (item.prerelease) append(" · 预发布")
-                },
-                color = MaterialTheme.colorScheme.onSurface,
-                fontSize = 15.sp,
-                fontWeight = FontWeight.Bold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = buildString {
+                        append(item.releaseName)
+                        if (item.prerelease) append(" · 预发布")
+                    },
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
+                Icon(
+                    painter = painterResource(R.drawable.ic_baseline_keyboard_arrow_right_24),
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier
+                        .padding(start = 8.dp)
+                        .size(20.dp)
+                        .rotate(if (expanded) 90f else 0f)
+                )
+            }
             if (expanded) {
                 AndroidView(
                     modifier = Modifier

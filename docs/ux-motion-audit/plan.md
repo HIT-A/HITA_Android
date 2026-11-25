@@ -1,12 +1,12 @@
 # HITA Android 体验与动效实施计划
 
-**状态：仅计划，未授权实施。**从 [报告](report.md) 和 [规格](spec.md) 开始；后续修复使用 `feat/ux-motion-audit`，不从 `main` 直接改。目标是先保证状态和操作正确，再调整动效，不以动画、Toast 或自动重试掩盖不明确的结果。
+**状态：已有分支实现，未通过全部验收。**以 [报告](report.md) 和 [规格](spec.md) 为依据，在 `feat/ux-motion-audit` 上工作。先保证状态和操作正确，再调整动效，不以动画、Toast 或自动重试掩盖不明确的结果。
 
 ## 顺序与共用验证
 
 1. **先做安全修复 T-01、T-03 的确认归属部分。**它们各有明确的退出条件，不依赖新动效或其它 UI 重构。T-02 接在 T-01 后，共用课表动作规则；T-03 剩余部分保留会话归属接口。T-04、T-05 可按独立业务域拆交付，涉及同一页面时先完成 T-04 的读取状态，再接 T-05 的写入。T-06 不改主壳动画，T-07 在状态契约稳定后接入。T-08 贯穿采集基线，最后统一验收。
 2. **验证现有行为，再补确有缺口的用例。**保留现有测试的约束，不改测试以迁就不正确的结果。常用命令：`gradlew.bat :app:testDebugUnitTest --tests "*ClassName"`、`gradlew.bat :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=<全限定类名>`；在 POSIX 环境使用 `./gradlew`。下文测试类是现有入口，不表示已覆盖新增契约；先实现再验证，涉及无账号边界用受控数据，不往真实服务写测试记录。
-3. **提交、设备包和发布是不同的授权。**当前只交付文档，不提交。后续修复通过 `gradlew.bat assembleDebug testDebugUnitTest` 和各任务验收后先汇报；等明确指令才复制诊断包为根目录 `app-debug.apk`。真机反馈、性能和登录门未通过不合并；推送和正式发布等明确授权。约束、持久化结构、外部接口或安全策略需要调整时，先报告冲突，不绕过原验收。
+3. **提交、设备包和发布是不同的动作。**通过本轮全部放行检查后才提交工作区改动并替换根目录 `app-debug.apk`。达到复验上限仍失败时保留改动和可复现证据，不提交未验收改动或替换诊断包。约束、持久化结构、外部接口或安全策略需要调整时，先报告冲突，不绕过原验收。本轮不合并、不推送、不发布。
 
 ## 工作项
 
@@ -43,7 +43,7 @@
 ### T-06
 **后台提示、阅读返回、通知与小组件。**规格 [S-07](spec.md#s-07)、[S-10](spec.md#s-10)、[S-11](spec.md#s-11)；证据 [UX-02](report.md#ux-02)、[UX-18](report.md#ux-18)、[UX-19](report.md#ux-19)、[UX-20](report.md#ux-20)。依赖：T-04 的读取状态；T-07 只复用其终态和锚点。
 
-- 分三组做窄改动。① `MainViewModel`/两个 Presenter、`ActivityAbout`、`BlogFragment`/`InfoPortalLoginActivity`、`UpdateFlowCoordinator`：前台占用期间延迟重要提示，普通提示入口常驻；账号更新和同版本交付不靠弹窗存在推断。② `SearchActivity`/教师结果、`BlogFragment`、`SubjectScreen`、`ActivityAbout`、`InternalWebActivity/NewsDetailActivity/MarkdownViewerActivity`：保留查询、滚动、展开偏好，Web 历史先消费 Back，读失败不默默离开。③ `WidgetConfigureActivity`、两种 Today widget/factory、`TodayUtils`、`WidgetDeepLink`/`MainActivity` 与 `CourseReminderWorker`/`ReminderRuleSet`/`EventItemDao`：配置按实例读取，显式范围/背景和受限目标解析；时间窗口、去重与目标链接一起验。
+- 分三组做窄改动。① `MainViewModel`/两个 Presenter、`ActivityAbout`、`BlogFragment`/`InfoPortalLoginActivity`、`InstallPermissionGate`：前台占用期间延迟重要提示，普通提示入口常驻；账号更新和同版本交付不靠弹窗存在推断。② `SearchActivity`/教师结果、`BlogFragment`、`SubjectScreen`、`ActivityAbout`、`InternalWebActivity/NewsDetailActivity/MarkdownViewerActivity`：保留查询、滚动、展开偏好，Web 历史先消费 Back，读失败不默默离开。③ `WidgetConfigureActivity`、两种 Today widget/factory、`TodayUtils`、`WidgetDeepLink`/`MainActivity` 与 `CourseReminderWorker`/`ReminderRuleSet`/`EventItemDao`：配置按实例读取，显式范围/背景和受限目标解析；时间窗口、去重与目标链接一起验。
 - 退出条件：排队公告、未处理/已处理升级、不成功续期、浏览器/系统返回和进程重建；长内容展开来回、Web 重定向后返回；两款组件各做冷、暖、无效事件，通知规则用可控时钟。复用 `MainNoticePolicyTest`、`MainNoticePresenterInstrumentedTest`、`MainUpdatePresenterInstrumentedTest`、`CourseReminderWorkerInstrumentedTest`、`ReminderRuleSetTest`、`WidgetConfigCodecTest`、`WidgetDeepLinkTest`、`WidgetRefreshWorkerInstrumentedTest`，另做启动器实际手点。
 
 ### T-07
@@ -64,22 +64,24 @@ gradlew.bat :macrobenchmark:connectedBenchmarkAndroidTest \
   -Pandroid.testInstrumentationRunnerArguments.class=cn.limpu.hita.benchmark.UxJourneysBenchmark
 ```
 
-单个旅程可加 `#classicTabs` 等后缀。准备阶段会先关闭一次性启动公告（不属于被测旅程），并显式设置 `androidx.benchmark.suppressErrors=EMULATOR`；这说明数据来自模拟器，不能当真实设备性能门。已跑通 `classicTabs` 并记录 P50/P90/P95/P99（[UX-23-B](report.md#ux-23-b)）；其余旅程、三种装饰风格和真机门仍未测。`:style`、`:component`、`:hitauser` 同步声明了 `benchmark` 构建类型（`initWith release`）供该变体解析；`app` 的 `benchmark` 变体用 debug 签名并保留 `BenchmarkSeedActivity` 类名。
+单个旅程可加 `#classicTabs` 等后缀。准备阶段处理启动公告，采样配置显式设置 `androidx.benchmark.suppressErrors=EMULATOR`。经典和玻璃主题的页签与抽屉取得帧样本；切周、滚动待办和滚动会话未通过准备阶段，详见 [UX-23-B](report.md#ux-23-b)。`:style`、`:component`、`:hitauser` 声明同名构建类型供该变体解析；目标包与测试 APK 使用 debug 签名，目标包保留种子入口类名。
 - 依次运行基线和候选、每设备每旅程至少 10 次；使用基线和候选一致的编译、数据量、刷新率和主题，在报告保存环境、samples/JSON/Perfetto 路径、P95/P99/超时帧和失败的 UI 序列。按 [S-13](spec.md#s-13) 逐行判定，不用跨设备平均遮掩失败。图层、布局、主线程/RenderThread 或系统其他负载要分别归因；没有 trace 不下归因结论。必要时把装饰降为静态，不改变已通过的基本交互。
-- 全量放行：`gradlew.bat assembleDebug testDebugUnitTest :timetable-core:test`，改动涉及的 instrumentation 及 `python scripts/check_repository.py`；真机走完整主任务，三校区下按 [CV-08](report.md#1-状态覆盖与实测边界) 覆盖相关登录及绑定状态、联网/断网、权限访问与拒绝。记录真机型号、系统、状态与逐条结果。无账号、无设备、超性能阈值或真实服务时序未验证均不声称通过，不自动合并上线。
+- 本轮放行：按 [Android CI](../../.github/workflows/android-ci.yml) 执行 Debug、JVM、核心 JAR、style Release 资源与打包、API 35 四模块仪器测试和仓库检查。真机性能、三校区登录及真实服务写入未覆盖，不作为本轮本地验收的前置条件；模拟器帧数据不能代替真机数据。本轮不合并、不推送、不发布。
 
 ## 本轮实施与验收结果
 
-**工作项落地情况**：T-01（统一退出对话框、批量口令必选披露、详情批量删除确认）、T-02（空态不建表、空表按学期、表单必填与保存回执、待办行内撤销）、T-03（确认门按会话+请求身份）、T-04（`TimetableWindowKey`/`ResourceSearchKey` 请求身份）、T-05（预览与提交同源、静音舱写入跟踪）、T-06（普通提示常驻入口、前台占用延迟重要提示、删除历史入口）、T-07（`HitaMotion` 集中时长与系统倍率、移除重叠装饰绘制）已实现；T-08（`:macrobenchmark` + `UxJourneysBenchmark`）已可构建并在模拟器可运行。各项目的真机、真实账号与全矩阵子项仍未验证，见下文。
-
+**已落地的代表性改动（不代表各项退出条件全部通过）**：T-01 统一退出、批量口令披露、详情批量删除确认；T-02 空态不建表、表单提交回执、待办行内撤销；T-03 确认按会话与请求身份绑定；T-04 `TimetableWindowKey` / `ResourceSearchKey`；T-05 预览与提交同源、静音舱写入跟踪；T-06 公告入口、删除历史入口；T-07 `HitaMotion` 集中时长和系统倍率；T-08 独立基准模块和部分旅程样本。逐项退出条件仍以本计划对应段落为准。
 
 以下为在 `feat/ux-motion-audit` 上实际执行的结果，测试命令与结论一一对应；未列出的设备或账号场景仍属未验证。
 
-- 构建与 JVM：`:app:assembleDebug`、`:app:testDebugUnitTest`、`:component|hitauser|style:testDebugUnitTest`、`:timetable-core:test`、`:timetable-core:jar` 通过（`BUILD SUCCESSFUL`）。
-- 仓库检查：`python scripts/check_repository.py --base-ref origin/main` 通过。
+- 构建与 JVM：最新 Debug APK、`:app|component|hitauser:testDebugUnitTest`、`:timetable-core:test` / `:jar` 的 Gradle 命令成功；`:style:verifyReleaseResources :style:assembleRelease --rerun-tasks --no-build-cache` 通过。`style` 的 JVM 任务为 `NO-SOURCE`；App JVM 报告 1487 通过，1 个要求 `HOA_INTEGRATION_TEST=1` 的既有线上兼容性测试按默认配置未执行。
+- 仓库检查：`python scripts/check_repository.py --base-ref origin/main` 已通过；检查器自测在 WSL Ubuntu 通过 22 个用例，原生 Windows 缺少创建符号链接权限（WinError 1314）。
 - 模拟器（API 35，`hita_test`，1080×2400/420 dpi）：验证空态不建表、建表后两页周次一致、表单必填与保存落库、详情页批量删除确认、待办完成与行内撤销、公告列表与抽屉入口。证据见 [报告 §7](report.md#7-本轮修复后的复测)。
-- 仪器测试：`TimetableBatchUiInstrumentedTest`、其余 `:app:connectedDebugAndroidTest` 用例通过；`HomeworkUiInstrumentedTest.dailyScreenSupportsEditingCompletionAndLegacyTasks` 未通过（3 次尝试后停止），原因与手动复现差异见报告；未声称该用例通过。
+- 本轮三项续接：选课排程的目标快照与 `CourseSelectionScheduleContinuity` 由 `ShenzhenCourseSelectionUiPolicyTest` 覆盖（9 用例通过）；资讯展开优先级抽为 `BlogExpansionPolicy` 并由 `BlogExpansionPolicyTest` 覆盖（6 用例通过）；更新分发顺序与 `InstallPermissionGate` 改动已编译，模拟器未走授权往返；历史版本展开偏好经模拟器旋转复验保持，已写入 [报告 §7](report.md#7-本轮修复后的复测)。全量 JVM 为 App 1493（1 跳过）、component 14、hitauser 8、timetable-core 57，均无失败。
+- 仪器测试：最新工作区在 API 35 串行执行 App 999、component 7、hitauser 11、style 8，均通过且无跳过。小组件固定范围、过时提醒不补发、WebView 历史与重试均包含在最新 App 结果中。见 [报告 §7](report.md#7-本轮修复后的复测)。
+- Macrobenchmark：额外复验达到上限，四个旅程有样本及 40 条 Perfetto 轨迹；长会话启动失败，切周、长待办没有完成结果。见 [UX-23-B](report.md#ux-23-b)。
 - 未验证：真机性能门槛、三校区真实登录、真实服务写入、TalkBack/键盘/分屏全矩阵，以及 Macrobenchmark 实机采样。
+- 交付状态：本次补充验收没有新增提交；未验收改动和文档保留在工作区。根目录 `app-debug.apk` 仍为之前的 `cn.limpu.hita.diag`，SHA-256 `929b78c5c6d124e647d1b2d954b5ad6cb4c83ce2cffb5b2959ca25319a0b74ad`，与最新 Debug 构建不同，未替换。
 
 ## 本轮文档检查
 

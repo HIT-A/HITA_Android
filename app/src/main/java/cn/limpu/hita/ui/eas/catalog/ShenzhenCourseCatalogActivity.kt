@@ -2,6 +2,7 @@ package cn.limpu.hita.ui.eas.catalog
 
 import android.Manifest
 import android.app.Activity
+import android.content.ActivityNotFoundException
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -60,11 +61,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.livedata.observeAsState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
@@ -129,12 +132,13 @@ class ShenzhenCourseCatalogActivity :
     private var attachmentDialog by mutableStateOf<CourseAttachmentDialogState?>(null)
     private var historicalFailureDialog by mutableStateOf<HistoricalFailureDialogState?>(null)
     private var isShowingCoursePlanPreview by mutableStateOf(false)
-    private var notificationPermissionGranted by mutableStateOf(true)
+    private var notificationPermissionReturn by mutableStateOf<Boolean?>(null)
+    private var exactAlarmPermissionReturn by mutableStateOf<Boolean?>(null)
     private var pendingDownload: ShenzhenCourseAttachment? = null
     private val notificationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
-        notificationPermissionGranted = granted
+        notificationPermissionReturn = granted
         if (!granted) {
             Toast.makeText(
                 this,
@@ -142,6 +146,12 @@ class ShenzhenCourseCatalogActivity :
                 Toast.LENGTH_LONG
             ).show()
         }
+    }
+    private val exactAlarmPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) {
+        // Settings does not report grant via resultCode; read the actual capability.
+        exactAlarmPermissionReturn = courseSelectionAlarmScheduler.canScheduleExactAlarms()
     }
     private val storagePermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -163,7 +173,6 @@ class ShenzhenCourseCatalogActivity :
 
     override fun initViews() {
         super.initViews()
-        notificationPermissionGranted = hasNotificationPermission()
         bindLiveData()
         (binding.root as ComposeView).setContent {
             HitaComposeTheme {
@@ -214,7 +223,8 @@ class ShenzhenCourseCatalogActivity :
                         graduateMode = graduateMode,
                         graduateCategories = graduateCategories,
                         graduateFilters = graduateFilters,
-                        notificationPermissionGranted = notificationPermissionGranted,
+                        notificationPermissionReturn = notificationPermissionReturn,
+                        exactAlarmPermissionReturn = exactAlarmPermissionReturn,
                         onBack = { finish() },
                         onRefresh = { refresh() },
                         onConnectWeb = { connectWebSession() },
@@ -272,10 +282,14 @@ class ShenzhenCourseCatalogActivity :
                             }
                         },
                         onRequestNotificationPermission = { requestNotificationPermission() },
+                        onNotificationPermissionConsumed = { notificationPermissionReturn = null },
+                        hasNotificationPermission = ::hasNotificationPermission,
+                        onExactAlarmPermissionConsumed = { exactAlarmPermissionReturn = null },
+                        onBeginScheduleConfirmation = viewModel::beginScheduleConfirmation,
+                        isScheduleConfirmationCurrent = viewModel::isScheduleConfirmationCurrent,
+                        onCancelScheduleConfirmation = viewModel::cancelScheduleConfirmation,
                         canScheduleExactAlarms = courseSelectionAlarmScheduler::canScheduleExactAlarms,
-                        onOpenExactAlarmSettings = {
-                            startActivity(courseSelectionAlarmScheduler.exactAlarmSettingsIntent())
-                        },
+                        onOpenExactAlarmSettings = ::requestExactAlarmPermission,
                         attachmentDialog = attachmentDialog,
                         historicalFailureDialog = historicalFailureDialog,
                         onCourseClick = { showCourseActions(it) },
@@ -288,11 +302,6 @@ class ShenzhenCourseCatalogActivity :
                 }
             }
         }
-    }
-
-    override fun onResume() {
-        super.onResume()
-        notificationPermissionGranted = hasNotificationPermission()
     }
 
     private fun bindLiveData() {
@@ -505,9 +514,19 @@ class ShenzhenCourseCatalogActivity :
 
     private fun requestNotificationPermission() {
         if (hasNotificationPermission()) {
-            notificationPermissionGranted = true
+            notificationPermissionReturn = true
         } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
+
+    private fun requestExactAlarmPermission() {
+        try {
+            exactAlarmPermissionLauncher.launch(courseSelectionAlarmScheduler.exactAlarmSettingsIntent())
+        } catch (_: ActivityNotFoundException) {
+            exactAlarmPermissionReturn = false
+        } catch (_: SecurityException) {
+            exactAlarmPermissionReturn = false
         }
     }
 
@@ -634,6 +653,8 @@ private data class HistoricalFailureDialogState(
     val error: String? = null
 )
 
+private enum class ScheduleStep { NOTIFICATION, ALARM_GUIDANCE, ALARM, DATE, TIME }
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ShenzhenCourseCatalogScreen(
@@ -654,7 +675,8 @@ private fun ShenzhenCourseCatalogScreen(
     graduateMode: Boolean = false,
     graduateCategories: List<GraduateSelectionCategory> = emptyList(),
     graduateFilters: GraduateFilterOptions? = null,
-    notificationPermissionGranted: Boolean,
+    notificationPermissionReturn: Boolean?,
+    exactAlarmPermissionReturn: Boolean?,
     onBack: () -> Unit,
     onRefresh: () -> Unit,
     onConnectWeb: () -> Unit,
@@ -680,6 +702,12 @@ private fun ShenzhenCourseCatalogScreen(
     onCancelSelectionJob: (String) -> Unit,
     onConfirmSelectionJob: (String) -> Unit,
     onRequestNotificationPermission: () -> Unit,
+    onNotificationPermissionConsumed: () -> Unit,
+    hasNotificationPermission: () -> Boolean,
+    onExactAlarmPermissionConsumed: () -> Unit,
+    onBeginScheduleConfirmation: () -> Boolean,
+    isScheduleConfirmationCurrent: () -> Boolean,
+    onCancelScheduleConfirmation: () -> Unit,
     canScheduleExactAlarms: () -> Boolean,
     onOpenExactAlarmSettings: () -> Unit,
     attachmentDialog: CourseAttachmentDialogState?,
@@ -715,10 +743,26 @@ private fun ShenzhenCourseCatalogScreen(
         mutableStateOf(graduateCategories.firstOrNull()?.id.orEmpty())
     }
     var showImmediateConfirmation by remember { mutableStateOf(false) }
-    var showScheduleDatePicker by remember { mutableStateOf(false) }
-    var scheduledDateMillis by remember { mutableStateOf<Long?>(null) }
-    var showExactAlarmGuidance by remember { mutableStateOf(false) }
-    var awaitingNotificationPermission by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    var scheduleStep by rememberSaveable { mutableStateOf<ScheduleStep?>(null) }
+    var scheduledDateMillis by rememberSaveable { mutableStateOf<Long?>(null) }
+
+    fun cancelSchedule() {
+        scheduleStep = null
+        scheduledDateMillis = null
+        onCancelScheduleConfirmation()
+    }
+
+    fun validateScheduleTarget(): Boolean {
+        if (isScheduleConfirmationCurrent()) return true
+        cancelSchedule()
+        Toast.makeText(context, R.string.course_selection_schedule_changed, Toast.LENGTH_SHORT).show()
+        return false
+    }
+
+    fun openScheduleConfirmation() {
+        scheduleStep = if (canScheduleExactAlarms()) ScheduleStep.DATE else ScheduleStep.ALARM_GUIDANCE
+    }
 
     // 冲突描述原本在 items{} 里逐卡现算（O(课程 × 会议²)），滚动时每帧重跑。
     // 这里按"当前页 + 已选/草稿"一次性求值，卡片只做 map 查表。
@@ -732,13 +776,23 @@ private fun ShenzhenCourseCatalogScreen(
         }
     }
 
-    LaunchedEffect(notificationPermissionGranted, awaitingNotificationPermission) {
-        if (notificationPermissionGranted && awaitingNotificationPermission) {
-            awaitingNotificationPermission = false
-            if (canScheduleExactAlarms()) {
-                showScheduleDatePicker = true
-            } else {
-                showExactAlarmGuidance = true
+    LaunchedEffect(notificationPermissionReturn) {
+        val granted = notificationPermissionReturn ?: return@LaunchedEffect
+        onNotificationPermissionConsumed()
+        if (scheduleStep == ScheduleStep.NOTIFICATION) {
+            if (!granted) cancelSchedule()
+            else if (validateScheduleTarget()) openScheduleConfirmation()
+        }
+    }
+    LaunchedEffect(exactAlarmPermissionReturn) {
+        val granted = exactAlarmPermissionReturn ?: return@LaunchedEffect
+        onExactAlarmPermissionConsumed()
+        if (scheduleStep == ScheduleStep.ALARM) {
+            if (!granted) {
+                cancelSchedule()
+                Toast.makeText(context, R.string.course_selection_exact_alarm_not_granted, Toast.LENGTH_SHORT).show()
+            } else if (validateScheduleTarget()) {
+                scheduleStep = ScheduleStep.DATE
             }
         }
     }
@@ -768,33 +822,39 @@ private fun ShenzhenCourseCatalogScreen(
             }
         )
     }
-    if (showExactAlarmGuidance) {
+    if (scheduleStep == ScheduleStep.ALARM_GUIDANCE) {
         ExactAlarmGuidanceDialog(
-            onDismiss = { showExactAlarmGuidance = false },
+            onDismiss = ::cancelSchedule,
             onOpenSettings = {
-                showExactAlarmGuidance = false
-                onOpenExactAlarmSettings()
-            }
+                if (validateScheduleTarget()) {
+                    scheduleStep = ScheduleStep.ALARM
+                    onOpenExactAlarmSettings()
+                }
+            },
         )
     }
-    if (showScheduleDatePicker) {
+    if (scheduleStep == ScheduleStep.DATE) {
         SelectionScheduleDateDialog(
-            onDismiss = { showScheduleDatePicker = false },
+            onDismiss = ::cancelSchedule,
             onDateSelected = { dateMillis ->
-                showScheduleDatePicker = false
-                scheduledDateMillis = dateMillis
-            }
+                if (validateScheduleTarget()) {
+                    scheduledDateMillis = dateMillis
+                    scheduleStep = ScheduleStep.TIME
+                }
+            },
         )
     }
-    scheduledDateMillis?.let { dateMillis ->
+    if (scheduleStep == ScheduleStep.TIME) scheduledDateMillis?.let { dateMillis ->
         SelectionScheduleTimeDialog(
             dateMillis = dateMillis,
             courseCount = selectedSubmissionCourses.size,
-            onDismiss = { scheduledDateMillis = null },
+            onDismiss = ::cancelSchedule,
             onConfirm = { scheduledAtMillis ->
-                scheduledDateMillis = null
-                onCreateScheduledSelection(scheduledAtMillis)
-            }
+                if (validateScheduleTarget()) {
+                    cancelSchedule()
+                    onCreateScheduledSelection(scheduledAtMillis)
+                }
+            },
         )
     }
 
@@ -1054,13 +1114,15 @@ private fun ShenzhenCourseCatalogScreen(
                 selectedCount = selectedSubmissionCourses.size,
                 onSubmitNow = { showImmediateConfirmation = true },
                 onSchedule = {
-                    when {
-                        !notificationPermissionGranted -> {
-                            awaitingNotificationPermission = true
+                    if (scheduleStep == null) {
+                        if (!onBeginScheduleConfirmation()) {
+                            Toast.makeText(context, R.string.course_selection_schedule_changed, Toast.LENGTH_SHORT).show()
+                        } else if (!hasNotificationPermission()) {
+                            scheduleStep = ScheduleStep.NOTIFICATION
                             onRequestNotificationPermission()
+                        } else {
+                            openScheduleConfirmation()
                         }
-                        !canScheduleExactAlarms() -> showExactAlarmGuidance = true
-                        else -> showScheduleDatePicker = true
                     }
                 }
             )

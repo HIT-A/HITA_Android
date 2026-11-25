@@ -10,6 +10,8 @@ import androidx.lifecycle.viewModelScope
 import com.limpu.component.data.DataState
 import com.limpu.component.data.Trigger
 import cn.limpu.hita.data.model.eas.EASToken
+import cn.limpu.hita.data.model.eas.EasQueryScope
+import cn.limpu.hita.data.model.eas.EasTermKey
 import cn.limpu.hita.data.model.eas.GraduateFilterOptions
 import cn.limpu.hita.data.model.eas.GraduateSelectionCategory
 import cn.limpu.hita.data.repository.GraduateCourseCatalogRepository
@@ -97,6 +99,25 @@ object ShenzhenCourseSelectionUiPolicy {
             else -> CourseSelectionScheduleValidation.VALID
         }
     }
+}
+
+/** 一次定时选课确认所绑定的账号会话、学期、课程池和课程集合快照。 */
+internal data class CourseSelectionScheduleTarget(
+    val scope: EasQueryScope,
+    val term: EasTermKey,
+    val poolCode: String,
+    val requestIds: Set<String>,
+)
+
+/**
+ * 权限/设置往返后只有在目标完全没变时才继续确认。
+ * 会话代次变化意味着期间发生过重新登录或切换账号，即使 ownerKey 相同也要重新开始。
+ */
+internal object CourseSelectionScheduleContinuity {
+    fun isSameTarget(
+        snapshot: CourseSelectionScheduleTarget?,
+        current: CourseSelectionScheduleTarget?,
+    ): Boolean = snapshot != null && snapshot == current
 }
 
 internal class ShenzhenCourseSelectionDraftState {
@@ -375,6 +396,37 @@ class ShenzhenCourseCatalogViewModel @Inject constructor(
         } }
     }
     private val submissionDraftState = ShenzhenCourseSelectionDraftState()
+    private var scheduleTarget: CourseSelectionScheduleTarget? = null
+
+    /** 记下这次确认的完整目标；授权/设置往返后据此判断是否还能沿用同一份选择。 */
+    internal fun beginScheduleConfirmation(): Boolean {
+        scheduleTarget = currentScheduleTarget()
+        return scheduleTarget != null
+    }
+
+    internal fun isScheduleConfirmationCurrent(): Boolean =
+        CourseSelectionScheduleContinuity.isSameTarget(scheduleTarget, currentScheduleTarget())
+
+    internal fun cancelScheduleConfirmation() {
+        scheduleTarget = null
+    }
+
+    private fun currentScheduleTarget(): CourseSelectionScheduleTarget? {
+        if (isGraduateCatalog || sourceLiveData.value != ShenzhenCourseCatalogSource.AVAILABLE) return null
+        val scope = easRepo.captureQuerySession().scope
+        if (!scope.loggedIn) return null
+        if (scope.ownerKey == null) return null
+        val term = selectedTermDisplay.current() ?: return null
+        val pool = selectedPoolLiveData.value ?: return null
+        val requests = submissionDraftState.requestIds()
+        if (requests.isEmpty()) return null
+        return CourseSelectionScheduleTarget(
+            scope = scope,
+            term = EasTermKey.of(term),
+            poolCode = pool.code,
+            requestIds = requests,
+        )
+    }
     val selectedForSubmissionLiveData = MutableLiveData<Set<String>>(emptySet())
     val selectedSubmissionCoursesLiveData = MediatorLiveData<List<ShenzhenCourseCatalogItem>>().apply {
         addSource(selectedForSubmissionLiveData) { value = selectedSubmissionCoursesInCardOrder() }

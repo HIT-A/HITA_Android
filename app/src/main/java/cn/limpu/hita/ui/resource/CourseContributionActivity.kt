@@ -48,6 +48,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.livedata.observeAsState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -64,10 +65,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.limpu.component.data.DataState
 import cn.limpu.hita.R
-import cn.limpu.hita.data.model.resource.CourseStructureSummary
-import cn.limpu.hita.data.model.resource.CoursePreviewData
 import cn.limpu.hita.data.model.resource.CourseContributionOps
-import cn.limpu.hita.data.model.resource.CourseSummary
 import cn.limpu.hita.ui.design.HitaComposeTheme
 import cn.limpu.hita.ui.design.HitaTheme
 import cn.limpu.hita.ui.widgets.PopUpCalendarPicker
@@ -153,6 +151,11 @@ private enum class CourseTargetMode {
     NEW,
 }
 
+private data class ContributionPreviewOwner(
+    val draft: Any,
+    val request: CourseContributionViewModel.PreviewRequest,
+)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun CourseContributionScreen(
@@ -171,24 +174,36 @@ private fun CourseContributionScreen(
     val structureState by viewModel.structureLiveData.observeAsState()
     val previewState by viewModel.previewLiveData.observeAsState()
     val submitState by viewModel.submitLiveData.observeAsState()
-    var repoType by remember(initialRepoType) { mutableStateOf(initialRepoType) }
-    var selectedMode by remember { mutableStateOf<ContributionMode?>(null) }
-    var selectedCourse by remember { mutableStateOf<CourseSummary?>(null) }
-    var courseTargetMode by remember { mutableStateOf(CourseTargetMode.EXISTING) }
-    var newCourseNameText by remember { mutableStateOf(TextFieldValue("")) }
-    var selectedDate by remember { mutableStateOf(Calendar.getInstance()) }
-    var loading by remember { mutableStateOf(true) }
-    var typeText by remember { mutableStateOf("") }
-    var courseText by remember { mutableStateOf("") }
-    var sectionText by remember { mutableStateOf(TextFieldValue("")) }
-    var teacherText by remember { mutableStateOf(TextFieldValue("")) }
-    var topicText by remember { mutableStateOf(TextFieldValue("")) }
-    var normalTeacherText by remember { mutableStateOf(TextFieldValue("")) }
-    var contentText by remember { mutableStateOf(TextFieldValue("")) }
-    var authorNameText by remember { mutableStateOf(TextFieldValue("")) }
-    var authorLinkText by remember { mutableStateOf(TextFieldValue("")) }
-    var pendingOps by remember { mutableStateOf<JSONArray?>(null) }
-    var previewDialog by remember { mutableStateOf<CoursePreviewData?>(null) }
+    val submitting by viewModel.submitInFlight.observeAsState(false)
+    var repoType by rememberSaveable(initialRepoType) { mutableStateOf(initialRepoType) }
+    var selectedMode by rememberSaveable { mutableStateOf<ContributionMode?>(null) }
+    var selectedCourseName by rememberSaveable { mutableStateOf<String?>(null) }
+    var courseTargetMode by rememberSaveable { mutableStateOf(CourseTargetMode.EXISTING) }
+    var newCourseNameText by rememberSaveable(stateSaver = TextFieldValue.Saver) { mutableStateOf(TextFieldValue("")) }
+    var selectedDate by rememberSaveable { mutableStateOf(Calendar.getInstance()) }
+    var typeText by rememberSaveable { mutableStateOf("") }
+    var courseText by rememberSaveable { mutableStateOf("") }
+    var sectionText by rememberSaveable(stateSaver = TextFieldValue.Saver) { mutableStateOf(TextFieldValue("")) }
+    var teacherText by rememberSaveable(stateSaver = TextFieldValue.Saver) { mutableStateOf(TextFieldValue("")) }
+    var topicText by rememberSaveable(stateSaver = TextFieldValue.Saver) { mutableStateOf(TextFieldValue("")) }
+    var normalTeacherText by rememberSaveable(stateSaver = TextFieldValue.Saver) { mutableStateOf(TextFieldValue("")) }
+    var contentText by rememberSaveable(stateSaver = TextFieldValue.Saver) { mutableStateOf(TextFieldValue("")) }
+    var authorNameText by rememberSaveable(stateSaver = TextFieldValue.Saver) { mutableStateOf(TextFieldValue("")) }
+    var authorLinkText by rememberSaveable(stateSaver = TextFieldValue.Saver) { mutableStateOf(TextFieldValue("")) }
+    var owner by remember { mutableStateOf<ContributionPreviewOwner?>(null) }
+    // 光标移动不是改稿；任何影响实际提交内容的变化都会让旧预览失效。
+    val draft = remember(
+        repoName, courseCode, courseName, repoType, selectedMode, selectedCourseName,
+        courseTargetMode, newCourseNameText.text, selectedDate.timeInMillis, sectionText.text,
+        teacherText.text, topicText.text, normalTeacherText.text, contentText.text,
+        authorNameText.text, authorLinkText.text,
+    ) { Any() }
+    val loading = structureState == null || submitting ||
+        (owner != null && previewState?.request !== owner?.request)
+    val previewDialog = previewState?.takeIf { result ->
+        owner?.let { it.draft === draft && it.request === result.request } == true &&
+            result.data.state == DataState.STATE.SUCCESS && !result.data.data?.markdown.isNullOrBlank()
+    }
 
     fun modeLabel(mode: ContributionMode): String {
         return when (mode) {
@@ -218,15 +233,15 @@ private fun CourseContributionScreen(
 
     LaunchedEffect(structureState) {
         val state = structureState ?: return@LaunchedEffect
-        loading = false
         if (state.state == DataState.STATE.SUCCESS) {
             val summary = state.data ?: return@LaunchedEffect
             LogUtils.d("Loaded: repoType=${summary.repoType}, courses=${summary.courses.size}, teachers=${summary.teachers.size}")
             repoType = summary.repoType.ifBlank { repoType }
-            if (repoType == "multi-project" && selectedCourse == null) {
-                selectedCourse = summary.courses.firstOrNull()
-                courseText = selectedCourse?.name?.ifBlank { selectedCourse?.code }.orEmpty()
-                courseTargetMode = if (selectedCourse == null) CourseTargetMode.NEW else CourseTargetMode.EXISTING
+            if (repoType == "multi-project" && selectedMode == null) {
+                val first = summary.courses.firstOrNull()
+                selectedCourseName = first?.name
+                courseText = first?.let { it.name.ifBlank { it.code } }.orEmpty()
+                courseTargetMode = if (first == null) CourseTargetMode.NEW else CourseTargetMode.EXISTING
             }
             if (repoType != "multi-project" && normalTeacherText.text.isBlank()) {
                 summary.teachers.firstOrNull()?.let {
@@ -247,24 +262,28 @@ private fun CourseContributionScreen(
         }
     }
 
-    LaunchedEffect(previewState) {
-        val state = previewState ?: return@LaunchedEffect
-        loading = false
-        if (state.state == DataState.STATE.SUCCESS) {
-            val preview = state.data ?: return@LaunchedEffect
-            if (preview.markdown.isBlank()) {
-                showMessage(context.getString(R.string.course_contribution_preview_empty))
-                return@LaunchedEffect
-            }
-            previewDialog = preview
-        } else {
-            showMessage(state.message ?: context.getString(R.string.course_resource_failed))
+    fun discardPreview(result: CourseContributionViewModel.PreviewResult) {
+        if (owner?.request === result.request) owner = null
+        viewModel.dismissPreview(result.request)
+    }
+
+    LaunchedEffect(previewState, draft) {
+        val result = previewState ?: return@LaunchedEffect
+        val activeOwner = owner
+        if (activeOwner == null || activeOwner.request !== result.request || activeOwner.draft !== draft) {
+            discardPreview(result)
+            showMessage(context.getString(R.string.course_contribution_preview_expired))
+        } else if (result.data.state != DataState.STATE.SUCCESS || result.data.data?.markdown.isNullOrBlank()) {
+            discardPreview(result)
+            showMessage(result.data.message ?: context.getString(
+                if (result.data.state == DataState.STATE.SUCCESS) R.string.course_contribution_preview_empty
+                else R.string.course_resource_failed,
+            ))
         }
     }
 
     LaunchedEffect(submitState) {
         val state = submitState ?: return@LaunchedEffect
-        loading = false
         if (state.state == DataState.STATE.SUCCESS) {
             showMessage(context.getString(R.string.course_contribution_success, state.data ?: ""))
         } else {
@@ -273,6 +292,7 @@ private fun CourseContributionScreen(
     }
 
     fun submit() {
+        if (loading) return
         val mode = selectedMode ?: run {
             showMessage(context.getString(R.string.course_contribution_pick_type))
             return
@@ -334,7 +354,7 @@ private fun CourseContributionScreen(
                 val targetCourseName = if (isNewCourse) {
                     newCourseNameText.text.trim()
                 } else {
-                    selectedCourse?.name?.trim().orEmpty()
+                    selectedCourseName?.trim().orEmpty()
                 }
                 if (targetCourseName.isBlank()) {
                     showMessage(context.getString(R.string.course_contribution_pick_course))
@@ -368,7 +388,7 @@ private fun CourseContributionScreen(
                 val targetCourseName = if (isNewCourse) {
                     newCourseNameText.text.trim()
                 } else {
-                    selectedCourse?.name?.trim().orEmpty()
+                    selectedCourseName?.trim().orEmpty()
                 }
                 if (targetCourseName.isBlank()) {
                     showMessage(context.getString(R.string.course_contribution_pick_course))
@@ -402,9 +422,7 @@ private fun CourseContributionScreen(
             }
         }
 
-        loading = true
-        pendingOps = ops
-        viewModel.preview(repoName, courseCode, courseName, repoType, ops)
+        owner = ContributionPreviewOwner(draft, viewModel.preview(repoName, courseCode, courseName, repoType, ops))
     }
 
     Box(
@@ -491,7 +509,7 @@ private fun CourseContributionScreen(
                                 val labels = courses.map { it.name.ifBlank { it.code } }
                                 if (courses.isNotEmpty()) {
                                     showCoursePicker(labels) { which ->
-                                        selectedCourse = courses[which]
+                                        selectedCourseName = courses[which].name
                                         courseText = labels[which]
                                         teacherText = TextFieldValue("")
                                         sectionText = TextFieldValue("")
@@ -585,6 +603,7 @@ private fun CourseContributionScreen(
 
                 Button(
                     onClick = { submit() },
+                    enabled = !loading,
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(48.dp)
@@ -604,12 +623,14 @@ private fun CourseContributionScreen(
             )
         }
 
-        previewDialog?.let { preview ->
+        previewDialog?.let { snapshot ->
+            val preview = requireNotNull(snapshot.data.data)
             ComposeAlertDialog(
-                onDismissRequest = { previewDialog = null },
+                onDismissRequest = { discardPreview(snapshot) },
                 title = { Text(stringResource(R.string.course_contribution_preview_title)) },
                 text = {
                     Column {
+                        Text(stringResource(R.string.course_contribution_preview_repository, snapshot.request.repoName))
                         if (preview.changedFiles.isNotEmpty()) {
                             Text(
                                 text = stringResource(
@@ -642,16 +663,18 @@ private fun CourseContributionScreen(
                 },
                 confirmButton = {
                     TextButton(onClick = {
-                        val confirmedOps = pendingOps ?: return@TextButton
-                        previewDialog = null
-                        loading = true
-                        viewModel.submit(repoName, courseCode, courseName, repoType, confirmedOps)
+                        if (owner?.draft !== draft || !viewModel.confirmPreview(snapshot)) {
+                            discardPreview(snapshot)
+                            showMessage(context.getString(R.string.course_contribution_preview_expired))
+                        } else {
+                            owner = null
+                        }
                     }) {
                         Text(stringResource(R.string.course_contribution_confirm_submit))
                     }
                 },
                 dismissButton = {
-                    TextButton(onClick = { previewDialog = null }) {
+                    TextButton(onClick = { discardPreview(snapshot) }) {
                         Text(stringResource(R.string.cancel))
                     }
                 },
