@@ -12,17 +12,10 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import okio.BufferedSink
 
 internal class GraderAuthenticationException : Exception("Grader authentication required")
-/**
- * 服务端拒绝或传输失败。带状态码与响应片段：提交作业出问题时，这几行就是唯一线索
- * （部分设备把应用日志关了）。
- */
 /** 校外无法直连作业存储（内网对象存储）。 */
 internal class GraderUploadStorageException : Exception("Grader upload storage unreachable")
-
-internal class GraderNetworkException(
-    val code: Int = 0,
-    detail: String? = null,
-) : Exception("Grader request failed: $code ${detail.orEmpty()}")
+internal class GraderFileReadException : Exception("Cannot read the selected file at its declared length")
+internal class GraderNetworkException(val code: Int = 0) : Exception("Grader request failed: $code")
 internal data class GraderRemoteSnapshot(
     val account: GraderAccount,
     val assignments: List<GraderAssignment>,
@@ -128,8 +121,7 @@ internal class GraderWebSource : GraderSubmitRemote {
     /**
      * 提交第二步：把文件传到服务端签发的地址。
      *
-     * 目标先过 [GraderSubmissionPolicy.isSameEntry]——带 cookie 与 CSRF 头的请求绝不能
-     * 发往别的源。
+     * [GraderSubmissionPolicy.plan] binds Cookie and CSRF headers to exactly the active entry.
      */
     override fun upload(
         entry: GraderSessionPolicy.Entry,
@@ -140,14 +132,14 @@ internal class GraderWebSource : GraderSubmitRemote {
         onProgress: (Long) -> Unit,
     ) {
         val plan = GraderSubmissionPolicy.plan(entry, target.url)
-            ?: throw GraderInvalidResponseException("upload url invalid: ${target.url}")
+            ?: throw GraderInvalidResponseException()
         val destination = plan as GraderSubmissionPolicy.UploadPlan.Send
         val cookie = GraderSessionPolicy.cookieHeader(entry, cookieHeader)
             ?: throw GraderAuthenticationException()
         checkActive()
         val multipart = MultipartBody.Builder().setType(MultipartBody.FORM)
         target.params.forEach { (key, value) -> multipart.addFormDataPart(key, value) }
-        multipart.addFormDataPart("file", sanitizeFileName(file.name), ProgressRequestBody(file, onProgress))
+        multipart.addFormDataPart("file", sanitizeFileName(file.name), ProgressRequestBody(file, checkActive, onProgress))
         val request = Request.Builder().url(destination.url)
             .header("Accept", "application/json")
             .apply {
@@ -160,10 +152,11 @@ internal class GraderWebSource : GraderSubmitRemote {
             .post(multipart.build())
             .build()
         try {
-            execute(uploadClient, request, checkActive)
+            execute(uploadClient, request, checkActive, readBody = false, authenticatesEntry = destination.authenticated)
         } catch (error: GraderNetworkException) {
-            // code == 0 是连不上（目标不可达），4xx 是存储拒绝上传本身。
-            if (error.code == 0 && entry == GraderSessionPolicy.Entry.GATEWAY) throw GraderUploadStorageException()
+            if (error.code == 0 && !destination.authenticated && entry == GraderSessionPolicy.Entry.GATEWAY) {
+                throw GraderUploadStorageException()
+            }
             throw error
         }
     }
@@ -195,6 +188,8 @@ internal class GraderWebSource : GraderSubmitRemote {
             "/api/submissions/?assignment=${numericId(assignmentId)}&file_ident=${encodeQuery(ident)}",
             cookie,
             "{}",
+            readBody = false,
+            oneShot = true,
         )
     }
 
@@ -211,32 +206,41 @@ internal class GraderWebSource : GraderSubmitRemote {
         path: String,
         cookie: String,
         body: String,
+        readBody: Boolean = true,
+        oneShot: Boolean = false,
     ): String {
+        val json = body.toRequestBody(JSON_MEDIA_TYPE)
+        val payload = if (oneShot) object : RequestBody() {
+            override fun contentType() = json.contentType()
+            override fun contentLength() = json.contentLength()
+            override fun isOneShot() = true
+            override fun writeTo(sink: BufferedSink) = json.writeTo(sink)
+        } else json
         val request = Request.Builder().url(entry.origin + path)
             .header("Cookie", cookie)
             .header("Accept", "application/json")
             .apply { GraderSessionPolicy.csrfToken(cookie)?.let { header("X-CSRFTOKEN", it) } }
-            .post(body.toRequestBody(JSON_MEDIA_TYPE))
+            .post(payload)
             .build()
-        return execute(client, request)
+        return execute(client, request, readBody = readBody)
     }
 
     private fun execute(
         http: OkHttpClient,
         request: Request,
         checkActive: () -> Unit = {},
+        readBody: Boolean = true,
+        authenticatesEntry: Boolean = true,
     ): String {
         try {
             http.newCall(request).execute().use { response ->
                 checkActive()
                 // 网关会话过期时同样以 302 回信任门户，因此 3xx 一律按未登录处理。
-                if (response.code == 401 || response.code == 403 || response.code in 300..399) {
+                if (authenticatesEntry && (response.code == 401 || response.code == 403 || response.code in 300..399)) {
                     throw GraderAuthenticationException()
                 }
-                if (!response.isSuccessful) {
-                    val body = runCatching { response.peekBody(512).string() }.getOrNull()
-                    throw GraderNetworkException(response.code, body)
-                }
+                if (!response.isSuccessful) throw GraderNetworkException(response.code)
+                if (!readBody) return ""
                 return response.body?.string() ?: throw GraderInvalidResponseException()
             }
         } catch (_: IOException) {
@@ -247,6 +251,7 @@ internal class GraderWebSource : GraderSubmitRemote {
 
     private class ProgressRequestBody(
         private val file: GraderUploadFile,
+        private val checkActive: () -> Unit,
         private val onProgress: (Long) -> Unit,
     ) : RequestBody() {
         override fun contentType() = OCTET_STREAM_MEDIA_TYPE
@@ -255,16 +260,32 @@ internal class GraderWebSource : GraderSubmitRemote {
 
         override fun writeTo(sink: BufferedSink) {
             var written = 0L
-            file.open().use { input ->
+            var lastReported = 0L
+            val interval = maxOf(1L, (file.sizeBytes - 1L) / 100L + 1L)
+            readFile { file.open() }.use { input ->
                 val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
                 while (true) {
-                    val read = input.read(buffer)
+                    checkActive()
+                    val read = readFile { input.read(buffer) }
                     if (read == -1) break
+                    if (read > file.sizeBytes - written) throw GraderFileReadException()
                     sink.write(buffer, 0, read)
                     written += read
-                    onProgress(written)
+                    if (written == file.sizeBytes || written - lastReported >= interval) {
+                        lastReported = written
+                        onProgress(written)
+                    }
                 }
             }
+            if (written != file.sizeBytes) throw GraderFileReadException()
+        }
+
+        private inline fun <T> readFile(action: () -> T): T = try {
+            action()
+        } catch (_: IOException) {
+            throw GraderFileReadException()
+        } catch (_: SecurityException) {
+            throw GraderFileReadException()
         }
     }
 

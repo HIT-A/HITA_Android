@@ -4,8 +4,14 @@ import androidx.arch.core.executor.ArchTaskExecutor
 import androidx.arch.core.executor.TaskExecutor
 import cn.limpu.hita.data.source.web.grader.GraderAccount
 import cn.limpu.hita.data.source.web.grader.GraderAssignment
+import cn.limpu.hita.data.source.web.grader.GraderAssignmentDetail
 import cn.limpu.hita.data.source.web.grader.GraderAuthenticationException
+import cn.limpu.hita.data.source.web.grader.GraderNetworkException
 import cn.limpu.hita.data.source.web.grader.GraderRemoteSnapshot
+import cn.limpu.hita.data.source.web.grader.GraderSessionPolicy.Entry
+import cn.limpu.hita.data.source.web.grader.GraderSubmitRemote
+import cn.limpu.hita.data.source.web.grader.GraderUploadFile
+import cn.limpu.hita.data.source.web.grader.GraderUploadTarget
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
@@ -153,6 +159,114 @@ class GraderRepositoryCancellationTest {
         val restored = store().load()
         assertTrue(restored.disconnected)
         assertEquals(listOf(previous), restored.assignmentsByAccount[account.id])
+    }
+
+    @Test fun staleSubmissionPageDoesNotReadOrWriteAnotherAccountsAssignment() = runBlocking {
+        val store = store()
+        store.replace(account, oldCookie, listOf(previous))
+        val detailReads = mutableListOf<String>()
+        val remote = SubmitRemote(onDetail = { detailReads.add(it) })
+        val repository = GraderRepository(store, Dispatchers.Unconfined, remote) { _, _, _, _ ->
+            error("unexpected refresh")
+        }
+
+        assertNull(repository.submissionDetail("2", previous.id))
+        assertEquals(GraderSubmitError.SESSION_CHANGED, repository.submit("2", previous.id, submissionFile()))
+        assertTrue(detailReads.isEmpty())
+        assertEquals(previous.id, repository.submissionDetail(account.id, previous.id)?.id)
+        assertEquals(listOf(previous.id), detailReads)
+    }
+
+    @Test fun uploadFromPreviousSessionCannotCreateARecordAfterDisconnect() = runBlocking {
+        val store = store()
+        store.replace(account, oldCookie, listOf(previous))
+        val startedUpload = CountDownLatch(1)
+        val allowUpload = CountDownLatch(1)
+        val remote = SubmitRemote(
+            onUpload = {
+                startedUpload.countDown()
+                check(allowUpload.await(10, TimeUnit.SECONDS))
+            },
+            onCreate = { error("disconnected session may not create a submission") },
+        )
+        val repository = GraderRepository(store, Dispatchers.Unconfined, remote) { _, _, _, _ ->
+            error("unexpected refresh")
+        }
+        val submission = async { repository.submit(account.id, previous.id, submissionFile()) }
+        try {
+            assertTrue(withContext(Dispatchers.IO) { startedUpload.await(10, TimeUnit.SECONDS) })
+            assertTrue(repository.disconnect())
+        } finally {
+            allowUpload.countDown()
+        }
+        assertEquals(GraderSubmitError.SESSION_CHANGED, submission.await())
+        assertTrue(store.load().submittedByAccount[account.id].orEmpty().isEmpty())
+    }
+
+    @Test fun lastStepTimeoutIsUnconfirmedButLocalFailureAfterSuccessIsNot() = runBlocking {
+        val store = store()
+        store.replace(account, oldCookie, listOf(previous))
+        var lostResponse = true
+        val remote = SubmitRemote(onCreate = { if (lostResponse) throw GraderNetworkException() })
+        val repository = GraderRepository(store, Dispatchers.Unconfined, remote) { _, _, _, _ ->
+            error("unexpected refresh")
+        }
+        assertTrue(repository.reload())
+
+        assertEquals(GraderSubmitError.UNCONFIRMED, repository.submit(account.id, previous.id, submissionFile()))
+        assertFalse(repository.state.value!!.tasks.single().submitted)
+        lostResponse = false
+        refuseCommit = true
+        assertNull(repository.submit(account.id, previous.id, submissionFile()))
+        assertEquals(GraderError.STORAGE, repository.state.value?.error)
+    }
+
+    @Test fun earlierRefreshCannotEraseAConfirmedSubmission() = runBlocking {
+        val store = store()
+        store.replace(account, oldCookie, listOf(previous))
+        val fetchStarted = CountDownLatch(1)
+        val allowFetch = CountDownLatch(1)
+        val repository = GraderRepository(store, Dispatchers.Unconfined, SubmitRemote()) { _, _, _, _ ->
+            fetchStarted.countDown()
+            check(allowFetch.await(10, TimeUnit.SECONDS))
+            GraderRemoteSnapshot(account, listOf(previous), emptySet())
+        }
+        val refresh = async { repository.refresh() }
+        try {
+            assertTrue(withContext(Dispatchers.IO) { fetchStarted.await(10, TimeUnit.SECONDS) })
+            assertNull(repository.submit(account.id, previous.id, submissionFile()))
+        } finally {
+            allowFetch.countDown()
+        }
+        assertFalse(refresh.await())
+        assertTrue(repository.state.value!!.tasks.single().submitted)
+        assertEquals(setOf(previous.id), store.load().submittedByAccount[account.id])
+    }
+
+    private fun submissionFile() = GraderUploadFile("only-fixture.pdf", 1) { byteArrayOf(1).inputStream() }
+
+    private class SubmitRemote(
+        private val onDetail: (String) -> Unit = {},
+        private val onUpload: () -> Unit = {},
+        private val onCreate: () -> Unit = {},
+    ) : GraderSubmitRemote {
+        override fun assignmentDetail(entry: Entry, cookieHeader: String, assignmentId: String, fallbackTitle: String):
+            GraderAssignmentDetail {
+            onDetail(assignmentId)
+            return GraderAssignmentDetail(assignmentId, fallbackTitle, null, 10, listOf("pdf"), true)
+        }
+
+        override fun requestUpload(entry: Entry, cookieHeader: String, fileName: String, assignmentId: String) =
+            GraderUploadTarget("https://example.invalid/fixture", emptyMap(), "fixture")
+
+        override fun upload(
+            entry: Entry, cookieHeader: String, target: GraderUploadTarget, file: GraderUploadFile,
+            checkActive: () -> Unit, onProgress: (Long) -> Unit,
+        ) = onUpload()
+
+        override fun finishUpload(entry: Entry, cookieHeader: String, ident: String) = Unit
+
+        override fun createSubmission(entry: Entry, cookieHeader: String, assignmentId: String, ident: String) = onCreate()
     }
 
     @Test fun disconnectIsAlreadyDurableWhenPublicationIsCancelled() = runBlocking {

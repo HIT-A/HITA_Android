@@ -222,7 +222,7 @@ class HomeworkUiInstrumentedTest {
         }
     }
 
-    @Test fun bothPlatformControlsAndImportedTodosShareTheBoard() = runBlocking {
+    @Test fun bothPlatformControlsAndImportedTodosShareTheBoard() = runBlocking<Unit> {
         val preferenceName = "homework-grader-" + UUID.randomUUID()
         val upcoming = System.currentTimeMillis() + 3_600_000L
         val isolatedApp = object : Application() {
@@ -260,6 +260,8 @@ class HomeworkUiInstrumentedTest {
                                         tasks = listOf(
                                             ImportedTodo("old", "fixture-expired-grader", "fixture-course", 1L, false),
                                             ImportedTodo("upcoming", "fixture-grader", "fixture-course", upcoming, false),
+                                            ImportedTodo("submitted", "fixture-submitted-grader", "fixture-course",
+                                                upcoming, completed = true, submitted = true),
                                         ),
                                         ready = true,
                                         error = GraderError.NETWORK,
@@ -285,13 +287,24 @@ class HomeworkUiInstrumentedTest {
                 assertFalse("不得为重新登录弹窗", hasText(base.getString(R.string.grader_login_title)))
 
                 awaitText("fixture-grader")
+                awaitText(base.getString(R.string.grader_submit_action))
                 awaitText(base.getString(R.string.homework_imported_source, base.getString(R.string.grader_title)))
                 assertFalse("过期 Grader 待办不显示", hasText("fixture-expired-grader"))
                 assertFalse("手动完成项应默认收起", hasText("fixture-geniusta"))
-                clickText(base.getString(R.string.homework_completed_section, 1))
+                assertFalse("服务端已提交项应默认收起", hasText("fixture-submitted-grader"))
+                clickText(base.getString(R.string.homework_completed_section, 2))
                 awaitText("fixture-geniusta")
                 awaitText(base.getString(R.string.homework_imported_source, base.getString(R.string.geniusta_title)))
                 assertFalse("过期 GeniusTA 待办不显示在已完成中", hasText("fixture-expired-geniusta"))
+                val submitted = awaitNode("remote completion is read-only", scroll = true) {
+                    it.isVisibleToUser && it.isCheckable && it.contentDescription?.toString() == "fixture-submitted-grader"
+                }
+                assertTrue(submitted.isChecked)
+                assertFalse(submitted.isEnabled)
+                clickText(base.getString(R.string.grader_submit_resubmit_action))
+                awaitText(base.getString(R.string.grader_submit_error_detail))
+                clickText(base.getString(R.string.homework_cancel))
+                awaitText("fixture-submitted-grader")
             }
         } finally {
             base.deleteSharedPreferences("$preferenceName-timeline_homework_v1")

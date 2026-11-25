@@ -1882,6 +1882,9 @@
     <string name="grader_submit_error_auth">Grader 会话已过期，请重新登录。</string>
     <string name="grader_submit_error_network">网络异常，提交未完成，请重试。</string>
     <string name="grader_submit_error_invalid">服务端返回了无法识别的数据，请重试。</string>
+    <string name="grader_submit_error_session_changed">Grader 账号或登录会话已变更，请返回作业列表后重新打开。</string>
+    <string name="grader_submit_error_unconfirmed">提交结果待确认。请先到 Grader 查看提交记录，不要直接重试。</string>
+    <string name="grader_submit_error_detail">无法读取此作业的要求，请返回作业列表刷新后再试。</string>
     <string name="grader_submit_error_storage">本地状态保存失败，请重试。</string>
     <string name="grader_submit_error_busy">已有一次提交在进行中。</string>
     <string name="grader_submit_error_storage_unreachable">校外无法直连作业存储，请连接校园网或打开 aTrust 客户端后重试。</string>

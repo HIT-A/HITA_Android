@@ -3,6 +3,7 @@ package cn.limpu.hita.ui.main.homework
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.graphics.Bitmap
+import android.net.Uri
 import android.net.http.SslError
 import android.os.Bundle
 import android.view.View
@@ -432,18 +433,21 @@ class GraderLoginActivity : AppCompatActivity() {
         override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
             if (!isCurrent(current)) return
             if (rejectNavigation(current, url)) return
-            // 校外链路多跳，出问题时首先要看完整链条（debug 包才输出）。
-            trace("nav[${current.navigation}] ${url.take(300)}")
+            // Report only which endpoint was reached; parameters may contain authentication data.
+            trace("nav[${current.navigation}] host=${Uri.parse(url).host}")
             current.navigation += 1
             error = null
             waitForNavigation(current)
         }
 
         override fun onPageFinished(view: WebView, url: String) {
-            if (!isCurrent(current) || view.url != url || !GraderCasLoginPolicy.mayNavigate(url, current.entry) ||
-                current.failedNavigation == current.navigation
-            ) return
-            trace("finish ${url.take(300)}")
+            if (!isCurrent(current) || view.url != url || current.failedNavigation == current.navigation) {
+                return
+            }
+            if (!GraderCasLoginPolicy.mayNavigate(url, current.entry)) {
+                return
+            }
+            trace("finish host=${Uri.parse(url).host}")
             if (GraderSessionPolicy.isCandidatePage(url, current.entry)) {
                 verifyCandidate(current)
             } else {
@@ -457,7 +461,7 @@ class GraderLoginActivity : AppCompatActivity() {
 
         override fun onReceivedHttpError(view: WebView, request: WebResourceRequest, errorResponse: WebResourceResponse) {
             if (!isCurrent(current) || !request.isForMainFrame) return
-            trace("http ${errorResponse.statusCode}: ${request.url.toString().take(240)}")
+            trace("http ${errorResponse.statusCode} host=${request.url.host}")
             current.failedNavigation = current.navigation
             current.exactSubmission = false
             showOfficial(R.string.grader_login_error)
@@ -478,7 +482,7 @@ class GraderLoginActivity : AppCompatActivity() {
         if (!isCurrent(current)) return true
         if (GraderCasLoginPolicy.mayNavigate(url, current.entry)) return false
         // Defer destruction when the navigation callback is still on the stack.
-        trace("reject ${url.take(240)}")
+        trace("blocked navigation")
         current.view.post { failBrowser(current) }
         return true
     }
@@ -505,8 +509,7 @@ class GraderLoginActivity : AppCompatActivity() {
         }
         if (service == null) {
             if (current.entry == GraderSessionPolicy.Entry.GATEWAY && url.contains("/authserver/")) {
-                // 看得见统一认证页却认不出它的 service：把实际地址打出来，下一次就能对齐规则。
-                trace("CAS unmatched: ${url.take(400)}")
+                trace("CAS did not match the expected Grader form")
             }
             showOfficial()
             return
@@ -543,8 +546,11 @@ class GraderLoginActivity : AppCompatActivity() {
         if (!ShenzhenTrustPortalAutoLogin.shouldForceWebMode(url)) return false
         current.forceWebModeApplied = true
         trace("forceWeb applied")
+        val navigation = current.navigation
         current.view.evaluateJavascript(ShenzhenTrustPortalAutoLogin.buildForceWebScript()) {
-            if (isCurrent(current)) current.view.loadUrl(url)
+            if (isCurrent(current) && current.navigation == navigation && current.view.url == url) {
+                current.view.loadUrl(url)
+            }
         }
         return true
     }
@@ -641,7 +647,7 @@ class GraderLoginActivity : AppCompatActivity() {
             try {
                 val connected = repository.connect(cookie, current.expectedAccountId, current.entry)
                 val accountId = repository.state.value?.takeUnless { it.needsLogin }?.accountId
-                trace("verify: connected=$connected account=$accountId")
+                trace("verify: connected=$connected")
                 if (!isCurrent(current)) return@launch
                 if (!connected || accountId.isNullOrBlank() ||
                     (current.expectedAccountId != null && current.expectedAccountId != accountId)

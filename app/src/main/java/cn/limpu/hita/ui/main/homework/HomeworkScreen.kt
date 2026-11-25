@@ -173,6 +173,7 @@ internal fun HomeworkScreen(
         if (key.platform != TodoPlatform.GRADER) return
         val intent = Intent(context, GraderSubmitActivity::class.java).apply {
             putExtra(GraderSubmitActivity.EXTRA_ASSIGNMENT_ID, key.id)
+            putExtra(GraderSubmitActivity.EXTRA_ACCOUNT_ID, key.accountId)
             putExtra(GraderSubmitActivity.EXTRA_TITLE, row.title)
             putExtra(GraderSubmitActivity.EXTRA_COURSE, row.course)
             putExtra(GraderSubmitActivity.EXTRA_DUE_AT, row.dueAt ?: 0L)
@@ -274,8 +275,15 @@ internal fun HomeworkScreen(
                         }
                     }
                 }
-                if (state.ready && board.pending.isEmpty() && board.completed.isEmpty()) {
-                    item(key = "empty") { HomeworkEmptyState() }
+                val importing = (showGrader && (!grader.ready || grader.syncing)) ||
+                    !geniusTa.ready || geniusTa.syncing
+                val emptyBoard = board.pending.isEmpty() && board.completed.isEmpty()
+                if (state.ready && !state.failed && emptyBoard) {
+                    if (importing) {
+                        item(key = "importing") { LinearProgressIndicator(Modifier.fillMaxWidth()) }
+                    } else if (graderError == null && geniusTa.error == null) {
+                        item(key = "empty") { HomeworkEmptyState() }
+                    }
                 }
                 fun rowBusy(key: TodoKey): Boolean = when (key) {
                     is TodoKey.Personal -> busy
@@ -552,7 +560,7 @@ private fun LazyListScope.todoRows(
                 }
             HomeworkRow(
                 row = row,
-                busy = isBusy(row.key),
+                busy = isBusy(row.key) || receipts[row.key]?.busy == true,
                 onComplete = { onComplete(row, it) },
                 receipt = receipts[row.key],
                 onEdit = row.personal?.let { personal -> { onEdit(personal) } },
@@ -676,7 +684,7 @@ private fun HomeworkRow(
     Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             Checkbox(
-                checked = row.completed, onCheckedChange = onComplete, enabled = !busy,
+                checked = row.completed, onCheckedChange = onComplete, enabled = !busy && !row.submitted,
                 modifier = Modifier.semantics { contentDescription = row.title },
             )
             Column(
@@ -706,9 +714,10 @@ private fun HomeworkRow(
                     )
                 }
                 // 撤销只出现在刚刚保存成功、且仍是这次写入的那一行。
-                receipt?.takeIf { it.canUndo && it.completed == row.completed }?.let { current ->
+                receipt?.takeIf { !row.submitted && it.canUndo && it.completed == row.completed }?.let { current ->
                     TextButton(
                         onClick = { onUndo(current) },
+                        enabled = !busy,
                         contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 0.dp, vertical = 0.dp),
                     ) {
                         Text(stringResource(R.string.homework_undo), style = MaterialTheme.typography.labelMedium)

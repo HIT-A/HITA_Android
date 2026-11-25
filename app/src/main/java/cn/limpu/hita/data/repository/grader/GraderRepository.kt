@@ -9,6 +9,7 @@ import cn.limpu.hita.data.source.preference.GraderPreferenceSource
 import cn.limpu.hita.data.source.web.grader.GraderAssignmentDetail
 import cn.limpu.hita.data.source.web.grader.GraderAuthenticationException
 import cn.limpu.hita.data.source.web.grader.GraderInvalidResponseException
+import cn.limpu.hita.data.source.web.grader.GraderFileReadException
 import cn.limpu.hita.data.source.web.grader.GraderNetworkException
 import cn.limpu.hita.data.source.web.grader.GraderRemoteSnapshot
 import cn.limpu.hita.data.source.web.grader.GraderSessionPolicy
@@ -36,7 +37,10 @@ enum class GraderSubmitError {
     AUTHENTICATION,
     NETWORK,
     INVALID_RESPONSE,
+    SESSION_CHANGED,
+    UNCONFIRMED,
     STORAGE,
+    FILE_READ,
 
     /** 本地预检不通过（超出大小上限、扩展名不符或服务端已关闭提交）。 */
     REJECTED,
@@ -82,11 +86,12 @@ class GraderRepository internal constructor(
     /** 提交是长耗时操作，单独加锁避免并发提交；不复用状态锁，否则会卡住刷新与登录。 */
     private val submitMutex = Mutex()
 
-    /** 最近一次提交失败的服务端线索（状态码与响应片段）；设备日志常被关闭，界面把它写进轨迹。 */
+    /** Only status codes and exception types; never raw responses or signed URLs. */
     @Volatile
     var lastSubmitDiagnostic: String? = null
         private set
     @Volatile private var generation = 0L
+    @Volatile private var sessionRevision = 0L
     val readCoordinator = GraderReadCoordinator(::reload) { generation }
     private var pendingChange: SessionChange? = null
     private var current = GraderState()
@@ -114,24 +119,28 @@ class GraderRepository internal constructor(
 
     suspend fun refresh(): Boolean = synchronize(null, null, null)
 
-    /** 提交页展示用的作业详情；没有会话或请求失败时返回 null，界面退回列表自带的信息。 */
-    internal suspend fun submissionDetail(
-        assignmentId: String,
-        fallbackTitle: String,
-    ): GraderAssignmentDetail? = withContext(Dispatchers.IO) {
-        val snapshot = try {
-            loadSnapshot()
-        } catch (_: GraderStorageException) {
-            return@withContext null
+    /** Load details only for the account that opened the submission page. */
+    internal suspend fun submissionDetail(accountId: String, assignmentId: String): GraderAssignmentDetail? =
+        withContext(Dispatchers.IO) {
+            val session = try {
+                mutex.withLock { submissionSession(accountId) }
+            } catch (_: GraderStorageException) {
+                return@withContext null
+            } ?: return@withContext null
+            val assignment = session.snapshot.assignments.firstOrNull { it.id == assignmentId && it.published }
+                ?: return@withContext null
+            val detail = try {
+                submitRemote.assignmentDetail(session.snapshot.entry, session.cookie, assignmentId, assignment.title)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                GraderAssignmentDetail(
+                    assignment.id, assignment.title, assignment.description, assignment.maxFileSize,
+                    assignment.allowedExtensions, assignment.submitAllowed,
+                )
+            }
+            detail.takeIf { it.id == assignmentId && session.revision == sessionRevision }
         }
-        val cookie = snapshot.cookie ?: return@withContext null
-        try {
-            submitRemote.assignmentDetail(snapshot.entry, cookie, assignmentId, fallbackTitle)
-        } catch (failure: Exception) {
-            if (failure is CancellationException) throw failure
-            null
-        }
-    }
 
     /**
      * 提交作业：申请上传目标 → 上传文件 → 收尾 → 建提交记录。
@@ -140,56 +149,88 @@ class GraderRepository internal constructor(
      * 本地预检（大小 / 扩展名 / 是否允许提交）在这里复验一次，避免绕过界面直接调用。
      */
     internal suspend fun submit(
+        accountId: String,
         assignmentId: String,
         file: GraderUploadFile,
         onProgress: (uploaded: Long, total: Long) -> Unit = { _, _ -> },
     ): GraderSubmitError? = withContext(Dispatchers.IO) {
         if (!submitMutex.tryLock()) return@withContext GraderSubmitError.BUSY
         try {
-            val snapshot = try {
-                loadSnapshot()
+            lastSubmitDiagnostic = null
+            val session = try {
+                mutex.withLock { submissionSession(accountId) }
             } catch (_: GraderStorageException) {
                 return@withContext GraderSubmitError.STORAGE
-            }
-            val account = snapshot.activeAccount ?: return@withContext GraderSubmitError.AUTHENTICATION
-            val cookie = snapshot.cookie ?: return@withContext GraderSubmitError.AUTHENTICATION
-            val assignment = snapshot.assignments.firstOrNull { it.id == assignmentId }
+            } ?: return@withContext GraderSubmitError.SESSION_CHANGED
+            val assignment = session.snapshot.assignments.firstOrNull { it.id == assignmentId && it.published }
                 ?: return@withContext GraderSubmitError.INVALID_RESPONSE
-            val entry = snapshot.entry
-            lastSubmitDiagnostic = null
+            val entry = session.snapshot.entry
+            val cookie = session.cookie
+            val context = coroutineContext
+            val checkActive: () -> Unit = {
+                context.ensureActive()
+                if (sessionRevision != session.revision) throw Superseded()
+            }
+            var creatingRecord = false
             try {
+                checkActive()
                 val detail = submitRemote.assignmentDetail(entry, cookie, assignmentId, assignment.title)
+                checkActive()
+                if (detail.id != assignmentId) return@withContext GraderSubmitError.INVALID_RESPONSE
                 if (GraderSubmissionPolicy.violation(detail, file.name, file.sizeBytes) != null) {
                     return@withContext GraderSubmitError.REJECTED
                 }
                 val target = submitRemote.requestUpload(entry, cookie, file.name, assignmentId)
-                submitRemote.upload(entry, cookie, target, file, {}, { uploaded ->
+                checkActive()
+                submitRemote.upload(entry, cookie, target, file, checkActive, { uploaded ->
                     onProgress(uploaded, file.sizeBytes)
                 })
+                checkActive()
                 submitRemote.finishUpload(entry, cookie, target.ident)
+                checkActive()
+                creatingRecord = true
                 submitRemote.createSubmission(entry, cookie, assignmentId, target.ident)
-                try {
-                    store.markSubmitted(account.id, assignmentId)?.let { updated ->
-                        publish(updated.toState(syncing = current.syncing).copy(needsLogin = current.needsLogin))
+                // A confirmed external write must not become "retry" if the screen went away
+                // or committing the local cache fails.
+                withContext(NonCancellable) {
+                    mutex.withLock {
+                        if (sessionRevision == session.revision) {
+                            try {
+                                store.markSubmitted(accountId, assignmentId)?.let { updated ->
+                                    // A refresh may have read the server before its new record existed.
+                                    if (current.syncing) generation++
+                                    publish(updated.toState())
+                                }
+                            } catch (_: GraderStorageException) {
+                                publish(current.copy(error = GraderError.STORAGE))
+                            }
+                        }
                     }
-                } catch (_: GraderStorageException) {
-                    return@withContext GraderSubmitError.STORAGE
                 }
                 null
             } catch (failure: Exception) {
                 if (failure is CancellationException) throw failure
-                if (failure is GraderAuthenticationException) {
-                    publish(current.copy(needsLogin = true, error = GraderError.AUTHENTICATION))
+                if (failure is Superseded) {
+                    GraderSubmitError.SESSION_CHANGED
+                } else if (failure is GraderAuthenticationException) {
+                    mutex.withLock {
+                        if (sessionRevision == session.revision) {
+                            publish(current.copy(needsLogin = true, error = GraderError.AUTHENTICATION))
+                        }
+                    }
                     GraderSubmitError.AUTHENTICATION
+                } else if (failure is GraderFileReadException) {
+                    GraderSubmitError.FILE_READ
                 } else if (failure is GraderUploadStorageException) {
-                    lastSubmitDiagnostic = "storage unreachable: signed upload host is internal-only"
                     GraderSubmitError.STORAGE_UNREACHABLE
                 } else if (failure is GraderNetworkException) {
-                    lastSubmitDiagnostic = "network ${failure.code}: ${failure.message?.take(300)}"
-                    GraderSubmitError.NETWORK
+                    lastSubmitDiagnostic = "HTTP ${failure.code}"
+                    if (creatingRecord && (failure.code == 0 || failure.code == 408 || failure.code >= 500)) {
+                        GraderSubmitError.UNCONFIRMED
+                    } else GraderSubmitError.NETWORK
                 } else {
-                    lastSubmitDiagnostic = "failure ${failure.javaClass.simpleName}: ${failure.message?.take(300)}"
-                    GraderSubmitError.INVALID_RESPONSE
+                    lastSubmitDiagnostic = failure.javaClass.simpleName
+                    if (creatingRecord) GraderSubmitError.UNCONFIRMED else GraderSubmitError.INVALID_RESPONSE
                 }
             }
         } finally {
@@ -214,6 +255,7 @@ class GraderRepository internal constructor(
     suspend fun disconnect(): Boolean = withContext(Dispatchers.IO) {
         mutex.withLock {
             generation++
+            sessionRevision++
             pendingChange = SessionChange.DISCONNECT
             var error: GraderError? = null
             try {
@@ -237,6 +279,15 @@ class GraderRepository internal constructor(
         }
         pendingChange = null
         return snapshot
+    }
+
+    private data class SubmissionSession(val snapshot: GraderSnapshot, val cookie: String, val revision: Long)
+
+    /** Called while holding [mutex], just like reads and replacement of the active session. */
+    private fun submissionSession(accountId: String): SubmissionSession? {
+        val snapshot = loadSnapshot()
+        if (snapshot.activeAccount?.id != accountId || current.needsLogin) return null
+        return SubmissionSession(snapshot, snapshot.cookie ?: return null, sessionRevision)
     }
 
     private enum class SessionChange { DISCONNECT, REPLACE }
@@ -266,6 +317,7 @@ class GraderRepository internal constructor(
                     val cookie: String
                     val expectedAccountId: String?
                     if (candidateCookie != null) {
+                        sessionRevision++
                         publish(GraderState(ready = true, syncing = true))
                         coroutineContext.ensureActive()
                         // 新入口可能与旧会话不同，旧 cookie 不能跨入口复用。

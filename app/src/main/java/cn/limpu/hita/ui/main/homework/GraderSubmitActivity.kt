@@ -8,6 +8,7 @@ import android.os.Bundle
 import android.provider.OpenableColumns
 import android.text.format.Formatter
 import android.webkit.MimeTypeMap
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -31,6 +32,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -55,7 +57,9 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 import javax.inject.Inject
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * 从今日作业列表进入的提交页：展示作业要求、选文件、上传。
@@ -70,7 +74,8 @@ class GraderSubmitActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setResult(Activity.RESULT_CANCELED)
         val assignmentId = intent.getStringExtra(EXTRA_ASSIGNMENT_ID)
-        if (assignmentId.isNullOrBlank()) {
+        val accountId = intent.getStringExtra(EXTRA_ACCOUNT_ID)
+        if (assignmentId.isNullOrBlank() || accountId.isNullOrBlank()) {
             finish()
             return
         }
@@ -81,13 +86,14 @@ class GraderSubmitActivity : AppCompatActivity() {
         title = getString(if (resubmit) R.string.grader_submit_resubmit_action else R.string.grader_submit_action)
         setContent {
             HitaComposeTheme {
-                SubmitContent(assignmentId, fallbackTitle, course, dueAt, resubmit)
+                SubmitContent(accountId, assignmentId, fallbackTitle, course, dueAt, resubmit)
             }
         }
     }
 
     @Composable
     private fun SubmitContent(
+        accountId: String,
         assignmentId: String,
         fallbackTitle: String,
         course: String,
@@ -100,50 +106,65 @@ class GraderSubmitActivity : AppCompatActivity() {
         var detail by remember { mutableStateOf<GraderAssignmentDetail?>(null) }
         var loading by remember { mutableStateOf(true) }
         var picked by remember { mutableStateOf<PickedFile?>(null) }
+        var readingFile by remember { mutableStateOf(false) }
         var submitting by remember { mutableStateOf(false) }
         var progress by remember { mutableStateOf(0f) }
         var message by remember { mutableStateOf<Int?>(null) }
+        // If Android recreates the screen during a write, do not assume it failed.
+        var requiresResultCheck by rememberSaveable { mutableStateOf(false) }
+        BackHandler(enabled = submitting) {}
 
         val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
             if (uri == null) return@rememberLauncherForActivityResult
-            val meta = readFileMetadata(context, uri)
-            if (meta == null) {
-                message = R.string.grader_submit_error_read
-                return@rememberLauncherForActivityResult
+            readingFile = true
+            scope.launch {
+                try {
+                    val meta = withContext(Dispatchers.IO) { readFileMetadata(context, uri) }
+                    if (meta == null) {
+                        picked = null
+                        message = R.string.grader_submit_error_read
+                    } else {
+                        picked = PickedFile(uri, meta.first, meta.second)
+                        message = null
+                    }
+                } finally {
+                    readingFile = false
+                }
             }
-            picked = PickedFile(uri, meta.first, meta.second)
-            message = null
         }
 
-        LaunchedEffect(assignmentId) {
-            detail = repository.submissionDetail(assignmentId, fallbackTitle)
+        LaunchedEffect(accountId, assignmentId) {
+            detail = repository.submissionDetail(accountId, assignmentId)
+            if (detail == null) message = R.string.grader_submit_error_detail
             loading = false
         }
 
         val pickedFile = picked
-        val violation = if (detail != null && pickedFile != null) {
-            GraderSubmissionPolicy.violation(detail!!, pickedFile.name, pickedFile.size)
-        } else {
-            null
+        val violation = detail?.let { requirements ->
+            pickedFile?.let { GraderSubmissionPolicy.violation(requirements, it.name, it.size) }
         }
         val closed = detail?.submitAllowed == false
-        val canSubmit = !submitting && pickedFile != null && violation == null && !closed && !loading
+        val canPick = !submitting && !readingFile && !closed && !requiresResultCheck && detail != null
+        val canSubmit = canPick && pickedFile != null && violation == null
 
         fun submit() {
+            if (!canSubmit || submitting || requiresResultCheck) return
             val file = pickedFile ?: return
             submitting = true
+            requiresResultCheck = true
             progress = 0f
             message = null
             scope.launch {
                 val upload = GraderUploadFile(file.name, file.size) {
                     context.contentResolver.openInputStream(file.uri) ?: throw IOException("unreadable")
                 }
-                val error = repository.submit(assignmentId, upload) { uploaded, total ->
+                val error = repository.submit(accountId, assignmentId, upload) { uploaded, total ->
                     if (total > 0) mainExecutor.execute { progress = uploaded.toFloat() / total }
                 }
                 submitting = false
+                requiresResultCheck = error == GraderSubmitError.UNCONFIRMED
                 if (error == null) {
-                    trace("submit ok: ${file.name} (${file.size} bytes)")
+                    trace("submit ok (${file.size} bytes)")
                     setResult(Activity.RESULT_OK)
                     finish()
                 } else {
@@ -230,7 +251,7 @@ class GraderSubmitActivity : AppCompatActivity() {
                 ) {
                     TextButton(
                         onClick = { picker.launch(pickerMimeTypes(detail)) },
-                        enabled = !submitting && !closed,
+                        enabled = canPick,
                     ) { Text(stringResource(R.string.grader_submit_pick)) }
                     Text(
                         pickedFile?.let {
@@ -248,7 +269,10 @@ class GraderSubmitActivity : AppCompatActivity() {
                 if (submitting) {
                     LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
                 }
-                message?.let {
+                val displayedMessage = if (requiresResultCheck && !submitting) {
+                    R.string.grader_submit_error_unconfirmed
+                } else message
+                displayedMessage?.let {
                     Text(stringResource(it), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                 }
                 violation?.let {
@@ -338,7 +362,10 @@ class GraderSubmitActivity : AppCompatActivity() {
         GraderSubmitError.AUTHENTICATION -> R.string.grader_submit_error_auth
         GraderSubmitError.NETWORK -> R.string.grader_submit_error_network
         GraderSubmitError.INVALID_RESPONSE -> R.string.grader_submit_error_invalid
+        GraderSubmitError.SESSION_CHANGED -> R.string.grader_submit_error_session_changed
+        GraderSubmitError.UNCONFIRMED -> R.string.grader_submit_error_unconfirmed
         GraderSubmitError.STORAGE -> R.string.grader_submit_error_storage
+        GraderSubmitError.FILE_READ -> R.string.grader_submit_error_read
         GraderSubmitError.BUSY -> R.string.grader_submit_error_busy
         GraderSubmitError.STORAGE_UNREACHABLE -> R.string.grader_submit_error_storage_unreachable
         GraderSubmitError.REJECTED -> R.string.grader_submit_rejected
@@ -350,6 +377,7 @@ class GraderSubmitActivity : AppCompatActivity() {
         private val TRACE_FORMAT = java.text.SimpleDateFormat("HH:mm:ss.SSS", Locale.US)
 
         const val EXTRA_ASSIGNMENT_ID = "extra_assignment_id"
+        const val EXTRA_ACCOUNT_ID = "extra_grader_account_id"
         const val EXTRA_TITLE = "extra_title"
         const val EXTRA_COURSE = "extra_course"
         const val EXTRA_DUE_AT = "extra_due_at"

@@ -25,8 +25,7 @@ internal data class GraderAssignment(
     val submitAllowed: Boolean? = null,
 )
 
-internal class GraderInvalidResponseException(detail: String? = null) :
-    Exception("Invalid Grader response${detail?.let { ": $it" }.orEmpty()}")
+internal class GraderInvalidResponseException : Exception("Invalid Grader response")
 
 /** 提交前展示与校验所需的作业详情。 */
 internal data class GraderAssignmentDetail(
@@ -113,15 +112,9 @@ internal object GraderParser {
     /**
      * `POST /api/files/touch/` 的应答：签名上传目标。
      *
-     * 只做结构校验；目标地址是否可信由 [GraderUploadPolicy] 判定，解析层不碰网络策略。
+     * 只做结构校验；目标地址是否可信由 [GraderSubmissionPolicy] 判定。
      */
-    fun uploadTarget(json: String): GraderUploadTarget = try {
-        parseUploadTarget(json)
-    } catch (error: GraderInvalidResponseException) {
-        throw GraderInvalidResponseException("upload target ${json.take(300)}")
-    }
-
-    private fun parseUploadTarget(json: String): GraderUploadTarget = parse {
+    fun uploadTarget(json: String): GraderUploadTarget = parse {
         val value = JsonParser().parse(json).asJsonObject
         val url = value.requiredString("url")
         val ident = value.get("ident")?.let { element ->
