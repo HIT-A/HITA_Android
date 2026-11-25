@@ -41,8 +41,17 @@ internal data class GraderSnapshot(
         val submitted = submittedByAccount[id].orEmpty()
         return assignments.mapNotNull { assignment ->
             val dueAt = assignment.dueAt ?: return@mapNotNull null
-            if (!assignment.published || assignment.id in submitted) return@mapNotNull null
-            ImportedTodo(assignment.id, assignment.title, assignment.courseTitle, dueAt, assignment.id in completed)
+            if (!assignment.published) return@mapNotNull null
+            // 已提交的作业留在列表里并标记为完成：重交入口就挂在这一行上。
+            val isSubmitted = assignment.id in submitted
+            ImportedTodo(
+                assignment.id,
+                assignment.title,
+                assignment.courseTitle,
+                dueAt,
+                assignment.id in completed || isSubmitted,
+                isSubmitted,
+            )
         }
     }
 }
@@ -90,6 +99,17 @@ internal class GraderStore(private val read: () -> String?, private val write: (
         return save(current.copy(completedByAccount = current.completedByAccount + (accountId to next)))
     }
 
+    /** 提交成功后立刻记入远端提交集合，界面不必等下一次完整刷新。 */
+    @Synchronized
+    fun markSubmitted(accountId: String, id: String): GraderSnapshot? {
+        val current = load()
+        if (current.activeAccount?.id != accountId) return null
+        if (current.assignments.none { it.id == id }) return null
+        val previous = current.submittedByAccount[accountId].orEmpty()
+        if (id in previous) return current
+        return save(current.copy(submittedByAccount = current.submittedByAccount + (accountId to previous + id)))
+    }
+
     @Synchronized
     fun disconnect(): GraderSnapshot {
         val current = load()
@@ -131,6 +151,14 @@ internal class GraderStore(private val read: () -> String?, private val write: (
                 row.addProperty("courseTitle", item.courseTitle)
                 item.dueAt?.let { row.addProperty("dueAt", it) }
                 row.addProperty("published", item.published)
+                item.description?.let { row.addProperty("description", it) }
+                item.maxFileSize?.let { row.addProperty("maxFileSize", it) }
+                item.submitAllowed?.let { row.addProperty("submitAllowed", it) }
+                if (item.allowedExtensions.isNotEmpty()) {
+                    val extensions = JsonArray()
+                    item.allowedExtensions.forEach { extensions.add(it) }
+                    row.add("allowedExtensions", extensions)
+                }
                 assignments.add(row)
             }
             caches.add(accountId, assignments)
@@ -178,7 +206,17 @@ internal class GraderStore(private val read: () -> String?, private val write: (
                     require(time.isJsonPrimitive && time.asJsonPrimitive.isNumber)
                     time.asBigDecimal.longValueExact()
                 }
-                GraderAssignment(row.string("id").also(::requireId), row.string("title"), row.string("courseTitle"), due, published.asBoolean)
+                GraderAssignment(
+                    id = row.string("id").also(::requireId),
+                    title = row.string("title"),
+                    courseTitle = row.string("courseTitle"),
+                    dueAt = due,
+                    published = published.asBoolean,
+                    description = row.optionalString("description"),
+                    maxFileSize = row.optionalLong("maxFileSize"),
+                    allowedExtensions = row.optionalStringArray("allowedExtensions"),
+                    submitAllowed = row.optionalBoolean("submitAllowed"),
+                )
             }
             accountId to GraderParser.unique(assignments)
         }
@@ -209,6 +247,30 @@ internal class GraderStore(private val read: () -> String?, private val write: (
 
     private fun JsonObject.optionalString(key: String): String? =
         get(key)?.takeUnless { it.isJsonNull }?.asJsonPrimitive?.takeIf { it.isString && it.asString.isNotBlank() }?.asString
+
+    private fun JsonObject.optionalLong(key: String): Long? {
+        val value = get(key) ?: return null
+        if (value.isJsonNull) return null
+        require(value.isJsonPrimitive && value.asJsonPrimitive.isNumber)
+        return value.asBigDecimal.longValueExact()
+    }
+
+    private fun JsonObject.optionalBoolean(key: String): Boolean? {
+        val value = get(key) ?: return null
+        if (value.isJsonNull) return null
+        require(value.isJsonPrimitive && value.asJsonPrimitive.isBoolean)
+        return value.asBoolean
+    }
+
+    private fun JsonObject.optionalStringArray(key: String): List<String> {
+        val value = get(key) ?: return emptyList()
+        if (value.isJsonNull) return emptyList()
+        require(value.isJsonArray)
+        return value.asJsonArray.map {
+            require(it.isJsonPrimitive && it.asJsonPrimitive.isString && it.asString.isNotBlank())
+            it.asString
+        }
+    }
 
     private fun requireId(value: String) {
         require(value.isNotEmpty() && value[0] in '1'..'9' && value.all { it in '0'..'9' })

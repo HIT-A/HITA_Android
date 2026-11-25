@@ -7,4 +7,6 @@ data class ImportedTodo(
     val courseTitle: String,
     val dueAt: Long,
     val completed: Boolean,
+    /** 远端已有提交记录：界面据此把按钮显示成「重新提交」。 */
+    val submitted: Boolean = false,
 )

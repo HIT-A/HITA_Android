@@ -68,7 +68,7 @@ class GraderStoreTest {
         assertFalse(GraderStore({ disk }, { true }).load().todoTasks().single { it.id == "11" }.completed)
     }
 
-    @Test fun submittedAssignmentsAreHiddenEvenBeforeDeadline() {
+    @Test fun submittedAssignmentsStayListedAsCompletedSoTheyCanBeResubmitted() {
         var disk: String? = null
         val store = GraderStore({ disk }, { disk = it; true })
         val account = GraderAccount("1", "合成账号甲")
@@ -77,11 +77,60 @@ class GraderStoreTest {
         store.replace(account, "sessionid=synthetic-a", assignments)
         store.setCompleted("1", "11", true)
         store.replace(account, "sessionid=synthetic-a", assignments, setOf("11", "13"))
-        assertEquals(listOf("12"), store.load().todoTasks().map { it.id })
+        val tasks = store.load().todoTasks().associateBy { it.id }
+        // 提交过的作业不再消失：留在列表里标记为完成，重交入口挂在这一行上。
+        assertEquals(setOf("11", "12", "13"), tasks.keys)
+        assertTrue(tasks.getValue("13").completed)
+        assertTrue(tasks.getValue("13").submitted)
+        assertTrue(tasks.getValue("11").completed)
+        assertTrue(tasks.getValue("11").submitted)
+        assertFalse(tasks.getValue("12").completed)
+        assertFalse(tasks.getValue("12").submitted)
         assertNull(store.setCompleted("1", "11", false))
         // 远端提交集合持久化后仍然生效。
         val restored = GraderStore({ disk }, { true }).load()
-        assertEquals(listOf("12"), restored.todoTasks().map { it.id })
+        assertEquals(setOf("11", "12", "13"), restored.todoTasks().map { it.id }.toSet())
+        assertTrue(restored.todoTasks().single { it.id == "13" }.submitted)
+    }
+
+    @Test fun markSubmittedRecordsLocallyWithoutWaitingForARefresh() {
+        var disk: String? = null
+        val store = GraderStore({ disk }, { disk = it; true })
+        val account = GraderAccount("1", "合成账号甲")
+        val future = now + 3_600_000L
+        store.replace(account, "sessionid=synthetic-a", listOf(task("11", future)))
+        assertFalse(store.load().todoTasks().single().submitted)
+
+        assertNull(store.markSubmitted("2", "11"))
+        assertNull(store.markSubmitted("1", "99"))
+        val updated = requireNotNull(store.markSubmitted("1", "11"))
+        assertTrue(updated.todoTasks().single().submitted)
+        assertTrue(updated.todoTasks().single().completed)
+        // 幂等：重复标记不报错也不改变结果。
+        assertEquals(updated, store.markSubmitted("1", "11"))
+        assertTrue(GraderStore({ disk }, { true }).load().todoTasks().single().submitted)
+    }
+
+    @Test fun submissionLimitsSurviveRestart() {
+        var disk: String? = null
+        val store = GraderStore({ disk }, { disk = it; true })
+        val assignment = GraderAssignment(
+            id = "11",
+            title = "实验报告",
+            courseTitle = "合成课程",
+            dueAt = now + 3_600_000L,
+            published = true,
+            description = "写两份实验报告",
+            maxFileSize = 10L * 1024 * 1024,
+            allowedExtensions = listOf("pdf", "docx"),
+            submitAllowed = false,
+        )
+        store.replace(GraderAccount("1", "合成账号甲"), "sessionid=synthetic-a", listOf(assignment))
+        val restored = GraderStore({ disk }, { true }).load().assignments.single()
+        assertEquals("写两份实验报告", restored.description)
+        assertEquals(10L * 1024 * 1024, restored.maxFileSize)
+        assertEquals(listOf("pdf", "docx"), restored.allowedExtensions)
+        assertEquals(false, restored.submitAllowed)
     }
 
     @Test fun submittedIdsParseFromSubmissionsPayload() {

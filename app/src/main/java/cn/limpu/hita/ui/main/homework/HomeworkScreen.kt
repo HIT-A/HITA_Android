@@ -1,5 +1,6 @@
 package cn.limpu.hita.ui.main.homework
 
+import android.app.Activity
 import android.app.DatePickerDialog
 import android.app.TimePickerDialog
 import android.content.Intent
@@ -104,12 +105,18 @@ internal fun HomeworkScreen(
         buildHomeworkBoard(state.items, imported, deviceZone, now)
     }
     val context = LocalContext.current
+    val snackbar = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
     val graderLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         viewModel.refreshToday()
     }
+    val submitLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.resultCode != Activity.RESULT_OK) return@rememberLauncherForActivityResult
+        viewModel.refreshToday()
+        // 成功后从列表侧给出确认，避免用户只看到页面自己关掉。
+        scope.launch { snackbar.showSnackbar(context.getString(R.string.grader_submit_success)) }
+    }
     val openGraderLogin = { graderLauncher.launch(Intent(context, GraderLoginActivity::class.java)) }
-    val snackbar = remember { SnackbarHostState() }
-    val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
 
     fun selectDate(value: String) {
@@ -157,6 +164,18 @@ internal fun HomeworkScreen(
             quickDraft = ""
             selectDate(planned)
         }
+    }
+    fun openGraderSubmit(row: TodoRow) {
+        val key = row.key as? TodoKey.Imported ?: return
+        if (key.platform != TodoPlatform.GRADER) return
+        val intent = Intent(context, GraderSubmitActivity::class.java).apply {
+            putExtra(GraderSubmitActivity.EXTRA_ASSIGNMENT_ID, key.id)
+            putExtra(GraderSubmitActivity.EXTRA_TITLE, row.title)
+            putExtra(GraderSubmitActivity.EXTRA_COURSE, row.course)
+            putExtra(GraderSubmitActivity.EXTRA_DUE_AT, row.dueAt ?: 0L)
+            putExtra(GraderSubmitActivity.EXTRA_RESUBMIT, row.submitted)
+        }
+        submitLauncher.launch(intent)
     }
 
     val nextDue = board.nextImportedDeadline
@@ -262,7 +281,7 @@ internal fun HomeworkScreen(
                         TodoPlatform.GENIUSTA -> geniusTa.syncing
                     }
                 }
-                todoRows(board.pending, today, ::rowBusy, ::complete, ::openEditor)
+                todoRows(board.pending, today, ::rowBusy, ::complete, ::openEditor, { row -> openGraderSubmit(row) })
                 if (board.completed.isNotEmpty()) {
                     item(key = "completed-toggle") {
                         CompletedSectionHeader(
@@ -272,7 +291,7 @@ internal fun HomeworkScreen(
                         )
                     }
                     if (showCompleted) {
-                        todoRows(board.completed, today, ::rowBusy, ::complete, ::openEditor)
+                        todoRows(board.completed, today, ::rowBusy, ::complete, ::openEditor, { row -> openGraderSubmit(row) })
                     }
                 }
             }
@@ -495,6 +514,7 @@ private fun LazyListScope.todoRows(
     isBusy: (TodoKey) -> Boolean,
     onComplete: (TodoKey, Boolean) -> Unit,
     onEdit: (HomeworkItem) -> Unit,
+    onSubmit: (TodoRow) -> Unit,
 ) {
     itemsIndexed(rows, key = { _, row -> row.key.listKey }, contentType = { _, _ -> "todo" }) { index, row ->
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -517,11 +537,18 @@ private fun LazyListScope.todoRows(
                     }
                 }
             }
+            val submitAction: (() -> Unit)? =
+                if ((row.key as? TodoKey.Imported)?.platform == TodoPlatform.GRADER) {
+                    { onSubmit(row) }
+                } else {
+                    null
+                }
             HomeworkRow(
                 row = row,
                 busy = isBusy(row.key),
                 onComplete = { onComplete(row.key, it) },
                 onEdit = row.personal?.let { personal -> { onEdit(personal) } },
+                onSubmit = submitAction,
             )
         }
     }
@@ -626,7 +653,13 @@ private fun daySubtitle(date: String): String =
     LocalDate.parse(date).format(HOMEWORK_YEAR_WEEKDAY)
 
 @Composable
-private fun HomeworkRow(row: TodoRow, busy: Boolean, onComplete: (Boolean) -> Unit, onEdit: (() -> Unit)?) {
+private fun HomeworkRow(
+    row: TodoRow,
+    busy: Boolean,
+    onComplete: (Boolean) -> Unit,
+    onEdit: (() -> Unit)?,
+    onSubmit: (() -> Unit)? = null,
+) {
     val item = row.personal
     val imported = row.key as? TodoKey.Imported
     Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) {
@@ -690,6 +723,15 @@ private fun HomeworkRow(row: TodoRow, busy: Boolean, onComplete: (Boolean) -> Un
                         stringResource(R.string.homework_imported_source, stringResource(imported.platform.titleRes)),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            if (onSubmit != null) {
+                TextButton(onClick = onSubmit, enabled = !busy) {
+                    Text(
+                        stringResource(
+                            if (row.submitted) R.string.grader_submit_resubmit_action else R.string.grader_submit_action,
+                        )
                     )
                 }
             }
