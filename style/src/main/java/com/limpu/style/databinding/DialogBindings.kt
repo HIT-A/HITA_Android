@@ -5,6 +5,7 @@ import android.content.res.ColorStateList
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.ColorDrawable
+import android.os.Build
 import android.text.InputType
 import android.util.TypedValue
 import android.view.Gravity
@@ -658,7 +659,9 @@ private object DialogUiFactory {
         return CardView(context).apply {
             this.id = id
             isClickable = true
-            foreground = selectableBorderless(context)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                foreground = selectableBorderless(context)
+            }
             this.radius = dp(context, radius).toFloat()
             cardElevation = 0f
             setCardBackgroundColor(attrColor(context, if (primary) R.attr.colorPrimary else R.attr.colorControlDisabled))
@@ -679,7 +682,12 @@ private object DialogUiFactory {
         return LinearLayout(context).apply {
             id = ID_ITEM
             orientation = LinearLayout.HORIZONTAL
-            foreground = selectable(context)
+            val feedback = selectable(context)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                foreground = feedback
+            } else {
+                background = feedback
+            }
             setPadding(dp(context, 24), dp(context, 12), dp(context, 24), dp(context, 12))
             layoutParams = ViewGroup.LayoutParams(match, wrap)
         }
