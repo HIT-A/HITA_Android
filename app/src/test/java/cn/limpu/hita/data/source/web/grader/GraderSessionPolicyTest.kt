@@ -55,4 +55,59 @@ class GraderSessionPolicyTest {
         assertTrue(GraderSessionPolicy.LOGIN_URL.startsWith("https://"))
         assertTrue(GraderSessionPolicy.ORIGIN.startsWith("https://"))
     }
+
+    @Test
+    fun `gateway cookie keeps the whole header but still requires exactly one sessionid`() {
+        val header = "SESSION=abc; sessionid=s1; sdp_user_token=xyz"
+        assertEquals(header, GraderSessionPolicy.gatewayCookie(header))
+        // 落盘的是这个规范化形式，再校验一次必须幂等。
+        assertEquals(header, GraderSessionPolicy.gatewayCookie(requireNotNull(GraderSessionPolicy.gatewayCookie(header))))
+    }
+
+    @Test
+    fun `gateway cookie without grader session or with malformed pairs is rejected`() {
+        for (header in listOf(
+            "SESSION=abc; sdp_user_token=xyz",
+            "sessionid=a; sessionid=b",
+            "sessionid=; SESSION=abc",
+            "sessionid=a; broken",
+            "sessionid=ab cd; SESSION=abc",
+            "sessionid=ab\"cd; SESSION=abc",
+            "sessionid=a; " + "x".repeat(4_096),
+        )) assertNull(header.take(40), GraderSessionPolicy.gatewayCookie(header))
+    }
+
+    @Test
+    fun `cookie header validation is scoped to the entry`() {
+        assertEquals(
+            "sessionid=b",
+            GraderSessionPolicy.cookieHeader(GraderSessionPolicy.Entry.DIRECT, "sessionid=b"),
+        )
+        // 直连只保留 sessionid，网关 cookie 一律丢弃；网关入口不接受缺少 sessionid 的头。
+        assertEquals(
+            "sessionid=b",
+            GraderSessionPolicy.cookieHeader(GraderSessionPolicy.Entry.DIRECT, "SESSION=a; sessionid=b"),
+        )
+        assertNull(GraderSessionPolicy.cookieHeader(GraderSessionPolicy.Entry.GATEWAY, "SESSION=a"))
+    }
+
+    @Test
+    fun `candidate pages are scoped to the entry host`() {
+        val gateway = GraderSessionPolicy.Entry.GATEWAY
+        assertTrue(GraderSessionPolicy.isCandidatePage("https://grader-hitsz-edu-cn-s.hitsz.edu.cn/home", gateway))
+        assertTrue(GraderSessionPolicy.isCandidatePage("https://grader-hitsz-edu-cn-s.hitsz.edu.cn/courses/42", gateway))
+        assertFalse(GraderSessionPolicy.isCandidatePage("https://grader.hitsz.edu.cn/home", gateway))
+        assertFalse(GraderSessionPolicy.isCandidatePage("https://grader-hitsz-edu-cn-s.hitsz.edu.cn/home"))
+        assertFalse(
+            GraderSessionPolicy.isCandidatePage(
+                "https://grader-hitsz-edu-cn-s.hitsz.edu.cn.evil.invalid/home", gateway,
+            )
+        )
+    }
+
+    @Test
+    fun `entry start urls differ only where the gateway requires it`() {
+        assertEquals("https://grader.hitsz.edu.cn/api/login/sso", GraderSessionPolicy.Entry.DIRECT.startUrl)
+        assertEquals("https://grader-hitsz-edu-cn-s.hitsz.edu.cn/home", GraderSessionPolicy.Entry.GATEWAY.startUrl)
+    }
 }

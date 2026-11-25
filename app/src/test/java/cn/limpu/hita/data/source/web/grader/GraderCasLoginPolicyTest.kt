@@ -107,6 +107,81 @@ class GraderCasLoginPolicyTest {
 
     private fun login(service: String): String = "$CAS_LOGIN?service=${encode(service)}"
 
+    @Test
+    fun `gateway entry follows the aTrust portal and the CAS mirror`() {
+        val entry = GraderSessionPolicy.Entry.GATEWAY
+        for (url in listOf(
+            "https://grader-hitsz-edu-cn-s.hitsz.edu.cn/home",
+            "https://trust.hitsz.edu.cn/portal/shortcut.html?dest=%23%21%2Flogin",
+            "https://ids-hit-edu-cn-s.hitsz.edu.cn/authserver/login",
+            "https://ids.hit.edu.cn/authserver/login",
+            // 网关即使把回跳改回直连域，也只在校内加载得出来；这是网络失败，不是安全越界。
+            "https://grader.hitsz.edu.cn/home",
+        )) assertTrue(url, GraderCasLoginPolicy.mayNavigate(url, entry))
+        for (url in listOf(
+            "http://trust.hitsz.edu.cn/portal/",
+            "https://trust.hitsz.edu.cn:8443/portal/",
+            "https://external.invalid/portal/",
+            "https://hitsz.edu.cn.evil.invalid/portal/",
+        )) assertFalse(url, GraderCasLoginPolicy.mayNavigate(url, entry))
+    }
+
+    @Test
+    fun `gateway credentials need the gateway callback and accept the CAS mirror`() {
+        val entry = GraderSessionPolicy.Entry.GATEWAY
+        val callback = GraderCasLoginPolicy.callback(entry)
+        assertEquals("https://grader-hitsz-edu-cn-s.hitsz.edu.cn/api/auth/callback", callback)
+        val gatewayService = service(callback = callback)
+        val mirrorLogin = "$CAS_MIRROR_LOGIN?service=${encode(gatewayService)}"
+        assertEquals(gatewayService, GraderCasLoginPolicy.loginService(mirrorLogin, entry))
+        val tab = requireNotNull(GraderCasLoginPolicy.accountTabUrl(mirrorLogin, entry))
+        assertTrue(tab.startsWith("$CAS_MIRROR_LOGIN?type=userNameLogin&service="))
+        // 入口与回调必须配套：镜像域配直连回调、直连入口配网关回调都不成立。
+        assertNull(GraderCasLoginPolicy.loginService(login(service()), entry))
+        assertNull(GraderCasLoginPolicy.loginService(mirrorLogin, GraderSessionPolicy.Entry.DIRECT))
+        // 网关链路上的 service 仍必须指向统一认证的 OAuth 端点。
+        assertNull(
+            GraderCasLoginPolicy.loginService(
+                "$CAS_MIRROR_LOGIN?service=${encode(gatewayService.replace("oauth2.0/callbackAuthorize", "oauth2.0/other"))}",
+                entry,
+            )
+        )
+    }
+
+    @Test
+    fun `gateway rewrite may append the default port to the callback`() {
+        val entry = GraderSessionPolicy.Entry.GATEWAY
+        assertTrue(
+            GraderCasLoginPolicy.isEntryCallback(
+                entry, "https://grader-hitsz-edu-cn-s.hitsz.edu.cn/api/auth/callback",
+            )
+        )
+        assertTrue(
+            GraderCasLoginPolicy.isEntryCallback(
+                entry, "https://grader-hitsz-edu-cn-s.hitsz.edu.cn:443/api/auth/callback",
+            )
+        )
+        for (url in listOf(
+            "http://grader-hitsz-edu-cn-s.hitsz.edu.cn/api/auth/callback",
+            "https://grader-hitsz-edu-cn-s.hitsz.edu.cn:8443/api/auth/callback",
+            "https://grader.hitsz.edu.cn/api/auth/callback",
+            "https://grader-hitsz-edu-cn-s.hitsz.edu.cn/api/auth/callback/",
+            "https://grader-hitsz-edu-cn-s.hitsz.edu.cn/api/auth/callback?x=1",
+            "https://grader-hitsz-edu-cn-s.hitsz.edu.cn/api/auth/callback#x",
+            "https://user@grader-hitsz-edu-cn-s.hitsz.edu.cn/api/auth/callback",
+        )) assertFalse(url, GraderCasLoginPolicy.isEntryCallback(entry, url))
+    }
+
+    @Test
+    fun `gateway service with the rewritten callback is accepted`() {
+        val entry = GraderSessionPolicy.Entry.GATEWAY
+        val service = service(callback = "https://grader-hitsz-edu-cn-s.hitsz.edu.cn:443/api/auth/callback")
+        assertEquals(
+            service,
+            GraderCasLoginPolicy.loginService("$CAS_MIRROR_LOGIN?service=${encode(service)}", entry),
+        )
+    }
+
     private fun service(callback: String = CALLBACK, state: String = "original-state"): String =
         "https://ids.hit.edu.cn/authserver/oauth2.0/callbackAuthorize?client_id=1463851627464626176" +
             "&redirect_uri=${encode(callback)}&response_type=code&state=${encode(state)}&client_name=CasOAuthClient"
@@ -115,6 +190,7 @@ class GraderCasLoginPolicyTest {
 
     private companion object {
         const val CAS_LOGIN = "https://ids.hit.edu.cn/authserver/login"
+        const val CAS_MIRROR_LOGIN = "https://ids-hit-edu-cn-s.hitsz.edu.cn/authserver/login"
         const val CALLBACK = "https://grader.hitsz.edu.cn/api/auth/callback"
     }
 }

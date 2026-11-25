@@ -16,6 +16,8 @@ internal class GraderStorageException : Exception("Grader storage unavailable")
 internal data class GraderSnapshot(
     val account: GraderAccount? = null,
     val cookie: String? = null,
+    /** 该会话是从哪个入口建立的：直连还是 aTrust 网关。刷新必须原路返回。 */
+    val entry: GraderSessionPolicy.Entry = GraderSessionPolicy.Entry.DIRECT,
     val assignmentsByAccount: Map<String, List<GraderAssignment>> = emptyMap(),
     val completedByAccount: Map<String, Set<String>> = emptyMap(),
     /** 远端已提交的 ID，按账号隔离；待办页不显示这些记录。 */
@@ -60,12 +62,14 @@ internal class GraderStore(private val read: () -> String?, private val write: (
         cookie: String,
         assignments: List<GraderAssignment>,
         submitted: Set<String> = emptySet(),
+        entry: GraderSessionPolicy.Entry = GraderSessionPolicy.Entry.DIRECT,
     ): GraderSnapshot {
         val current = load()
-        if (GraderSessionPolicy.sessionCookie(cookie) != cookie) throw GraderStorageException()
+        if (GraderSessionPolicy.cookieHeader(entry, cookie) != cookie) throw GraderStorageException()
         return save(current.copy(
             account = account,
             cookie = cookie,
+            entry = entry,
             assignmentsByAccount = current.assignmentsByAccount + (account.id to GraderParser.unique(assignments)),
             submittedByAccount = current.submittedByAccount + (account.id to submitted),
             disconnected = false,
@@ -114,6 +118,7 @@ internal class GraderStore(private val read: () -> String?, private val write: (
             account.addProperty("id", it.id)
             account.addProperty("name", it.name)
             account.addProperty("cookie", value.cookie)
+            account.addProperty("entry", value.entry.name)
             root.add("account", account)
         }
         val caches = JsonObject()
@@ -157,8 +162,12 @@ internal class GraderStore(private val read: () -> String?, private val write: (
         } ?: false
         val accountObject = root.getAsJsonObject("account")
         val account = accountObject?.let { GraderAccount(it.string("id").also(::requireId), it.string("name")) }
+        // 旧版本快照没有 entry 字段；那时只有直连，按直连读。
+        val entry = accountObject?.optionalString("entry")?.let { name ->
+            requireNotNull(GraderSessionPolicy.Entry.entries.firstOrNull { it.name == name })
+        } ?: GraderSessionPolicy.Entry.DIRECT
         val cookie = accountObject?.string("cookie")
-        require(cookie == null || GraderSessionPolicy.sessionCookie(cookie) == cookie)
+        require(cookie == null || GraderSessionPolicy.cookieHeader(entry, cookie) == cookie)
         val caches = root.getAsJsonObject("cache").entrySet().associate { (accountId, rows) ->
             requireId(accountId)
             val assignments = rows.asJsonArray.map {
@@ -189,7 +198,7 @@ internal class GraderStore(private val read: () -> String?, private val write: (
                 id.asString.also(::requireId)
             }.toSet()
         }.orEmpty()
-        return GraderSnapshot(account, cookie, caches, completed, submitted, disconnected)
+        return GraderSnapshot(account, cookie, entry, caches, completed, submitted, disconnected)
     }
 
     private fun JsonObject.string(key: String): String {
@@ -197,6 +206,9 @@ internal class GraderStore(private val read: () -> String?, private val write: (
         require(value.isString && value.asString.isNotBlank())
         return value.asString
     }
+
+    private fun JsonObject.optionalString(key: String): String? =
+        get(key)?.takeUnless { it.isJsonNull }?.asJsonPrimitive?.takeIf { it.isString && it.asString.isNotBlank() }?.asString
 
     private fun requireId(value: String) {
         require(value.isNotEmpty() && value[0] in '1'..'9' && value.all { it in '0'..'9' })

@@ -5,6 +5,7 @@ import cn.limpu.hita.data.source.web.grader.GraderAssignment
 import cn.limpu.hita.data.source.web.grader.GraderCourse
 import cn.limpu.hita.data.source.web.grader.GraderInvalidResponseException
 import cn.limpu.hita.data.source.web.grader.GraderParser
+import cn.limpu.hita.data.source.web.grader.GraderSessionPolicy
 import org.junit.Assert.*
 import org.junit.Test
 import java.time.Instant
@@ -127,6 +128,35 @@ class GraderStoreTest {
         store.replace(second, "sessionid=synthetic-second", listOf(task("11")))
         assertEquals("2", store.load().summaryItems().single().accountId)
         assertFalse(store.load().summaryItems().single().completed)
+    }
+    @Test fun gatewaySessionKeepsItsEntryAcrossRestartAndLegacySnapshotStaysDirect() {
+        var disk: String? = null
+        val store = GraderStore({ disk }, { disk = it; true })
+        val gatewayCookie = "SESSION=abc; sessionid=s1; sdp_user_token=xyz"
+        store.replace(
+            GraderAccount("1", "合成账号甲"), gatewayCookie, listOf(task()),
+            entry = GraderSessionPolicy.Entry.GATEWAY,
+        )
+        val restored = GraderStore({ disk }, { true }).load()
+        assertEquals(GraderSessionPolicy.Entry.GATEWAY, restored.entry)
+        assertEquals(gatewayCookie, restored.cookie)
+
+        // 旧版本快照没有 entry 字段：那时只可能直连，按直连读。
+        val legacy = """{"version":1,"account":{"id":"1","name":"合成账号甲","cookie":"sessionid=synthetic-legacy"},""" +
+            """"cache":{"1":[]},"completed":{}}"""
+        val legacySnapshot = GraderStore({ legacy }, { true }).load()
+        assertEquals(GraderSessionPolicy.Entry.DIRECT, legacySnapshot.entry)
+        assertEquals("sessionid=synthetic-legacy", legacySnapshot.cookie)
+    }
+
+    @Test fun gatewaySessionWithoutTheAuthCookieIsRejected() {
+        val store = GraderStore({ null }, { true })
+        assertThrows(GraderStorageException::class.java) {
+            store.replace(
+                GraderAccount("1", "合成账号甲"), "SESSION=abc", listOf(task()),
+                entry = GraderSessionPolicy.Entry.GATEWAY,
+            )
+        }
     }
 
 }
