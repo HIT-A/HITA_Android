@@ -1,5 +1,6 @@
 package cn.limpu.hita.ui.resource
 
+import androidx.lifecycle.LiveData
 import androidx.lifecycle.Observer
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
@@ -16,13 +17,15 @@ import cn.limpu.hita.data.repository.ExternalResourceRepository
 import cn.limpu.hita.data.repository.HoaRepository
 import com.limpu.component.data.DataState
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import javax.inject.Inject
-import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
 internal data class ResourceFolderKey(val source: ResourceSource, val path: String)
@@ -96,48 +99,60 @@ internal class UnifiedResourceSearchViewModel @Inject constructor(
     private var directoryJob: Job? = null
     private var generation = 0L
 
-    /**
-     * 开始一次检索。旧查询的每个来源任务一起取消，结果按 [generation] 丢弃，
-     * 因此界面只可能看到当前查询的终态。
-     */
     fun search(query: String) {
-        val normalized = query.trim()
-        val key = ResourceSearchKey(normalized, easRepository.getHoaCampus())
-        generation++
-        val owner = generation
+        directoryJob?.cancel()
+        runSearch(ResourceSearchKey(query.trim(), easRepository.getHoaCampus()), SearchSource.entries.toSet())
+    }
+
+    fun retryFailed() {
+        val snapshot = mutableState.value.search ?: return
+        if (snapshot.key.campus != easRepository.getHoaCampus()) {
+            search(snapshot.key.query)
+        } else if (snapshot.failed.isNotEmpty() && !snapshot.loading) {
+            runSearch(snapshot.key, snapshot.failed)
+        }
+    }
+
+    /** One cancellable parent per query; only the current key may publish results. */
+    private fun runSearch(key: ResourceSearchKey, requested: Set<SearchSource>, keepDirectory: Boolean = false) {
+        val owner = ++generation
         searchJob?.cancel()
-        val snapshot = ResourceSearchSnapshot(
+        val previous = mutableState.value.search?.takeIf { it.key == key }
+        val snapshot = if (key.query.isBlank()) null else ResourceSearchSnapshot(
             key = key,
-            sources = SearchSource.entries.associateWith { ResourceSearchSourceState() },
+            sources = SearchSource.entries.associateWith { source ->
+                val cached = previous?.sources?.get(source)
+                if (source in requested) cached?.copy(loading = true, status = null) ?: ResourceSearchSourceState()
+                else requireNotNull(cached)
+            },
         )
-        update { it.copy(stack = emptyList(), directory = null, search = snapshot) }
-        if (normalized.isBlank()) return
+        update {
+            if (keepDirectory) it.copy(search = snapshot)
+            else it.copy(stack = emptyList(), directory = null, search = snapshot)
+        }
+        if (snapshot == null) return
         val operation = UsageAnalyticsClient.begin(UsageAnalyticsEvent.RESOURCE_SEARCH_STARTED)
         searchJob = viewModelScope.launch {
-            val hoa = mutableState.value.search?.sources?.get(SearchSource.HOA) ?: return@launch
-            launchSource(owner, key, SearchSource.HOA) {
-                hoaRepository.searchCourses(normalized, key.campus).await { it.data.orEmpty() }
-                    .map { course ->
+            coroutineScope {
+                if (SearchSource.HOA in requested) launchSource(owner, key, SearchSource.HOA) {
+                    hoaRepository.searchCourses(key.query, key.campus).await { it.data.orEmpty() }.map { course ->
                         UnifiedResourceItem.HoaCourse(
-                            repoName = course.repoName,
-                            courseName = course.courseName,
-                            courseCode = course.courseCode,
-                            repoType = course.repoType,
-                            teachers = course.teachers,
+                            repoName = course.repoName, courseName = course.courseName, courseCode = course.courseCode,
+                            repoType = course.repoType, teachers = course.teachers,
                         )
                     }
-            }
-            for (source in ResourceSource.entries) {
-                launchSource(owner, key, source.toSearchSource()) {
-                    externalRepository.searchSource(normalized, source).await { it.data.orEmpty() }
-                        .map { course ->
+                }
+                for (source in ResourceSource.entries) {
+                    val searchSource = source.toSearchSource()
+                    if (searchSource !in requested) continue
+                    launchSource(owner, key, searchSource) {
+                        externalRepository.searchSource(key.query, source).await { it.data.orEmpty() }.map { course ->
                             UnifiedResourceItem.ExternalCourse(
-                                courseName = course.courseName,
-                                category = course.category,
-                                source = course.source,
-                                path = course.path,
+                                courseName = course.courseName, category = course.category,
+                                source = course.source, path = course.path,
                             )
                         }
+                    }
                 }
             }
             finishAnalytics(owner, key, operation)
@@ -146,22 +161,23 @@ internal class UnifiedResourceSearchViewModel @Inject constructor(
 
     fun browse(path: String, source: ResourceSource, title: String? = null) {
         val key = ResourceFolderKey(source, path)
-        val current = mutableState.value.stack.lastOrNull()
-        // 同一目录的重试不叠加一层历史。
-        if (current?.key == key) {
-            update { it.copy(directory = ResourceFolderSnapshot(key)) }
-            loadDirectory(key)
-            return
+        update { state ->
+            val stack = state.stack
+            val next = if (stack.lastOrNull()?.key == key) stack else {
+                val name = title?.takeIf(String::isNotBlank) ?: path.substringAfterLast('/').ifBlank { source.name }
+                stack + ResourceFolder(key, name)
+            }
+            state.copy(stack = next, directory = ResourceFolderSnapshot(key))
         }
-        val folder = ResourceFolder(key, title?.takeIf(String::isNotBlank) ?: path.substringAfterLast('/').ifBlank { source.name })
-        update { it.copy(stack = it.stack + folder, search = null, directory = ResourceFolderSnapshot(key)) }
         loadDirectory(key)
     }
 
     /** 返回上一级目录；已在根目录时返回 false，由调用方退回列表。 */
     fun back(): Boolean {
         val stack = mutableState.value.stack
-        if (stack.size <= 1) return false
+        if (stack.size <= 1) {
+            return false
+        }
         val next = stack.dropLast(1)
         val folder = next.last()
         update { it.copy(stack = next, directory = ResourceFolderSnapshot(folder.key)) }
@@ -175,25 +191,33 @@ internal class UnifiedResourceSearchViewModel @Inject constructor(
         update { it.copy(stack = emptyList(), directory = null) }
     }
 
-    /** 首次进入（含重建）时按 Intent 恢复：优先浏览目录，否则重放查询。 */
+    /** Saved navigation takes precedence over the launch Intent after process recreation. */
     internal fun restore(initialQuery: String, initialFolder: ResourceFolder?) {
-        if (mutableState.value.search != null || mutableState.value.directory != null) return
-        if (initialFolder != null) {
-            update { it.copy(stack = listOf(initialFolder), directory = ResourceFolderSnapshot(initialFolder.key)) }
-            loadDirectory(initialFolder.key)
-        } else {
-            search(initialQuery.ifBlank { savedState.get<String>(KEY_QUERY).orEmpty() })
+        val state = mutableState.value
+        if (state.search != null || state.directory != null) return
+        val restoredQuery = savedState.get<String>(KEY_QUERY)
+        val stack = state.stack.ifEmpty { listOfNotNull(initialFolder.takeIf { restoredQuery == null }) }
+        val folder = stack.lastOrNull()
+        if (folder != null) {
+            update { it.copy(stack = stack, directory = ResourceFolderSnapshot(folder.key)) }
+            loadDirectory(folder.key)
         }
+        runSearch(
+            ResourceSearchKey(restoredQuery ?: initialQuery.trim(), easRepository.getHoaCampus()),
+            SearchSource.entries.toSet(),
+            keepDirectory = true,
+        )
     }
 
-    private fun launchSource(
+    private fun CoroutineScope.launchSource(
         owner: Long,
         key: ResourceSearchKey,
         source: SearchSource,
         fetch: suspend () -> List<UnifiedResourceItem>,
     ) {
-        viewModelScope.launch {
+        launch {
             val result = runCatching { fetch() }
+            ensureActive()
             if (owner != generation) return@launch
             val current = mutableState.value.search?.takeIf { it.key == key } ?: return@launch
             val previous = current.sources[source] ?: ResourceSearchSourceState()
@@ -223,6 +247,7 @@ internal class UnifiedResourceSearchViewModel @Inject constructor(
             val result = runCatching {
                 externalRepository.listDirectory(key.path, key.source).await { it.data.orEmpty() }
             }
+            ensureActive()
             val current = mutableState.value.directory?.takeIf { it.key == key } ?: return@launch
             update {
                 it.copy(
@@ -258,27 +283,24 @@ internal class UnifiedResourceSearchViewModel @Inject constructor(
     }
 }
 
-/** 等待 LiveData 的终态；先摘观察者再交付，迟到结果不会覆盖后续查询。 */
-private suspend fun <T, R> androidx.lifecycle.LiveData<DataState<T>>.await(
-    map: (DataState<T>) -> List<R>,
-): List<R> = suspendCancellableCoroutine { continuation ->
-    var active = true
-    lateinit var observer: Observer<DataState<T>>
-    fun detach() {
-        if (!active) return
-        active = false
-        removeObserver(observer)
+/** Wait for a terminal state, then detach on the calling UI dispatcher even on cancellation. */
+private suspend fun <T, R> LiveData<DataState<T>>.await(map: (DataState<T>) -> List<R>): List<R> {
+    var registered: Observer<DataState<T>>? = null
+    try {
+        return suspendCancellableCoroutine { continuation ->
+            val observer = Observer<DataState<T>> { value ->
+                if (value.state == DataState.STATE.NOTHING || value.state == DataState.STATE.LOADING ||
+                    !continuation.isActive
+                ) return@Observer
+                if (value.state == DataState.STATE.SUCCESS) continuation.resumeWith(runCatching { map(value) })
+                else continuation.resumeWithException(IllegalStateException(value.message.orEmpty()))
+            }
+            registered = observer
+            observeForever(observer)
+        }
+    } finally {
+        registered?.let(::removeObserver)
     }
-    observer = Observer { value ->
-        if (!active) return@Observer
-        if (value.state == DataState.STATE.NOTHING || value.state == DataState.STATE.LOADING) return@Observer
-        detach()
-        if (!continuation.isActive) return@Observer
-        if (value.state == DataState.STATE.SUCCESS || value.data != null) continuation.resume(map(value))
-        else continuation.resumeWithException(IllegalStateException(value.message.orEmpty()))
-    }
-    continuation.invokeOnCancellation { detach() }
-    observeForever(observer)
 }
 
 private fun ResourceSource.toSearchSource(): SearchSource = when (this) {

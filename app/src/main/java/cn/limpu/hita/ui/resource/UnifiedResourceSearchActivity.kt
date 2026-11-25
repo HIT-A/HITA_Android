@@ -49,6 +49,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -205,7 +206,7 @@ private fun UnifiedResourceSearchScreen(
     val directory = screen.directory
     val searchItems = search?.items.orEmpty()
     val entryItems = directory?.entries.orEmpty()
-    var query by remember(initialQuery) {
+    var query by rememberSaveable(initialQuery) {
         val normalized = CourseCodeUtils.normalize(initialQuery) ?: initialQuery
         mutableStateOf(normalized)
     }
@@ -231,7 +232,8 @@ private fun UnifiedResourceSearchScreen(
                 return
             }
 
-            val rawUrl = if (entry.path.isNotBlank()) {
+            val rawUrl: String
+            if (entry.path.isNotBlank()) {
                 val repo = when (entry.source) {
                     ResourceSource.HITCS -> "HITLittleZheng/HITCS"
                     ResourceSource.FIREWORKS -> "HIT-Fireworks/fireworks-notes-society"
@@ -239,11 +241,10 @@ private fun UnifiedResourceSearchScreen(
                 val encodedPath = entry.path.split("/").joinToString("/") { segment ->
                     URLEncoder.encode(segment, "UTF-8").replace("+", "%20")
                 }
-                "https://raw.githubusercontent.com/$repo/main/$encodedPath"
-            } else if (url.isNotBlank() && !url.startsWith("https://fireworks.")) {
-                url
+                rawUrl = "https://raw.githubusercontent.com/$repo/main/$encodedPath"
             } else {
-                return
+                if (url.isBlank() || url.startsWith("https://fireworks.")) return
+                rawUrl = url
             }
             val downloadUrl = "https://ghproxy.net/$rawUrl"
             if (entry.name.endsWith(".md", ignoreCase = true)) {
@@ -260,9 +261,6 @@ private fun UnifiedResourceSearchScreen(
         val normalized = CourseCodeUtils.normalize(query.trim()) ?: query.trim()
         query = normalized
         keyboardController?.hide()
-        if (isBrowseMode) {
-            viewModel.exitBrowse()
-        }
         if (normalized.isNotBlank()) {
             historyStore.record(normalized)
             history = historyStore.list()
@@ -272,7 +270,7 @@ private fun UnifiedResourceSearchScreen(
 
     fun handleBack(): Boolean {
         if (viewModel.back()) return true
-        if (isBrowseMode) {
+        if (viewModel.state.value.stack.isNotEmpty()) {
             viewModel.exitBrowse()
             return true
         }
@@ -479,14 +477,12 @@ private fun UnifiedResourceSearchScreen(
                                 fontSize = 12.sp,
                                 modifier = Modifier.weight(1f),
                             )
-                            TextButton(onClick = { viewModel.search(search.key.query) }) {
+                            TextButton(onClick = viewModel::retryFailed, enabled = !search.loading) {
                                 Text(stringResource(R.string.resource_retry), fontSize = 12.sp)
                             }
                         }
                     }
                     if (search?.empty == true) {
-                        ResourcePlaceholder(message = stringResource(R.string.course_resource_empty))
-                    } else if (search?.loading == false && searchItems.isEmpty() && search.failed.isEmpty()) {
                         ResourcePlaceholder(message = stringResource(R.string.course_resource_empty))
                     }
                 }

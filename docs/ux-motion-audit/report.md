@@ -180,3 +180,10 @@ gradlew.bat :macrobenchmark:connectedBenchmarkAndroidTest \
 
 新增回归测试：`TimetableCalendarTitleTest.mondayBoundaryDropsSecondsAndMillis`（周起点必须归零秒/毫秒）与 `secondPrecisionOnTableStartStillCountsFirstWeek`（残留秒不得让表被判表外），`TimetableCalendarTitleTest.personalTimetablePastItsEndStaysOutsideTerm`（表尾之外仍非学期）。
 - 参照：[Apple HIG Motion](https://developer.apple.com/design/human-interface-guidelines/motion) 的少动、可中断与反馈；[Compose 无障碍默认行为](https://developer.android.com/develop/ui/compose/accessibility/api-defaults)、[窗口宽度分级](https://developer.android.com/develop/ui/compose/layouts/adaptive/use-window-size-classes)、[系统动画时长倍率](https://developer.android.com/reference/kotlin/androidx/compose/ui/MotionDurationScale)、[预测式返回](https://developer.android.com/develop/ui/compose/system/predictive-back-setup) 和 [FrameTimingMetric](https://developer.android.com/topic/performance/benchmarking/macrobenchmark-metrics#frametimingmetric)。
+
+## 8. 与 Grader 登录、提交集成后的行为
+
+- Grader 作业提交绑定打开页面时的账号及发起写入时的会话。登出或更换会话后，不再继续尚未进入最后一步的提交；最终请求无明确回执时提示先到 Grader 核对，不自动重发。远端已确认的作业仍在已完成区，显示「重新提交」，不可用本地勾选撤销远端记录。
+- 同一资源查询重试仅重取失败来源。旧查询的结果不会覆盖新查询，浏览目录不丢失原搜索结果，恢复时以保存的目录栈为准。已发出的旧版网络请求仍可能在后台完成；取消的是界面的等待与结果交付。
+- 上传保持流式传输，进度按约 1% 的文件大小合并再更新。诊断文件只记录阶段、域名、状态码等摘要，不记录 OAuth 回跳参数、服务端响应片段或作业文件名。
+
