@@ -40,13 +40,27 @@ internal object GraderSessionPolicy {
             }
     }
 
-    /** 直连只认单个 `sessionid`。 */
+    /**
+     * 直连只保留业务必需的 cookie。
+     *
+     * 写请求（提交作业）需要 Django 的 `csrftoken` 与 `X-CSRFTOKEN` 头，所以直连也不能
+     * 只存 `sessionid`；其余浏览器 cookie 一律丢弃。
+     */
     fun sessionCookie(header: String): String? {
         if (header.any { it.code < 0x20 || it.code > 0x7e }) return null
-        val matches = header.split(';').map { it.trim() }.filter { it.substringBefore('=') == SESSION_COOKIE }
-        val value = matches.singleOrNull()?.substringAfter('=', "") ?: return null
-        if (!validSessionValue(value)) return null
-        return "$SESSION_COOKIE=$value"
+        val pairs = header.split(';').map { it.trim() }.filter { it.isNotEmpty() }
+        val kept = pairs.filter { it.substringBefore('=', "") in DIRECT_COOKIE_NAMES }
+        val names = kept.map { it.substringBefore('=', "") }
+        if (names.count { it == SESSION_COOKIE } != 1) return null
+        if (names.count { it == CSRF_COOKIE } > 1) return null
+        val session = kept.first { it.substringBefore('=', "") == SESSION_COOKIE }.substringAfter('=', "")
+        if (!validSessionValue(session)) return null
+        val csrf = kept.firstOrNull { it.substringBefore('=', "") == CSRF_COOKIE }?.substringAfter('=', "")
+        if (csrf != null && !validSessionValue(csrf)) return null
+        return buildList {
+            add("$SESSION_COOKIE=$session")
+            csrf?.let { add("$CSRF_COOKIE=$it") }
+        }.joinToString("; ")
     }
 
     /**
@@ -75,12 +89,31 @@ internal object GraderSessionPolicy {
         Entry.GATEWAY -> gatewayCookie(header)
     }
 
+    /** 写请求要带的 Django CSRF 令牌；缺失时写操作无法通过校验。 */
+    fun csrfToken(cookieHeader: String): String? {
+        if (cookieHeader.any { it.code < 0x20 || it.code > 0x7e }) return null
+        val value = cookieHeader.split(';')
+            .map { it.trim() }
+            .firstOrNull { it.substringBefore('=', "") == CSRF_COOKIE }
+            ?.substringAfter('=', "")
+            ?: return null
+        return value.takeIf { validSessionValue(it) }
+    }
+
+    /**
+     * 登录落点。
+     *
+     * 除 `/home`、`/courses` 外，根路径也是落点：CAS 回调完成后 Grader 常先停在 `/`，
+     * 再由前端路由（history API）切到具体页面——那种切换不会触发 `onPageFinished`，
+     * 只认子路径就会一直等不到判定（2026-11-25 真机实证）。
+     */
     fun isCandidatePage(url: String, entry: Entry = Entry.DIRECT): Boolean = try {
         val uri = URI(url)
+        val path = uri.path.orEmpty()
         uri.scheme == "https" && uri.host == entry.host &&
             (uri.port == -1 || uri.port == 443) && uri.rawUserInfo == null &&
-            (uri.path == "/home" || uri.path.startsWith("/home/") ||
-                uri.path == "/courses" || uri.path.startsWith("/courses/"))
+            (path.isEmpty() || path == "/" || path == "/home" || path.startsWith("/home/") ||
+                path == "/courses" || path.startsWith("/courses/"))
     } catch (_: Exception) {
         false
     }
@@ -92,5 +125,7 @@ internal object GraderSessionPolicy {
         char.isLetterOrDigit() || char == '-' || char == '_' || char == '.'
 
     private const val SESSION_COOKIE = "sessionid"
+    private const val CSRF_COOKIE = "csrftoken"
+    private val DIRECT_COOKIE_NAMES = setOf(SESSION_COOKIE, CSRF_COOKIE)
     private const val MAX_COOKIE_HEADER_LENGTH = 4_096
 }

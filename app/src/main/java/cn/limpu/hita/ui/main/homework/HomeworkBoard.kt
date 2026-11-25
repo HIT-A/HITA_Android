@@ -38,6 +38,8 @@ internal data class TodoRow(
     val deadlineText: String?,
     val completed: Boolean,
     val personal: HomeworkItem? = null,
+    /** 远端已有提交记录（仅 Grader 导入项有意义）。 */
+    val submitted: Boolean = false,
 )
 
 @Immutable
@@ -90,6 +92,7 @@ internal fun buildHomeworkBoard(
             add(TodoRow(
                 TodoKey.Imported(platform, accountId, task.id), task.title, task.courseTitle, task.dueAt,
                 deadline.atZone(zone).toLocalDate().toString(), importedDeadlineFormat.format(deadline), task.completed,
+                submitted = task.submitted,
             ))
         }
     }

@@ -106,6 +106,29 @@ class GraderSessionPolicyTest {
     }
 
     @Test
+    fun `direct session keeps the csrf cookie and drops everything else`() {
+        assertEquals(
+            "sessionid=s1; csrftoken=c1",
+            GraderSessionPolicy.sessionCookie("a=1; csrftoken=c1; sessionid=s1; b=2"),
+        )
+        assertEquals("c1", GraderSessionPolicy.csrfToken("a=1; csrftoken=c1; sessionid=s1"))
+        assertNull(GraderSessionPolicy.csrfToken("sessionid=s1"))
+    }
+
+    @Test
+    fun `the root path is also a landing page`() {
+        // CAS 回调完成后 Grader 常先停在 `/`，前端再用 history API 切换，不会再触发加载回调。
+        assertTrue(GraderSessionPolicy.isCandidatePage("https://grader.hitsz.edu.cn/"))
+        assertTrue(GraderSessionPolicy.isCandidatePage("https://grader.hitsz.edu.cn"))
+        assertTrue(
+            GraderSessionPolicy.isCandidatePage(
+                "https://grader-hitsz-edu-cn-s.hitsz.edu.cn/", GraderSessionPolicy.Entry.GATEWAY,
+            )
+        )
+        assertFalse(GraderSessionPolicy.isCandidatePage("https://grader.hitsz.edu.cn/api/auth/callback"))
+    }
+
+    @Test
     fun `entry start urls differ only where the gateway requires it`() {
         assertEquals("https://grader.hitsz.edu.cn/api/login/sso", GraderSessionPolicy.Entry.DIRECT.startUrl)
         assertEquals("https://grader-hitsz-edu-cn-s.hitsz.edu.cn/home", GraderSessionPolicy.Entry.GATEWAY.startUrl)
