@@ -104,12 +104,38 @@
 
 [玻璃捕获](../../app/src/main/java/cn/limpu/hita/ui/main/MainScreen.kt#L129-L150)、[Dock 编辑图层](../../app/src/main/java/cn/limpu/hita/ui/main/DockTabBar.kt#L538-L574) 的 `saveLayer` 和双绘制、[赛博描边](../../app/src/main/java/cn/limpu/hita/ui/design/HitaCyberSurfaces.kt#L102-L133) 的三重绘制、[深空背景](../../app/src/main/java/cn/limpu/hita/ui/design/HitaDeepSpaceSurfaces.kt#L121-L165) 的全屏循环，是待追踪路径，不是已证实的瓶颈。素材风格不应改变业务手势。Compose 支持系统倍率，但应用未找到统一的自定义动效决策；倍率 0 只实测了最终页面可用，没有证明循环装饰、View 转场与所有手势均按预期收敛。保留页滑在绘制层读位移的现有做法；不为数字跳动或高频勾选驱动列表整体测量。
 
+### UX-23-B
+**已实测（模拟器）· 页签切换与抽屉的帧时长。** 本条与上面的 `gfxinfo` 不是同一口径：下面的数据来自 `:macrobenchmark` 的 `UxJourneysBenchmark`，指标为 `FrameTimingMetric()`，通过 `BenchmarkSeedActivity` 预置 160 个课表事件、220 条待办、100 条会话消息，10 次迭代，`CompilationMode.None()`，同一 `hita_test` AVD（API 35，x86_64，1080×2400 / 420 dpi，60 Hz，软件渲染）。
+
+| 旅程（风格） | 帧数 min/median/max | `frameDurationCpuMs` P50/P90/P95/P99 | `frameOverrunMs` P50/P90/P95/P99 |
+|---|---|---|---|
+| `classicTabs` | 163/181/190 | 54.8 / 68.5 / 76.0 / 94.8 | 56.7 / 78.2 / 88.9 / 122.3 |
+| `glassTabs` | 81/174/181 | 57.9 / 186.2 / 203.2 / 270.3 | 62.3 / 244.7 / 290.4 / 357.4 |
+| `classicDrawer` | 132/135/142 | 51.7 / 61.7 / 66.0 / 79.4 | 48.5 / 72.4 / 75.0 / 90.6 |
+| `glassDrawer` | 123/132/141 | 56.6 / 74.2 / 81.9 / 108.5 | 59.8 / 88.3 / 95.2 / 126.6 |
+
+命令：
+
+```bash
+gradlew.bat :app:assembleBenchmark
+gradlew.bat :macrobenchmark:connectedBenchmarkAndroidTest \
+  -Pandroid.testInstrumentationRunnerArguments.class=cn.limpu.hita.benchmark.UxJourneysBenchmark
+```
+
+`glassTabs` 的 P90 起明显高于 `classicTabs`（`frameOverrunMs` P95 290.4 ms 对 88.9 ms，约 3.3 倍），与上面 `gfxinfo` 里玻璃风格 Janky 比例更高方向一致；两次采样口径不同，只能说明“玻璃风格在模拟器上更重”这一方向，不能给出真机结论。
+
+**限制**：Macrobenchmark 在本机构建中被显式抑制了 `EMULATOR` 检查，AVD 用软件渲染且峰值刷新率 60 Hz，`frameOverrunMs` 各旅程 P50 均为帧预算 16.7 ms 的 3 倍以上，属模拟器开销。`switchWeeks`、`scrollLongAgenda`、`scrollLongConversation` 三个旅程在准备阶段失败：点击底栏「时间表」（坐标 392,2266）后，`By.desc("时间表").selected(true)` 在 25 s 内始终不出现，重试一次与改用坐标点击均未改变结果（同一验证项已尝试三次，按上限停止重试）。失败发生在进入时间表/待办/助手页之前，应用未崩溃，日志中无 `SecurityException` 或 `FATAL`；失败原因未定位，可能是模拟器上底栏 `selected` 语义在该路径不刷新。这一项记为**未验证**，不作“无掉帧”推断。
+
+其余未覆盖：玻璃/深空/赛博的全量风格矩阵（已测玻璃与经典的页签/抽屉，未测赛博/深空）、窄/宽窗口、字号 1.3/2.0、倍率 0/2、真机门。
+
 ## 6. 建议保留的行为与后续证据
 
 - 保留今日按日期和范围保存展开态、重验旧事件和显示缓存失败；保留本地待办的默认截止时间、完成后可撤、脏表单/删除确认。不要用弹层替代常用路径。
 - 保留课表导入校准及数据版本保护、教学隐藏可恢复、好友口令预览与版本确认、对比不渲染上周结果、重要系统许可。免登录仍可维护个人日程和待办；认证只加在确实依赖账号的操作上。
 - 后续必须实测：三校区及威海本研、深圳 API/Web 变体及门户过期/MFA；有数据的长课表、重叠卡和长 Markdown；真实服务返回/超时/拒绝/迟到；旋转、进程重建、无网和权限撤回；小组件冷暖启动、日期解析；TalkBack、字大 2.0、键鼠/焦点、分屏、手势和三键导航、所有风格的深浅色和系统减少动态效果。真机帧门槛见 [规格](spec.md)，不可由上表代替。
 - 可复现环境：`hita_test`，API 35，包 `cn.limpu.hita.diag`，1080×2400 / 420 dpi。Windows JDK 21 `gradlew.bat assembleDebug testDebugUnitTest --console=plain` 返回 `BUILD SUCCESSFUL`；本轮修复后重跑 `:app:testDebugUnitTest :component:testDebugUnitTest :hitauser:testDebugUnitTest :style:testDebugUnitTest :timetable-core:test :timetable-core:jar` 通过，`python scripts/check_repository.py --base-ref origin/main` 通过。通过 `adb install -r app/build/outputs/apk/debug/app-debug.apk` 安装；冷启动用 `am start -n cn.limpu.hita.diag/cn.limpu.hita.ui.main.MainActivity`，走查用 `input tap/swipe`、`uiautomator dump` 和 `screencap`。
+
+本轮 device 侧 `:app:connectedDebugAndroidTest` 指定 `TimetableBatchUIInstrumentedTest` 时在 runner 初始化阶段失败（`ClassNotFoundException`，测试类实际存在于 `app-debug-androidTest.apk` 的 dex 中，重装 APK 后结果相同），因此设备测试**本轮未取得任何通过证据**；这条失败与图形/动效改动无直接关联，但也不能当作已通过。
 
 ## 7. 本轮修复后的复测
 

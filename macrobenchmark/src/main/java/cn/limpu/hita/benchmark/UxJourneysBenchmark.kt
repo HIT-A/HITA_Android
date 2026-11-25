@@ -92,18 +92,40 @@ class UxJourneysBenchmark {
             // Launch from the signed instrumentation, not via shell, for the seed permission.
             instrumentation.context.startActivity(Intent().setClassName(TARGET, SEED_ACTIVITY)
                 .putExtra("style", style).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK))
-            check(ui.wait(Until.hasObject(By.desc("今日").selected(true)), TIMEOUT_MS) == true) { "Today did not start" }
+            // 一次性公告是启动后异步拉取的，会盖住主界面；它属于准备，不属于被测旅程。
+            dismissStartupNotices()
+            check(ui.wait(Until.hasObject(By.desc("今日")), TIMEOUT_MS) == true) { "Today did not start" }
+            dismissStartupNotices()
             if (page != "今日") {
-                named(page).click()
-                check(ui.wait(Until.hasObject(By.desc(page).selected(true)), TIMEOUT_MS) == true) {
-                    "Page did not become selected: $page"
+                // 模拟器上首次点击可能落在进入动画里；重点一次并放宽等待，避免把准备抖动算成旅程失败。
+                var selected = false
+                repeat(2) {
+                    if (selected) return@repeat
+                    // 用坐标点击而不是节点点击：节点在进入动画里会失效，坐标与 tabs() 成功的路径一致。
+                    val targetPoint = named(page).visibleCenter
+                    check(ui.click(targetPoint.x, targetPoint.y))
+                    selected = ui.wait(Until.hasObject(By.desc(page).selected(true)), TIMEOUT_MS) == true
                 }
+                check(selected) { "Page did not become selected: $page" }
             }
             prepare()
             ui.waitForIdle()
         },
         measureBlock = { ui.scenario() },
     )
+
+    /** Closes the one-shot startup notices; they belong to preparation, not to the measured journey. */
+    private fun dismissStartupNotices() {
+        // 公告依赖网络，出现时间不定；最多等一次见过公告后的 20 秒，没出现就立即返回。
+        var first = ui.wait(Until.findObject(By.text("知道了")), 6_000) ?: return
+        val deadline = System.currentTimeMillis() + 20_000
+        while (true) {
+            first.click()
+            ui.waitForIdle()
+            if (System.currentTimeMillis() >= deadline) return
+            first = ui.wait(Until.findObject(By.text("知道了")), 2_000) ?: return
+        }
+    }
 
     private fun named(label: String): UiObject2 = checkNotNull(
         ui.wait(Until.findObject(By.desc(label)), TIMEOUT_MS),
@@ -112,6 +134,6 @@ class UxJourneysBenchmark {
     private companion object {
         const val TARGET = "cn.limpu.hita.benchmark"
         const val SEED_ACTIVITY = "cn.limpu.hita.benchmark.BenchmarkSeedActivity"
-        const val TIMEOUT_MS = 15_000L
+        const val TIMEOUT_MS = 25_000L
     }
 }

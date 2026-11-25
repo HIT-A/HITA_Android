@@ -47,7 +47,12 @@ def deepSeekApiKey = resolveSecret("deepseekApiKey", "DEEPSEEK_API_KEY")
 def zhipuApiKey = resolveSecret("zhipuApiKey", "ZHIPU_API_KEY")
 
 android {
-    sourceSets { androidTest.assets.srcDirs += files("$projectDir/schemas") }
+    sourceSets {
+        androidTest.assets.srcDirs += files("$projectDir/schemas")
+        // 基准种子入口只进 benchmark 变体，不污染 debug/release。
+        benchmark.java.srcDirs += 'src/benchmark/java'
+        benchmark.manifest.srcFile 'src/benchmark/AndroidManifest.xml'
+    }
     signingConfigs {
         release {
             if (keystorePropertiesFile.exists() && keystoreProperties['storeFile']) {

@@ -28,6 +28,11 @@ android {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
+        // :macrobenchmark 以 benchmark 变体解析依赖；库模块需要同名的匹配变体。
+        benchmark {
+            initWith release
+            matchingFallbacks = ['release']
+        }
     }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_1_8

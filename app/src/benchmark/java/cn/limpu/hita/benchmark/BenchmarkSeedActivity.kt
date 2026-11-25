@@ -100,7 +100,7 @@ class BenchmarkSeedActivity : ComponentActivity() {
         check(getSharedPreferences("timeline_homework_v1", Context.MODE_PRIVATE).edit()
             .putString("items", Gson().toJson(tasks)).commit())
         OptionalTabStore(this).apply { setHomework(true); setAgent(true); setInfo(false) }
-        DisplayScopeResolver(application).persistSelection(DisplayScope.Timetable(TABLE_ID))
+        DisplayScopeResolver(application).persistSelection(DisplayScope.Single(TABLE_ID))
     }
 
     private companion object { const val TABLE_ID = "ux-benchmark-table" }

@@ -56,11 +56,22 @@
 ### T-08
 **采集真机性能与发布证据。**规格 [S-12](spec.md#s-12)、[S-13](spec.md#s-13)；证据 [UX-21](report.md#ux-21)、[UX-22](report.md#ux-22)、[UX-23](report.md#ux-23)。依赖：基线在调整动效前固定；候选待 T-01 至 T-07。
 
-- 只取得对真机和性能构建配置的授权后建立独立可分析的基准目标（推荐 `:macrobenchmark` 的 `com.android.test`，不使用正式签名或 Debug 样本作为门槛）。测试类 `UxJourneysBenchmark` 用 `MacrobenchmarkRule.measureRepeated(FrameTimingMetric())`。每次由确定性种子准备完成初始屏，脚本使用稳定操作目标，不把准备、应用安装和 UI 树 dump 混进帧区间。实现后本地入口：`gradlew.bat :macrobenchmark:connectedCheck -Pandroid.testInstrumentationRunnerArguments.class=cn.limpu.hita.benchmark.UxJourneysBenchmark`；若模块/权限方案需更改，更新命令并报告，不临时换口径。
+- 只取得对真机和性能构建配置的授权后建立独立可分析的基准目标（推荐 `:macrobenchmark` 的 `com.android.test`，不使用正式签名或 Debug 样本作为门槛）。测试类 `UxJourneysBenchmark` 用 `MacrobenchmarkRule.measureRepeated(FrameTimingMetric())`。每次由确定性种子准备完成初始屏，脚本使用稳定操作目标，不把准备、应用安装和 UI 树 dump 混进帧区间。实现后的本地入口（`com.android.test` 模块只有 `benchmark` 变体，`connectedCheck` 不会解析它，必须用带构建类型的任务）：
+
+```bash
+gradlew.bat :app:assembleBenchmark
+gradlew.bat :macrobenchmark:connectedBenchmarkAndroidTest \
+  -Pandroid.testInstrumentationRunnerArguments.class=cn.limpu.hita.benchmark.UxJourneysBenchmark
+```
+
+单个旅程可加 `#classicTabs` 等后缀。准备阶段会先关闭一次性启动公告（不属于被测旅程），并显式设置 `androidx.benchmark.suppressErrors=EMULATOR`；这说明数据来自模拟器，不能当真实设备性能门。已跑通 `classicTabs` 并记录 P50/P90/P95/P99（[UX-23-B](report.md#ux-23-b)）；其余旅程、三种装饰风格和真机门仍未测。`:style`、`:component`、`:hitauser` 同步声明了 `benchmark` 构建类型（`initWith release`）供该变体解析；`app` 的 `benchmark` 变体用 debug 签名并保留 `BenchmarkSeedActivity` 类名。
 - 依次运行基线和候选、每设备每旅程至少 10 次；使用基线和候选一致的编译、数据量、刷新率和主题，在报告保存环境、samples/JSON/Perfetto 路径、P95/P99/超时帧和失败的 UI 序列。按 [S-13](spec.md#s-13) 逐行判定，不用跨设备平均遮掩失败。图层、布局、主线程/RenderThread 或系统其他负载要分别归因；没有 trace 不下归因结论。必要时把装饰降为静态，不改变已通过的基本交互。
 - 全量放行：`gradlew.bat assembleDebug testDebugUnitTest :timetable-core:test`，改动涉及的 instrumentation 及 `python scripts/check_repository.py`；真机走完整主任务，三校区下按 [CV-08](report.md#1-状态覆盖与实测边界) 覆盖相关登录及绑定状态、联网/断网、权限访问与拒绝。记录真机型号、系统、状态与逐条结果。无账号、无设备、超性能阈值或真实服务时序未验证均不声称通过，不自动合并上线。
 
 ## 本轮实施与验收结果
+
+**工作项落地情况**：T-01（统一退出对话框、批量口令必选披露、详情批量删除确认）、T-02（空态不建表、空表按学期、表单必填与保存回执、待办行内撤销）、T-03（确认门按会话+请求身份）、T-04（`TimetableWindowKey`/`ResourceSearchKey` 请求身份）、T-05（预览与提交同源、静音舱写入跟踪）、T-06（普通提示常驻入口、前台占用延迟重要提示、删除历史入口）、T-07（`HitaMotion` 集中时长与系统倍率、移除重叠装饰绘制）已实现；T-08（`:macrobenchmark` + `UxJourneysBenchmark`）已可构建并在模拟器可运行。各项目的真机、真实账号与全矩阵子项仍未验证，见下文。
+
 
 以下为在 `feat/ux-motion-audit` 上实际执行的结果，测试命令与结论一一对应；未列出的设备或账号场景仍属未验证。
 
