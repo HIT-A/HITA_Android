@@ -27,27 +27,15 @@ class Timetable {
 
     /**
      * 获取某时间戳所对应的周数 =
+     *
+     * 周起点统一按中国时区归一：教务与课表时间戳都是校区墙钟，若按设备默认时区
+     * 归一（海外或 CI 的 UTC），周日会回退到前一周，周次整体偏移一周。
      */
     fun getWeekNumber(ts: Long): Int {
-        val c = Calendar.getInstance()
-        c.timeInMillis = ts
-        c.firstDayOfWeek = Calendar.MONDAY
-        c[Calendar.DAY_OF_WEEK] = Calendar.MONDAY
-        c[Calendar.HOUR_OF_DAY] = 0
-        c[Calendar.MINUTE] = 0
-        c[Calendar.SECOND] = 0
-        c[Calendar.MILLISECOND] = 0
-        if (c.timeInMillis > endTime.time) return -1
-        val termStart = Calendar.getInstance().apply {
-            timeInMillis = startTime.time
-            firstDayOfWeek = Calendar.MONDAY
-            set(Calendar.DAY_OF_WEEK, Calendar.MONDAY)
-            set(Calendar.HOUR_OF_DAY, 0)
-            set(Calendar.MINUTE, 0)
-            set(Calendar.SECOND, 0)
-            set(Calendar.MILLISECOND, 0)
-        }
-        val x = Math.floorDiv(c.timeInMillis - termStart.timeInMillis, WEEK_MILLS)
+        val c = startOfWeek(ts)
+        if (c > endTime.time) return -1
+        val termStart = startOfWeek(startTime.time)
+        val x = Math.floorDiv(c - termStart, WEEK_MILLS)
         return when {
             x < 0 -> {
                 -1
@@ -57,6 +45,17 @@ class Timetable {
             }
         }
     }
+
+    /** 把时间戳归一到中国时区所在周的周一 00:00:00.000。 */
+    private fun startOfWeek(ts: Long): Long = Calendar.getInstance(chinaZone).apply {
+        timeInMillis = ts
+        firstDayOfWeek = Calendar.MONDAY
+        set(Calendar.DAY_OF_WEEK, Calendar.MONDAY)
+        set(Calendar.HOUR_OF_DAY, 0)
+        set(Calendar.MINUTE, 0)
+        set(Calendar.SECOND, 0)
+        set(Calendar.MILLISECOND, 0)
+    }.timeInMillis
 
 
     fun getTimestamps(week:Int,dow:Int,start:Int,end:Int): List<Long> {
@@ -125,5 +124,8 @@ class Timetable {
         return res
     }
 
-
+    private companion object {
+        /** 教务与课表时间戳都是校区墙钟，周次必须按中国时区归一。 */
+        val chinaZone: TimeZone = TimeZone.getTimeZone("Asia/Shanghai")
+    }
 }
