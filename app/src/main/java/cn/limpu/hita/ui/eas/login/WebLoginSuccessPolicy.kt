@@ -19,19 +19,43 @@ internal object WebLoginSuccessPolicy {
             uri.path.orEmpty().lowercase().startsWith("/authserver/reauthcheck/")
     }
 
-    /** Never collect a teaching session from an identity/MFA or VPN portal page. */
+    private fun benbuTeachingUri(url: String): URI? =
+        runCatching { URI(url) }.getOrNull()?.takeIf {
+            it.scheme?.lowercase() in setOf("http", "https") &&
+                it.userInfo == null && it.host?.lowercase() in benbuTeachingHosts
+        }
+
+    private fun benbuTeachingPath(uri: URI): String =
+        uri.path.orEmpty().substringBefore(';').trimEnd('/').lowercase()
+
+    private fun hasCasServiceTicket(uri: URI): Boolean =
+        uri.rawQuery.orEmpty().split('&').any {
+            it.startsWith("ticket=ST-") && it.length > "ticket=ST-".length
+        }
+
+    /** A login entry may hold stale cookies. A verified teaching response is required in that case. */
     fun canCollectBenbuSession(url: String): Boolean {
-        val uri = runCatching { URI(url) }.getOrNull() ?: return false
-        return uri.scheme?.lowercase() in setOf("http", "https") &&
-            uri.userInfo == null && uri.host?.lowercase() in benbuTeachingHosts &&
-            !uri.path.orEmpty().contains("authserver", ignoreCase = true)
+        val uri = benbuTeachingUri(url) ?: return false
+        val path = benbuTeachingPath(uri)
+        if (path.contains("authserver")) return false
+        return if (path == "/logincas") hasCasServiceTicket(uri) else !path.contains("login")
     }
 
-    fun isBenbuAuthenticatedPage(url: String, cookies: Map<String, String>): Boolean {
-        if (!canCollectBenbuSession(url)) return false
-        val path = runCatching { URI(url).path }.getOrNull().orEmpty()
-        return !path.contains("login", ignoreCase = true) &&
-            !cookies["JSESSIONID"].isNullOrBlank() && !cookies["HIT"].isNullOrBlank()
+    fun isBenbuUnticketedLoginEntry(url: String): Boolean {
+        val uri = benbuTeachingUri(url) ?: return false
+        return benbuTeachingPath(uri) == "/logincas" && !hasCasServiceTicket(uri)
+    }
+
+    fun hasBenbuTeachingCookies(cookies: Map<String, String>): Boolean =
+        !cookies["JSESSIONID"].isNullOrBlank() && !cookies["HIT"].isNullOrBlank()
+
+    fun isBenbuAuthenticatedPage(url: String, cookies: Map<String, String>): Boolean =
+        canCollectBenbuSession(url) && hasBenbuTeachingCookies(cookies)
+
+    fun isBenbuEelabPage(url: String?): Boolean {
+        val uri = runCatching { URI(url.orEmpty()) }.getOrNull() ?: return false
+        return uri.scheme?.lowercase() in setOf("http", "https") &&
+            uri.userInfo == null && uri.host.equals("eelabinfo-hit-edu-cn.vpn.hit.edu.cn", ignoreCase = true)
     }
 
     fun shouldOpenWeihaiTeachingEntry(url: String, teachingBaseUrl: String): Boolean {

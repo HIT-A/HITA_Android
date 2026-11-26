@@ -11,6 +11,7 @@ import android.os.Message
 import android.graphics.Color
 import android.view.View
 import android.view.ViewGroup
+import android.view.WindowManager
 import android.webkit.CookieManager
 import android.webkit.RenderProcessGoneDetail
 import android.webkit.SslErrorHandler
@@ -24,6 +25,8 @@ import android.webkit.WebViewClient
 import android.widget.Toast
 import android.net.http.SslError
 import cn.limpu.hita.data.model.eas.EASToken
+import cn.limpu.hita.data.repository.EASRepository
+import com.limpu.component.data.DataState
 import cn.limpu.hita.data.source.web.eas.HttpCampusReachabilityProbe
 import cn.limpu.hita.data.source.web.eas.WeihaiEasEntryPolicy
 import cn.limpu.hita.data.source.web.eas.WeihaiUndergraduateLogin
@@ -49,6 +52,8 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.text.KeyboardOptions
@@ -111,6 +116,7 @@ internal data class MfaOverlayState(
 class WebViewLoginActivity : AppCompatActivity() {
 
     @Inject lateinit var easCredentialStore: EasCredentialStore
+    @Inject lateinit var easRepository: EASRepository
 
     protected val viewModel: WebViewLoginViewModel by viewModels()
 
@@ -218,6 +224,7 @@ class WebViewLoginActivity : AppCompatActivity() {
     private var finished = false
     private var cookieRetryCount = 0
     private var cookiePollingGeneration = 0
+    private var benbuEntryProbeGeneration = -1
     // 登录卡住兜底：统一认证页出现过，且之后停在非成功页时，允许重新进入 EAS 入口
     private var weihaiSawAuthPage = false
     private var weihaiStuckNudgeCount = 0
@@ -290,6 +297,10 @@ class WebViewLoginActivity : AppCompatActivity() {
             }
         )
         super.onCreate(savedInstanceState)
+        val fitBenbuVerificationWindow = campus == EASToken.Campus.BENBU && !silentMode
+        if (fitBenbuVerificationWindow) {
+            window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+        }
 
         if (silentMode) {
             window?.setBackgroundDrawableResource(android.R.color.transparent)
@@ -302,6 +313,7 @@ class WebViewLoginActivity : AppCompatActivity() {
             HitaComposeTheme() {
                 WebViewLoginScreen(
                     silentMode = silentMode,
+                    fitBenbuVerificationWindow = fitBenbuVerificationWindow,
                     progressVisible = progressVisible,
                     progressValue = progressValue,
                     showBenbuMfaHint = showBenbuMfaHint,
@@ -557,6 +569,7 @@ class WebViewLoginActivity : AppCompatActivity() {
                 ): Boolean {
                     if (!request.isForMainFrame) return false
                     val target = request.url?.toString()
+                    if (finishEelabOnRedirect(target)) return true
                     if (WebViewSecurityPolicy.isAllowedNavigation(config.campus, target)) return false
                     LogUtils.w("main frame navigation blocked: ${safeUrl(target)} campus=${config.campus}")
                     return true
@@ -564,6 +577,7 @@ class WebViewLoginActivity : AppCompatActivity() {
 
                 @Suppress("DEPRECATION")
                 override fun shouldOverrideUrlLoading(view: WebView, url: String): Boolean {
+                    if (finishEelabOnRedirect(url)) return true
                     if (WebViewSecurityPolicy.isAllowedNavigation(config.campus, url)) return false
                     LogUtils.w("main frame navigation blocked: ${safeUrl(url)} campus=${config.campus}")
                     return true
@@ -634,27 +648,23 @@ class WebViewLoginActivity : AppCompatActivity() {
 
                 override fun onPageFinished(view: WebView, url: String) {
                     super.onPageFinished(view, url)
+                    if (finished) return
+                    if (config.campus == EASToken.Campus.BENBU &&
+                        view.url?.substringBefore('#') != url.substringBefore('#')
+                    ) return
                     progressVisible = false
 
-                    if (finished) {
+                    if (navigatingToEelab) {
+                        if (finishEelabOnRedirect(url)) return
+                        if (!eelabTokenFetching) {
+                            eelabTokenFetching = true
+                            LogUtils.d("eelabinfo page loaded, fetching JWT token...")
+                            webView.postDelayed({ fetchEelabTokenViaHttp() }, 1000)
+                        }
                         return
                     }
 
                     prepareLoginPageCredentials(view, url)
-
-                    // Handle eelabinfo navigation for JWT token
-                    if (navigatingToEelab) {
-                        if (url.contains("eelabinfo") && !url.contains("ids.hit.edu.cn") && !eelabTokenFetching) {
-                            eelabTokenFetching = true
-                            LogUtils.d("eelabinfo page loaded, fetching JWT token...")
-                            webView.postDelayed({ fetchEelabTokenViaHttp() }, 1000)
-                        } else if (!url.contains("eelabinfo") && !eelabTokenFetching) {
-                            LogUtils.w("navigated away from eelabinfo, finishing without token, url=${safeUrl(url)}")
-                            navigatingToEelab = false
-                            finishWithCookies(collectedEasCookies ?: collectCookies())
-                        }
-                        return
-                    }
 
                     val uri = Uri.parse(url)
                     if (config.campus == EASToken.Campus.SHENZHEN) {
@@ -858,9 +868,13 @@ class WebViewLoginActivity : AppCompatActivity() {
         val script = """
             (function() {
               function applyHitaMfaViewportFix() {
-                var height = Math.round(window.innerHeight ||
+                var layoutHeight = Math.round(window.innerHeight ||
                   (document.documentElement && document.documentElement.clientHeight) || 0);
-                if (height <= 0) return {ok:false, error:'ZERO_VIEWPORT_HEIGHT'};
+                if (layoutHeight <= 0) return {ok:false, error:'ZERO_VIEWPORT_HEIGHT'};
+                var viewport = window.visualViewport;
+                var visibleHeight = viewport && Math.abs((viewport.scale || 1) - 1) < 0.01
+                  ? Math.round(viewport.height) : 0;
+                var height = visibleHeight > 0 ? Math.min(layoutHeight, visibleHeight) : layoutHeight;
                 var style = document.getElementById('hita-mfa-viewport-fix');
                 if (!style) {
                   style = document.createElement('style');
@@ -869,17 +883,17 @@ class WebViewLoginActivity : AppCompatActivity() {
                 }
                 var centerHeight = Math.max(0, height - 44);
                 var whiteBoxHeight = Math.max(0, height - 112);
-                style.textContent =
+                var css =
                   'html,body{min-height:' + height + 'px!important;}' +
                   '.mobile-page-center-box{height:' + centerHeight + 'px!important;}' +
                   '.mobile-page-content-box{max-height:' + centerHeight + 'px!important;}' +
                   '.mobile-page-white-box{min-height:' + whiteBoxHeight + 'px!important;}';
-                if (document.documentElement) document.documentElement.offsetHeight;
+                if (style.textContent !== css) style.textContent = css;
                 var center = document.querySelector('.mobile-page-center-box');
                 var rect = center ? center.getBoundingClientRect() : null;
                 return {
                   ok: true,
-                  innerHeight: height,
+                  availableHeight: height,
                   centerHeight: rect ? Math.round(rect.height) : -1
                 };
               }
@@ -900,7 +914,7 @@ class WebViewLoginActivity : AppCompatActivity() {
                 val json = parseJavascriptJson(raw)
                 if (json.optBoolean("ok", false)) {
                     LogUtils.success(
-                        "MFA viewport fix applied: innerHeight=${json.optInt("innerHeight")} " +
+                        "MFA viewport fix applied: availableHeight=${json.optInt("availableHeight")} " +
                             "centerHeight=${json.optInt("centerHeight")}"
                     )
                     view.invalidate()
@@ -2509,11 +2523,17 @@ class WebViewLoginActivity : AppCompatActivity() {
             return
         }
 
-        if (config.campus == EASToken.Campus.BENBU
-            && WebLoginSuccessPolicy.canCollectBenbuSession(currentUrl)
-            && hasRequiredCookies(cookies, currentUrl)) {
-            handleSuccessPage()
-            return
+        if (config.campus == EASToken.Campus.BENBU) {
+            if (WebLoginSuccessPolicy.isBenbuAuthenticatedPage(currentUrl, cookies)) {
+                handleSuccessPage(cookies)
+                return
+            }
+            if (cookieRetryCount >= 2 && benbuEntryProbeGeneration != generation &&
+                WebLoginSuccessPolicy.isBenbuUnticketedLoginEntry(currentUrl) &&
+                WebLoginSuccessPolicy.hasBenbuTeachingCookies(cookies)
+            ) {
+                verifyBenbuLoginEntry(currentUrl, cookies, generation)
+            }
         }
 
         if (config.campus == EASToken.Campus.SHENZHEN
@@ -2572,7 +2592,23 @@ class WebViewLoginActivity : AppCompatActivity() {
         webView.loadUrl(config.jwtsUrl)
     }
 
-    private fun handleSuccessPage() {
+    private fun verifyBenbuLoginEntry(url: String, cookies: Map<String, String>, generation: Int) {
+        benbuEntryProbeGeneration = generation
+        val result = easRepository.verifyBenbuWebSession(JSONObject(cookies).toString())
+        result.observe(this) { state ->
+            if (state.state == DataState.STATE.NOTHING || state.state == DataState.STATE.LOADING) return@observe
+            result.removeObservers(this)
+            if (finished || generation != cookiePollingGeneration || webView.url != url) return@observe
+            val verified = state.data?.cookies ?: return@observe
+            if (state.state != DataState.STATE.SUCCESS || !WebLoginSuccessPolicy.hasBenbuTeachingCookies(verified)) {
+                return@observe
+            }
+            stopCookiePolling()
+            handleSuccessPage(verified)
+        }
+    }
+
+    private fun handleSuccessPage(verifiedBenbuCookies: Map<String, String>? = null) {
         if (finished) return
         if (isWeihaiGraduate) {
             finishWithCookies(collectCookies())
@@ -2593,7 +2629,7 @@ class WebViewLoginActivity : AppCompatActivity() {
             }
         }
 
-        val cookies = collectCookies()
+        val cookies = verifiedBenbuCookies ?: collectCookies()
 
         if (config.campus == EASToken.Campus.BENBU) {
             navigatingToEelab = true
@@ -2610,6 +2646,15 @@ class WebViewLoginActivity : AppCompatActivity() {
         } else {
             finishWithCookies(cookies)
         }
+    }
+
+    private fun finishEelabOnRedirect(target: String?): Boolean {
+        if (finished || !navigatingToEelab || WebLoginSuccessPolicy.isBenbuEelabPage(target)) return false
+        val teachingCookies = collectedEasCookies ?: return false
+        // The optional experiment service can ask for a second CAS login. The teaching session is ready.
+        navigatingToEelab = false
+        finishWithCookies(teachingCookies)
+        return true
     }
 
     private fun fetchEelabTokenViaHttp() {
@@ -2702,11 +2747,7 @@ class WebViewLoginActivity : AppCompatActivity() {
 
     private fun hasRequiredCookies(cookies: Map<String, String>, currentUrl: String): Boolean {
         return when (config.campus) {
-            EASToken.Campus.BENBU -> {
-                val hasJsession = cookies.containsKey("JSESSIONID") || hasUrlJsession(currentUrl)
-                val hasHit = cookies.containsKey("HIT")
-                hasJsession && hasHit
-            }
+            EASToken.Campus.BENBU -> WebLoginSuccessPolicy.isBenbuAuthenticatedPage(currentUrl, cookies)
             EASToken.Campus.SHENZHEN ->
                 EASToken.hasShenzhenWebSessionCookies(cookies)
             EASToken.Campus.WEIHAI -> {
@@ -2731,29 +2772,31 @@ class WebViewLoginActivity : AppCompatActivity() {
         }
     }
 
-    private fun hasUrlJsession(url: String): Boolean {
-        return url.contains(";jsessionid=", ignoreCase = true) ||
-            url.contains("jsessionid=", ignoreCase = true)
-    }
-
     private fun collectCookies(): LinkedHashMap<String, String> {
         val cookieManager = CookieManager.getInstance()
         val cookies = LinkedHashMap<String, String>()
+        val isBenbu = config.campus == EASToken.Campus.BENBU
+        val preferCurrentPage = isBenbu || isWeihaiUndergraduate
         val currentUrl = webView.url?.takeIf {
             it.startsWith("http") &&
+                (!isBenbu || WebLoginSuccessPolicy.canCollectBenbuSession(it) ||
+                    WebLoginSuccessPolicy.isBenbuUnticketedLoginEntry(it)) &&
                 (!isWeihaiUndergraduate || WeihaiEasEntryPolicy.isUndergraduateTeachingPage(weihaiEntry, it))
         }
-        fun mergeFrom(url: String) {
+        fun mergeFrom(url: String, includeTeachingSession: Boolean = true) {
             parseCookies(cookieManager.getCookie(url)).forEach { (key, value) ->
-                cookies.putIfAbsent(key, value)
+                if (includeTeachingSession || key !in BENBU_REQUIRED_COOKIES) {
+                    cookies.putIfAbsent(key, value)
+                }
             }
         }
-        if (isWeihaiUndergraduate && currentUrl != null) mergeFrom(currentUrl)
+        if (preferCurrentPage && currentUrl != null) mergeFrom(currentUrl)
 
-        config.cookieProbeUrls.forEach(::mergeFrom)
+        // A portal session cookie must not replace one from the current teaching page.
+        config.cookieProbeUrls.forEach { mergeFrom(it, includeTeachingSession = !isBenbu) }
 
         if (currentUrl != null) {
-            if (!isWeihaiUndergraduate) mergeFrom(currentUrl)
+            if (!preferCurrentPage) mergeFrom(currentUrl)
 
             if (!cookies.containsKey("JSESSIONID")) {
                 val jsessionid = extractJsessionidFromUrl(currentUrl)
@@ -3041,6 +3084,7 @@ class WebViewLoginViewModel @Inject constructor() : androidx.lifecycle.ViewModel
 @Composable
 private fun WebViewLoginScreen(
     silentMode: Boolean,
+    fitBenbuVerificationWindow: Boolean,
     progressVisible: Boolean,
     progressValue: Int,
     showBenbuMfaHint: Boolean,
@@ -3059,6 +3103,9 @@ private fun WebViewLoginScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(if (silentMode) ComposeColor.Transparent else ComposeColor.White)
+            .then(
+                if (fitBenbuVerificationWindow) Modifier.navigationBarsPadding().imePadding() else Modifier
+            )
     ) {
         if (!silentMode) {
             TopAppBar(
