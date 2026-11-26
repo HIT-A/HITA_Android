@@ -79,6 +79,31 @@ class MainSwipeInstrumentedTest {
         assertEquals(neighbours.first(), awaitSelectedTab(scenario, neighbours.first()))
     }
 
+    /**
+     * 双页互推的端到端结构约束：翻页结束必须只留一页可见，且落在相邻页上。
+     *
+     * 位移曲线由 `TabSwipeTest` 的纯函数覆盖（两页间距恒为一屏、锚点页推满后整屏移出），
+     * 这里只验证真实手势路径没有把旧页留在画面上。
+     */
+    @Test fun committedSwipeLeavesExactlyOnePageVisible() = launch { scenario ->
+        val visible = applyVisibleTabs(scenario)
+        val from = visible[visible.indexOf(MainTab.TIMETABLE) + 1]
+        val to = visible[visible.indexOf(from) + 1]
+        selectTabDirect(scenario, from)
+        assertEquals(from, awaitSelectedTab(scenario, from))
+
+        swipe(scenario, left = true)
+        assertEquals(to, awaitSelectedTab(scenario, to))
+
+        var visiblePages = emptyList<MainTab>()
+        scenario.onActivity { activity ->
+            visiblePages = MainTab.entries.filter { tab ->
+                activity.supportFragmentManager.findFragmentByTag(MainTabHost.tag(tab))?.view?.isShown == true
+            }
+        }
+        assertEquals(listOf(to), visiblePages)
+    }
+
     @Test fun disabledOptionalTabNeverAppearsAsSwipeTarget() = launch { scenario ->
         // 关掉助手与资讯后，底栏里不应再有这两页，滑动也不可能落到它们身上。
         val store = OptionalTabStore(app)
