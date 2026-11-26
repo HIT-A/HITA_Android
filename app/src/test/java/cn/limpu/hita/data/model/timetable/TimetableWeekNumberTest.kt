@@ -68,7 +68,9 @@ class TimetableWeekNumberTest {
         second: Int = 0,
         millisecond: Int = 0,
     ): Long {
-        return Calendar.getInstance().apply {
+        // 课表时间戳是校区墙钟，必须按中国时区构造；用默认时区会让测试语义
+        // 随运行环境（本地与 CI 的 UTC）改变。
+        return Calendar.getInstance(java.util.TimeZone.getTimeZone("Asia/Shanghai")).apply {
             clear()
             set(Calendar.YEAR, year)
             set(Calendar.MONTH, month)

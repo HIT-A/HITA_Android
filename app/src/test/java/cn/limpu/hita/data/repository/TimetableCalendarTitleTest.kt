@@ -53,6 +53,26 @@ class TimetableCalendarTitleTest {
         assertNull(TimetableCalendarTitle.resolve(listOf(t), millis("2026-12-07"), emptyList()).week)
     }
 
+    @Test fun personalTimetableBoundaryIgnoresDeviceTimeZone() {
+        // CI runner 默认 UTC：周次归一若跟着设备时区走，周日会被算成前一周，
+        // 表尾之后反而落回学期内。这里显式切换默认时区把契约钉死。
+        val t = Timetable().apply {
+            code = null
+            startTime = Timestamp(millis("2026-11-23"))
+            endTime = Timestamp(millis("2026-12-06"))
+        }
+        val original = ZoneId.systemDefault()
+        try {
+            for (zone in listOf("UTC", "America/New_York", "Asia/Shanghai")) {
+                java.util.TimeZone.setDefault(java.util.TimeZone.getTimeZone(zone))
+                assertEquals("$zone week", 2, TimetableCalendarTitle.resolve(listOf(t), millis("2026-11-30"), emptyList()).week)
+                assertNull("$zone after end", TimetableCalendarTitle.resolve(listOf(t), millis("2026-12-07"), emptyList()).week)
+            }
+        } finally {
+            java.util.TimeZone.setDefault(java.util.TimeZone.getTimeZone(original))
+        }
+    }
+
     @Test fun mondayBoundaryDropsSecondsAndMillis() {
         // 周起点必须沉到 00:00:00.000：残留秒会让「表起点」晚于页面周一 0 点，
         // 同一张表因此在时间表被判「非所选学期」而今日显示第 1 周。

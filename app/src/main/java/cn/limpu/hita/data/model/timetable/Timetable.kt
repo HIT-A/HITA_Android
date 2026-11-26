@@ -32,8 +32,10 @@ class Timetable {
      * 归一（海外或 CI 的 UTC），周日会回退到前一周，周次整体偏移一周。
      */
     fun getWeekNumber(ts: Long): Int {
+        // 边界判断用原始时间戳，不与周起点归一混用：否则比较的两个量基准不同，
+        // 结果会随设备时区（本地与 CI 的 UTC）漂移。
+        if (ts > endTime.time) return -1
         val c = startOfWeek(ts)
-        if (c > endTime.time) return -1
         val termStart = startOfWeek(startTime.time)
         val x = Math.floorDiv(c - termStart, WEEK_MILLS)
         return when {
