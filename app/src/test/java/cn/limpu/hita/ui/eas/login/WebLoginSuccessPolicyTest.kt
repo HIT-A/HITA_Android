@@ -97,6 +97,14 @@ class WebLoginSuccessPolicyTest {
         }
     }
 
+    @Test fun benbuEelabTargetCannotBeInferredFromCasServiceParameter() {
+        val eelab = "http://eelabinfo-hit-edu-cn.vpn.hit.edu.cn:1080/api/cas/loginSuccess"
+        assertTrue(WebLoginSuccessPolicy.isBenbuEelabPage(eelab))
+        assertFalse(WebLoginSuccessPolicy.isBenbuEelabPage("https://ids.hit.edu.cn/authserver/login?service=$eelab"))
+        assertFalse(WebLoginSuccessPolicy.isBenbuEelabPage("https://ids-hit-edu-cn-s.vpn.hit.edu.cn/authserver/login?service=$eelab"))
+        assertFalse(WebLoginSuccessPolicy.isBenbuEelabPage("http://eelabinfo-hit-edu-cn.vpn.hit.edu.cn.example.org/"))
+    }
+
     @Test fun benbuSessionRequiresExactTeachingHostAndBothCookies() {
         val cookies = mapOf("JSESSIONID" to "session", "HIT" to "hit")
         for (host in listOf("jwts.hit.edu.cn", "jwts-hit-edu-cn.vpn.hit.edu.cn", "jwts-hit-edu-cn.ivpn.hit.edu.cn")) {
@@ -105,8 +113,13 @@ class WebLoginSuccessPolicyTest {
             assertFalse(WebLoginSuccessPolicy.isBenbuAuthenticatedPage(teaching, emptyMap()))
             assertFalse(WebLoginSuccessPolicy.isBenbuAuthenticatedPage(teaching, cookies + ("HIT" to "")))
             assertFalse(WebLoginSuccessPolicy.isBenbuAuthenticatedPage("http://$host:1080/loginCAS", cookies))
-            // loginCAS callback may still be checked by polling; the native probe validates it.
-            assertTrue(WebLoginSuccessPolicy.canCollectBenbuSession("http://$host:1080/loginCAS"))
+            assertFalse(WebLoginSuccessPolicy.canCollectBenbuSession("http://$host:1080/loginCAS"))
+            assertTrue(WebLoginSuccessPolicy.isBenbuUnticketedLoginEntry("http://$host:1080/loginCAS"))
+            assertFalse(WebLoginSuccessPolicy.canCollectBenbuSession("http://$host:1080/loginCAS?service=ticket=ST-123"))
+            val callback = "http://$host:1080/loginCAS?ticket=ST-123"
+            assertFalse(WebLoginSuccessPolicy.isBenbuUnticketedLoginEntry(callback))
+            assertTrue(WebLoginSuccessPolicy.isBenbuAuthenticatedPage(callback, cookies))
+            assertFalse(WebLoginSuccessPolicy.isBenbuAuthenticatedPage(callback, cookies + ("JSESSIONID" to "")))
         }
         for (url in listOf(
             "https://ivpn.hit.edu.cn/index", "https://i-hit-edu-cn.vpn.hit.edu.cn:1080/portal/index",

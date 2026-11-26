@@ -267,6 +267,10 @@ class EASRepository @Inject internal constructor(
         }
     }
 
+    /** Checks an ambiguous Benbu WebView landing without changing the stored account. */
+    internal fun verifyBenbuWebSession(cookiesJson: String): LiveData<DataState<EASToken>> =
+        benbuService.login(cookiesJson, "", null)
+
     /** Cookie login from a finished WebView session (interactive or silent renewal). */
     fun loginWithWebSession(
         cookiesJson: String,
